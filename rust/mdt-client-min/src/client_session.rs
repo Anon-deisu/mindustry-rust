@@ -650,6 +650,8 @@ impl ClientSession {
         let label_with_id_packet_id = well_known_remote.label_with_id_packet_id;
         let label_reliable_with_id_packet_id =
             well_known_remote.label_reliable_with_id_packet_id;
+        let text_input_packet_id = well_known_remote.text_input_packet_id;
+        let text_input_allow_empty_packet_id = well_known_remote.text_input_allow_empty_packet_id;
         let admin_request_packet_id = manifest
             .remote_packets
             .iter()
@@ -870,16 +872,6 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "syncVariable")
-            .map(|entry| entry.packet_id);
-        let text_input_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "textInput" && entry.params.len() == 6)
-            .map(|entry| entry.packet_id);
-        let text_input_allow_empty_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "textInput" && entry.params.len() == 7)
             .map(|entry| entry.packet_id);
         let text_input_result_packet_id = manifest
             .remote_packets
@@ -51152,6 +51144,14 @@ mod tests {
             expected(WellKnownRemoteMethod::LabelReliableWithId)
         );
         assert_eq!(
+            session.text_input_packet_id,
+            expected(WellKnownRemoteMethod::TextInput)
+        );
+        assert_eq!(
+            session.text_input_allow_empty_packet_id,
+            expected(WellKnownRemoteMethod::TextInputAllowEmpty)
+        );
+        assert_eq!(
             session.set_rules_packet_id,
             expected(WellKnownRemoteMethod::SetRules)
         );
@@ -51640,6 +51640,61 @@ mod tests {
         assert_eq!(
             session.label_reliable_with_id_packet_id,
             Some(expected_label_reliable_with_id_packet_id)
+        );
+    }
+
+    #[test]
+    fn session_text_input_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_text_input_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "textInput" && entry.params.len() == 6 && !entry.unreliable)
+            .expect("missing textInput packet")
+            .packet_id;
+        let expected_text_input_allow_empty_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "textInput" && entry.params.len() == 7 && !entry.unreliable)
+            .expect("missing textInput-allow-empty packet")
+            .packet_id;
+
+        let mut text_input_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "textInput" && entry.params.len() == 6 && !entry.unreliable)
+            .expect("missing textInput packet")
+            .clone();
+        text_input_decoy.packet_id = 234;
+        text_input_decoy.packet_class = "mindustry.gen.TextInputDecoyCallPacket".into();
+        text_input_decoy.unreliable = true;
+
+        let mut text_input_allow_empty_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "textInput" && entry.params.len() == 7 && !entry.unreliable)
+            .expect("missing textInput-allow-empty packet")
+            .clone();
+        text_input_allow_empty_decoy.packet_id = 235;
+        text_input_allow_empty_decoy.packet_class =
+            "mindustry.gen.TextInputDecoyCallPacket2".into();
+        text_input_allow_empty_decoy.unreliable = true;
+
+        manifest
+            .remote_packets
+            .splice(0..0, vec![text_input_decoy, text_input_allow_empty_decoy]);
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(
+            session.text_input_packet_id,
+            Some(expected_text_input_packet_id)
+        );
+        assert_eq!(
+            session.text_input_allow_empty_packet_id,
+            Some(expected_text_input_allow_empty_packet_id)
         );
     }
 

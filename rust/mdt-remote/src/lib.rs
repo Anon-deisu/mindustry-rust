@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 27;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 29;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -198,6 +198,8 @@ pub enum WellKnownRemoteMethod {
     LabelWithId,
     LabelReliable,
     LabelReliableWithId,
+    TextInput,
+    TextInputAllowEmpty,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -525,6 +527,40 @@ const LABEL_WITH_ID_WIRE_PARAM_KINDS: [RemoteParamKind; 5] = [
     RemoteParamKind::Float,
     RemoteParamKind::Float,
 ];
+const TEXT_INPUT_PARAM_JAVA_TYPES: [&str; 6] = [
+    "int",
+    "java.lang.String",
+    "java.lang.String",
+    "int",
+    "java.lang.String",
+    "boolean",
+];
+const TEXT_INPUT_WIRE_PARAM_KINDS: [RemoteParamKind; 6] = [
+    RemoteParamKind::Int,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Int,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Bool,
+];
+const TEXT_INPUT_ALLOW_EMPTY_PARAM_JAVA_TYPES: [&str; 7] = [
+    "int",
+    "java.lang.String",
+    "java.lang.String",
+    "int",
+    "java.lang.String",
+    "boolean",
+    "boolean",
+];
+const TEXT_INPUT_ALLOW_EMPTY_WIRE_PARAM_KINDS: [RemoteParamKind; 7] = [
+    RemoteParamKind::Int,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Int,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Bool,
+    RemoteParamKind::Bool,
+];
 const SET_RULES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Rules"];
 const SET_RULES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const SET_OBJECTIVES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.MapObjectives"];
@@ -616,6 +652,8 @@ impl WellKnownRemoteMethod {
             Self::LabelWithId,
             Self::LabelReliable,
             Self::LabelReliableWithId,
+            Self::TextInput,
+            Self::TextInputAllowEmpty,
         ]
     }
 
@@ -642,6 +680,7 @@ impl WellKnownRemoteMethod {
             Self::InfoPopupReliable | Self::InfoPopupReliableWithId => "infoPopupReliable",
             Self::Label | Self::LabelWithId => "label",
             Self::LabelReliable | Self::LabelReliableWithId => "labelReliable",
+            Self::TextInput | Self::TextInputAllowEmpty => "textInput",
         }
     }
 
@@ -670,7 +709,9 @@ impl WellKnownRemoteMethod {
             | Self::Label
             | Self::LabelWithId
             | Self::LabelReliable
-            | Self::LabelReliableWithId => RemoteFlow::ServerToClient,
+            | Self::LabelReliableWithId
+            | Self::TextInput
+            | Self::TextInputAllowEmpty => RemoteFlow::ServerToClient,
             Self::ConnectConfirm | Self::SendChatMessage => RemoteFlow::ClientToServer,
         }
     }
@@ -715,6 +756,8 @@ impl WellKnownRemoteMethod {
             }
             Self::Label | Self::LabelReliable => &LABEL_PARAM_JAVA_TYPES,
             Self::LabelWithId | Self::LabelReliableWithId => &LABEL_WITH_ID_PARAM_JAVA_TYPES,
+            Self::TextInput => &TEXT_INPUT_PARAM_JAVA_TYPES,
+            Self::TextInputAllowEmpty => &TEXT_INPUT_ALLOW_EMPTY_PARAM_JAVA_TYPES,
         }
     }
 
@@ -745,6 +788,8 @@ impl WellKnownRemoteMethod {
             }
             Self::Label | Self::LabelReliable => &LABEL_WIRE_PARAM_KINDS,
             Self::LabelWithId | Self::LabelReliableWithId => &LABEL_WITH_ID_WIRE_PARAM_KINDS,
+            Self::TextInput => &TEXT_INPUT_WIRE_PARAM_KINDS,
+            Self::TextInputAllowEmpty => &TEXT_INPUT_ALLOW_EMPTY_WIRE_PARAM_KINDS,
         }
     }
 
@@ -4369,6 +4414,8 @@ mod tests {
             (WellKnownRemoteMethod::LabelWithId, Some(49)),
             (WellKnownRemoteMethod::LabelReliable, Some(51)),
             (WellKnownRemoteMethod::LabelReliableWithId, Some(53)),
+            (WellKnownRemoteMethod::TextInput, Some(55)),
+            (WellKnownRemoteMethod::TextInputAllowEmpty, Some(57)),
         ];
 
         assert_eq!(registry.len(), expected.len());
@@ -4427,6 +4474,11 @@ mod tests {
             fixed_table.get(53),
             Some(WellKnownRemoteMethod::LabelReliableWithId)
         );
+        assert_eq!(fixed_table.get(55), Some(WellKnownRemoteMethod::TextInput));
+        assert_eq!(
+            fixed_table.get(57),
+            Some(WellKnownRemoteMethod::TextInputAllowEmpty)
+        );
         assert_eq!(fixed_table.get(18), None);
         assert!(fixed_table.contains_packet_id(19));
         assert!(fixed_table.contains_packet_id(23));
@@ -4435,6 +4487,7 @@ mod tests {
         assert!(fixed_table.contains_packet_id(33));
         assert!(fixed_table.contains_packet_id(45));
         assert!(fixed_table.contains_packet_id(53));
+        assert!(fixed_table.contains_packet_id(57));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -4920,6 +4973,18 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::LabelReliableWithId)
                 .map(|packet| packet.packet_id),
             Some(53)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::TextInput)
+                .map(|packet| packet.packet_id),
+            Some(55)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::TextInputAllowEmpty)
+                .map(|packet| packet.packet_id),
+            Some(57)
         );
     }
 
@@ -6115,6 +6180,80 @@ mod tests {
                         test_param("duration", "float", true, true),
                         test_param("worldx", "float", true, true),
                         test_param("worldy", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    50,
+                    54,
+                    "mindustry.gen.TextInputDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "textInput",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("textInputId", "int", true, true),
+                        test_param("title", "java.lang.String", true, true),
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("textLength", "int", true, true),
+                        test_param("def", "java.lang.String", true, true),
+                        test_param("numeric", "boolean", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    51,
+                    55,
+                    "mindustry.gen.TextInputCallPacket",
+                    "mindustry.ui.Menus",
+                    "textInput",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("textInputId", "int", true, true),
+                        test_param("title", "java.lang.String", true, true),
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("textLength", "int", true, true),
+                        test_param("def", "java.lang.String", true, true),
+                        test_param("numeric", "boolean", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    52,
+                    56,
+                    "mindustry.gen.TextInputDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "textInput",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("textInputId", "int", true, true),
+                        test_param("title", "java.lang.String", true, true),
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("textLength", "int", true, true),
+                        test_param("def", "java.lang.String", true, true),
+                        test_param("numeric", "boolean", true, true),
+                        test_param("allowEmpty", "boolean", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    53,
+                    57,
+                    "mindustry.gen.TextInputCallPacket2",
+                    "mindustry.ui.Menus",
+                    "textInput",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("textInputId", "int", true, true),
+                        test_param("title", "java.lang.String", true, true),
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("textLength", "int", true, true),
+                        test_param("def", "java.lang.String", true, true),
+                        test_param("numeric", "boolean", true, true),
+                        test_param("allowEmpty", "boolean", true, true),
                     ],
                 ),
             ],
