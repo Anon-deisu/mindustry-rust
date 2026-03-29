@@ -27127,7 +27127,7 @@ fn parse_legacy_save_building_snapshot(
     if tail_bytes.is_empty() {
         return Err("legacy save building chunk is missing consume/tail bytes".to_string());
     }
-    let parsed_tail = parse_legacy_building_tail_snapshot(block_name, &tail_bytes);
+    let parsed_tail = parse_legacy_building_tail_snapshot(block_name, revision, &tail_bytes);
 
     Ok(BuildingSnapshot {
         revision,
@@ -27160,6 +27160,7 @@ fn parse_legacy_save_building_snapshot(
 
 fn parse_legacy_building_tail_snapshot(
     block_name: Option<&str>,
+    revision: u8,
     tail_bytes: &[u8],
 ) -> ParsedBuildingTail {
     let Some((&consume_connected, legacy_tail_bytes)) = tail_bytes.split_first() else {
@@ -27188,6 +27189,18 @@ fn parse_legacy_building_tail_snapshot(
                 .map(ParsedBuildingTail::OneBool)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some("junction") => parse_junction_tail_snapshot(revision, legacy_tail_bytes)
+            .map(ParsedBuildingTail::Junction)
+            .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("sorter")
+        | Some("inverted-sorter")
+        | Some("overflow-gate")
+        | Some("underflow-gate")
+        | Some("duct-sorter")
+        | Some("overflow-duct")
+        | Some("underflow-duct") => parse_sorter_legacy_tail_snapshot(legacy_tail_bytes)
+            .map(ParsedBuildingTail::SorterLegacy)
+            .unwrap_or(ParsedBuildingTail::Unknown),
         _ => ParsedBuildingTail::Unknown,
     }
 }
@@ -55791,6 +55804,63 @@ mod tests {
                 data_bytes: vec![1, 2, 3],
             })
         );
+    }
+
+    #[test]
+    fn parses_legacy_junction_building_snapshot_when_block_name_is_known() {
+        let pack_directional_legacy =
+            |item_id: u8, time_bits: u32| ((time_bits as u64) << 8) | (item_id as u64);
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.push(0);
+            bytes.push(1);
+            bytes.extend_from_slice(&pack_directional_legacy(9, 0x40a00000).to_be_bytes());
+            bytes.push(0);
+            bytes.push(0);
+            bytes.push(0);
+            bytes.push(0);
+            bytes.push(0);
+            bytes.push(0);
+            bytes
+        };
+        let expected = parse_building_tail(Some("junction"), 0, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("junction"), &{
+            let mut bytes = vec![0, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_sorter_building_snapshot_when_block_name_is_known() {
+        let pack_directional_current =
+            |item_id: i16, time_bits: u32| ((time_bits as u64) << 16) | ((item_id as u16) as u64);
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(0x0123i16).to_be_bytes());
+            bytes.push(1);
+            bytes.push(1);
+            bytes.extend_from_slice(&pack_directional_current(11, 0x40c00000).to_be_bytes());
+            bytes.push(0);
+            bytes.push(0);
+            bytes.push(0);
+            bytes.push(0);
+            bytes.push(0);
+            bytes.push(0);
+            bytes
+        };
+        let expected = parse_building_tail(Some("sorter"), 1, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("sorter"), &{
+            let mut bytes = vec![1, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
     }
 
     #[test]
