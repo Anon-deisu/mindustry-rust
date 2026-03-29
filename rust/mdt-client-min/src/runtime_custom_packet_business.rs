@@ -24,11 +24,15 @@ pub fn resolve_runtime_custom_packet_business_marker(
     session_state: &SessionState,
 ) -> Option<RuntimeCustomPacketBusinessMarker> {
     if let Some(marker) = entry.marker.as_ref() {
-        return Some(RuntimeCustomPacketBusinessMarker {
+        let marker = RuntimeCustomPacketBusinessMarker {
             source: RuntimeCustomPacketBusinessMarkerSource::Surface,
             x: marker.x,
             y: marker.y,
-        });
+        };
+        if !marker.x.is_finite() || !marker.y.is_finite() {
+            return None;
+        }
+        return Some(marker);
     }
     if entry.semantic != RuntimeCustomPacketSemanticKind::UnitId {
         return None;
@@ -416,6 +420,66 @@ mod tests {
         assert_eq!(
             resolve_runtime_custom_packet_command_target(&unit_entry, &state, Some(&marker)),
             None
+        );
+    }
+
+    #[test]
+    fn reject_non_finite_surface_marker_for_world_and_unit_targets() {
+        let world_entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "logic.world".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+            stable_value: "7,9".to_string(),
+            marker: Some(RuntimeCustomPacketOverlayMarker {
+                key: "logic.world".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                x: f32::NAN,
+                y: 9.0,
+            }),
+        };
+        let unit_entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "logic.unit".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::UnitId,
+            stable_value: "77".to_string(),
+            marker: Some(RuntimeCustomPacketOverlayMarker {
+                key: "logic.unit".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::UnitId,
+                x: 4.0,
+                y: f32::INFINITY,
+            }),
+        };
+
+        assert_eq!(
+            resolve_runtime_custom_packet_business_marker(&world_entry, &SessionState::default()),
+            None
+        );
+        assert_eq!(
+            resolve_runtime_custom_packet_business_marker(&unit_entry, &SessionState::default()),
+            None
+        );
+        assert_eq!(
+            resolve_runtime_custom_packet_command_target(&world_entry, &SessionState::default(), None),
+            Some(CommandModeTargetProjection {
+                build_target: None,
+                unit_target: None,
+                position_target: Some(CommandModePositionTarget {
+                    x_bits: 7.0f32.to_bits(),
+                    y_bits: 9.0f32.to_bits(),
+                }),
+                rect_target: None,
+            })
+        );
+        assert_eq!(
+            resolve_runtime_custom_packet_command_target(&unit_entry, &SessionState::default(), None),
+            Some(CommandModeTargetProjection {
+                build_target: None,
+                unit_target: Some(CommandUnitRef { kind: 2, value: 77 }),
+                position_target: None,
+                rect_target: None,
+            })
         );
     }
 }
