@@ -2112,6 +2112,26 @@ mod tests {
     }
 
     #[test]
+    fn item_and_liquid_stack_readers_reject_negative_lengths() {
+        assert!(matches!(
+            read_item_stacks(&(-1i16).to_be_bytes()),
+            Err(TypeIoReadError::NegativeLength {
+                field: "item stack count",
+                length: -1,
+                position: 0
+            })
+        ));
+        assert!(matches!(
+            read_liquid_stacks(&(-1i16).to_be_bytes()),
+            Err(TypeIoReadError::NegativeLength {
+                field: "liquid stack count",
+                length: -1,
+                position: 0
+            })
+        ));
+    }
+
+    #[test]
     #[should_panic(expected = "item stack count exceeds i16")]
     fn write_item_stacks_rejects_lengths_outside_i16_range() {
         let stacks = vec![
