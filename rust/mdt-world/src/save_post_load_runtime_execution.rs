@@ -679,6 +679,35 @@ mod tests {
     }
 
     #[test]
+    fn execute_runtime_apply_allows_activation_with_only_deferred_steps() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let mut execution = observation.execute_runtime_apply();
+        execution.executed_steps.clear();
+        execution.failed_steps.clear();
+        execution.awaiting_world_shell_steps.clear();
+        execution.blocked_steps.clear();
+        execution.deferred_steps = vec![SavePostLoadRuntimeApplyStep::SkippedEntity {
+            entity_index: 1,
+        }];
+
+        assert!(execution.can_seed_runtime_apply);
+        assert!(execution.world_shell_ready);
+        assert!(execution.has_world_shell());
+        assert!(execution.executed_steps.is_empty());
+        assert!(execution.failed_steps.is_empty());
+        assert!(execution.awaiting_world_shell_steps.is_empty());
+        assert!(execution.blocked_steps.is_empty());
+        assert_eq!(
+            execution.deferred_steps,
+            vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }]
+        );
+        assert_eq!(execution.pending_step_count(), 1);
+        assert!(execution.can_activate_live_runtime());
+    }
+
+    #[test]
     fn execute_runtime_apply_blocks_activation_on_auxiliary_failures() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);

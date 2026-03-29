@@ -536,8 +536,10 @@ mod tests {
         });
 
         let plan = observation.runtime_seed_plan();
+        let script = observation.runtime_apply_script();
 
         assert!(plan.static_fog_seed.is_none());
+        assert_eq!(plan.seed_step_count(), 14);
         assert_eq!(plan.custom_chunk_seeds.len(), 3);
         assert_eq!(
             plan.custom_chunk_seeds
@@ -546,6 +548,8 @@ mod tests {
                 .count(),
             2
         );
+        assert_eq!(script.total_step_count(), 14);
+        assert_eq!(script.total_step_count(), plan.seed_step_count());
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {
