@@ -27278,6 +27278,28 @@ fn parse_legacy_building_tail_snapshot(
                 .map(ParsedBuildingTail::TwoF32I32)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some(
+            "thermal-generator"
+            | "turbine-condenser"
+            | "combustion-generator"
+            | "steam-generator"
+            | "differential-generator"
+            | "rtg-generator"
+            | "solar-panel"
+            | "solar-panel-large"
+            | "chemical-combustion-chamber"
+            | "pyrolysis-generator",
+        ) => parse_two_f32_tail_snapshot_revision1(revision, legacy_tail_bytes)
+            .map(ParsedBuildingTail::TwoF32)
+            .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("thorium-reactor") | Some("impact-reactor") | Some("neoplasia-reactor") => {
+            parse_three_f32_tail_snapshot(revision, legacy_tail_bytes)
+                .map(ParsedBuildingTail::ThreeF32)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
+        Some("flux-reactor") => parse_five_f32_tail_snapshot(revision, legacy_tail_bytes)
+            .map(ParsedBuildingTail::FiveF32)
+            .unwrap_or(ParsedBuildingTail::Unknown),
         Some("segment")
         | Some("parallax")
         | Some("radar")
@@ -56277,6 +56299,80 @@ mod tests {
 
             assert_eq!(snapshot.parsed_tail, expected);
         }
+    }
+
+    #[test]
+    fn parses_legacy_power_generator_family_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3f200000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40e00000u32.to_be_bytes());
+            bytes
+        };
+
+        for block_name in [
+            "thermal-generator",
+            "turbine-condenser",
+            "combustion-generator",
+            "steam-generator",
+            "differential-generator",
+            "rtg-generator",
+            "solar-panel",
+            "solar-panel-large",
+            "chemical-combustion-chamber",
+            "pyrolysis-generator",
+        ] {
+            let expected = parse_building_tail(Some(block_name), 1, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_reactor_family_building_snapshots_when_block_name_is_known() {
+        let three_f32_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3f400000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x41000000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x41200000u32.to_be_bytes());
+            bytes
+        };
+        for block_name in ["thorium-reactor", "impact-reactor", "neoplasia-reactor"] {
+            let expected = parse_building_tail(Some(block_name), 1, &three_f32_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&three_f32_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+
+        let five_f32_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3f000000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40000000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40400000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40800000u32.to_be_bytes());
+            bytes
+        };
+        let expected = parse_building_tail(Some("flux-reactor"), 1, &five_f32_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("flux-reactor"), &{
+            let mut bytes = vec![1, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&five_f32_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
     }
 
     #[test]
