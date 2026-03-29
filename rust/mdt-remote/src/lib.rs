@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 17;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 19;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -178,7 +178,9 @@ pub enum WellKnownRemoteMethod {
     PingLocation,
     DebugStatusClientUnreliable,
     TraceInfo,
+    ConnectRedirect,
     ConnectConfirm,
+    PlayerSpawn,
     SetRules,
     SetObjectives,
     SetRule,
@@ -438,8 +440,14 @@ const DEBUG_STATUS_CLIENT_UNRELIABLE_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
 const TRACE_INFO_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "mindustry.net.Administration.TraceInfo"];
 const TRACE_INFO_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const CONNECT_REDIRECT_PARAM_JAVA_TYPES: [&str; 2] = ["java.lang.String", "int"];
+const CONNECT_REDIRECT_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Int];
 const CONNECT_CONFIRM_PARAM_JAVA_TYPES: [&str; 1] = ["Player"];
 const CONNECT_CONFIRM_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
+const PLAYER_SPAWN_PARAM_JAVA_TYPES: [&str; 2] = ["mindustry.world.Tile", "Player"];
+const PLAYER_SPAWN_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::TileRef, RemoteParamKind::Opaque];
 const KICK_STRING_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
 const KICK_STRING_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const KICK_REASON_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.net.Packets.KickReason"];
@@ -526,7 +534,9 @@ impl WellKnownRemoteMethod {
             Self::PingLocation,
             Self::DebugStatusClientUnreliable,
             Self::TraceInfo,
+            Self::ConnectRedirect,
             Self::ConnectConfirm,
+            Self::PlayerSpawn,
             Self::SetRules,
             Self::SetObjectives,
             Self::SetRule,
@@ -548,7 +558,9 @@ impl WellKnownRemoteMethod {
             Self::PingLocation => "pingLocation",
             Self::DebugStatusClientUnreliable => "debugStatusClientUnreliable",
             Self::TraceInfo => "traceInfo",
+            Self::ConnectRedirect => "connect",
             Self::ConnectConfirm => "connectConfirm",
+            Self::PlayerSpawn => "playerSpawn",
             Self::SetRules => "setRules",
             Self::SetObjectives => "setObjectives",
             Self::SetRule => "setRule",
@@ -567,6 +579,8 @@ impl WellKnownRemoteMethod {
             | Self::PingResponse
             | Self::DebugStatusClientUnreliable
             | Self::TraceInfo
+            | Self::ConnectRedirect
+            | Self::PlayerSpawn
             | Self::SetRules
             | Self::SetObjectives
             | Self::SetRule
@@ -597,7 +611,9 @@ impl WellKnownRemoteMethod {
             Self::PingLocation => &PING_LOCATION_PARAM_JAVA_TYPES,
             Self::DebugStatusClientUnreliable => &DEBUG_STATUS_CLIENT_UNRELIABLE_PARAM_JAVA_TYPES,
             Self::TraceInfo => &TRACE_INFO_PARAM_JAVA_TYPES,
+            Self::ConnectRedirect => &CONNECT_REDIRECT_PARAM_JAVA_TYPES,
             Self::ConnectConfirm => &CONNECT_CONFIRM_PARAM_JAVA_TYPES,
+            Self::PlayerSpawn => &PLAYER_SPAWN_PARAM_JAVA_TYPES,
             Self::SetRules => &SET_RULES_PARAM_JAVA_TYPES,
             Self::SetObjectives => &SET_OBJECTIVES_PARAM_JAVA_TYPES,
             Self::SetRule => &SET_RULE_PARAM_JAVA_TYPES,
@@ -619,7 +635,9 @@ impl WellKnownRemoteMethod {
             Self::PingLocation => &PING_LOCATION_WIRE_PARAM_KINDS,
             Self::DebugStatusClientUnreliable => &DEBUG_STATUS_CLIENT_UNRELIABLE_WIRE_PARAM_KINDS,
             Self::TraceInfo => &TRACE_INFO_WIRE_PARAM_KINDS,
+            Self::ConnectRedirect => &CONNECT_REDIRECT_WIRE_PARAM_KINDS,
             Self::ConnectConfirm => &CONNECT_CONFIRM_WIRE_PARAM_KINDS,
+            Self::PlayerSpawn => &PLAYER_SPAWN_WIRE_PARAM_KINDS,
             Self::SetRules => &SET_RULES_WIRE_PARAM_KINDS,
             Self::SetObjectives => &SET_OBJECTIVES_WIRE_PARAM_KINDS,
             Self::SetRule => &SET_RULE_WIRE_PARAM_KINDS,
@@ -4233,7 +4251,9 @@ mod tests {
             (WellKnownRemoteMethod::PingLocation, Some(11)),
             (WellKnownRemoteMethod::DebugStatusClientUnreliable, Some(13)),
             (WellKnownRemoteMethod::TraceInfo, Some(15)),
+            (WellKnownRemoteMethod::ConnectRedirect, Some(35)),
             (WellKnownRemoteMethod::ConnectConfirm, Some(21)),
+            (WellKnownRemoteMethod::PlayerSpawn, Some(37)),
             (WellKnownRemoteMethod::SetRules, Some(16)),
             (WellKnownRemoteMethod::SetObjectives, Some(17)),
             (WellKnownRemoteMethod::SetRule, Some(19)),
@@ -4272,7 +4292,9 @@ mod tests {
             fixed_table.get(17),
             Some(WellKnownRemoteMethod::SetObjectives)
         );
+        assert_eq!(fixed_table.get(35), Some(WellKnownRemoteMethod::ConnectRedirect));
         assert_eq!(fixed_table.get(21), Some(WellKnownRemoteMethod::ConnectConfirm));
+        assert_eq!(fixed_table.get(37), Some(WellKnownRemoteMethod::PlayerSpawn));
         assert_eq!(fixed_table.get(23), Some(WellKnownRemoteMethod::WorldDataBegin));
         assert_eq!(fixed_table.get(25), Some(WellKnownRemoteMethod::KickString));
         assert_eq!(fixed_table.get(27), Some(WellKnownRemoteMethod::KickReason));
@@ -4286,6 +4308,7 @@ mod tests {
         assert!(fixed_table.contains_packet_id(19));
         assert!(fixed_table.contains_packet_id(23));
         assert!(fixed_table.contains_packet_id(27));
+        assert!(fixed_table.contains_packet_id(37));
         assert!(fixed_table.contains_packet_id(33));
         assert!(!fixed_table.contains_packet_id(250));
     }
@@ -4673,9 +4696,21 @@ mod tests {
         );
         assert_eq!(
             registry
+                .first_well_known_method(WellKnownRemoteMethod::ConnectRedirect)
+                .map(|packet| packet.packet_id),
+            Some(35)
+        );
+        assert_eq!(
+            registry
                 .first_well_known_method(WellKnownRemoteMethod::ConnectConfirm)
                 .map(|packet| packet.packet_id),
             Some(21)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::PlayerSpawn)
+                .map(|packet| packet.packet_id),
+            Some(37)
         );
         assert_eq!(
             registry
@@ -5563,6 +5598,62 @@ mod tests {
                         test_param("message", "java.lang.String", true, true),
                         test_param("unformatted", "java.lang.String", true, true),
                         test_param("playersender", "Player", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    30,
+                    34,
+                    "mindustry.gen.ConnectDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "connect",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("ip", "java.lang.String", true, true),
+                        test_param("port", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    31,
+                    35,
+                    "mindustry.gen.ConnectCallPacket",
+                    "mindustry.core.NetClient",
+                    "connect",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("ip", "java.lang.String", true, true),
+                        test_param("port", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    32,
+                    36,
+                    "mindustry.gen.PlayerSpawnDecoyCallPacket",
+                    "mindustry.world.blocks.storage.CoreBlock",
+                    "playerSpawn",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("tile", "mindustry.world.Tile", true, true),
+                        test_param("player", "Player", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    33,
+                    37,
+                    "mindustry.gen.PlayerSpawnCallPacket",
+                    "mindustry.world.blocks.storage.CoreBlock",
+                    "playerSpawn",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("tile", "mindustry.world.Tile", true, true),
+                        test_param("player", "Player", true, true),
                     ],
                 ),
             ],

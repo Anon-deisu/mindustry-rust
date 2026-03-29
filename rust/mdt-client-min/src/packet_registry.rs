@@ -61,7 +61,9 @@ pub struct WellKnownRemotePacketIds {
     pub ping_location_packet_id: Option<u8>,
     pub debug_status_client_unreliable_packet_id: Option<u8>,
     pub trace_info_packet_id: Option<u8>,
+    pub connect_redirect_packet_id: Option<u8>,
     pub connect_confirm_packet_id: Option<u8>,
+    pub player_spawn_packet_id: Option<u8>,
     pub kick_string_packet_id: Option<u8>,
     pub kick_reason_packet_id: Option<u8>,
     pub send_chat_message_packet_id: Option<u8>,
@@ -304,7 +306,9 @@ impl WellKnownRemotePacketIds {
                 WellKnownRemoteMethod::DebugStatusClientUnreliable,
             ),
             trace_info_packet_id: packet_id(WellKnownRemoteMethod::TraceInfo),
+            connect_redirect_packet_id: packet_id(WellKnownRemoteMethod::ConnectRedirect),
             connect_confirm_packet_id: packet_id(WellKnownRemoteMethod::ConnectConfirm),
+            player_spawn_packet_id: packet_id(WellKnownRemoteMethod::PlayerSpawn),
             kick_string_packet_id: packet_id(WellKnownRemoteMethod::KickString),
             kick_reason_packet_id: packet_id(WellKnownRemoteMethod::KickReason),
             send_chat_message_packet_id: packet_id(WellKnownRemoteMethod::SendChatMessage),
@@ -332,7 +336,9 @@ impl WellKnownRemotePacketIds {
                 self.debug_status_client_unreliable_packet_id
             }
             WellKnownRemoteMethod::TraceInfo => self.trace_info_packet_id,
+            WellKnownRemoteMethod::ConnectRedirect => self.connect_redirect_packet_id,
             WellKnownRemoteMethod::ConnectConfirm => self.connect_confirm_packet_id,
+            WellKnownRemoteMethod::PlayerSpawn => self.player_spawn_packet_id,
             WellKnownRemoteMethod::KickString => self.kick_string_packet_id,
             WellKnownRemoteMethod::KickReason => self.kick_reason_packet_id,
             WellKnownRemoteMethod::SendChatMessage => self.send_chat_message_packet_id,
@@ -862,8 +868,9 @@ mod tests {
     fn generated_remote_registry_constants_match_manifest_and_combined_views() {
         use crate::generated::remote_high_frequency_gen::CLIENT_SNAPSHOT_PACKET_ID;
         use crate::generated::remote_registry_gen::{
-            CLIENT_SNAPSHOT_CALL_PACKET_ID, CONNECT_CONFIRM_CALL_PACKET_ID, KICK_CALL_PACKET2_ID,
-            KICK_CALL_PACKET_ID, PING_CALL_PACKET_ID, REMOTE_PACKET_SPECS,
+            CLIENT_SNAPSHOT_CALL_PACKET_ID, CONNECT_CALL_PACKET_ID,
+            CONNECT_CONFIRM_CALL_PACKET_ID, KICK_CALL_PACKET2_ID, KICK_CALL_PACKET_ID,
+            PING_CALL_PACKET_ID, PLAYER_SPAWN_CALL_PACKET_ID, REMOTE_PACKET_SPECS,
             SEND_CHAT_MESSAGE_CALL_PACKET_ID, SEND_MESSAGE_CALL_PACKET2_ID,
             SEND_MESSAGE_CALL_PACKET_ID, TILE_CONFIG_CALL_PACKET_ID,
             WORLD_DATA_BEGIN_CALL_PACKET_ID,
@@ -897,8 +904,16 @@ mod tests {
             Some(PING_CALL_PACKET_ID)
         );
         assert_eq!(
+            combined.well_known_remote.connect_redirect_packet_id,
+            Some(CONNECT_CALL_PACKET_ID)
+        );
+        assert_eq!(
             combined.well_known_remote.connect_confirm_packet_id,
             Some(CONNECT_CONFIRM_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.player_spawn_packet_id,
+            Some(PLAYER_SPAWN_CALL_PACKET_ID)
         );
         assert_eq!(
             combined.well_known_remote.world_data_begin_packet_id,
@@ -970,7 +985,9 @@ mod tests {
             Some(13)
         );
         assert_eq!(well_known.trace_info_packet_id, Some(15));
+        assert_eq!(well_known.connect_redirect_packet_id, Some(35));
         assert_eq!(well_known.connect_confirm_packet_id, Some(21));
+        assert_eq!(well_known.player_spawn_packet_id, Some(37));
         assert_eq!(well_known.kick_string_packet_id, Some(25));
         assert_eq!(well_known.kick_reason_packet_id, Some(27));
         assert_eq!(well_known.send_chat_message_packet_id, Some(29));
@@ -1029,8 +1046,16 @@ mod tests {
                 well_known.trace_info_packet_id,
             ),
             (
+                WellKnownRemoteMethod::ConnectRedirect,
+                well_known.connect_redirect_packet_id,
+            ),
+            (
                 WellKnownRemoteMethod::ConnectConfirm,
                 well_known.connect_confirm_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::PlayerSpawn,
+                well_known.player_spawn_packet_id,
             ),
             (
                 WellKnownRemoteMethod::KickString,
@@ -1751,6 +1776,62 @@ mod tests {
                         param("message", "java.lang.String", true, true),
                         param("unformatted", "java.lang.String", true, true),
                         param("playersender", "Player", true, true),
+                    ],
+                ),
+                remote_packet(
+                    30,
+                    34,
+                    "mindustry.gen.ConnectDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "connect",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("ip", "java.lang.String", true, true),
+                        param("port", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    31,
+                    35,
+                    "mindustry.gen.ConnectCallPacket",
+                    "mindustry.core.NetClient",
+                    "connect",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("ip", "java.lang.String", true, true),
+                        param("port", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    32,
+                    36,
+                    "mindustry.gen.PlayerSpawnDecoyCallPacket",
+                    "mindustry.world.blocks.storage.CoreBlock",
+                    "playerSpawn",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("tile", "mindustry.world.Tile", true, true),
+                        param("player", "Player", true, true),
+                    ],
+                ),
+                remote_packet(
+                    33,
+                    37,
+                    "mindustry.gen.PlayerSpawnCallPacket",
+                    "mindustry.world.blocks.storage.CoreBlock",
+                    "playerSpawn",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("tile", "mindustry.world.Tile", true, true),
+                        param("player", "Player", true, true),
                     ],
                 ),
             ],

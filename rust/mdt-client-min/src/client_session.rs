@@ -632,22 +632,14 @@ impl ClientSession {
         let world_data_begin_packet_id = well_known_remote
             .world_data_begin_packet_id
             .ok_or(ClientSessionError::MissingWorldDataBeginPacket)?;
+        let connect_redirect_packet_id = well_known_remote.connect_redirect_packet_id;
+        let player_spawn_packet_id = well_known_remote.player_spawn_packet_id;
         let kick_string_packet_id = well_known_remote.kick_string_packet_id;
         let kick_reason_packet_id = well_known_remote.kick_reason_packet_id;
         let send_message_packet_id = well_known_remote.send_message_packet_id;
         let send_message_with_sender_packet_id =
             well_known_remote.send_message_with_sender_packet_id;
         let send_chat_message_packet_id = well_known_remote.send_chat_message_packet_id;
-        let connect_redirect_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "connect" && entry.params.len() == 2)
-            .map(|entry| entry.packet_id);
-        let player_spawn_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "playerSpawn")
-            .map(|entry| entry.packet_id);
         let admin_request_packet_id = manifest
             .remote_packets
             .iter()
@@ -51126,8 +51118,16 @@ mod tests {
             expected(WellKnownRemoteMethod::TraceInfo)
         );
         assert_eq!(
+            session.connect_redirect_packet_id,
+            expected(WellKnownRemoteMethod::ConnectRedirect)
+        );
+        assert_eq!(
             Some(session.connect_confirm_packet_id),
             expected(WellKnownRemoteMethod::ConnectConfirm)
+        );
+        assert_eq!(
+            session.player_spawn_packet_id,
+            expected(WellKnownRemoteMethod::PlayerSpawn)
         );
         assert_eq!(
             session.kick_string_packet_id,
@@ -51218,6 +51218,60 @@ mod tests {
         assert_eq!(
             session.world_data_begin_packet_id,
             expected_world_data_begin_packet_id
+        );
+    }
+
+    #[test]
+    fn session_connect_redirect_and_player_spawn_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_connect_redirect_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connect" && entry.params.len() == 2 && !entry.unreliable)
+            .expect("missing connect redirect packet")
+            .packet_id;
+        let expected_player_spawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "playerSpawn" && !entry.unreliable)
+            .expect("missing playerSpawn packet")
+            .packet_id;
+
+        let mut connect_redirect_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connect" && entry.params.len() == 2 && !entry.unreliable)
+            .expect("missing connect redirect packet")
+            .clone();
+        connect_redirect_decoy.packet_id = 243;
+        connect_redirect_decoy.packet_class = "mindustry.gen.ConnectDecoyCallPacket".into();
+        connect_redirect_decoy.unreliable = true;
+
+        let mut player_spawn_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "playerSpawn" && !entry.unreliable)
+            .expect("missing playerSpawn packet")
+            .clone();
+        player_spawn_decoy.packet_id = 244;
+        player_spawn_decoy.packet_class = "mindustry.gen.PlayerSpawnDecoyCallPacket".into();
+        player_spawn_decoy.unreliable = true;
+
+        manifest
+            .remote_packets
+            .splice(0..0, vec![connect_redirect_decoy, player_spawn_decoy]);
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(
+            session.connect_redirect_packet_id,
+            Some(expected_connect_redirect_packet_id)
+        );
+        assert_eq!(
+            session.player_spawn_packet_id,
+            Some(expected_player_spawn_packet_id)
         );
     }
 
