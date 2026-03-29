@@ -43355,6 +43355,17 @@ mod tests {
         assert!(error.contains("save entity chunk 0 entity id"));
     }
 
+    #[test]
+    fn rejects_trailing_bytes_after_modern_save_entity_region() {
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let mut bytes = save.region("entities").unwrap().chunk_bytes.clone();
+        bytes.push(0xaa);
+
+        let error = parse_save_entity_region(11, &bytes).unwrap_err();
+
+        assert!(error.contains("unexpected trailing bytes after save entity region"));
+    }
+
     fn test_building_center(
         tile_index: usize,
         x: usize,
