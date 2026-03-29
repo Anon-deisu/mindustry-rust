@@ -518,15 +518,20 @@ pub fn write_rules_basic(out: &mut Vec<u8>) {
 }
 
 pub fn write_rules_json(out: &mut Vec<u8>, value: &str) {
-    write_length_prefixed_json(out, value);
+    write_bounded_length_prefixed_json(out, value, MAX_RULES_JSON_LEN, "rules json");
 }
 
 pub fn write_objectives_json(out: &mut Vec<u8>, value: &str) {
-    write_length_prefixed_json(out, value);
+    write_bounded_length_prefixed_json(out, value, MAX_OBJECTIVES_JSON_LEN, "objectives json");
 }
 
 pub fn write_objective_marker_json(out: &mut Vec<u8>, value: &str) {
-    write_length_prefixed_json(out, value);
+    write_bounded_length_prefixed_json(
+        out,
+        value,
+        MAX_OBJECTIVE_MARKER_JSON_LEN,
+        "objective marker json",
+    );
 }
 
 pub fn write_payload_null(out: &mut Vec<u8>) {
@@ -1006,6 +1011,20 @@ fn write_length_prefixed_json(out: &mut Vec<u8>, value: &str) {
     write_length_prefixed_json_bytes(out, value.as_bytes());
 }
 
+fn write_bounded_length_prefixed_json(
+    out: &mut Vec<u8>,
+    value: &str,
+    max_len: usize,
+    field: &'static str,
+) {
+    let bytes = value.as_bytes();
+    assert!(
+        bytes.len() <= max_len,
+        "{field} length exceeds max {max_len}"
+    );
+    write_length_prefixed_json_bytes(out, bytes);
+}
+
 fn write_length_prefixed_json_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
     write_length_prefixed_json_len(out, bytes.len(), bytes);
 }
@@ -1468,6 +1487,27 @@ mod tests {
     fn length_prefixed_json_rejects_lengths_outside_i32_range() {
         let mut bytes = Vec::new();
         write_length_prefixed_json_len(&mut bytes, i32::MAX as usize + 1, b"x");
+    }
+
+    #[test]
+    #[should_panic(expected = "rules json length exceeds max 40000")]
+    fn write_rules_json_rejects_lengths_above_v156_cap() {
+        let mut bytes = Vec::new();
+        write_rules_json(&mut bytes, &"x".repeat(MAX_RULES_JSON_LEN + 1));
+    }
+
+    #[test]
+    #[should_panic(expected = "objectives json length exceeds max 60000")]
+    fn write_objectives_json_rejects_lengths_above_v156_cap() {
+        let mut bytes = Vec::new();
+        write_objectives_json(&mut bytes, &"x".repeat(MAX_OBJECTIVES_JSON_LEN + 1));
+    }
+
+    #[test]
+    #[should_panic(expected = "objective marker json length exceeds max 40000")]
+    fn write_objective_marker_json_rejects_lengths_above_v156_cap() {
+        let mut bytes = Vec::new();
+        write_objective_marker_json(&mut bytes, &"x".repeat(MAX_OBJECTIVE_MARKER_JSON_LEN + 1));
     }
 
     #[test]

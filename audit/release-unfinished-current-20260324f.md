@@ -333,6 +333,7 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-remote` manifest validation now also fail-closes unsupported `called` / `variants` enum drift instead of only checking those fields for non-empty strings.
 - `mdt-world` post-load contract now also surfaces `StaticFogCoverageMismatch` when duplicate `static-fog-data` chunks are mixed between valid and damaged payloads instead of letting the first valid chunk hide the damaged tail.
 - `mdt-world` consumer/runtime helper layers now treat `DuplicateStaticFogTeamIds` as a real `WorldShell` / `StaticFog` blocker instead of leaving duplicate static-fog teams seedable and world-semantic-ready.
+- `mdt-typeio` JSON writers now enforce the same v156 `rules/objectives/objective-marker` length caps as the readers instead of emitting payloads that the local read side would immediately reject.
 
 ## Highest-Confidence Remaining Lanes
 
