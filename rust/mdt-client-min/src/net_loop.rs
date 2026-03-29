@@ -42,3 +42,33 @@ pub fn ingest_inbound_packet_bytes(
             .map(|snapshot| snapshot.method),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mdt_protocol::PacketCodecError;
+
+    #[test]
+    fn ingest_inbound_packet_bytes_decode_failure_leaves_stats_unchanged() {
+        let mut stats = NetLoopStats::default();
+        stats.frames = 7;
+        stats.packets_seen = 11;
+        stats.snapshot_packets_seen = 13;
+
+        let mut state = SessionState::default();
+        let registry = InboundSnapshotPacketRegistry::default();
+        let bytes = [0x2a, 0x00, 0x00, 0x63];
+
+        let stats_before = stats;
+        let state_before = state.clone();
+
+        let result = ingest_inbound_packet_bytes(&mut stats, &mut state, &registry, &bytes);
+
+        assert!(matches!(
+            result,
+            Err(PacketCodecError::UnsupportedCompression(0x63))
+        ));
+        assert_eq!(stats, stats_before);
+        assert_eq!(state, state_before);
+    }
+}
