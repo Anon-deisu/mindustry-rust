@@ -157,6 +157,10 @@ impl SavePostLoadRuntimeApplyExecution {
         self.awaiting_world_shell_steps.len() + self.blocked_steps.len() + self.deferred_steps.len()
     }
 
+    pub fn deferred_step_count(&self) -> usize {
+        self.deferred_steps.len()
+    }
+
     pub fn has_world_shell(&self) -> bool {
         self.world_shell.is_some()
     }
@@ -675,6 +679,7 @@ mod tests {
             execution.deferred_steps,
             vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }]
         );
+        assert_eq!(execution.deferred_step_count(), 1);
         assert_eq!(execution.pending_step_count(), 10);
     }
 
@@ -703,6 +708,7 @@ mod tests {
             execution.deferred_steps,
             vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }]
         );
+        assert_eq!(execution.deferred_step_count(), 1);
         assert_eq!(execution.pending_step_count(), 1);
         assert!(execution.can_activate_live_runtime());
     }
