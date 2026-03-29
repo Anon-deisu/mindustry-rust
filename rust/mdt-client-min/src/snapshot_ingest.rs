@@ -2036,6 +2036,7 @@ mod tests {
             0x40, // optional efficiency
         ];
         let malformed_payload = [0x00, 0x01, 0x00, 0x03, 0xAA, 0xBB, 0xCC];
+        let build_pos = 0x0064_0063;
         let mut state = SessionState::default();
 
         ingest_inbound_snapshot(
@@ -2043,7 +2044,13 @@ mod tests {
             InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &valid_payload),
         );
         let last_snapshot = state.last_block_snapshot.clone();
+        let applied_building = state
+            .building_table_projection
+            .by_build_pos
+            .get(&build_pos)
+            .cloned();
         assert!(state.block_snapshot_head_projection.is_some());
+        assert!(applied_building.is_some());
 
         ingest_inbound_snapshot(
             &mut state,
@@ -2056,6 +2063,18 @@ mod tests {
 
         assert_eq!(state.block_snapshot_head_projection, None);
         assert_eq!(state.last_block_snapshot, last_snapshot);
+        assert_eq!(
+            state.building_table_projection.by_build_pos.get(&build_pos),
+            applied_building.as_ref()
+        );
+        assert_eq!(
+            state.building_table_projection.block_snapshot_head_apply_count,
+            1
+        );
+        assert_eq!(
+            state.building_table_projection.last_update,
+            Some(BuildingProjectionUpdateKind::BlockSnapshotHead)
+        );
         assert_eq!(state.failed_block_snapshot_parse_count, 1);
         assert_eq!(
             state.last_block_snapshot_parse_error.as_deref(),
