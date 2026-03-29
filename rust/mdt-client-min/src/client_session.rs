@@ -655,6 +655,8 @@ impl ClientSession {
         let effect_packet_id = well_known_remote.effect_packet_id;
         let effect_with_data_packet_id = well_known_remote.effect_with_data_packet_id;
         let effect_reliable_packet_id = well_known_remote.effect_reliable_packet_id;
+        let sound_packet_id = well_known_remote.sound_packet_id;
+        let sound_at_packet_id = well_known_remote.sound_at_packet_id;
         let admin_request_packet_id = manifest
             .remote_packets
             .iter()
@@ -1165,16 +1167,6 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "unitTetherBlockSpawned")
-            .map(|entry| entry.packet_id);
-        let sound_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sound" && entry.params.len() == 4)
-            .map(|entry| entry.packet_id);
-        let sound_at_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "soundAt" && entry.params.len() == 5)
             .map(|entry| entry.packet_id);
         let debug_status_client_packet_id = manifest
             .remote_packets
@@ -51152,6 +51144,14 @@ mod tests {
             expected(WellKnownRemoteMethod::EffectReliable)
         );
         assert_eq!(
+            session.sound_packet_id,
+            expected(WellKnownRemoteMethod::Sound)
+        );
+        assert_eq!(
+            session.sound_at_packet_id,
+            expected(WellKnownRemoteMethod::SoundAt)
+        );
+        assert_eq!(
             session.set_rules_packet_id,
             expected(WellKnownRemoteMethod::SetRules)
         );
@@ -51773,6 +51773,54 @@ mod tests {
             session.effect_reliable_packet_id,
             Some(expected_effect_reliable_packet_id)
         );
+    }
+
+    #[test]
+    fn session_sound_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_sound_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sound" && entry.params.len() == 4 && entry.unreliable)
+            .expect("missing sound packet")
+            .packet_id;
+        let expected_sound_at_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "soundAt" && entry.params.len() == 5 && entry.unreliable)
+            .expect("missing soundAt packet")
+            .packet_id;
+
+        let mut sound_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sound" && entry.params.len() == 4 && entry.unreliable)
+            .expect("missing sound packet")
+            .clone();
+        sound_decoy.packet_id = 229;
+        sound_decoy.packet_class = "mindustry.gen.SoundDecoyCallPacket".into();
+        sound_decoy.unreliable = false;
+
+        let mut sound_at_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "soundAt" && entry.params.len() == 5 && entry.unreliable)
+            .expect("missing soundAt packet")
+            .clone();
+        sound_at_decoy.packet_id = 230;
+        sound_at_decoy.packet_class = "mindustry.gen.SoundAtDecoyCallPacket".into();
+        sound_at_decoy.unreliable = false;
+
+        manifest
+            .remote_packets
+            .splice(0..0, vec![sound_decoy, sound_at_decoy]);
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(session.sound_packet_id, Some(expected_sound_packet_id));
+        assert_eq!(session.sound_at_packet_id, Some(expected_sound_at_packet_id));
     }
 
     #[test]

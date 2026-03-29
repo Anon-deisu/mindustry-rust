@@ -82,6 +82,8 @@ pub struct WellKnownRemotePacketIds {
     pub effect_packet_id: Option<u8>,
     pub effect_with_data_packet_id: Option<u8>,
     pub effect_reliable_packet_id: Option<u8>,
+    pub sound_packet_id: Option<u8>,
+    pub sound_at_packet_id: Option<u8>,
     pub set_rules_packet_id: Option<u8>,
     pub set_objectives_packet_id: Option<u8>,
     pub set_rule_packet_id: Option<u8>,
@@ -346,6 +348,8 @@ impl WellKnownRemotePacketIds {
             effect_packet_id: packet_id(WellKnownRemoteMethod::Effect),
             effect_with_data_packet_id: packet_id(WellKnownRemoteMethod::EffectWithData),
             effect_reliable_packet_id: packet_id(WellKnownRemoteMethod::EffectReliable),
+            sound_packet_id: packet_id(WellKnownRemoteMethod::Sound),
+            sound_at_packet_id: packet_id(WellKnownRemoteMethod::SoundAt),
             set_rules_packet_id: packet_id(WellKnownRemoteMethod::SetRules),
             set_objectives_packet_id: packet_id(WellKnownRemoteMethod::SetObjectives),
             set_rule_packet_id: packet_id(WellKnownRemoteMethod::SetRule),
@@ -393,6 +397,8 @@ impl WellKnownRemotePacketIds {
             WellKnownRemoteMethod::Effect => self.effect_packet_id,
             WellKnownRemoteMethod::EffectWithData => self.effect_with_data_packet_id,
             WellKnownRemoteMethod::EffectReliable => self.effect_reliable_packet_id,
+            WellKnownRemoteMethod::Sound => self.sound_packet_id,
+            WellKnownRemoteMethod::SoundAt => self.sound_at_packet_id,
             WellKnownRemoteMethod::SetRules => self.set_rules_packet_id,
             WellKnownRemoteMethod::SetObjectives => self.set_objectives_packet_id,
             WellKnownRemoteMethod::SetRule => self.set_rule_packet_id,
@@ -926,7 +932,8 @@ mod tests {
             LABEL_CALL_PACKET2_ID, LABEL_RELIABLE_CALL_PACKET_ID,
             LABEL_RELIABLE_CALL_PACKET2_ID, TEXT_INPUT_CALL_PACKET_ID,
             TEXT_INPUT_CALL_PACKET2_ID, EFFECT_CALL_PACKET_ID,
-            EFFECT_CALL_PACKET2_ID, EFFECT_RELIABLE_CALL_PACKET_ID,
+            EFFECT_CALL_PACKET2_ID, EFFECT_RELIABLE_CALL_PACKET_ID, SOUND_CALL_PACKET_ID,
+            SOUND_AT_CALL_PACKET_ID,
         };
 
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
@@ -1045,6 +1052,14 @@ mod tests {
             Some(EFFECT_RELIABLE_CALL_PACKET_ID)
         );
         assert_eq!(
+            combined.well_known_remote.sound_packet_id,
+            Some(SOUND_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.sound_at_packet_id,
+            Some(SOUND_AT_CALL_PACKET_ID)
+        );
+        assert_eq!(
             manifest
                 .remote_packets
                 .iter()
@@ -1111,6 +1126,8 @@ mod tests {
         assert_eq!(well_known.effect_packet_id, Some(59));
         assert_eq!(well_known.effect_with_data_packet_id, Some(61));
         assert_eq!(well_known.effect_reliable_packet_id, Some(63));
+        assert_eq!(well_known.sound_packet_id, Some(65));
+        assert_eq!(well_known.sound_at_packet_id, Some(67));
         assert_eq!(well_known.set_rules_packet_id, Some(16));
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
@@ -1246,6 +1263,14 @@ mod tests {
             (
                 WellKnownRemoteMethod::EffectReliable,
                 well_known.effect_reliable_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::Sound,
+                well_known.sound_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SoundAt,
+                well_known.sound_at_packet_id,
             ),
             (
                 WellKnownRemoteMethod::SetRules,
@@ -2468,6 +2493,72 @@ mod tests {
                         param("y", "float", true, true),
                         param("rotation", "float", true, true),
                         param("color", "arc.graphics.Color", true, true),
+                    ],
+                ),
+                remote_packet(
+                    60,
+                    64,
+                    "mindustry.gen.SoundDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "sound",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("sound", "arc.audio.Sound", true, true),
+                        param("volume", "float", true, true),
+                        param("pitch", "float", true, true),
+                        param("pan", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    61,
+                    65,
+                    "mindustry.gen.SoundCallPacket",
+                    "mindustry.core.NetClient",
+                    "sound",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("sound", "arc.audio.Sound", true, true),
+                        param("volume", "float", true, true),
+                        param("pitch", "float", true, true),
+                        param("pan", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    62,
+                    66,
+                    "mindustry.gen.SoundAtDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "soundAt",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("sound", "arc.audio.Sound", true, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                        param("volume", "float", true, true),
+                        param("pitch", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    63,
+                    67,
+                    "mindustry.gen.SoundAtCallPacket",
+                    "mindustry.core.NetClient",
+                    "soundAt",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("sound", "arc.audio.Sound", true, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                        param("volume", "float", true, true),
+                        param("pitch", "float", true, true),
                     ],
                 ),
             ],

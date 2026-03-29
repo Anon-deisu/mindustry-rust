@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 32;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 34;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -203,6 +203,8 @@ pub enum WellKnownRemoteMethod {
     Effect,
     EffectWithData,
     EffectReliable,
+    Sound,
+    SoundAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -594,6 +596,22 @@ const EFFECT_WITH_DATA_WIRE_PARAM_KINDS: [RemoteParamKind; 6] = [
     RemoteParamKind::Opaque,
     RemoteParamKind::Opaque,
 ];
+const SOUND_PARAM_JAVA_TYPES: [&str; 4] = ["arc.audio.Sound", "float", "float", "float"];
+const SOUND_WIRE_PARAM_KINDS: [RemoteParamKind; 4] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+];
+const SOUND_AT_PARAM_JAVA_TYPES: [&str; 5] =
+    ["arc.audio.Sound", "float", "float", "float", "float"];
+const SOUND_AT_WIRE_PARAM_KINDS: [RemoteParamKind; 5] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+];
 const SET_RULES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Rules"];
 const SET_RULES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const SET_OBJECTIVES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.MapObjectives"];
@@ -690,6 +708,8 @@ impl WellKnownRemoteMethod {
             Self::Effect,
             Self::EffectWithData,
             Self::EffectReliable,
+            Self::Sound,
+            Self::SoundAt,
         ]
     }
 
@@ -719,6 +739,8 @@ impl WellKnownRemoteMethod {
             Self::TextInput | Self::TextInputAllowEmpty => "textInput",
             Self::Effect | Self::EffectWithData => "effect",
             Self::EffectReliable => "effectReliable",
+            Self::Sound => "sound",
+            Self::SoundAt => "soundAt",
         }
     }
 
@@ -752,7 +774,9 @@ impl WellKnownRemoteMethod {
             | Self::TextInputAllowEmpty
             | Self::Effect
             | Self::EffectWithData
-            | Self::EffectReliable => RemoteFlow::ServerToClient,
+            | Self::EffectReliable
+            | Self::Sound
+            | Self::SoundAt => RemoteFlow::ServerToClient,
             Self::ConnectConfirm | Self::SendChatMessage => RemoteFlow::ClientToServer,
         }
     }
@@ -769,6 +793,8 @@ impl WellKnownRemoteMethod {
                 | Self::LabelWithId
                 | Self::Effect
                 | Self::EffectWithData
+                | Self::Sound
+                | Self::SoundAt
         )
     }
 
@@ -803,6 +829,8 @@ impl WellKnownRemoteMethod {
             Self::TextInputAllowEmpty => &TEXT_INPUT_ALLOW_EMPTY_PARAM_JAVA_TYPES,
             Self::Effect | Self::EffectReliable => &EFFECT_PARAM_JAVA_TYPES,
             Self::EffectWithData => &EFFECT_WITH_DATA_PARAM_JAVA_TYPES,
+            Self::Sound => &SOUND_PARAM_JAVA_TYPES,
+            Self::SoundAt => &SOUND_AT_PARAM_JAVA_TYPES,
         }
     }
 
@@ -837,6 +865,8 @@ impl WellKnownRemoteMethod {
             Self::TextInputAllowEmpty => &TEXT_INPUT_ALLOW_EMPTY_WIRE_PARAM_KINDS,
             Self::Effect | Self::EffectReliable => &EFFECT_WIRE_PARAM_KINDS,
             Self::EffectWithData => &EFFECT_WITH_DATA_WIRE_PARAM_KINDS,
+            Self::Sound => &SOUND_WIRE_PARAM_KINDS,
+            Self::SoundAt => &SOUND_AT_WIRE_PARAM_KINDS,
         }
     }
 
@@ -4466,6 +4496,8 @@ mod tests {
             (WellKnownRemoteMethod::Effect, Some(59)),
             (WellKnownRemoteMethod::EffectWithData, Some(61)),
             (WellKnownRemoteMethod::EffectReliable, Some(63)),
+            (WellKnownRemoteMethod::Sound, Some(65)),
+            (WellKnownRemoteMethod::SoundAt, Some(67)),
         ];
 
         assert_eq!(registry.len(), expected.len());
@@ -4532,6 +4564,8 @@ mod tests {
         assert_eq!(fixed_table.get(59), Some(WellKnownRemoteMethod::Effect));
         assert_eq!(fixed_table.get(61), Some(WellKnownRemoteMethod::EffectWithData));
         assert_eq!(fixed_table.get(63), Some(WellKnownRemoteMethod::EffectReliable));
+        assert_eq!(fixed_table.get(65), Some(WellKnownRemoteMethod::Sound));
+        assert_eq!(fixed_table.get(67), Some(WellKnownRemoteMethod::SoundAt));
         assert_eq!(fixed_table.get(18), None);
         assert!(fixed_table.contains_packet_id(19));
         assert!(fixed_table.contains_packet_id(23));
@@ -4542,6 +4576,7 @@ mod tests {
         assert!(fixed_table.contains_packet_id(53));
         assert!(fixed_table.contains_packet_id(57));
         assert!(fixed_table.contains_packet_id(63));
+        assert!(fixed_table.contains_packet_id(67));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -5057,6 +5092,18 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::EffectReliable)
                 .map(|packet| packet.packet_id),
             Some(63)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::Sound)
+                .map(|packet| packet.packet_id),
+            Some(65)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SoundAt)
+                .map(|packet| packet.packet_id),
+            Some(67)
         );
     }
 
@@ -6430,6 +6477,72 @@ mod tests {
                         test_param("y", "float", true, true),
                         test_param("rotation", "float", true, true),
                         test_param("color", "arc.graphics.Color", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    60,
+                    64,
+                    "mindustry.gen.SoundDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "sound",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("sound", "arc.audio.Sound", true, true),
+                        test_param("volume", "float", true, true),
+                        test_param("pitch", "float", true, true),
+                        test_param("pan", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    61,
+                    65,
+                    "mindustry.gen.SoundCallPacket",
+                    "mindustry.core.NetClient",
+                    "sound",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("sound", "arc.audio.Sound", true, true),
+                        test_param("volume", "float", true, true),
+                        test_param("pitch", "float", true, true),
+                        test_param("pan", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    62,
+                    66,
+                    "mindustry.gen.SoundAtDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "soundAt",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("sound", "arc.audio.Sound", true, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                        test_param("volume", "float", true, true),
+                        test_param("pitch", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    63,
+                    67,
+                    "mindustry.gen.SoundAtCallPacket",
+                    "mindustry.core.NetClient",
+                    "soundAt",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("sound", "arc.audio.Sound", true, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                        test_param("volume", "float", true, true),
+                        test_param("pitch", "float", true, true),
                     ],
                 ),
             ],
