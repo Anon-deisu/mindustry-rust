@@ -78,6 +78,70 @@ impl BuildUserFlowPanelModel {
             },
         }
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn summary_label(&self) -> String {
+        format!(
+            "next={} minimap={} focus={} pan={} target={} scope={}",
+            self.next_action,
+            self.minimap_next_action,
+            self.focus_state.label(),
+            self.pan_label(),
+            self.target_kind.label(),
+            self.config_scope,
+        )
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn detail_label(&self) -> String {
+        let blockers = if self.blockers.is_empty() {
+            "none".to_string()
+        } else {
+            self.blocker_labels().join("+")
+        };
+        let route = if self.route.is_empty() {
+            "none".to_string()
+        } else {
+            self.route.join("+")
+        };
+        let head = self
+            .head_tile
+            .map_or_else(|| "none".to_string(), |(x, y)| format!("{x},{y}"));
+
+        format!(
+            "next={} minimap={} focus={} pan={} target={} scope={} blockers={} route={} authority={} head={}",
+            self.next_action,
+            self.minimap_next_action,
+            self.focus_state.label(),
+            self.pan_label(),
+            self.target_kind.label(),
+            self.config_scope,
+            blockers,
+            route,
+            self.authority_state_label(),
+            head,
+        )
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn authority_state_label(&self) -> &'static str {
+        match self.authority_state {
+            BuildInteractionAuthorityState::None => "none",
+            BuildInteractionAuthorityState::Applied => "applied",
+            BuildInteractionAuthorityState::Cleared => "cleared",
+            BuildInteractionAuthorityState::Rollback => "rollback",
+            BuildInteractionAuthorityState::RejectedMissingBuilding => "rejected-missing-building",
+            BuildInteractionAuthorityState::RejectedMissingBlockMetadata => {
+                "rejected-missing-block-metadata"
+            }
+            BuildInteractionAuthorityState::RejectedUnsupportedBlock => {
+                "rejected-unsupported-block"
+            }
+            BuildInteractionAuthorityState::RejectedUnsupportedConfigType => {
+                "rejected-unsupported-config-type"
+            }
+        }
+    }
 }
 
 pub(crate) fn build_build_user_flow_panel(
@@ -354,6 +418,14 @@ mod tests {
         assert_eq!(
             panel.route,
             vec!["realign", "resolve", "refocus", "survey", "commit"]
+        );
+        assert_eq!(
+            panel.summary_label(),
+            "next=realign minimap=pan focus=outside pan=right+down target=plan scope=multi"
+        );
+        assert_eq!(
+            panel.detail_label(),
+            "next=realign minimap=pan focus=outside pan=right+down target=plan scope=multi blockers=realign+resolve+refocus+survey route=realign+resolve+refocus+survey+commit authority=rollback head=12,18"
         );
         assert_eq!(panel.minimap_next_action, "pan");
         assert_eq!(panel.focus_state, MinimapUserFocusState::Outside);
@@ -838,6 +910,14 @@ mod tests {
         assert_eq!(panel.next_action, "missing");
         assert_eq!(panel.blocker_labels(), vec!["missing"]);
         assert_eq!(panel.route, vec!["missing"]);
+        assert_eq!(
+            panel.summary_label(),
+            "next=missing minimap=missing focus=missing pan=hold target=none scope=single"
+        );
+        assert_eq!(
+            panel.detail_label(),
+            "next=missing minimap=missing focus=missing pan=hold target=none scope=single blockers=missing route=missing authority=applied head=none"
+        );
         assert_eq!(panel.minimap_next_action, "missing");
     }
 }
