@@ -26,6 +26,45 @@ impl SavePostLoadWorldContract {
             && self.static_fog_surface_consistent
             && self.entity_surface_consistent
     }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "project={} graph={} tile={} overlay={} marker={} fog={} entity={} issues={}",
+            bool_label(self.can_project_world_shell()),
+            bool_label(self.has_world_graph),
+            bool_label(self.tile_surface_consistent),
+            bool_label(self.overlay_surface_consistent),
+            bool_label(self.marker_surface_consistent),
+            bool_label(self.static_fog_surface_consistent),
+            bool_label(self.entity_surface_consistent),
+            self.issues.len(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        let issues = if self.issues.is_empty() {
+            "none".to_string()
+        } else {
+            self.issues
+                .iter()
+                .copied()
+                .map(SavePostLoadWorldIssue::label)
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+
+        format!(
+            "project={} graph={} tile={} overlay={} marker={} fog={} entity={} issues={}",
+            bool_label(self.can_project_world_shell()),
+            bool_label(self.has_world_graph),
+            bool_label(self.tile_surface_consistent),
+            bool_label(self.overlay_surface_consistent),
+            bool_label(self.marker_surface_consistent),
+            bool_label(self.static_fog_surface_consistent),
+            bool_label(self.entity_surface_consistent),
+            issues,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +86,30 @@ pub enum SavePostLoadWorldIssue {
     WorldEntityCountMismatch,
     DuplicateWorldEntityIds,
     EntitySummaryMismatch,
+}
+
+impl SavePostLoadWorldIssue {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::EmptyWorldGraph => "empty-world-graph",
+            Self::TileSurfaceCountMismatch => "tile-surface-count",
+            Self::TileSurfaceIndexMismatch => "tile-surface-index",
+            Self::BuildingCenterReferenceMismatch => "building-center-ref",
+            Self::TeamPlanOverlayMismatch => "team-plan-overlay",
+            Self::TeamPlanOutOfBounds => "team-plan-oob",
+            Self::DuplicateTeamPlanGroupIds => "duplicate-team-plan-group-ids",
+            Self::MarkerRegionMismatch => "marker-region",
+            Self::MarkerOutOfBounds => "marker-oob",
+            Self::DuplicateMarkerIds => "duplicate-marker-ids",
+            Self::StaticFogDimensionMismatch => "static-fog-dimension",
+            Self::StaticFogCoverageMismatch => "static-fog-coverage",
+            Self::DuplicateStaticFogTeamIds => "duplicate-static-fog-team-ids",
+            Self::DuplicateCustomChunkNames => "duplicate-custom-chunk-names",
+            Self::WorldEntityCountMismatch => "world-entity-count",
+            Self::DuplicateWorldEntityIds => "duplicate-world-entity-ids",
+            Self::EntitySummaryMismatch => "entity-summary",
+        }
+    }
 }
 
 impl SavePostLoadWorldObservation {
@@ -370,6 +433,10 @@ fn push_issue(issues: &mut Vec<SavePostLoadWorldIssue>, issue: SavePostLoadWorld
     }
 }
 
+fn bool_label(value: bool) -> &'static str {
+    if value { "1" } else { "0" }
+}
+
 fn has_duplicate_values<T>(values: impl IntoIterator<Item = T>) -> bool
 where
     T: Ord,
@@ -425,6 +492,14 @@ mod tests {
                 custom_chunk_unknown_count: 0,
             }
         );
+        assert_eq!(
+            contract.summary_label(),
+            "project=1 graph=1 tile=1 overlay=1 marker=1 fog=1 entity=1 issues=0"
+        );
+        assert_eq!(
+            contract.detail_label(),
+            "project=1 graph=1 tile=1 overlay=1 marker=1 fog=1 entity=1 issues=none"
+        );
     }
 
     #[test]
@@ -457,6 +532,13 @@ mod tests {
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::StaticFogCoverageMismatch));
+        assert_eq!(
+            contract.summary_label(),
+            "project=0 graph=1 tile=1 overlay=0 marker=1 fog=0 entity=1 issues=3"
+        );
+        assert!(contract
+            .detail_label()
+            .contains("team-plan-overlay,static-fog-dimension,static-fog-coverage"));
     }
 
     #[test]
