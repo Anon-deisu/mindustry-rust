@@ -24,9 +24,13 @@ pub fn decode_hex(text: &str) -> Result<Vec<u8>, String> {
     cleaned
         .as_bytes()
         .chunks(2)
-        .map(|chunk| {
-            let pair = std::str::from_utf8(chunk).map_err(|err| err.to_string())?;
-            u8::from_str_radix(pair, 16).map_err(|err| err.to_string())
+        .enumerate()
+        .map(|(pair_index, chunk)| {
+            let pair = std::str::from_utf8(chunk)
+                .map_err(|err| format!("invalid hex at byte-pair {pair_index}: {err}"))?;
+            u8::from_str_radix(pair, 16).map_err(|err| {
+                format!("invalid hex at byte-pair {pair_index} ({pair}): {err}")
+            })
         })
         .collect()
 }
@@ -38,6 +42,14 @@ mod tests {
     #[test]
     fn decode_hex_ignores_ascii_whitespace() {
         assert_eq!(decode_hex("0a 0b\n0c\t0d").unwrap(), vec![10, 11, 12, 13]);
+    }
+
+    #[test]
+    fn decode_hex_reports_invalid_pair_index() {
+        let err = decode_hex("0a zz 0c").expect_err("invalid pair should fail");
+
+        assert!(err.contains("byte-pair 1"));
+        assert!(err.contains("zz"));
     }
 
     #[test]
