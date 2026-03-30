@@ -66,6 +66,100 @@ impl<'a> SavePostLoadWorldApplyBundleOwnership<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadWorldApplyBundleDecision<'a> {
+    pub runtime_readiness: &'a SavePostLoadRuntimeReadiness,
+    pub runtime_world_ownership: &'a SavePostLoadRuntimeWorldOwnership,
+}
+
+impl<'a> SavePostLoadWorldApplyBundleDecision<'a> {
+    pub fn can_seed_runtime_apply(&self) -> bool {
+        self.runtime_readiness.can_seed_runtime_apply
+    }
+
+    pub fn can_apply_world_semantics(&self) -> bool {
+        self.runtime_world_ownership.can_apply_world_semantics()
+    }
+
+    pub fn readiness_world_shell_ready(&self) -> bool {
+        self.runtime_readiness.world_shell_ready
+    }
+
+    pub fn ownership_world_shell_ready(&self) -> bool {
+        self.runtime_world_ownership.world_shell_ready
+    }
+
+    pub fn apply_now_step_count(&self) -> usize {
+        self.runtime_readiness.apply_now_step_count()
+    }
+
+    pub fn awaiting_world_shell_step_count(&self) -> usize {
+        self.runtime_readiness.awaiting_world_shell_step_count()
+    }
+
+    pub fn blocked_step_count(&self) -> usize {
+        self.runtime_readiness.blocked_step_count()
+    }
+
+    pub fn deferred_step_count(&self) -> usize {
+        self.runtime_readiness.deferred_step_count()
+    }
+
+    pub fn required_surface_count(&self) -> usize {
+        self.runtime_world_ownership.surfaces.len()
+    }
+
+    pub fn owned_surface_count(&self) -> usize {
+        self.runtime_world_ownership.owned_surface_count()
+    }
+
+    pub fn required_step_count(&self) -> usize {
+        self.runtime_world_ownership.required_step_count()
+    }
+
+    pub fn claimed_step_count(&self) -> usize {
+        self.runtime_world_ownership.claimed_step_count()
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "seed={} semantics={} shell={}/{} apply={} wait={} block={} defer={} own={}/{} claim={}/{}",
+            bool_label(self.can_seed_runtime_apply()),
+            bool_label(self.can_apply_world_semantics()),
+            bool_label(self.readiness_world_shell_ready()),
+            bool_label(self.ownership_world_shell_ready()),
+            self.apply_now_step_count(),
+            self.awaiting_world_shell_step_count(),
+            self.blocked_step_count(),
+            self.deferred_step_count(),
+            self.owned_surface_count(),
+            self.required_surface_count(),
+            self.claimed_step_count(),
+            self.required_step_count(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "seed={} semantics={} shell={}/{} apply={} wait={} block={} defer={} own={}/{} claim={}/{} readiness_sources={} ownership_sources={}",
+            bool_label(self.can_seed_runtime_apply()),
+            bool_label(self.can_apply_world_semantics()),
+            bool_label(self.readiness_world_shell_ready()),
+            bool_label(self.ownership_world_shell_ready()),
+            self.apply_now_step_count(),
+            self.awaiting_world_shell_step_count(),
+            self.blocked_step_count(),
+            self.deferred_step_count(),
+            self.owned_surface_count(),
+            self.required_surface_count(),
+            self.claimed_step_count(),
+            self.required_step_count(),
+            self.runtime_readiness.source_regions().len(),
+            self.runtime_world_ownership.source_regions().len(),
+        )
+    }
+}
+
 impl<'a> SavePostLoadWorldApplyBundle<'a> {
     pub fn graph(&self) -> WorldGraph<'a> {
         self.observation.graph()
@@ -85,6 +179,13 @@ impl<'a> SavePostLoadWorldApplyBundle<'a> {
         SavePostLoadWorldApplyBundleOwnership {
             runtime_world_ownership: self.runtime_world_ownership(),
             source_regions: self.runtime_world_ownership().source_regions(),
+        }
+    }
+
+    pub fn runtime_decision_summary(&self) -> SavePostLoadWorldApplyBundleDecision<'_> {
+        SavePostLoadWorldApplyBundleDecision {
+            runtime_readiness: &self.runtime_readiness,
+            runtime_world_ownership: self.runtime_world_ownership(),
         }
     }
 
@@ -208,6 +309,10 @@ impl SavePostLoadWorldObservation {
     pub fn markers_are_empty(&self) -> bool {
         self.markers.is_empty() && marker_region_is_empty(&self.marker_region_bytes)
     }
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value { "1" } else { "0" }
 }
 
 #[cfg(test)]
@@ -374,6 +479,68 @@ mod tests {
         assert_eq!(
             ownership_summary.source_region("entities").cloned(),
             runtime_world_ownership.source_region("entities")
+        );
+    }
+
+    #[test]
+    fn post_load_world_apply_bundle_reports_combined_runtime_decision_summary() {
+        let observation = test_observation();
+        let bundle = observation.post_load_world_apply_bundle();
+        let runtime_readiness = observation.runtime_readiness();
+        let runtime_world_ownership = observation.runtime_world_ownership();
+        let decision = bundle.runtime_decision_summary();
+
+        assert_eq!(decision.runtime_readiness, &runtime_readiness);
+        assert_eq!(decision.runtime_world_ownership, &runtime_world_ownership);
+        assert_eq!(
+            decision.can_seed_runtime_apply(),
+            runtime_readiness.can_seed_runtime_apply
+        );
+        assert_eq!(
+            decision.can_apply_world_semantics(),
+            runtime_world_ownership.can_apply_world_semantics()
+        );
+        assert_eq!(
+            decision.readiness_world_shell_ready(),
+            runtime_readiness.world_shell_ready
+        );
+        assert_eq!(
+            decision.ownership_world_shell_ready(),
+            runtime_world_ownership.world_shell_ready
+        );
+        assert_eq!(
+            decision.apply_now_step_count(),
+            runtime_readiness.apply_now_step_count()
+        );
+        assert_eq!(
+            decision.awaiting_world_shell_step_count(),
+            runtime_readiness.awaiting_world_shell_step_count()
+        );
+        assert_eq!(decision.blocked_step_count(), runtime_readiness.blocked_step_count());
+        assert_eq!(decision.deferred_step_count(), runtime_readiness.deferred_step_count());
+        assert_eq!(
+            decision.required_surface_count(),
+            runtime_world_ownership.surfaces.len()
+        );
+        assert_eq!(
+            decision.owned_surface_count(),
+            runtime_world_ownership.owned_surface_count()
+        );
+        assert_eq!(
+            decision.required_step_count(),
+            runtime_world_ownership.required_step_count()
+        );
+        assert_eq!(
+            decision.claimed_step_count(),
+            runtime_world_ownership.claimed_step_count()
+        );
+        assert_eq!(
+            decision.summary_label(),
+            "seed=0 semantics=0 shell=0/0 apply=0 wait=0 block=5 defer=0 own=0/9 claim=0/5"
+        );
+        assert_eq!(
+            decision.detail_label(),
+            "seed=0 semantics=0 shell=0/0 apply=0 wait=0 block=5 defer=0 own=0/9 claim=0/5 readiness_sources=4 ownership_sources=4"
         );
     }
 

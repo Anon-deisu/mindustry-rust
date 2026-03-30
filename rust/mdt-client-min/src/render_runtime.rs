@@ -181,7 +181,7 @@ impl RenderRuntimeAdapter {
             runtime_typed_building_projection,
         ));
         hud.status_text = format!(
-            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_core_binding={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_data_hint={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_binding={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_camera={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_build_health_update={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_destroy_payload={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_chat={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
+            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_core_binding={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_data_hint={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_binding={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_bootstrap={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_camera={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_build_health_update={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_destroy_payload={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_chat={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
             runtime_selected_block_label(snapshot_input.selected_block_id),
             snapshot_input.plans.as_ref().map_or(0, Vec::len),
@@ -323,6 +323,7 @@ impl RenderRuntimeAdapter {
             bootstrap_projection.map_or(0, |projection| projection.content_patch_count),
             bootstrap_projection.map_or(0, |projection| projection.player_team_plan_count),
             bootstrap_projection.map_or(0, |projection| projection.static_fog_team_count),
+            runtime_bootstrap_label(bootstrap_projection),
             runtime_optional_vec2_label(snapshot_input.view_center),
             runtime_optional_vec2_label(snapshot_input.view_size),
             runtime_optional_vec2_label(snapshot_input.position),
@@ -4990,6 +4991,25 @@ where
         .filter(|hash| !hash.is_empty())
         .map(|hash| hash.chars().take(8).collect())
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn runtime_bootstrap_label(projection: Option<&WorldBootstrapProjection>) -> String {
+    let Some(projection) = projection else {
+        return "none".to_string();
+    };
+
+    format!(
+        "rules={}:tags={}:locales={}:teams={}:markers={}:chunks={}:patches={}:plans={}:fog={}",
+        runtime_bootstrap_hash_label(Some(projection), |projection| projection.rules_sha256.as_str()),
+        runtime_bootstrap_hash_label(Some(projection), |projection| projection.tags_sha256.as_str()),
+        runtime_bootstrap_hash_label(Some(projection), |projection| projection.map_locales_sha256.as_str()),
+        projection.team_count,
+        projection.marker_count,
+        projection.custom_chunk_count,
+        projection.content_patch_count,
+        projection.player_team_plan_count,
+        projection.static_fog_team_count,
+    )
 }
 
 pub fn observe_build_health_pairs(
@@ -13932,6 +13952,9 @@ mod tests {
         assert!(hud.status_text.contains("bootstrap_patches=3"));
         assert!(hud.status_text.contains("bootstrap_plans=5"));
         assert!(hud.status_text.contains("bootstrap_fog_teams=1"));
+        assert!(hud.status_text.contains(
+            "runtime_bootstrap=rules=01234567:tags=00112233:locales=fedcba98:teams=2:markers=4:chunks=1:patches=3:plans=5:fog=1"
+        ));
         assert!(hud.status_text.contains("runtime_tilecfg_events=0"));
         assert!(hud.status_text.contains("runtime_tilecfg_parse_fail=0"));
         assert!(hud.status_text.contains("runtime_tilecfg_noapply=0"));
