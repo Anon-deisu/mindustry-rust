@@ -99,6 +99,32 @@ impl SavePostLoadConsumerSourceRegion {
 }
 
 impl SavePostLoadConsumerApplyPlan {
+    pub fn summary_label(&self) -> String {
+        format!(
+            "seed={} stages={} steps={} blockers={} regions={}",
+            bool_label(self.can_seed_runtime_apply),
+            self.stages.len(),
+            self.total_step_count(),
+            self.blockers.len(),
+            self.source_regions().len(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "seed={} stages={} steps={} blockers={} regions=[{}]",
+            bool_label(self.can_seed_runtime_apply),
+            self.stages.len(),
+            self.total_step_count(),
+            self.blockers.len(),
+            self.source_regions()
+                .iter()
+                .map(source_region_summary)
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+
     pub fn has_blockers(&self) -> bool {
         !self.blockers.is_empty()
     }
@@ -200,6 +226,38 @@ impl SavePostLoadConsumerApplyPlan {
 }
 
 impl SavePostLoadConsumerRuntimeHelper {
+    pub fn summary_label(&self) -> String {
+        format!(
+            "seed={} shell={} stages={} apply={} waiting={} blocked={} deferred={} regions={}",
+            bool_label(self.can_seed_runtime_apply),
+            bool_label(self.world_shell_ready),
+            self.stages.len(),
+            self.apply_now_step_count(),
+            self.awaiting_world_shell_step_count(),
+            self.blocked_step_count(),
+            self.deferred_step_count(),
+            self.source_regions().len(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "seed={} shell={} stages={} apply={} waiting={} blocked={} deferred={} regions=[{}]",
+            bool_label(self.can_seed_runtime_apply),
+            bool_label(self.world_shell_ready),
+            self.stages.len(),
+            self.apply_now_step_count(),
+            self.awaiting_world_shell_step_count(),
+            self.blocked_step_count(),
+            self.deferred_step_count(),
+            self.source_regions()
+                .iter()
+                .map(source_region_summary)
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+
     pub fn has_blocked_stages(&self) -> bool {
         self.stages
             .iter()
@@ -272,6 +330,17 @@ impl SavePostLoadConsumerRuntimeHelper {
     pub fn deferred_step_count(&self) -> usize {
         runtime_step_count(self, SavePostLoadConsumerRuntimeDisposition::Deferred)
     }
+}
+
+fn source_region_summary(region: &SavePostLoadConsumerSourceRegion) -> String {
+    format!(
+        "{}:{}/{}/{}",
+        region.source_region_name, region.stage_count, region.step_count, region.blocker_count
+    )
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value { "1" } else { "0" }
 }
 
 impl SavePostLoadWorldObservation {
@@ -878,6 +947,22 @@ mod tests {
         assert_eq!(helper.source_region("map"), Some(expected_regions[0].clone()));
         assert!(plan.source_region("missing").is_none());
         assert!(helper.source_region("missing").is_none());
+        assert_eq!(
+            plan.summary_label(),
+            "seed=0 stages=9 steps=14 blockers=6 regions=4"
+        );
+        assert_eq!(
+            plan.detail_label(),
+            "seed=0 stages=9 steps=14 blockers=6 regions=[map:2/2/5,entities:4/7/4,markers:1/2/0,custom:2/3/0]"
+        );
+        assert_eq!(
+            helper.summary_label(),
+            "seed=0 shell=0 stages=9 apply=4 waiting=5 blocked=4 deferred=1 regions=4"
+        );
+        assert_eq!(
+            helper.detail_label(),
+            "seed=0 shell=0 stages=9 apply=4 waiting=5 blocked=4 deferred=1 regions=[map:2/2/5,entities:4/7/4,markers:1/2/0,custom:2/3/0]"
+        );
     }
 
     #[test]
