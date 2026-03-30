@@ -127,8 +127,8 @@ const POINT_HIT_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractE
 
 const MOVE_COMMAND_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
     contract_name: "move_command",
-    overlay_origin: unsupported_overlay_origin,
-    business_world_position: unsupported_business_world_position,
+    overlay_origin: position_target_overlay_origin,
+    business_world_position: position_target_business_world_position,
 };
 
 const DRILL_STEAM_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
@@ -2937,6 +2937,12 @@ mod tests {
         let executor = executor_for_name("move_command").expect("move command executor");
 
         assert_eq!(executor.contract_name, "move_command");
+        assert_eq!(
+            (executor.overlay_origin)(12.0, 20.0, 0.0, &TypeIoObject::ObjectArray(vec![
+                TypeIoObject::Point2 { x: 10, y: 20 }
+            ])),
+            Some((80.0, 160.0))
+        );
     }
 
     #[test]
@@ -3422,6 +3428,24 @@ mod tests {
         assert_eq!(
             world_position_from_contract_business_projection(
                 Some(LIGHTNING_PATH_EXECUTOR.contract_name),
+                Some(&projection),
+            ),
+            Some((80.0f32.to_bits(), 160.0f32.to_bits()))
+        );
+    }
+
+    #[test]
+    fn world_position_from_contract_business_projection_uses_move_command_named_executor() {
+        let projection = EffectBusinessProjection::PositionTarget {
+            source_x_bits: 10.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            target_x_bits: 80.0f32.to_bits(),
+            target_y_bits: 160.0f32.to_bits(),
+        };
+
+        assert_eq!(
+            world_position_from_contract_business_projection(
+                Some("move_command"),
                 Some(&projection),
             ),
             Some((80.0f32.to_bits(), 160.0f32.to_bits()))

@@ -149,6 +149,9 @@ fn derive_primary_business_hint(
     effect_id: Option<i16>,
     object: &TypeIoObject,
 ) -> Option<EffectDataBusinessHint> {
+    if matches!(effect_id, Some(12)) {
+        return first_position_hint(object);
+    }
     match crate::effect_runtime::effect_contract(effect_id) {
         Some(contract) => derive_contract_business_hint(contract, object),
         None => derive_fallback_business_hint(object),
@@ -310,6 +313,24 @@ fn first_float_hint(object: &TypeIoObject) -> Option<EffectDataBusinessHint> {
             }),
             _ => None,
         })
+}
+
+fn first_position_hint(object: &TypeIoObject) -> Option<EffectDataBusinessHint> {
+    object
+        .find_first_dfs_bounded(EFFECT_DATA_MAX_DEPTH, EFFECT_DATA_MAX_NODES, position_candidate)
+        .and_then(|matched| {
+            position_hint_from_value(matched.value, matched.path)
+                .map(EffectDataBusinessHint::PositionHint)
+        })
+}
+
+fn position_candidate(value: &TypeIoObject) -> bool {
+    match value {
+        TypeIoObject::Point2 { .. } | TypeIoObject::Vec2 { .. } => true,
+        TypeIoObject::PackedPoint2Array(values) => !values.is_empty(),
+        TypeIoObject::Vec2Array(values) => !values.is_empty(),
+        _ => false,
+    }
 }
 
 fn lightning_polyline_hint(object: &TypeIoObject) -> Option<EffectDataBusinessHint> {
@@ -533,6 +554,29 @@ mod tests {
                 parse_failed: false,
                 parse_error: None,
             }
+        );
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_prefers_move_command_position_hint() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::UnitId(9999),
+            TypeIoObject::Point2 { x: 4, y: 6 },
+        ]);
+
+        let input =
+            derive_effect_data_business_input(Some(12), Some(&object), Some(5), false, None);
+
+        assert_eq!(input.contract_name, Some("move_command"));
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::PositionHint(
+                TypeIoEffectPositionHint::Point2 {
+                    x: 4,
+                    y: 6,
+                    path: vec![1],
+                }
+            ))
         );
     }
 

@@ -122,6 +122,7 @@ pub struct EffectRuntimeInputView {
 
 pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> {
     match effect_id {
+        Some(12) => Some(RuntimeEffectContract::PositionTarget),
         Some(13) => Some(RuntimeEffectContract::LightningPath),
         Some(10) => Some(RuntimeEffectContract::PointBeam),
         Some(11) => Some(RuntimeEffectContract::PointHit),
@@ -1050,7 +1051,7 @@ mod tests {
 
     #[test]
     fn effect_runtime_contract_name_maps_move_command_effect_id() {
-        assert_eq!(effect_contract(Some(12)), None);
+        assert_eq!(effect_contract(Some(12)), Some(RuntimeEffectContract::PositionTarget));
         assert_eq!(effect_contract_name(Some(12)), Some("move_command"));
     }
 
