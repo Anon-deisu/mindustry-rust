@@ -28,3 +28,121 @@ pub enum PlayerIntent {
     ActionHeld(BinaryAction),
     ActionReleased(BinaryAction),
 }
+
+impl BinaryAction {
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::MoveUp => "move-up",
+            Self::MoveDown => "move-down",
+            Self::MoveLeft => "move-left",
+            Self::MoveRight => "move-right",
+            Self::Fire => "fire",
+            Self::Boost => "boost",
+            Self::Chat => "chat",
+            Self::Interact => "interact",
+        }
+    }
+}
+
+impl BuildPulse {
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn summary_label(&self) -> String {
+        format!(
+            "pulse={},{},{}",
+            self.tile.0,
+            self.tile.1,
+            if self.breaking { "break" } else { "place" }
+        )
+    }
+}
+
+impl PlayerIntent {
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn summary_label(&self) -> String {
+        match self {
+            Self::SetMoveAxis { x, y } => format!("move={x},{y}"),
+            Self::SetAimAxis { x, y } => format!("aim={x},{y}"),
+            Self::SetMiningTile { tile } => format!(
+                "mining={}",
+                tile.map_or_else(|| "none".to_string(), |(x, y)| format!("{x},{y}"))
+            ),
+            Self::SetBuilding { building } => {
+                format!("building={}", if *building { "on" } else { "off" })
+            }
+            Self::ConfigTap { tile } => format!("tap={},{}", tile.0, tile.1),
+            Self::BuildPulse(pulse) => pulse.summary_label(),
+            Self::ActionPressed(action) => format!("press={}", action.label()),
+            Self::ActionHeld(action) => format!("hold={}", action.label()),
+            Self::ActionReleased(action) => format!("release={}", action.label()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BinaryAction, BuildPulse, PlayerIntent};
+
+    #[test]
+    fn binary_action_label_covers_all_variants() {
+        assert_eq!(BinaryAction::MoveUp.label(), "move-up");
+        assert_eq!(BinaryAction::MoveDown.label(), "move-down");
+        assert_eq!(BinaryAction::MoveLeft.label(), "move-left");
+        assert_eq!(BinaryAction::MoveRight.label(), "move-right");
+        assert_eq!(BinaryAction::Fire.label(), "fire");
+        assert_eq!(BinaryAction::Boost.label(), "boost");
+        assert_eq!(BinaryAction::Chat.label(), "chat");
+        assert_eq!(BinaryAction::Interact.label(), "interact");
+    }
+
+    #[test]
+    fn player_intent_summary_label_compacts_axes_build_and_actions() {
+        assert_eq!(
+            PlayerIntent::SetMoveAxis { x: 1.0, y: -1.0 }.summary_label(),
+            "move=1,-1"
+        );
+        assert_eq!(
+            PlayerIntent::SetAimAxis { x: 8.0, y: 12.0 }.summary_label(),
+            "aim=8,12"
+        );
+        assert_eq!(
+            PlayerIntent::SetMiningTile { tile: None }.summary_label(),
+            "mining=none"
+        );
+        assert_eq!(
+            PlayerIntent::SetMiningTile {
+                tile: Some((7, 8))
+            }
+            .summary_label(),
+            "mining=7,8"
+        );
+        assert_eq!(
+            PlayerIntent::SetBuilding { building: true }.summary_label(),
+            "building=on"
+        );
+        assert_eq!(
+            PlayerIntent::ConfigTap { tile: (3, 4) }.summary_label(),
+            "tap=3,4"
+        );
+        assert_eq!(
+            PlayerIntent::BuildPulse(BuildPulse {
+                tile: (9, 10),
+                breaking: true,
+            })
+            .summary_label(),
+            "pulse=9,10,break"
+        );
+        assert_eq!(
+            PlayerIntent::ActionPressed(BinaryAction::Fire).summary_label(),
+            "press=fire"
+        );
+        assert_eq!(
+            PlayerIntent::ActionHeld(BinaryAction::Boost).summary_label(),
+            "hold=boost"
+        );
+        assert_eq!(
+            PlayerIntent::ActionReleased(BinaryAction::Chat).summary_label(),
+            "release=chat"
+        );
+    }
+}
