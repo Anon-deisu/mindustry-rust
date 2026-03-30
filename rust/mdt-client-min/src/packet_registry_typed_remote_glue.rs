@@ -226,4 +226,36 @@ mod tests {
             RemoteManifestError::InvalidPacketSequence(_)
         ));
     }
+
+    #[test]
+    fn rejects_duplicate_inbound_snapshot_packet_ids_in_glue() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let state_snapshot_packet_id = HighFrequencyRemoteRegistry::from_manifest(&manifest)
+            .unwrap()
+            .packet_id(HighFrequencyRemoteMethod::StateSnapshot)
+            .unwrap();
+        let entity_snapshot_entry = manifest
+            .remote_packets
+            .iter_mut()
+            .find(|entry| entry.method == "entitySnapshot")
+            .expect("missing entitySnapshot packet in fixture manifest");
+        entity_snapshot_entry.packet_id = state_snapshot_packet_id;
+
+        let error = PacketRegistryTypedRemoteGlue::from_remote_manifest(&manifest).unwrap_err();
+        match error {
+            RemoteManifestError::InvalidPacketSequence(message) => {
+                assert!(
+                    message.contains(
+                        "duplicate high-frequency server->client snapshot packet id"
+                    ),
+                    "unexpected duplicate snapshot packet-id error message: {message}"
+                );
+                assert!(
+                    message.contains(&state_snapshot_packet_id.to_string()),
+                    "duplicate snapshot packet-id message should mention packet id: {message}"
+                );
+            }
+            other => panic!("expected InvalidPacketSequence error, got {other:?}"),
+        }
+    }
 }
