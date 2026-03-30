@@ -100,6 +100,32 @@ impl SavePostLoadRuntimeExecutionSourceRegion {
             + self.deferred_steps.len()
     }
 
+    pub fn summary_label(&self) -> String {
+        format!(
+            "region={} exec={} fail={} wait={} block={} defer={} total={}",
+            self.source_region_name,
+            self.executed_steps.len(),
+            self.failed_steps.len(),
+            self.awaiting_world_shell_steps.len(),
+            self.blocked_steps.len(),
+            self.deferred_steps.len(),
+            self.total_step_count(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "region={} exec={} fail={} wait={} block={} defer={} total={}",
+            self.source_region_name,
+            self.executed_steps.len(),
+            self.failed_steps.len(),
+            self.awaiting_world_shell_steps.len(),
+            self.blocked_steps.len(),
+            self.deferred_steps.len(),
+            self.total_step_count(),
+        )
+    }
+
     pub fn steps_with_status(
         &self,
         status: SavePostLoadRuntimeExecutionStepStatus,
@@ -261,6 +287,44 @@ impl SavePostLoadRuntimeWorldSemanticsExecution {
     pub fn has_world_shell(&self) -> bool {
         self.world_shell.is_some()
     }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "shell={} semantics={} exec={} fail={} wait={} block={} defer={} total={} sources={} issues={} live={}",
+            bool_label(self.world_shell_ready),
+            bool_label(self.can_apply_world_semantics()),
+            self.executed_step_count(),
+            self.failed_step_count(),
+            self.awaiting_world_shell_steps.len(),
+            self.blocked_steps.len(),
+            self.deferred_step_count(),
+            self.targeted_step_count(),
+            self.source_regions().len(),
+            self.issues.len(),
+            bool_label(self.can_activate_live_runtime()),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "shell={} semantics={} exec={} fail={} wait={} block={} defer={} total={} sources=[{}] issues={} live={}",
+            bool_label(self.world_shell_ready),
+            bool_label(self.can_apply_world_semantics()),
+            self.executed_step_count(),
+            self.failed_step_count(),
+            self.awaiting_world_shell_steps.len(),
+            self.blocked_steps.len(),
+            self.deferred_step_count(),
+            self.targeted_step_count(),
+            self.source_regions()
+                .iter()
+                .map(SavePostLoadRuntimeExecutionSourceRegion::summary_label)
+                .collect::<Vec<_>>()
+                .join(","),
+            self.issues.len(),
+            bool_label(self.can_activate_live_runtime()),
+        )
+    }
 }
 
 impl SavePostLoadRuntimeApplyExecution {
@@ -310,6 +374,52 @@ impl SavePostLoadRuntimeApplyExecution {
             && self.awaiting_world_shell_steps.is_empty()
             && self.blocked_steps.is_empty()
             && self.failed_steps.is_empty()
+    }
+
+    pub fn targeted_step_count(&self) -> usize {
+        self.executed_steps.len()
+            + self.failed_steps.len()
+            + self.awaiting_world_shell_steps.len()
+            + self.blocked_steps.len()
+            + self.deferred_steps.len()
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "seed={} shell={} exec={} fail={} wait={} block={} defer={} total={} sources={} issues={} live={}",
+            bool_label(self.can_seed_runtime_apply),
+            bool_label(self.world_shell_ready),
+            self.executed_step_count(),
+            self.failed_step_count(),
+            self.awaiting_world_shell_steps.len(),
+            self.blocked_steps.len(),
+            self.deferred_step_count(),
+            self.targeted_step_count(),
+            self.source_regions().len(),
+            self.issues.len(),
+            bool_label(self.can_activate_live_runtime()),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "seed={} shell={} exec={} fail={} wait={} block={} defer={} total={} sources=[{}] issues={} live={}",
+            bool_label(self.can_seed_runtime_apply),
+            bool_label(self.world_shell_ready),
+            self.executed_step_count(),
+            self.failed_step_count(),
+            self.awaiting_world_shell_steps.len(),
+            self.blocked_steps.len(),
+            self.deferred_step_count(),
+            self.targeted_step_count(),
+            self.source_regions()
+                .iter()
+                .map(SavePostLoadRuntimeExecutionSourceRegion::summary_label)
+                .collect::<Vec<_>>()
+                .join(","),
+            self.issues.len(),
+            bool_label(self.can_activate_live_runtime()),
+        )
     }
 
     fn from_script(script: SavePostLoadRuntimeApplyScript) -> Self {
@@ -762,6 +872,10 @@ fn source_region_sort_key(source_region_name: &str) -> u8 {
     }
 }
 
+fn bool_label(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -795,6 +909,13 @@ mod tests {
         assert_eq!(execution.executed_step_count(), 14);
         assert_eq!(execution.failed_step_count(), 0);
         assert_eq!(execution.pending_step_count(), 0);
+        assert_eq!(
+            execution.summary_label(),
+            "seed=yes shell=yes exec=14 fail=0 wait=0 block=0 defer=0 total=14 sources=4 issues=0 live=yes"
+        );
+        assert!(execution
+            .detail_label()
+            .contains("region=custom exec=3 fail=0 wait=0 block=0 defer=0 total=3"));
         assert_eq!(execution.entity_remaps.len(), 2);
         assert_eq!(execution.entity_remaps_by_custom_id.len(), 2);
         assert_eq!(execution.custom_chunks.len(), 2);
@@ -979,6 +1100,31 @@ mod tests {
             .map(|region| region.source_region_name)
             .collect::<Vec<_>>();
         assert_eq!(source_region_names, vec!["map", "entities", "markers", "custom"]);
+        assert_eq!(
+            execution.summary_label(),
+            format!(
+                "seed={} shell={} exec={} fail={} wait={} block={} defer={} total={} sources={} issues={} live={}",
+                bool_label(execution.can_seed_runtime_apply),
+                bool_label(execution.world_shell_ready),
+                execution.executed_step_count(),
+                execution.failed_step_count(),
+                execution.awaiting_world_shell_steps.len(),
+                execution.blocked_steps.len(),
+                execution.deferred_step_count(),
+                execution.targeted_step_count(),
+                execution.source_regions().len(),
+                execution.issues.len(),
+                bool_label(execution.can_activate_live_runtime()),
+            )
+        );
+        assert_eq!(
+            entities.summary_label(),
+            "region=entities exec=2 fail=0 wait=2 block=2 defer=1 total=7"
+        );
+        assert_eq!(
+            custom.detail_label(),
+            "region=custom exec=2 fail=1 wait=1 block=0 defer=0 total=4"
+        );
         assert_eq!(map.step_count(SavePostLoadRuntimeExecutionStepStatus::Blocked), 2);
         assert_eq!(map.total_step_count(), 2);
         assert_eq!(entities.total_step_count(), 7);
@@ -1190,6 +1336,30 @@ mod tests {
             .collect::<Vec<_>>();
         source_region_names.sort_unstable();
         assert_eq!(source_region_names, vec!["custom", "entities", "map", "markers"]);
+        assert_eq!(
+            execution.summary_label(),
+            format!(
+                "shell={} semantics={} exec={} fail={} wait={} block={} defer={} total={} sources={} issues={} live={}",
+                bool_label(execution.world_shell_ready),
+                bool_label(execution.can_apply_world_semantics()),
+                execution.executed_step_count(),
+                execution.failed_step_count(),
+                execution.awaiting_world_shell_steps.len(),
+                execution.blocked_steps.len(),
+                execution.deferred_step_count(),
+                execution.targeted_step_count(),
+                execution.source_regions().len(),
+                execution.issues.len(),
+                bool_label(execution.can_activate_live_runtime()),
+            )
+        );
+        assert_eq!(
+            markers.summary_label(),
+            "region=markers exec=1 fail=1 wait=0 block=0 defer=0 total=2"
+        );
+        assert!(execution
+            .detail_label()
+            .contains("region=markers exec=1 fail=1 wait=0 block=0 defer=0 total=2"));
         assert_eq!(map.total_step_count(), 2);
         assert_eq!(entities.total_step_count(), 5);
         assert_eq!(markers.total_step_count(), 2);
