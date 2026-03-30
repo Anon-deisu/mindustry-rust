@@ -1029,6 +1029,7 @@ mod tests {
     use super::{
         effect_contract, effect_contract_name, lightning_path_points,
         observe_runtime_effect_binding_state, observe_runtime_effect_overlay_binding_state,
+        observe_runtime_effect_overlay_source_binding_state,
         observe_runtime_effect_source_binding_state, resolve_runtime_effect_overlay_position,
         resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
         EffectRuntimeBindingState, EffectRuntimeInputView, RuntimeEffectBinding,
@@ -1051,24 +1052,17 @@ mod tests {
 
     #[test]
     fn effect_runtime_contract_name_maps_move_command_effect_id() {
-        assert_eq!(effect_contract(Some(12)), Some(RuntimeEffectContract::PositionTarget));
+        assert_eq!(
+            effect_contract(Some(12)),
+            Some(RuntimeEffectContract::PositionTarget)
+        );
         assert_eq!(effect_contract_name(Some(12)), Some("move_command"));
     }
 
     #[test]
     fn effect_runtime_spawn_runtime_effect_overlay_keeps_move_command_named_contract() {
-        let overlay = spawn_runtime_effect_overlay(
-            Some(12),
-            12.0,
-            20.0,
-            12.0,
-            20.0,
-            0.0,
-            0,
-            false,
-            None,
-            30,
-        );
+        let overlay =
+            spawn_runtime_effect_overlay(Some(12), 12.0, 20.0, 12.0, 20.0, 0.0, 0, false, None, 30);
 
         assert_eq!(overlay.effect_id, Some(12));
         assert_eq!(overlay.contract_name, Some("move_command"));
@@ -2084,6 +2078,89 @@ mod tests {
             observe_runtime_effect_source_binding_state(
                 Some(67),
                 Some(&unit_object),
+                &SessionState::default(),
+                &EffectRuntimeInputView::default(),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn effect_runtime_observe_runtime_effect_overlay_source_binding_state_tracks_follow_and_fallback(
+    ) {
+        let overlay = spawn_runtime_effect_overlay(
+            Some(9),
+            80.0,
+            160.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::UnitId(404)),
+            10,
+        );
+        let followed = session_state_with_unit_entity(404, 32.0, 48.0);
+
+        assert_eq!(
+            observe_runtime_effect_overlay_source_binding_state(
+                &overlay,
+                &followed,
+                &EffectRuntimeInputView::default(),
+            ),
+            Some(EffectRuntimeBindingState::ParentFollow)
+        );
+        assert_eq!(
+            observe_runtime_effect_overlay_source_binding_state(
+                &overlay,
+                &SessionState::default(),
+                &EffectRuntimeInputView::default(),
+            ),
+            Some(EffectRuntimeBindingState::UnresolvedFallback)
+        );
+    }
+
+    #[test]
+    fn effect_runtime_observe_runtime_effect_overlay_source_binding_state_returns_none_without_source_binding(
+    ) {
+        let unit_parent_overlay = spawn_runtime_effect_overlay(
+            Some(67),
+            20.0,
+            24.0,
+            20.0,
+            24.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::UnitId(404)),
+            10,
+        );
+        let building_parent_overlay = spawn_runtime_effect_overlay(
+            Some(9),
+            80.0,
+            160.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::BuildingPos(pack_point2(3, 5))),
+            10,
+        );
+
+        assert_eq!(unit_parent_overlay.source_binding, None);
+        assert_eq!(building_parent_overlay.source_binding, None);
+        assert_eq!(
+            observe_runtime_effect_overlay_source_binding_state(
+                &unit_parent_overlay,
+                &SessionState::default(),
+                &EffectRuntimeInputView::default(),
+            ),
+            None
+        );
+        assert_eq!(
+            observe_runtime_effect_overlay_source_binding_state(
+                &building_parent_overlay,
                 &SessionState::default(),
                 &EffectRuntimeInputView::default(),
             ),
