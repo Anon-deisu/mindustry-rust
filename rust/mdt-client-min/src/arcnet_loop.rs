@@ -881,6 +881,25 @@ mod tests {
     }
 
     #[test]
+    fn pending_tcp_write_tracks_completed_packet_ids_across_frame_boundaries() {
+        let mut pending = PendingTcpWrite::default();
+        pending.enqueue_frame(&[0xaa], Some(11)).unwrap();
+        pending.enqueue_frame(&[0xbb, 0xcc], Some(22)).unwrap();
+
+        let mut completed_packet_ids = Vec::new();
+        pending.record_flushed_bytes(4, &mut completed_packet_ids);
+
+        assert_eq!(completed_packet_ids, vec![11]);
+        assert_eq!(pending.frames.len(), 1);
+        assert_eq!(pending.frames.front().map(|frame| frame.remaining_bytes), Some(3));
+
+        pending.record_flushed_bytes(3, &mut completed_packet_ids);
+
+        assert_eq!(completed_packet_ids, vec![11, 22]);
+        assert!(pending.frames.is_empty());
+    }
+
+    #[test]
     fn test_cap_tcp_read_buffer_growth_on_fragmented_frames() {
         let (tcp_listener, _udp_socket, server_addr) = bind_local_arcnet_server();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
