@@ -3,7 +3,9 @@ use crate::{
     render_model::encode_render_text,
     HudModel, RenderModel, RenderObject, RenderViewWindow, Viewport,
 };
-use mdt_world::{LineMarkerModel, LoadedWorldSession, MarkerEntry, MarkerModel, TeamPlanRef};
+use mdt_world::{
+    LineMarkerModel, LoadedWorldSession, MarkerEntry, MarkerModel, QuadMarkerModel, TeamPlanRef,
+};
 
 const TILE_SIZE: f32 = 8.0;
 
@@ -481,11 +483,11 @@ fn tile_visible_under_fog(
     tile_y: usize,
 ) -> bool {
     !fog_visibility.enabled
-        || fog_reveal_is_visible(
-            session
-                .graph()
-                .fog_revealed(fog_visibility.team_id, tile_x, tile_y),
-        )
+        || fog_reveal_is_visible(session.graph().fog_revealed(
+            fog_visibility.team_id,
+            tile_x,
+            tile_y,
+        ))
 }
 
 fn fog_tile_counts(
@@ -528,7 +530,7 @@ fn project_team_plan(plan: TeamPlanRef<'_>) -> RenderObject {
 }
 
 fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
-    let mut objects = Vec::with_capacity(2);
+    let mut objects = Vec::with_capacity(9);
     let marker_kind = marker_kind_id_segment(marker);
     let start_world = marker_world_position(marker);
     if let Some((x, y)) = start_world {
@@ -559,6 +561,23 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
         }
     }
 
+    if let MarkerModel::Quad(quad) = &marker.marker {
+        for (edge_index, (start, end)) in quad_marker_edge_world_positions(quad).enumerate() {
+            objects.push(RenderObject {
+                id: format!("marker:line:quad:{}:{edge_index}", marker.id),
+                layer: i32::from(ProjectionLayer::Marker),
+                x: start.0,
+                y: start.1,
+            });
+            objects.push(RenderObject {
+                id: format!("marker:line:quad:{}:{edge_index}:line-end", marker.id),
+                layer: i32::from(ProjectionLayer::Marker),
+                x: end.0,
+                y: end.1,
+            });
+        }
+    }
+
     objects
 }
 
@@ -584,12 +603,14 @@ fn marker_kind_id_segment(marker: &MarkerEntry) -> &'static str {
 }
 
 fn marker_world_position(marker: &MarkerEntry) -> Option<(f32, f32)> {
-    finite_world_position(marker.marker.world_position()).or_else(|| {
-        marker
-            .marker
-            .tile_coords()
-            .map(|(x, y)| (x as f32 * TILE_SIZE, y as f32 * TILE_SIZE))
-    })
+    finite_world_position(marker.marker.world_position())
+        .or_else(|| unknown_marker_world_position(&marker.marker))
+        .or_else(|| {
+            marker
+                .marker
+                .tile_coords()
+                .map(|(x, y)| (x as f32 * TILE_SIZE, y as f32 * TILE_SIZE))
+        })
 }
 
 fn line_marker_end_world_position(line: &LineMarkerModel) -> Option<(f32, f32)> {
@@ -599,8 +620,36 @@ fn line_marker_end_world_position(line: &LineMarkerModel) -> Option<(f32, f32)> 
     })
 }
 
+fn quad_marker_edge_world_positions(
+    quad: &QuadMarkerModel,
+) -> impl Iterator<Item = ((f32, f32), (f32, f32))> + '_ {
+    let vertices = quad
+        .vertices_bits
+        .chunks_exact(6)
+        .map(|vertex| {
+            finite_world_position(Some((f32::from_bits(vertex[0]), f32::from_bits(vertex[1]))))
+        })
+        .collect::<Vec<_>>();
+    let len = vertices.len();
+    (0..len).filter_map(move |index| {
+        let start = vertices.get(index).copied().flatten()?;
+        let end = vertices.get((index + 1) % len).copied().flatten()?;
+        (start != end).then_some((start, end))
+    })
+}
+
 fn finite_line_marker_world_position(line: &LineMarkerModel) -> Option<(f32, f32)> {
     finite_world_position(Some(line.end_world_position()))
+}
+
+fn unknown_marker_world_position(marker: &MarkerModel) -> Option<(f32, f32)> {
+    let MarkerModel::Unknown(unknown) = marker else {
+        return None;
+    };
+    finite_world_position(Some((
+        f32::from_bits(unknown.x_bits?),
+        f32::from_bits(unknown.y_bits?),
+    )))
 }
 
 fn finite_world_position(position: Option<(f32, f32)>) -> Option<(f32, f32)> {
@@ -720,7 +769,7 @@ mod tests {
     use crate::{RenderModel, RenderViewWindow};
     use mdt_world::{
         parse_world_bundle, LineMarkerModel, MarkerEntry, MarkerModel, PointMarkerModel,
-        TextMarkerModel,
+        QuadMarkerModel, ShapeMarkerModel, TextMarkerModel, TextureMarkerModel, UnknownMarkerModel,
     };
 
     #[test]
@@ -947,6 +996,175 @@ mod tests {
 
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].id, "marker:point:42");
+        assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
+    }
+
+    #[test]
+    fn shape_marker_projects_kind_specific_id_prefix_and_position() {
+        let marker = MarkerEntry {
+            id: 44,
+            marker: MarkerModel::Shape(ShapeMarkerModel {
+                class_tag: "Shape".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: 16.0f32.to_bits(),
+                y_bits: 24.0f32.to_bits(),
+                radius_bits: 8.0f32.to_bits(),
+                rotation_bits: 0.0f32.to_bits(),
+                stroke_bits: 1.0f32.to_bits(),
+                start_angle_bits: 0.0f32.to_bits(),
+                end_angle_bits: 360.0f32.to_bits(),
+                fill: false,
+                outline: true,
+                sides: 4,
+                color: Some("ffd37f".to_string()),
+            }),
+        };
+
+        let objects = super::project_marker_objects(&marker);
+
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id, "marker:shape:44");
+        assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
+    }
+
+    #[test]
+    fn texture_marker_projects_kind_specific_id_prefix_and_position() {
+        let marker = MarkerEntry {
+            id: 45,
+            marker: MarkerModel::Texture(TextureMarkerModel {
+                class_tag: "Texture".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: 16.0f32.to_bits(),
+                y_bits: 24.0f32.to_bits(),
+                rotation_bits: 0.0f32.to_bits(),
+                width_bits: 8.0f32.to_bits(),
+                height_bits: 8.0f32.to_bits(),
+                texture: mdt_world::MarkerTextureRef {
+                    kind: "atlas".to_string(),
+                    value: "block-1".to_string(),
+                },
+                color: Some("ffffffff".to_string()),
+            }),
+        };
+
+        let objects = super::project_marker_objects(&marker);
+
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id, "marker:texture:45");
+        assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
+    }
+
+    #[test]
+    fn quad_marker_projects_edge_segments_into_line_primitives() {
+        let mut vertices_bits = vec![0u32; 24];
+        for (index, (x, y)) in [(8.0f32, 16.0f32), (24.0, 16.0), (24.0, 32.0), (8.0, 32.0)]
+            .into_iter()
+            .enumerate()
+        {
+            let base = index * 6;
+            vertices_bits[base] = x.to_bits();
+            vertices_bits[base + 1] = y.to_bits();
+        }
+        let marker = MarkerEntry {
+            id: 46,
+            marker: MarkerModel::Quad(QuadMarkerModel {
+                class_tag: "Quad".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                texture: mdt_world::MarkerTextureRef {
+                    kind: "atlas".to_string(),
+                    value: "block-1".to_string(),
+                },
+                vertices_bits,
+            }),
+        };
+
+        let objects = super::project_marker_objects(&marker);
+
+        assert_eq!(objects[0].id, "marker:quad:46");
+        assert_eq!((objects[0].x, objects[0].y), (8.0, 16.0));
+        assert_eq!(objects.len(), 9);
+        assert_eq!(objects[1].id, "marker:line:quad:46:0");
+        assert_eq!((objects[1].x, objects[1].y), (8.0, 16.0));
+        assert_eq!(objects[2].id, "marker:line:quad:46:0:line-end");
+        assert_eq!((objects[2].x, objects[2].y), (24.0, 16.0));
+        assert_eq!(objects[7].id, "marker:line:quad:46:3");
+        assert_eq!((objects[7].x, objects[7].y), (8.0, 32.0));
+        assert_eq!(objects[8].id, "marker:line:quad:46:3:line-end");
+        assert_eq!((objects[8].x, objects[8].y), (8.0, 16.0));
+
+        let scene = RenderModel {
+            viewport: Default::default(),
+            view_window: None,
+            objects,
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![
+                RenderPrimitive::Line {
+                    id: "marker:line:quad:46:0".to_string(),
+                    layer: 30,
+                    x0: 8.0,
+                    y0: 16.0,
+                    x1: 24.0,
+                    y1: 16.0,
+                },
+                RenderPrimitive::Line {
+                    id: "marker:line:quad:46:1".to_string(),
+                    layer: 30,
+                    x0: 24.0,
+                    y0: 16.0,
+                    x1: 24.0,
+                    y1: 32.0,
+                },
+                RenderPrimitive::Line {
+                    id: "marker:line:quad:46:2".to_string(),
+                    layer: 30,
+                    x0: 24.0,
+                    y0: 32.0,
+                    x1: 8.0,
+                    y1: 32.0,
+                },
+                RenderPrimitive::Line {
+                    id: "marker:line:quad:46:3".to_string(),
+                    layer: 30,
+                    x0: 8.0,
+                    y0: 32.0,
+                    x1: 8.0,
+                    y1: 16.0,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_marker_projects_anchor_when_coordinates_are_present() {
+        let marker = MarkerEntry {
+            id: 47,
+            marker: MarkerModel::Unknown(UnknownMarkerModel {
+                class_tag: Some("MysteryMarker".to_string()),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: Some(0),
+                x_bits: Some(16.0f32.to_bits()),
+                y_bits: Some(24.0f32.to_bits()),
+            }),
+        };
+
+        let objects = super::project_marker_objects(&marker);
+
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id, "marker:unknown:47");
         assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
     }
 
@@ -1229,7 +1447,8 @@ mod tests {
         .unwrap();
         let session = bundle.loaded_session().unwrap();
 
-        let render = project_render_model_with_player_position(&session, Some((f32::NAN, f32::INFINITY)));
+        let render =
+            project_render_model_with_player_position(&session, Some((f32::NAN, f32::INFINITY)));
 
         assert!(!render
             .objects
