@@ -18015,16 +18015,514 @@ pub fn parse_world_session_goldens(compressed: &[u8]) -> Result<WorldSessionSumm
     Ok(WorldSessionSummary { lines })
 }
 
+fn push_world_enter_runtime_projection_lines(
+    lines: &mut Vec<(String, String)>,
+    runtime: &WorldEnterRuntimeContract,
+) {
+    push_str(lines, "runtime.locale", &runtime.locale);
+    push_str(lines, "runtime.screenId", &runtime.screen_id);
+    push_str(lines, "runtime.runnable", if runtime.runnable { "1" } else { "0" });
+    push_str(lines, "runtime.tickBits", &format!("{:016x}", runtime.tick_bits));
+    push_str(lines, "runtime.rand0", &format!("{:016x}", runtime.rand0));
+    push_str(lines, "runtime.rand1", &format!("{:016x}", runtime.rand1));
+    push_str(lines, "runtime.focus.mode", &runtime.focus.mode);
+    push_hex(
+        lines,
+        "runtime.focus.teamId",
+        runtime.focus.team_id as u32,
+        2,
+    );
+    push_hex(
+        lines,
+        "runtime.focus.anchorTileIndex",
+        runtime.focus.anchor_tile_index as u32,
+        8,
+    );
+    push_str(
+        lines,
+        "runtime.overlay.visible",
+        if runtime.overlay.visible { "1" } else { "0" },
+    );
+    push_hex(
+        lines,
+        "runtime.overlay.teamCount",
+        runtime.overlay.team_count as u32,
+        8,
+    );
+    push_hex(
+        lines,
+        "runtime.overlay.totalPlans",
+        runtime.overlay.total_plans as u32,
+        8,
+    );
+    push_hex(
+        lines,
+        "runtime.overlay.markerCount",
+        runtime.overlay.marker_count as u32,
+        8,
+    );
+    push_hex(
+        lines,
+        "runtime.overlay.staticFogTeamCount",
+        runtime.overlay.static_fog_team_count as u32,
+        8,
+    );
+    push_str(
+        lines,
+        "runtime.overlay.planTileMarkerIds",
+        if runtime.overlay.plan_tile_marker_ids.is_empty() {
+            "none".to_string()
+        } else {
+            i32s_to_hex(&runtime.overlay.plan_tile_marker_ids)
+        }
+        .as_str(),
+    );
+}
+
 pub fn parse_world_bootstrap_goldens(compressed: &[u8]) -> Result<WorldBootstrapSummary, String> {
-    let session = parse_world_session_goldens(compressed)?;
-    let lines = session
-        .lines
-        .into_iter()
-        .filter_map(|(key, value)| {
-            key.strip_prefix("session.bootstrap.")
-                .map(|suffix| (format!("bootstrap.{suffix}"), value))
-        })
-        .collect();
+    let bundle = parse_world_bundle(compressed)?;
+    let session = bundle.loaded_session()?;
+    let bootstrap = session.bootstrap("fr");
+    let runtime = session.enter_runtime_contract("fr");
+
+    let mut lines = Vec::new();
+    push_hex(&mut lines, "bootstrap.wave", bootstrap.wave as u32, 8);
+    push_hex(
+        &mut lines,
+        "bootstrap.wavetimeBits",
+        bootstrap.wavetime_bits,
+        8,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.tickBits",
+        &format!("{:016x}", bootstrap.tick_bits),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.rand0",
+        &format!("{:016x}", bootstrap.rand0),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.rand1",
+        &format!("{:016x}", bootstrap.rand1),
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.playerId",
+        bootstrap.player_id as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.playerRevision",
+        bootstrap.player_revision as u32,
+        4,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.playerAdmin",
+        if bootstrap.player_admin { "1" } else { "0" },
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.playerBoosting",
+        if bootstrap.player_boosting { "1" } else { "0" },
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.playerColor",
+        bootstrap.player_color_rgba,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.playerCommand",
+        bootstrap.player_command_id as u32,
+        2,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.playerNameSha256",
+        &sha256_hex(bootstrap.player_name.as_bytes()),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.playerShooting",
+        if bootstrap.player_shooting { "1" } else { "0" },
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.playerTyping",
+        if bootstrap.player_typing { "1" } else { "0" },
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.playerUnitType",
+        bootstrap.player_unit_kind as u32,
+        2,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.playerUnitValue",
+        bootstrap.player_unit_value,
+        8,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.mapNameTag",
+        bootstrap.map_name_tag.as_deref().unwrap_or("none"),
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.compressedLength",
+        bootstrap.compressed_length as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.inflatedLength",
+        bootstrap.inflated_length as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.tailLength",
+        bootstrap.tail_length as u32,
+        8,
+    );
+    push_str(&mut lines, "bootstrap.tailSha256", &bootstrap.tail_sha256);
+    push_str(
+        &mut lines,
+        "bootstrap.markersEmpty",
+        if bootstrap.markers_empty { "1" } else { "0" },
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.mappedContentTypeIds",
+        &u32s_to_hex(
+            &bootstrap
+                .mapped_content_type_ids
+                .iter()
+                .map(|content_type| *content_type as u32)
+                .collect::<Vec<_>>(),
+        ),
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.firstContentType",
+        bootstrap.first_content_type.map_or(0, |value| value as u32),
+        2,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.firstContentName",
+        bootstrap.first_content_name.as_deref().unwrap_or("none"),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.firstBlockName",
+        bootstrap.first_block_name.as_deref().unwrap_or("none"),
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.blockContentCount",
+        bootstrap.block_content_count as u32,
+        4,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.firstItemName",
+        bootstrap.first_item_name.as_deref().unwrap_or("none"),
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.itemContentCount",
+        bootstrap.item_content_count as u32,
+        4,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.firstLiquidName",
+        bootstrap.first_liquid_name.as_deref().unwrap_or("none"),
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.liquidContentCount",
+        bootstrap.liquid_content_count as u32,
+        4,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.firstUnitName",
+        bootstrap.first_unit_name.as_deref().unwrap_or("none"),
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.unitContentCount",
+        bootstrap.unit_content_count as u32,
+        4,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.firstWeatherName",
+        bootstrap.first_weather_name.as_deref().unwrap_or("none"),
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.weatherContentCount",
+        bootstrap.weather_content_count as u32,
+        4,
+    );
+    push_str(&mut lines, "bootstrap.rulesSha256", &bootstrap.rules_sha256);
+    push_str(
+        &mut lines,
+        "bootstrap.mapLocalesSha256",
+        &bootstrap.map_locales_sha256,
+    );
+    push_str(&mut lines, "bootstrap.tagsSha256", &bootstrap.tags_sha256);
+    push_hex(
+        &mut lines,
+        "bootstrap.contentMappedTypes",
+        bootstrap.content_header_mapped_types as u32,
+        2,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.contentHeaderSha256",
+        &bootstrap.content_header_sha256,
+    );
+    push_str(&mut lines, "bootstrap.patchesSha256", &bootstrap.patches_sha256);
+    push_str(&mut lines, "bootstrap.floorSha256", &bootstrap.floor_sha256);
+    push_str(&mut lines, "bootstrap.blockSha256", &bootstrap.block_sha256);
+    push_str(
+        &mut lines,
+        "bootstrap.teamBlocksSha256",
+        &bootstrap.team_blocks_sha256,
+    );
+    push_str(&mut lines, "bootstrap.markersSha256", &bootstrap.markers_sha256);
+    push_str(
+        &mut lines,
+        "bootstrap.customChunksSha256",
+        &bootstrap.custom_chunks_sha256,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.mapWidth",
+        bootstrap.map_width as u32,
+        4,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.mapHeight",
+        bootstrap.map_height as u32,
+        4,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.floorRuns",
+        bootstrap.floor_runs as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.blockRuns",
+        bootstrap.block_runs as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.buildingCenters",
+        bootstrap.building_centers as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.dataTiles",
+        bootstrap.data_tiles as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.staticFogWidth",
+        bootstrap.static_fog_width as u32,
+        4,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.staticFogHeight",
+        bootstrap.static_fog_height as u32,
+        4,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.teamCount",
+        bootstrap.team_count as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.totalPlans",
+        bootstrap.total_plans as u32,
+        8,
+    );
+    push_str(&mut lines, "bootstrap.teamIds", &u32s_to_hex(&bootstrap.team_ids));
+    push_str(
+        &mut lines,
+        "bootstrap.fogTeamIds",
+        &u32s_to_hex(
+            &bootstrap
+                .fog_team_ids
+                .iter()
+                .map(|team_id| *team_id as u32)
+                .collect::<Vec<_>>(),
+        ),
+    );
+    push_str(&mut lines, "bootstrap.markerIds", &i32s_to_hex(&bootstrap.marker_ids));
+    push_str(
+        &mut lines,
+        "bootstrap.markerClassTags",
+        &bootstrap.marker_class_tags.join(","),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.markerColors",
+        &bootstrap.marker_colors.join(","),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.planConfigKinds",
+        &bootstrap.team_plan_config_kinds.join(","),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.planConfigHashes",
+        &bootstrap.team_plan_config_hashes.join(","),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.staticFogRevealedCounts",
+        &u32s_to_hex(&bootstrap.static_fog_revealed_counts),
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.coreTileIndex",
+        bootstrap.core_tile_index as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.coreCenterBlock",
+        bootstrap.core_center_block.unwrap_or(0) as u32,
+        4,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.planTilePlanTeams",
+        &u32s_to_hex(&bootstrap.plan_tile_plan_teams),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.planTileMarkerIds",
+        &i32s_to_hex(&bootstrap.plan_tile_marker_ids),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.planTileFog01",
+        if bootstrap.plan_tile_fog_team_01.unwrap_or(false) {
+            "1"
+        } else {
+            "0"
+        },
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.playerTeam",
+        bootstrap.player_team_id as u32,
+        2,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.selectedRotation",
+        bootstrap.selected_rotation,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.markerCount",
+        bootstrap.marker_count as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.customChunkCount",
+        bootstrap.custom_chunk_count as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.contentPatchCount",
+        bootstrap.content_patch_count as u32,
+        2,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.playerTeamPlanCount",
+        bootstrap.player_team_plan_count as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.staticFogTeamCount",
+        bootstrap.static_fog_team_count as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.playerX",
+        bootstrap.player_x_bits,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.playerY",
+        bootstrap.player_y_bits,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.mouseX",
+        bootstrap.mouse_x_bits,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "bootstrap.mouseY",
+        bootstrap.mouse_y_bits,
+        8,
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.selectedBlockName",
+        bootstrap.selected_block_name.as_deref().unwrap_or("none"),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.localeTitle",
+        bootstrap.locale_title.as_deref().unwrap_or("none"),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.displayTitle",
+        bootstrap.display_title.as_deref().unwrap_or("none"),
+    );
+    push_str(
+        &mut lines,
+        "bootstrap.ready",
+        if bootstrap.ready_to_enter_world { "1" } else { "0" },
+    );
+    push_world_enter_runtime_projection_lines(&mut lines, &runtime);
     Ok(WorldBootstrapSummary { lines })
 }
 
@@ -48068,6 +48566,20 @@ mod tests {
         ));
         assert!(text.contains("bootstrap.ready=1"));
         assert!(!text.contains("session.player.team"));
+    }
+
+    #[test]
+    fn formats_world_bootstrap_goldens_includes_runtime_projection_fields() {
+        let bundle = sample_world_bundle();
+        let summary = parse_world_bootstrap_goldens(&bundle.compressed).unwrap();
+        let text = format_world_bootstrap_goldens(&summary);
+
+        assert!(text.contains("bootstrap.ready=1"));
+        assert!(text.contains("runtime.locale=fr"));
+        assert!(text.contains("runtime.screenId=world"));
+        assert!(text.contains("runtime.runnable=1"));
+        assert!(text.contains("runtime.overlay.planTileMarkerIds=00000018"));
+        assert!(!text.contains("session.bootstrap."));
     }
 
     #[test]
