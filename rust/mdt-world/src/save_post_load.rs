@@ -1,7 +1,8 @@
 use crate::{
     marker_region_is_empty, CustomChunkEntry, MarkerEntry, MarkerModel, ParsedBuildingTail,
     ParsedCustomChunk, SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeReadiness,
-    SavePostLoadRuntimeSeedSurface, SavePostLoadRuntimeWorldOwnership,
+    SavePostLoadRuntimeSeedSurface, SavePostLoadRuntimeSourceRegionReadiness,
+    SavePostLoadRuntimeWorldOwnership,
     SavePostLoadRuntimeWorldSemanticsExecution, SavePostLoadWorldObservation, StaticFogChunk,
     TeamPlan, TeamPlanGroup, WorldGraph, WorldLoadUnknownCoverageSummary,
 };
@@ -30,9 +31,35 @@ pub struct SavePostLoadWorldApplyBundle<'a> {
     pub runtime_world_semantics: SavePostLoadRuntimeWorldSemanticsExecution,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadWorldApplyBundleReadiness<'a> {
+    pub runtime_readiness: &'a SavePostLoadRuntimeReadiness,
+    pub runtime_seed_surface: &'a SavePostLoadRuntimeSeedSurface,
+    pub source_regions: Vec<SavePostLoadRuntimeSourceRegionReadiness>,
+}
+
+impl<'a> SavePostLoadWorldApplyBundleReadiness<'a> {
+    pub fn source_region(
+        &self,
+        source_region_name: &str,
+    ) -> Option<&SavePostLoadRuntimeSourceRegionReadiness> {
+        self.source_regions
+            .iter()
+            .find(|region| region.source_region_name == source_region_name)
+    }
+}
+
 impl<'a> SavePostLoadWorldApplyBundle<'a> {
     pub fn graph(&self) -> WorldGraph<'a> {
         self.observation.graph()
+    }
+
+    pub fn runtime_readiness_summary(&self) -> SavePostLoadWorldApplyBundleReadiness<'_> {
+        SavePostLoadWorldApplyBundleReadiness {
+            runtime_readiness: &self.runtime_readiness,
+            runtime_seed_surface: &self.runtime_seed_surface,
+            source_regions: self.runtime_readiness.source_regions(),
+        }
     }
 
     pub fn team_plan_group(&self, team_id: u32) -> Option<&'a TeamPlanGroup> {
@@ -280,6 +307,26 @@ mod tests {
         assert_eq!(
             bundle.unknown_coverage_summary(),
             observation.unknown_coverage_summary()
+        );
+    }
+
+    #[test]
+    fn post_load_world_apply_bundle_reports_source_region_readiness() {
+        let observation = test_observation();
+        let bundle = observation.post_load_world_apply_bundle();
+        let readiness_summary = bundle.runtime_readiness_summary();
+        let runtime_readiness = observation.runtime_readiness();
+        let runtime_seed_surface = observation.runtime_seed_surface();
+
+        assert_eq!(readiness_summary.runtime_readiness, &runtime_readiness);
+        assert_eq!(readiness_summary.runtime_seed_surface, &runtime_seed_surface);
+        assert_eq!(
+            readiness_summary.source_regions,
+            runtime_readiness.source_regions()
+        );
+        assert_eq!(
+            readiness_summary.source_region("entities").cloned(),
+            runtime_readiness.source_region("entities")
         );
     }
 
