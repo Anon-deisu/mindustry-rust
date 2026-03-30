@@ -900,6 +900,24 @@ mod tests {
     }
 
     #[test]
+    fn pending_tcp_write_rejects_frames_larger_than_u16_max() {
+        let mut pending = PendingTcpWrite::default();
+        let payload = vec![0u8; usize::from(u16::MAX) + 1];
+
+        let error = pending
+            .enqueue_frame(&payload, Some(77))
+            .expect_err("oversized frame should fail");
+
+        assert!(matches!(
+            error,
+            ArcNetLoopError::FrameTooLarge(len) if len == payload.len()
+        ));
+        assert!(pending.bytes.is_empty());
+        assert_eq!(pending.offset, 0);
+        assert!(pending.frames.is_empty());
+    }
+
+    #[test]
     fn test_cap_tcp_read_buffer_growth_on_fragmented_frames() {
         let (tcp_listener, _udp_socket, server_addr) = bind_local_arcnet_server();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
