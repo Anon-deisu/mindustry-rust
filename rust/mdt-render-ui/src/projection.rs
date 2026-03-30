@@ -147,31 +147,33 @@ fn project_render_model_with_player_position_visibility(
         for plan in session.player_team_plans() {
             let plan_x = i32::from(plan.plan.x);
             let plan_y = i32::from(plan.plan.y);
-            let Some((plan_tile_x, plan_tile_y)) =
-                tile_coords_in_bounds(plan_x, plan_y, graph.width(), graph.height())
-            else {
-                continue;
-            };
-            if !tile_visible_under_fog(session, fog_visibility, plan_tile_x, plan_tile_y) {
-                continue;
+            if visible_tile_coords_under_fog(
+                session,
+                fog_visibility,
+                tile_coords_in_bounds(plan_x, plan_y, graph.width(), graph.height()),
+            )
+            .is_some()
+            {
+                objects.push(project_team_plan(plan));
             }
-            objects.push(project_team_plan(plan));
         }
 
         for marker in graph.markers() {
             for object in project_marker_objects(marker) {
-                let Some((marker_tile_x, marker_tile_y)) = world_position_tile_coords_in_bounds(
-                    object.x,
-                    object.y,
-                    graph.width(),
-                    graph.height(),
-                ) else {
-                    continue;
-                };
-                if !tile_visible_under_fog(session, fog_visibility, marker_tile_x, marker_tile_y) {
-                    continue;
+                if visible_tile_coords_under_fog(
+                    session,
+                    fog_visibility,
+                    world_position_tile_coords_in_bounds(
+                        object.x,
+                        object.y,
+                        graph.width(),
+                        graph.height(),
+                    ),
+                )
+                .is_some()
+                {
+                    objects.push(object);
                 }
-                objects.push(object);
             }
         }
     }
@@ -260,48 +262,47 @@ fn project_render_model_with_view_window_visibility(
         for plan in session.player_team_plans() {
             let plan_x = i32::from(plan.plan.x);
             let plan_y = i32::from(plan.plan.y);
-            let Some((plan_tile_x, plan_tile_y)) =
-                tile_coords_in_bounds(plan_x, plan_y, graph.width(), graph.height())
-            else {
-                continue;
-            };
-            if !tile_visible_under_fog(session, fog_visibility, plan_tile_x, plan_tile_y) {
-                continue;
-            }
-            if tile_in_window(
-                plan_x,
-                plan_y,
-                window_x,
-                window_y,
-                window_width,
-                window_height,
-            ) {
+            if visible_tile_coords_under_fog(
+                session,
+                fog_visibility,
+                tile_coords_in_bounds(plan_x, plan_y, graph.width(), graph.height()),
+            )
+            .is_some()
+                && tile_in_window(
+                    plan_x,
+                    plan_y,
+                    window_x,
+                    window_y,
+                    window_width,
+                    window_height,
+                )
+            {
                 objects.push(project_team_plan(plan));
             }
         }
 
         for marker in graph.markers() {
             for object in project_marker_objects(marker) {
-                let Some((marker_tile_x, marker_tile_y)) = world_position_tile_coords_in_bounds(
-                    object.x,
-                    object.y,
-                    graph.width(),
-                    graph.height(),
-                ) else {
-                    continue;
-                };
-                if !tile_visible_under_fog(session, fog_visibility, marker_tile_x, marker_tile_y) {
-                    continue;
-                }
-                if tile_in_window(
-                    marker_tile_x as i32,
-                    marker_tile_y as i32,
-                    window_x,
-                    window_y,
-                    window_width,
-                    window_height,
+                if let Some((marker_tile_x, marker_tile_y)) = visible_tile_coords_under_fog(
+                    session,
+                    fog_visibility,
+                    world_position_tile_coords_in_bounds(
+                        object.x,
+                        object.y,
+                        graph.width(),
+                        graph.height(),
+                    ),
                 ) {
-                    objects.push(object);
+                    if tile_in_window(
+                        marker_tile_x as i32,
+                        marker_tile_y as i32,
+                        window_x,
+                        window_y,
+                        window_width,
+                        window_height,
+                    ) {
+                        objects.push(object);
+                    }
                 }
             }
         }
@@ -488,6 +489,15 @@ fn tile_visible_under_fog(
             tile_x,
             tile_y,
         ))
+}
+
+fn visible_tile_coords_under_fog(
+    session: &LoadedWorldSession<'_>,
+    fog_visibility: FogVisibility,
+    tile_coords: Option<(usize, usize)>,
+) -> Option<(usize, usize)> {
+    let (tile_x, tile_y) = tile_coords?;
+    tile_visible_under_fog(session, fog_visibility, tile_x, tile_y).then_some((tile_x, tile_y))
 }
 
 fn fog_tile_counts(
