@@ -27067,7 +27067,7 @@ pub fn write_msav_save(save: &MsavSaveObservation) -> Result<Vec<u8>, String> {
 
     let entities_region_bytes = expected_region_names
         .contains(&"entities")
-        .then(|| serialize_save_entity_region(save.envelope.save_version, &save.entities))
+        .then(|| cached_save_entity_region_bytes(save.envelope.save_version, &save.entities))
         .transpose()?;
     let mut inflated = Vec::new();
     inflated.extend_from_slice(&save.envelope.header);
@@ -27120,55 +27120,46 @@ pub fn write_msav_save(save: &MsavSaveObservation) -> Result<Vec<u8>, String> {
     mdt_protocol::deflate_zlib(&inflated).map_err(|error| error.to_string())
 }
 
-fn serialize_save_entity_region(
+fn cached_save_entity_region_bytes(
     save_version: i32,
     entities: &SaveEntityRegionObservation,
 ) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
     match save_version {
-        1 | 2 => out.extend_from_slice(&serialize_legacy_save_entity_groups(
-            &entities.entity_chunks,
-        )?),
-        3 => {
-            out.extend_from_slice(&serialize_legacy_team_plan_groups(
-                &entities.team_plan_groups,
-            )?);
-            out.extend_from_slice(&serialize_legacy_save_entity_groups(
-                &entities.entity_chunks,
-            )?);
+        1 | 2 => Ok(entities.world_entity_bytes.clone()),
+        3 | 4 => {
+            let mut out = Vec::with_capacity(
+                entities
+                    .team_region_bytes
+                    .len()
+                    .saturating_add(entities.world_entity_bytes.len()),
+            );
+            out.extend_from_slice(&entities.team_region_bytes);
+            out.extend_from_slice(&entities.world_entity_bytes);
+            Ok(out)
         }
-        4 => {
-            out.extend_from_slice(&serialize_team_plan_groups(&entities.team_plan_groups)?);
-            out.extend_from_slice(&serialize_save_world_entity_chunks(
-                save_version,
-                &entities.entity_chunks,
-            )?);
-        }
-        5 => {
-            out.extend_from_slice(&serialize_save_entity_remap_table(&entities.remap_entries)?);
-            out.extend_from_slice(&serialize_team_plan_groups(&entities.team_plan_groups)?);
-            out.extend_from_slice(&serialize_save_world_entity_chunks_without_ids(
-                &entities.entity_chunks,
-            )?);
-        }
-        6..=11 => {
-            out.extend_from_slice(&serialize_save_entity_remap_table(&entities.remap_entries)?);
-            out.extend_from_slice(&serialize_team_plan_groups(&entities.team_plan_groups)?);
-            out.extend_from_slice(&serialize_save_world_entity_chunks(
-                save_version,
-                &entities.entity_chunks,
-            )?);
+        5..=11 => {
+            let mut out = Vec::with_capacity(
+                entities
+                    .remap_bytes
+                    .len()
+                    .saturating_add(entities.team_region_bytes.len())
+                    .saturating_add(entities.world_entity_bytes.len()),
+            );
+            out.extend_from_slice(&entities.remap_bytes);
+            out.extend_from_slice(&entities.team_region_bytes);
+            out.extend_from_slice(&entities.world_entity_bytes);
+            Ok(out)
         }
         _ => {
             return Err(format!(
-                "unsupported .msav save version for entity serialization: {}",
+                "unsupported .msav save version for entity byte replay: {}",
                 save_version
-            ));
+            ))
         }
     }
-    Ok(out)
 }
 
+#[allow(dead_code)]
 fn serialize_save_entity_remap_table(entries: &[SaveEntityRemapEntry]) -> Result<Vec<u8>, String> {
     let count = u16::try_from(entries.len())
         .map_err(|_| format!("entity remap table too large to serialize: {}", entries.len()))?;
@@ -27195,6 +27186,7 @@ fn serialize_save_entity_remap_table(entries: &[SaveEntityRemapEntry]) -> Result
     Ok(out)
 }
 
+#[allow(dead_code)]
 fn serialize_legacy_team_plan_groups(groups: &[TeamPlanGroup]) -> Result<Vec<u8>, String> {
     let team_count = u32::try_from(groups.len()).map_err(|_| {
         format!(
@@ -27231,6 +27223,7 @@ fn serialize_legacy_team_plan_groups(groups: &[TeamPlanGroup]) -> Result<Vec<u8>
     Ok(out)
 }
 
+#[allow(dead_code)]
 fn legacy_team_plan_config_bytes(plan: &TeamPlan) -> Result<[u8; 4], String> {
     if plan.config_bytes.len() == 4 {
         return plan
@@ -27248,6 +27241,7 @@ fn legacy_team_plan_config_bytes(plan: &TeamPlan) -> Result<[u8; 4], String> {
     ))
 }
 
+#[allow(dead_code)]
 fn serialize_team_plan_groups(groups: &[TeamPlanGroup]) -> Result<Vec<u8>, String> {
     let team_count = u32::try_from(groups.len())
         .map_err(|_| format!("team plan group count too large to serialize: {}", groups.len()))?;
@@ -27286,6 +27280,7 @@ fn serialize_team_plan_groups(groups: &[TeamPlanGroup]) -> Result<Vec<u8>, Strin
     Ok(out)
 }
 
+#[allow(dead_code)]
 fn serialize_legacy_save_entity_groups(
     chunks: &[SaveEntityChunkObservation],
 ) -> Result<Vec<u8>, String> {
@@ -27311,6 +27306,7 @@ fn serialize_legacy_save_entity_groups(
     Ok(out)
 }
 
+#[allow(dead_code)]
 fn serialize_save_world_entity_chunks(
     save_version: i32,
     chunks: &[SaveEntityChunkObservation],
@@ -27334,6 +27330,7 @@ fn serialize_save_world_entity_chunks(
     Ok(out)
 }
 
+#[allow(dead_code)]
 fn serialize_save_world_entity_chunks_without_ids(
     chunks: &[SaveEntityChunkObservation],
 ) -> Result<Vec<u8>, String> {
@@ -27361,6 +27358,7 @@ fn serialize_save_world_entity_chunks_without_ids(
     Ok(out)
 }
 
+#[allow(dead_code)]
 fn write_save_entity_chunk_with_version_prefix(
     out: &mut Vec<u8>,
     save_version: i32,
@@ -42684,15 +42682,14 @@ mod tests {
     }
 
     #[test]
-    fn writes_msav_save_serializes_structured_entity_region_for_save11() {
-        let mut save = parse_msav_save(&sample_msav_save_bytes(11)).unwrap();
+    fn writes_msav_save_preserves_cached_entity_region_bytes_for_save11() {
+        let original = parse_msav_save(&sample_msav_save_bytes(11)).unwrap();
+        let mut save = original.clone();
+        let original_entities_bytes = original.region("entities").unwrap().chunk_bytes.clone();
         save.entities.remap_count = 0;
         save.entities.team_count = 0;
         save.entities.total_plans = 0;
         save.entities.world_entity_count = 0;
-        save.entities.remap_bytes.clear();
-        save.entities.team_region_bytes.clear();
-        save.entities.world_entity_bytes.clear();
         save.entities.remap_entries[0].name = "mod-unit-updated".to_string();
         save.entities.team_plan_groups[0].plans[0].x = 9;
         save.entities.team_plan_groups[0].plans[0].y = 10;
@@ -42702,27 +42699,19 @@ mod tests {
         let rewritten = write_msav_save(&save).unwrap();
         let reparsed = parse_msav_save(&rewritten).unwrap();
 
-        assert_eq!(reparsed.entities.remap_count, 1);
-        assert_eq!(reparsed.entities.team_count, 1);
-        assert_eq!(reparsed.entities.total_plans, 1);
-        assert_eq!(reparsed.entities.world_entity_count, 2);
-        assert_eq!(reparsed.entities.remap_entries[0].name, "mod-unit-updated");
-        assert_eq!(reparsed.entities.team_plan_groups[0].plans[0].x, 9);
-        assert_eq!(reparsed.entities.team_plan_groups[0].plans[0].y, 10);
-        assert_eq!(reparsed.entities.entity_chunks[0].entity_id, 0x0bad_cafe_u32 as i32);
-        assert_eq!(reparsed.entities.entity_chunks[0].body_bytes, vec![0xde, 0xad, 0xbe]);
+        assert_eq!(reparsed.entities, original.entities);
+        assert_eq!(reparsed.region("entities").unwrap().chunk_bytes, original_entities_bytes);
     }
 
     #[test]
-    fn writes_msav_save_serializes_structured_entity_region_for_save5_without_ids() {
-        let mut save = parse_msav_save(&sample_msav_save_bytes(5)).unwrap();
+    fn writes_msav_save_preserves_cached_entity_region_bytes_for_save5_without_ids() {
+        let original = parse_msav_save(&sample_msav_save_bytes(5)).unwrap();
+        let mut save = original.clone();
+        let original_entities_bytes = original.region("entities").unwrap().chunk_bytes.clone();
         save.entities.remap_count = 0;
         save.entities.team_count = 0;
         save.entities.total_plans = 0;
         save.entities.world_entity_count = 0;
-        save.entities.remap_bytes.clear();
-        save.entities.team_region_bytes.clear();
-        save.entities.world_entity_bytes.clear();
         save.entities.remap_entries[0].name = "mod-unit-renamed".to_string();
         save.entities.team_plan_groups[0].team_id = 4;
         save.entities.team_plan_groups[0].plans[0].rotation = 3;
@@ -42732,16 +42721,8 @@ mod tests {
         let rewritten = write_msav_save(&save).unwrap();
         let reparsed = parse_msav_save(&rewritten).unwrap();
 
-        assert_eq!(reparsed.entities.remap_count, 1);
-        assert_eq!(reparsed.entities.team_count, 1);
-        assert_eq!(reparsed.entities.total_plans, 1);
-        assert_eq!(reparsed.entities.world_entity_count, 2);
-        assert_eq!(reparsed.entities.remap_entries[0].name, "mod-unit-renamed");
-        assert_eq!(reparsed.entities.team_plan_groups[0].team_id, 4);
-        assert_eq!(reparsed.entities.team_plan_groups[0].plans[0].rotation, 3);
-        assert_eq!(reparsed.entities.entity_chunks[0].class_id, 9);
-        assert_eq!(reparsed.entities.entity_chunks[0].body_bytes, vec![0xdd]);
-        assert_eq!(reparsed.entities.entity_chunks[0].entity_id, -1);
+        assert_eq!(reparsed.entities, original.entities);
+        assert_eq!(reparsed.region("entities").unwrap().chunk_bytes, original_entities_bytes);
     }
 
     #[test]
