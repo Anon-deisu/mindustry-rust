@@ -38,6 +38,82 @@ impl SavePostLoadRuntimeSeedPlan {
             + self.loadable_entity_seeds.len()
             + self.skipped_entity_seeds.len()
     }
+
+    pub fn source_region(&self, source_region_name: &str) -> Option<SavePostLoadRuntimeSeedRegion> {
+        self.source_regions()
+            .into_iter()
+            .find(|region| region.source_region_name == source_region_name)
+    }
+
+    pub fn source_regions(&self) -> Vec<SavePostLoadRuntimeSeedRegion> {
+        let mut source_regions = Vec::new();
+
+        let map = SavePostLoadRuntimeSeedRegion {
+            source_region_name: "map",
+            world_seed: Some(self.world_seed.clone()),
+            entity_remap_seeds: Vec::new(),
+            team_plan_seeds: Vec::new(),
+            marker_seeds: Vec::new(),
+            static_fog_seed: None,
+            custom_chunk_seeds: Vec::new(),
+            building_seeds: self.building_seeds.clone(),
+            loadable_entity_seeds: Vec::new(),
+            skipped_entity_seeds: Vec::new(),
+        };
+        if map.seed_step_count() > 0 {
+            source_regions.push(map);
+        }
+
+        let entities = SavePostLoadRuntimeSeedRegion {
+            source_region_name: "entities",
+            world_seed: None,
+            entity_remap_seeds: self.entity_remap_seeds.clone(),
+            team_plan_seeds: self.team_plan_seeds.clone(),
+            marker_seeds: Vec::new(),
+            static_fog_seed: None,
+            custom_chunk_seeds: Vec::new(),
+            building_seeds: Vec::new(),
+            loadable_entity_seeds: self.loadable_entity_seeds.clone(),
+            skipped_entity_seeds: self.skipped_entity_seeds.clone(),
+        };
+        if entities.seed_step_count() > 0 {
+            source_regions.push(entities);
+        }
+
+        let markers = SavePostLoadRuntimeSeedRegion {
+            source_region_name: "markers",
+            world_seed: None,
+            entity_remap_seeds: Vec::new(),
+            team_plan_seeds: Vec::new(),
+            marker_seeds: self.marker_seeds.clone(),
+            static_fog_seed: None,
+            custom_chunk_seeds: Vec::new(),
+            building_seeds: Vec::new(),
+            loadable_entity_seeds: Vec::new(),
+            skipped_entity_seeds: Vec::new(),
+        };
+        if markers.seed_step_count() > 0 {
+            source_regions.push(markers);
+        }
+
+        let custom = SavePostLoadRuntimeSeedRegion {
+            source_region_name: "custom",
+            world_seed: None,
+            entity_remap_seeds: Vec::new(),
+            team_plan_seeds: Vec::new(),
+            marker_seeds: Vec::new(),
+            static_fog_seed: self.static_fog_seed.clone(),
+            custom_chunk_seeds: self.custom_chunk_seeds.clone(),
+            building_seeds: Vec::new(),
+            loadable_entity_seeds: Vec::new(),
+            skipped_entity_seeds: Vec::new(),
+        };
+        if custom.seed_step_count() > 0 {
+            source_regions.push(custom);
+        }
+
+        source_regions
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +139,34 @@ pub struct SavePostLoadRuntimeEntityRemapSeed {
     pub remap_index: usize,
     pub custom_id: u16,
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SavePostLoadRuntimeSeedRegion {
+    pub source_region_name: &'static str,
+    pub world_seed: Option<SavePostLoadRuntimeWorldSeed>,
+    pub entity_remap_seeds: Vec<SavePostLoadRuntimeEntityRemapSeed>,
+    pub team_plan_seeds: Vec<SavePostLoadRuntimeTeamPlanSeed>,
+    pub marker_seeds: Vec<SavePostLoadRuntimeMarkerSeed>,
+    pub static_fog_seed: Option<SavePostLoadRuntimeStaticFogSeed>,
+    pub custom_chunk_seeds: Vec<SavePostLoadRuntimeCustomChunkSeed>,
+    pub building_seeds: Vec<SavePostLoadRuntimeBuildingSeed>,
+    pub loadable_entity_seeds: Vec<SavePostLoadRuntimeEntitySeed>,
+    pub skipped_entity_seeds: Vec<SavePostLoadRuntimeEntitySeed>,
+}
+
+impl SavePostLoadRuntimeSeedRegion {
+    pub fn seed_step_count(&self) -> usize {
+        usize::from(self.world_seed.is_some())
+            + self.entity_remap_seeds.len()
+            + self.team_plan_seeds.len()
+            + self.marker_seeds.len()
+            + usize::from(self.static_fog_seed.is_some())
+            + self.custom_chunk_seeds.len()
+            + self.building_seeds.len()
+            + self.loadable_entity_seeds.len()
+            + self.skipped_entity_seeds.len()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -336,11 +440,31 @@ mod tests {
     fn runtime_seed_plan_carries_deterministic_runtime_inputs() {
         let observation = test_observation();
         let plan = observation.runtime_seed_plan();
+        let source_regions = plan.source_regions();
+        let entities = plan.source_region("entities").unwrap();
 
         assert_eq!(plan.contract, observation.projection_contract());
         assert_eq!(plan.activation, observation.activation_surface());
         assert!(!plan.can_seed_runtime_apply());
         assert_eq!(plan.seed_step_count(), 14);
+        assert_eq!(
+            source_regions
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            vec!["map", "entities", "markers", "custom"]
+        );
+        assert_eq!(source_regions[0].seed_step_count(), 2);
+        assert_eq!(source_regions[1].seed_step_count(), 7);
+        assert_eq!(source_regions[2].seed_step_count(), 2);
+        assert_eq!(source_regions[3].seed_step_count(), 3);
+        assert_eq!(source_regions[0].world_seed.as_ref(), Some(&plan.world_seed));
+        assert_eq!(source_regions[0].building_seeds.len(), 1);
+        assert_eq!(entities.seed_step_count(), 7);
+        assert_eq!(entities.entity_remap_seeds.len(), 2);
+        assert_eq!(entities.team_plan_seeds.len(), 2);
+        assert_eq!(entities.loadable_entity_seeds.len(), 2);
+        assert_eq!(entities.skipped_entity_seeds.len(), 1);
 
         assert_eq!(plan.world_seed.save_version, 11);
         assert_eq!(plan.world_seed.tile_count(), 4);
@@ -410,6 +534,16 @@ mod tests {
         );
         assert_eq!(plan.custom_chunk_seeds.len(), 2);
         assert_eq!(plan.custom_chunk_seeds[1].name, "mystery".to_string());
+        assert_eq!(source_regions[2].marker_seeds.len(), 2);
+        assert_eq!(
+            source_regions[3]
+                .static_fog_seed
+                .as_ref()
+                .expect("static fog seed should be present")
+                .source_chunk_name,
+            "static-fog-data"
+        );
+        assert_eq!(source_regions[3].custom_chunk_seeds.len(), 2);
         assert_eq!(
             plan.building_seeds[0].activation,
             SavePostLoadBuildingActivationCandidate {
