@@ -737,6 +737,37 @@ mod tests {
     }
 
     #[test]
+    fn status_entries_with_missing_dynamic_fields_write_zero_flag_byte() {
+        let entries = vec![StatusEntryRaw {
+            status_id: 27,
+            time: 45.5,
+            dynamic_fields: None,
+        }];
+        let mut bytes = Vec::new();
+
+        write_status_entries(&mut bytes, &entries, true);
+
+        assert_eq!(
+            bytes,
+            [
+                &[1],
+                entries[0].status_id.to_be_bytes().as_slice(),
+                entries[0].time.to_bits().to_be_bytes().as_slice(),
+                &[0],
+            ]
+            .concat()
+        );
+        assert_eq!(
+            read_status_entries(&bytes, true).unwrap(),
+            vec![StatusEntryRaw {
+                status_id: 27,
+                time: 45.5,
+                dynamic_fields: Some(StatusDynamicFieldsRaw::default()),
+            }]
+        );
+    }
+
+    #[test]
     fn status_entries_round_trip_empty_array() {
         let mut bytes = Vec::new();
 
