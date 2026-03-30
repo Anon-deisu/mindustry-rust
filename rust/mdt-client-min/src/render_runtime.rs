@@ -181,7 +181,7 @@ impl RenderRuntimeAdapter {
             runtime_typed_building_projection,
         ));
         hud.status_text = format!(
-            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_core_binding={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_data_hint={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_binding={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_bootstrap={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_camera={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_build_health_update={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_destroy_payload={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_chat={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
+            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_core_binding={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_data_hint={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_binding={} runtime_effect_binding_detail={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_bootstrap={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_camera={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_build_health_update={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_destroy_payload={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_chat={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
             runtime_selected_block_label(snapshot_input.selected_block_id),
             snapshot_input.plans.as_ref().map_or(0, Vec::len),
@@ -307,6 +307,7 @@ impl RenderRuntimeAdapter {
             ),
             runtime_effect_path_label(session_state.last_effect_business_path.as_deref()),
             runtime_effect_binding_label(snapshot_input, session_state, &self.world_overlay),
+            runtime_effect_binding_detail_label(snapshot_input, session_state, &self.world_overlay),
             runtime_effect_data_fail_label(session_state),
             runtime_bootstrap_hash_label(bootstrap_projection, |projection| {
                 projection.rules_sha256.as_str()
@@ -4947,6 +4948,52 @@ fn runtime_effect_binding_label(
     session_state: &SessionState,
     world_overlay: &RuntimeWorldOverlay,
 ) -> String {
+    let (_, _, _, _, target, source) =
+        runtime_effect_binding_states(snapshot_input, session_state, world_overlay);
+    format!(
+        "{}/{}",
+        runtime_optional_effect_binding_state_label(target),
+        runtime_optional_effect_binding_state_label(source)
+    )
+}
+
+fn runtime_effect_binding_detail_label(
+    snapshot_input: &ClientSnapshotInputState,
+    session_state: &SessionState,
+    world_overlay: &RuntimeWorldOverlay,
+) -> String {
+    let (session_target, session_source, overlay_target, overlay_source, _, _) =
+        runtime_effect_binding_states(snapshot_input, session_state, world_overlay);
+    let selected_source = if session_target.is_some() || session_source.is_some() {
+        "session"
+    } else if overlay_target.is_some() || overlay_source.is_some() {
+        "overlay"
+    } else {
+        "none"
+    };
+    format!(
+        "source={} session={}/{} overlay={}/{} active={}",
+        selected_source,
+        runtime_optional_effect_binding_state_label(session_target),
+        runtime_optional_effect_binding_state_label(session_source),
+        runtime_optional_effect_binding_state_label(overlay_target),
+        runtime_optional_effect_binding_state_label(overlay_source),
+        world_overlay.effect_overlays.len(),
+    )
+}
+
+fn runtime_effect_binding_states(
+    snapshot_input: &ClientSnapshotInputState,
+    session_state: &SessionState,
+    world_overlay: &RuntimeWorldOverlay,
+) -> (
+    Option<EffectRuntimeBindingState>,
+    Option<EffectRuntimeBindingState>,
+    Option<EffectRuntimeBindingState>,
+    Option<EffectRuntimeBindingState>,
+    Option<EffectRuntimeBindingState>,
+    Option<EffectRuntimeBindingState>,
+) {
     let input_view = EffectRuntimeInputView {
         unit_id: snapshot_input.unit_id,
         position: snapshot_input.position,
@@ -4966,10 +5013,13 @@ fn runtime_effect_binding_label(
     } else {
         (overlay_target, overlay_source)
     };
-    format!(
-        "{}/{}",
-        runtime_optional_effect_binding_state_label(target),
-        runtime_optional_effect_binding_state_label(source)
+    (
+        session_target,
+        session_source,
+        overlay_target,
+        overlay_source,
+        target,
+        source,
     )
 }
 
@@ -12956,6 +13006,9 @@ mod tests {
         assert!(hud
             .status_text
             .contains("runtime_effect_binding=follow/follow"));
+        assert!(hud.status_text.contains(
+            "runtime_effect_binding_detail=source=session session=follow/follow overlay=follow/follow active=1"
+        ));
         let live_effect = &hud
             .runtime_ui
             .as_ref()
@@ -13154,6 +13207,71 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn runtime_effect_binding_detail_label_reports_selected_source_and_overlay_pair() {
+        let input = ClientSnapshotInputState::default();
+
+        let mut world_overlay = RuntimeWorldOverlay::default();
+        world_overlay.effect_overlays.push(RuntimeEffectOverlay {
+            effect_id: Some(9),
+            source_x_bits: 1.0f32.to_bits(),
+            source_y_bits: 2.0f32.to_bits(),
+            source_binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 1.0f32.to_bits(),
+                spawn_y_bits: 2.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            x_bits: 3.0f32.to_bits(),
+            y_bits: 4.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 405,
+                spawn_x_bits: 3.0f32.to_bits(),
+                spawn_y_bits: 4.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            content_ref: None,
+            polyline_points: Vec::new(),
+        });
+
+        assert_eq!(
+            runtime_effect_binding_detail_label(&input, &SessionState::default(), &world_overlay),
+            "source=overlay session=none/none overlay=fallback/fallback active=1"
+        );
+
+        let mut state = SessionState::default();
+        state.last_effect_runtime_binding_state = Some(EffectRuntimeBindingState::BindingRejected);
+        state.last_effect_runtime_source_binding_state =
+            Some(EffectRuntimeBindingState::ParentFollow);
+        assert_eq!(
+            runtime_effect_binding_detail_label(&input, &state, &world_overlay),
+            "source=session session=reject/follow overlay=fallback/fallback active=1"
+        );
     }
 
     #[test]
