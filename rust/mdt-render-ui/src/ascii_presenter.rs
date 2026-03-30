@@ -183,6 +183,13 @@ impl AsciiScenePresenter {
         if let Some(visibility_minimap_text) = compose_visibility_minimap_text(scene, hud, window) {
             out.push_str(&format!("VIS-MINIMAP: {visibility_minimap_text}\n"));
         }
+        if let Some(minimap_visibility_detail_text) =
+            compose_minimap_visibility_detail_text(scene, hud, window)
+        {
+            out.push_str(&format!(
+                "MINIMAP-VIS-DETAIL: {minimap_visibility_detail_text}\n"
+            ));
+        }
         if let Some(minimap_flow_text) = compose_minimap_flow_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-FLOW: {minimap_flow_text}\n"));
         }
@@ -2037,6 +2044,23 @@ fn compose_minimap_flow_line(
         panel.coverage_label(),
         panel.target_kind.label(),
         panel.overlay_target_count,
+    ))
+}
+
+fn compose_minimap_visibility_detail_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let visibility = build_minimap_user_flow_panel(scene, hud, window)?;
+    let minimap = build_minimap_panel(scene, hud, window)?;
+    Some(format!(
+        "visibility={} coverage={} density=map:{} window:{} offscreen:{}",
+        visibility.visibility_label(),
+        visibility.coverage_label(),
+        minimap.map_object_density_percent(),
+        minimap.window_object_density_percent(),
+        minimap.outside_object_percent(),
     ))
 }
 
@@ -4216,6 +4240,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "VIS-MINIMAP: overlay=1 fog=1 known=144(3%) vis=120(83%/2%) hid=24(16%/0%) map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1"
+        ));
+        assert!(frame.contains(
+            "MINIMAP-VIS-DETAIL: visibility=mapped coverage=full density=map:4 window:4 offscreen:0"
         ));
         assert!(frame.contains(
             "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"

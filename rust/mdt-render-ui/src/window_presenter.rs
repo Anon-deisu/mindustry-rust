@@ -1474,7 +1474,15 @@ fn compose_frame_status_text(
             parts.push(runtime_ui_text);
         }
     }
+    if let Some(zoom_text) = compose_zoom_status_text(scene) {
+        parts.push(zoom_text);
+    }
     parts.join(" ")
+}
+
+fn compose_zoom_status_text(scene: &RenderModel) -> Option<String> {
+    let zoom = scene.viewport.zoom;
+    (zoom != 1.0).then(|| format!("zoom={zoom:.2}"))
 }
 
 fn compose_frame_session_banner_text(hud: &HudModel) -> Option<String> {
@@ -7466,6 +7474,7 @@ mod tests {
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         assert_eq!((frame.width, frame.height), (2, 2));
+        assert!(frame.status_text.contains("zoom=2.00"));
     }
 
     #[test]
@@ -7493,6 +7502,7 @@ mod tests {
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         assert_eq!((frame.width, frame.height), (8, 8));
+        assert!(frame.status_text.contains("zoom=0.50"));
     }
 
     #[test]
