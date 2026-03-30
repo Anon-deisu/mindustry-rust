@@ -4316,6 +4316,58 @@ mod tests {
     }
 
     #[test]
+    fn apply_head_execution_observation_treats_construct_mismatch_like_invalid_plan() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 6,
+                y: 6,
+                breaking: false,
+                block_id: Some(60),
+                rotation: 2,
+            },
+            BuilderQueueEntryObservation {
+                x: 7,
+                y: 7,
+                breaking: true,
+                block_id: None,
+                rotation: 1,
+            },
+        ]);
+
+        let result = queue.apply_head_execution_observation(
+            BuilderQueueHeadExecutionObservation::ConstructMismatch,
+        );
+
+        assert_eq!(
+            result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::RemovedInvalidHead,
+                head_tile_before: Some((6, 6)),
+                head_tile_after: Some((7, 7)),
+                removed_entry: Some(BuilderQueueEntry {
+                    x: 6,
+                    y: 6,
+                    breaking: false,
+                    block_id: Some(60),
+                    rotation: Some(2),
+                    progress_permyriad: None,
+                    stage: BuilderQueueStage::Queued,
+                }),
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(7, 7)]);
+        assert_eq!(queue.head_tile, Some((7, 7)));
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 0);
+        assert_eq!(
+            queue.last_transition,
+            Some(BuilderQueueTransition::RemovedInvalidHead)
+        );
+        assert_eq!(queue.last_front_promotion, None);
+    }
+
+    #[test]
     fn apply_head_execution_observation_drops_blockless_place_head_instead_of_emitting_begin() {
         let mut queue = BuilderQueueStateMachine::default();
         queue.enqueue_local(
