@@ -119,12 +119,47 @@ impl MinimapUserFlowPanelModel {
         }
     }
 
+    fn focus_tile_label(&self) -> String {
+        self.focus_tile
+            .map(|(x, y)| format!("{x}:{y}"))
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    fn focus_offset_label(&self) -> String {
+        match (self.focus_offset_x, self.focus_offset_y) {
+            (Some(x), Some(y)) => format!("{x}:{y}"),
+            _ => "none".to_string(),
+        }
+    }
+
+    fn clamp_label(&self) -> String {
+        let mut parts = String::new();
+        if self.window_clamped_left {
+            parts.push('L');
+        }
+        if self.window_clamped_top {
+            parts.push('T');
+        }
+        if self.window_clamped_right {
+            parts.push('R');
+        }
+        if self.window_clamped_bottom {
+            parts.push('B');
+        }
+        if parts.is_empty() {
+            "none".to_string()
+        } else {
+            parts
+        }
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn summary_label(&self) -> String {
         format!(
-            "next={} focus={} cover={} pan={} target={}",
+            "next={} focus={} vis={} cover={} pan={} target={}",
             self.next_action,
             self.focus_state.label(),
+            self.visibility_label(),
             self.coverage_label(),
             self.pan_label(),
             self.target_kind.label(),
@@ -134,15 +169,19 @@ impl MinimapUserFlowPanelModel {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn detail_label(&self) -> String {
         format!(
-            "next={} focus={} vis={} cover={} pan={} target={} overlay-targets={} visible={} unknown={} window={}",
+            "next={} focus={} vis={} cover={} pan={} target={} tile={} offset={} clamp={} overlay-targets={} visible={} visible-map={} unknown={} window={}",
             self.next_action,
             self.focus_state.label(),
             self.visibility_label(),
             self.coverage_label(),
             self.pan_label(),
             self.target_kind.label(),
+            self.focus_tile_label(),
+            self.focus_offset_label(),
+            self.clamp_label(),
             self.overlay_target_count,
             self.visible_tile_count,
+            self.visible_map_percent,
             self.unknown_tile_percent,
             self.window_coverage_percent,
         )
@@ -426,9 +465,10 @@ mod tests {
         assert_eq!(
             survey.summary_label(),
             format!(
-                "next={} focus={} cover={} pan={} target={}",
+                "next={} focus={} vis={} cover={} pan={} target={}",
                 survey.next_action,
                 survey.focus_state.label(),
+                survey.visibility_label(),
                 survey.coverage_label(),
                 survey.pan_label(),
                 survey.target_kind.label(),
@@ -437,15 +477,19 @@ mod tests {
         assert_eq!(
             survey.detail_label(),
             format!(
-                "next={} focus={} vis={} cover={} pan={} target={} overlay-targets={} visible={} unknown={} window={}",
+                "next={} focus={} vis={} cover={} pan={} target={} tile={} offset={} clamp={} overlay-targets={} visible={} visible-map={} unknown={} window={}",
                 survey.next_action,
                 survey.focus_state.label(),
                 survey.visibility_label(),
                 survey.coverage_label(),
                 survey.pan_label(),
                 survey.target_kind.label(),
+                survey.focus_tile_label(),
+                survey.focus_offset_label(),
+                survey.clamp_label(),
                 survey.overlay_target_count,
                 survey.visible_tile_count,
+                survey.visible_map_percent,
                 survey.unknown_tile_percent,
                 survey.window_coverage_percent,
             )
@@ -481,9 +525,10 @@ mod tests {
         assert_eq!(
             hidden.summary_label(),
             format!(
-                "next={} focus={} cover={} pan={} target={}",
+                "next={} focus={} vis={} cover={} pan={} target={}",
                 hidden.next_action,
                 hidden.focus_state.label(),
+                hidden.visibility_label(),
                 hidden.coverage_label(),
                 hidden.pan_label(),
                 hidden.target_kind.label(),
@@ -563,9 +608,10 @@ mod tests {
         assert_eq!(
             hold.summary_label(),
             format!(
-                "next={} focus={} cover={} pan={} target={}",
+                "next={} focus={} vis={} cover={} pan={} target={}",
                 hold.next_action,
                 hold.focus_state.label(),
+                hold.visibility_label(),
                 hold.coverage_label(),
                 hold.pan_label(),
                 hold.target_kind.label(),
@@ -574,15 +620,19 @@ mod tests {
         assert_eq!(
             hold.detail_label(),
             format!(
-                "next={} focus={} vis={} cover={} pan={} target={} overlay-targets={} visible={} unknown={} window={}",
+                "next={} focus={} vis={} cover={} pan={} target={} tile={} offset={} clamp={} overlay-targets={} visible={} visible-map={} unknown={} window={}",
                 hold.next_action,
                 hold.focus_state.label(),
                 hold.visibility_label(),
                 hold.coverage_label(),
                 hold.pan_label(),
                 hold.target_kind.label(),
+                hold.focus_tile_label(),
+                hold.focus_offset_label(),
+                hold.clamp_label(),
                 hold.overlay_target_count,
                 hold.visible_tile_count,
+                hold.visible_map_percent,
                 hold.unknown_tile_percent,
                 hold.window_coverage_percent,
             )
