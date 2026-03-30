@@ -1,4 +1,7 @@
-use crate::{SavePostLoadRuntimeSeedPlan, SavePostLoadWorldIssue, SavePostLoadWorldObservation};
+use crate::{
+    save_post_load_runtime_source_region::source_region_name_for_stage_kind,
+    SavePostLoadRuntimeSeedPlan, SavePostLoadWorldIssue, SavePostLoadWorldObservation,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SavePostLoadConsumerStageKind {
@@ -77,9 +80,68 @@ pub struct SavePostLoadConsumerRuntimeHelper {
     pub stages: Vec<SavePostLoadConsumerRuntimeStageHelper>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadConsumerSourceRegion {
+    pub source_region_name: &'static str,
+    pub stage_count: usize,
+    pub step_count: usize,
+    pub blocker_count: usize,
+}
+
+impl SavePostLoadConsumerSourceRegion {
+    pub fn total_step_count(&self) -> usize {
+        self.step_count
+    }
+
+    pub fn has_blockers(&self) -> bool {
+        self.blocker_count > 0
+    }
+}
+
 impl SavePostLoadConsumerApplyPlan {
     pub fn has_blockers(&self) -> bool {
         !self.blockers.is_empty()
+    }
+
+    pub fn source_region(
+        &self,
+        source_region_name: &str,
+    ) -> Option<SavePostLoadConsumerSourceRegion> {
+        self.source_regions()
+            .into_iter()
+            .find(|region| region.source_region_name == source_region_name)
+    }
+
+    pub fn source_regions(&self) -> Vec<SavePostLoadConsumerSourceRegion> {
+        let mut source_regions = Vec::new();
+
+        for stage in &self.stages {
+            let source_region_name = source_region_name_for_stage_kind(stage.kind);
+            let source_region = match source_regions.iter_mut().find(
+                |candidate: &&mut SavePostLoadConsumerSourceRegion| {
+                    candidate.source_region_name == source_region_name
+                },
+            ) {
+                Some(source_region) => source_region,
+                None => {
+                    source_regions.push(SavePostLoadConsumerSourceRegion {
+                        source_region_name,
+                        stage_count: 0,
+                        step_count: 0,
+                        blocker_count: 0,
+                    });
+                    source_regions
+                        .last_mut()
+                        .expect("source region was just pushed")
+                }
+            };
+
+            source_region.stage_count += 1;
+            source_region.step_count += stage.step_count;
+            source_region.blocker_count += stage_blockers(self, stage.kind).len();
+        }
+
+        source_regions
     }
 
     pub fn total_step_count(&self) -> usize {
@@ -149,6 +211,47 @@ impl SavePostLoadConsumerRuntimeHelper {
         kind: SavePostLoadConsumerStageKind,
     ) -> Option<&SavePostLoadConsumerRuntimeStageHelper> {
         self.stages.iter().find(|stage| stage.kind == kind)
+    }
+
+    pub fn source_region(
+        &self,
+        source_region_name: &str,
+    ) -> Option<SavePostLoadConsumerSourceRegion> {
+        self.source_regions()
+            .into_iter()
+            .find(|region| region.source_region_name == source_region_name)
+    }
+
+    pub fn source_regions(&self) -> Vec<SavePostLoadConsumerSourceRegion> {
+        let mut source_regions = Vec::new();
+
+        for stage in &self.stages {
+            let source_region_name = source_region_name_for_stage_kind(stage.kind);
+            let source_region = match source_regions.iter_mut().find(
+                |candidate: &&mut SavePostLoadConsumerSourceRegion| {
+                    candidate.source_region_name == source_region_name
+                },
+            ) {
+                Some(source_region) => source_region,
+                None => {
+                    source_regions.push(SavePostLoadConsumerSourceRegion {
+                        source_region_name,
+                        stage_count: 0,
+                        step_count: 0,
+                        blocker_count: 0,
+                    });
+                    source_regions
+                        .last_mut()
+                        .expect("source region was just pushed")
+                }
+            };
+
+            source_region.stage_count += 1;
+            source_region.step_count += stage.step_count;
+            source_region.blocker_count += stage.blockers.len();
+        }
+
+        source_regions
     }
 
     pub fn apply_now_step_count(&self) -> usize {
@@ -730,6 +833,51 @@ mod tests {
             SavePostLoadConsumerRuntimeDisposition::ApplyNow
         );
         assert!(stage.can_apply_now());
+    }
+
+    #[test]
+    fn consumer_apply_plan_groups_stage_and_blocker_counts_by_source_region() {
+        let mut observation = test_observation();
+        observation.world_entity_chunks[2].entity_id = 42;
+        observation.entity_summary.duplicate_entity_ids = vec![42];
+        observation.entity_summary.unique_entity_ids = 2;
+        observation.map.world.tiles[0].building_center_index = None;
+
+        let plan = observation.consumer_apply_plan();
+        let helper = observation.consumer_runtime_helper();
+        let expected_regions = vec![
+            SavePostLoadConsumerSourceRegion {
+                source_region_name: "map",
+                stage_count: 2,
+                step_count: 2,
+                blocker_count: 5,
+            },
+            SavePostLoadConsumerSourceRegion {
+                source_region_name: "entities",
+                stage_count: 4,
+                step_count: 7,
+                blocker_count: 4,
+            },
+            SavePostLoadConsumerSourceRegion {
+                source_region_name: "markers",
+                stage_count: 1,
+                step_count: 2,
+                blocker_count: 0,
+            },
+            SavePostLoadConsumerSourceRegion {
+                source_region_name: "custom",
+                stage_count: 2,
+                step_count: 3,
+                blocker_count: 0,
+            },
+        ];
+
+        assert_eq!(plan.source_regions(), expected_regions);
+        assert_eq!(helper.source_regions(), expected_regions);
+        assert_eq!(plan.source_region("entities"), Some(expected_regions[1].clone()));
+        assert_eq!(helper.source_region("map"), Some(expected_regions[0].clone()));
+        assert!(plan.source_region("missing").is_none());
+        assert!(helper.source_region("missing").is_none());
     }
 
     #[test]
