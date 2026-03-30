@@ -11,6 +11,15 @@ pub struct PlacementRequest {
     pub size: i32,
 }
 
+/// First rejection cause reported by the local-plan placement gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlacementRejectReason {
+    RequestSizeNonPositive { size: i32 },
+    PlanSizeNonPositive { plan_index: usize, size: i32 },
+    PlanOverlapsRequest { plan_index: usize },
+    ExactOverlapRequiresReplacement { plan_index: usize },
+}
+
 /// Local plan facts needed by the `InputHandler.validPlace(...)` overlap gate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LocalPlanPlacement {
@@ -59,23 +68,52 @@ pub fn valid_place_against_local_plans(
     local_plans: &[LocalPlanPlacement],
     ignore_plan_index: Option<usize>,
 ) -> bool {
+    valid_place_against_local_plans_with_reason(request, local_plans, ignore_plan_index).is_ok()
+}
+
+/// Mirrors the local-plan overlap part of Java `InputHandler.validPlace(...)`.
+/// Returns the first rejection cause encountered while evaluating local plans.
+pub fn valid_place_against_local_plans_with_reason(
+    request: PlacementRequest,
+    local_plans: &[LocalPlanPlacement],
+    ignore_plan_index: Option<usize>,
+) -> Result<(), PlacementRejectReason> {
     if request.size <= 0 {
-        return false;
+        return Err(PlacementRejectReason::RequestSizeNonPositive {
+            size: request.size,
+        });
     }
     let request_bounds = placement_bounds(request.x, request.y, request.size);
 
-    local_plans.iter().enumerate().all(|(index, plan)| {
+    for (index, plan) in local_plans.iter().enumerate() {
         if Some(index) == ignore_plan_index || plan.breaking {
-            return true;
+            continue;
         }
         if plan.size <= 0 {
-            return false;
+            return Err(PlacementRejectReason::PlanSizeNonPositive {
+                plan_index: index,
+                size: plan.size,
+            });
         }
 
         let plan_bounds = placement_bounds(plan.x, plan.y, plan.size);
-        !plan_bounds.overlaps(request_bounds)
-            || (plan.candidate_can_replace_plan && plan_bounds == request_bounds)
-    })
+        if plan_bounds.overlaps(request_bounds) {
+            if plan.candidate_can_replace_plan && plan_bounds == request_bounds {
+                continue;
+            }
+            return if plan_bounds == request_bounds {
+                Err(PlacementRejectReason::ExactOverlapRequiresReplacement {
+                    plan_index: index,
+                })
+            } else {
+                Err(PlacementRejectReason::PlanOverlapsRequest {
+                    plan_index: index,
+                })
+            };
+        }
+    }
+
+    Ok(())
 }
 
 /// Mirrors the pure observation portion of Java `tryRepairDerelict/canRepairDerelict`.
@@ -135,7 +173,8 @@ fn placement_bounds(x: i32, y: i32, size: i32) -> PlacementBounds {
 #[cfg(test)]
 mod tests {
     use super::{
-        repair_derelict_candidate, valid_place_against_local_plans, LocalPlanPlacement,
+        repair_derelict_candidate, valid_place_against_local_plans,
+        valid_place_against_local_plans_with_reason, LocalPlanPlacement, PlacementRejectReason,
         PlacementRequest, RepairDerelictBuildObservation, RepairDerelictCandidate,
         RepairDerelictObservation,
     };
@@ -161,6 +200,24 @@ mod tests {
 
     #[test]
     fn valid_place_against_local_plans_rejects_overlapping_non_breaking_plan() {
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(
+                PlacementRequest {
+                    x: 5,
+                    y: 5,
+                    size: 2
+                },
+                &[LocalPlanPlacement {
+                    x: 6,
+                    y: 5,
+                    size: 2,
+                    breaking: false,
+                    candidate_can_replace_plan: true,
+                }],
+                None,
+            ),
+            Err(PlacementRejectReason::PlanOverlapsRequest { plan_index: 0 })
+        );
         assert!(!valid_place_against_local_plans(
             PlacementRequest {
                 x: 5,
@@ -199,6 +256,26 @@ mod tests {
 
     #[test]
     fn valid_place_against_local_plans_rejects_exact_overlap_when_replace_is_not_allowed() {
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(
+                PlacementRequest {
+                    x: 7,
+                    y: 9,
+                    size: 2
+                },
+                &[LocalPlanPlacement {
+                    x: 7,
+                    y: 9,
+                    size: 2,
+                    breaking: false,
+                    candidate_can_replace_plan: false,
+                }],
+                None,
+            ),
+            Err(PlacementRejectReason::ExactOverlapRequiresReplacement {
+                plan_index: 0
+            })
+        );
         assert!(!valid_place_against_local_plans(
             PlacementRequest {
                 x: 7,
@@ -246,6 +323,24 @@ mod tests {
 
     #[test]
     fn valid_place_against_local_plans_rejects_non_positive_sizes() {
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(
+                PlacementRequest {
+                    x: 3,
+                    y: 4,
+                    size: 0,
+                },
+                &[LocalPlanPlacement {
+                    x: 3,
+                    y: 4,
+                    size: 1,
+                    breaking: false,
+                    candidate_can_replace_plan: false,
+                }],
+                None,
+            ),
+            Err(PlacementRejectReason::RequestSizeNonPositive { size: 0 })
+        );
         assert!(!valid_place_against_local_plans(
             PlacementRequest {
                 x: 3,
@@ -261,6 +356,27 @@ mod tests {
             }],
             None,
         ));
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(
+                PlacementRequest {
+                    x: 3,
+                    y: 4,
+                    size: 1,
+                },
+                &[LocalPlanPlacement {
+                    x: 3,
+                    y: 4,
+                    size: 0,
+                    breaking: false,
+                    candidate_can_replace_plan: false,
+                }],
+                None,
+            ),
+            Err(PlacementRejectReason::PlanSizeNonPositive {
+                plan_index: 0,
+                size: 0
+            })
+        );
         assert!(!valid_place_against_local_plans(
             PlacementRequest {
                 x: 3,
