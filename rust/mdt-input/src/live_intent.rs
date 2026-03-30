@@ -56,6 +56,18 @@ impl LiveIntentBindingProfile {
             && self.pressed_actions.is_empty()
             && self.released_actions.is_empty()
     }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "move={} aim={} mining={} building={} active={} transient={}",
+            axis_label(self.move_axis),
+            axis_label(self.aim_axis),
+            tile_label(self.mining_tile),
+            bool_label(self.building),
+            self.active_actions.len(),
+            transient_label(self),
+        )
+    }
 }
 
 impl LiveIntentState {
@@ -299,6 +311,59 @@ fn normalize_axis(axis: (f32, f32)) -> (f32, f32) {
         axis
     } else {
         (0.0, 0.0)
+    }
+}
+
+fn axis_label(axis: (f32, f32)) -> String {
+    format!("{},{}", axis_value_label(axis.0), axis_value_label(axis.1))
+}
+
+fn axis_value_label(value: f32) -> String {
+    if value == 0.0 {
+        "0".to_string()
+    } else if value.fract() == 0.0 {
+        format!("{value:.0}")
+    } else {
+        value.to_string()
+    }
+}
+
+fn tile_label(tile: Option<(i32, i32)>) -> String {
+    match tile {
+        Some((x, y)) => format!("{x},{y}"),
+        None => "none".to_string(),
+    }
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value { "on" } else { "off" }
+}
+
+fn transient_label(profile: &LiveIntentBindingProfile) -> String {
+    let mut parts = Vec::new();
+
+    if let Some((x, y)) = profile.last_config_tap_tile {
+        parts.push(format!("tap={x},{y}"));
+    }
+    if let Some(pulse) = profile.last_build_pulse {
+        parts.push(format!(
+            "pulse={},{},{}",
+            pulse.tile.0,
+            pulse.tile.1,
+            if pulse.breaking { "break" } else { "place" }
+        ));
+    }
+    if !profile.pressed_actions.is_empty() {
+        parts.push(format!("pressed={}", profile.pressed_actions.len()));
+    }
+    if !profile.released_actions.is_empty() {
+        parts.push(format!("released={}", profile.released_actions.len()));
+    }
+
+    if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join(" ")
     }
 }
 
@@ -1213,6 +1278,83 @@ mod tests {
         );
         assert!(profile.has_motion());
         assert!(profile.has_aim());
+        assert!(profile.has_transient_signals());
+        assert!(!profile.is_idle());
+        assert_eq!(
+            profile.summary_label(),
+            "move=1,-1 aim=8,12 mining=7,8 building=on active=2 transient=tap=3,4 pulse=9,10,break pressed=2"
+        );
+    }
+
+    #[test]
+    fn binding_profile_summary_label_for_idle_profile_is_minimal() {
+        let profile = LiveIntentBindingProfile {
+            move_axis: (0.0, 0.0),
+            aim_axis: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            last_config_tap_tile: None,
+            last_build_pulse: None,
+            active_actions: Vec::new(),
+            pressed_actions: Vec::new(),
+            released_actions: Vec::new(),
+        };
+
+        assert_eq!(
+            profile.summary_label(),
+            "move=0,0 aim=0,0 mining=none building=off active=0 transient=none"
+        );
+        assert!(profile.is_idle());
+        assert!(!profile.has_motion());
+        assert!(!profile.has_aim());
+        assert!(!profile.has_transient_signals());
+    }
+
+    #[test]
+    fn binding_profile_summary_label_reflects_motion_without_transient_edges() {
+        let profile = LiveIntentBindingProfile {
+            move_axis: (1.0, -1.0),
+            aim_axis: (8.0, 12.0),
+            mining_tile: Some((7, 8)),
+            building: true,
+            last_config_tap_tile: None,
+            last_build_pulse: None,
+            active_actions: vec![BinaryAction::Fire],
+            pressed_actions: Vec::new(),
+            released_actions: Vec::new(),
+        };
+
+        assert_eq!(
+            profile.summary_label(),
+            "move=1,-1 aim=8,12 mining=7,8 building=on active=1 transient=none"
+        );
+        assert!(profile.has_motion());
+        assert!(profile.has_aim());
+        assert!(!profile.has_transient_signals());
+        assert!(!profile.is_idle());
+    }
+
+    #[test]
+    fn binding_profile_summary_label_reflects_transient_edges() {
+        let profile = LiveIntentBindingProfile {
+            move_axis: (0.0, 0.0),
+            aim_axis: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            last_config_tap_tile: Some((3, 4)),
+            last_build_pulse: Some(BuildPulse {
+                tile: (9, 10),
+                breaking: false,
+            }),
+            active_actions: vec![BinaryAction::Boost, BinaryAction::Chat],
+            pressed_actions: vec![BinaryAction::Boost],
+            released_actions: vec![BinaryAction::Chat],
+        };
+
+        assert_eq!(
+            profile.summary_label(),
+            "move=0,0 aim=0,0 mining=none building=off active=2 transient=tap=3,4 pulse=9,10,place pressed=1 released=1"
+        );
         assert!(profile.has_transient_signals());
         assert!(!profile.is_idle());
     }
