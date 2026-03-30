@@ -229,6 +229,9 @@ impl AsciiScenePresenter {
         if let Some(build_flow_text) = compose_build_flow_text(scene, hud, window) {
             out.push_str(&format!("BUILD-FLOW: {build_flow_text}\n"));
         }
+        if let Some(build_flow_summary_text) = compose_build_flow_summary_text(scene, hud, window) {
+            out.push_str(&format!("BUILD-FLOW-SUMMARY: {build_flow_summary_text}\n"));
+        }
         if let Some(build_route_text) = compose_build_route_text(scene, hud, window) {
             out.push_str(&format!("BUILD-ROUTE: {build_route_text}\n"));
         }
@@ -2318,20 +2321,16 @@ fn compose_build_flow_detail_text(
     window: PresenterViewWindow,
 ) -> Option<String> {
     let panel = build_build_user_flow_panel(scene, hud, window)?;
-    let route = panel.route.join(">");
-    Some(format!(
-        "blockers={} route={} minimap={} focus={} pan={} target={}",
-        panel.blocker_count(),
-        if route.is_empty() {
-            "none"
-        } else {
-            route.as_str()
-        },
-        panel.minimap_next_action,
-        panel.focus_state.label(),
-        panel.pan_label(),
-        panel.target_kind.label(),
-    ))
+    Some(panel.detail_label())
+}
+
+fn compose_build_flow_summary_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_user_flow_panel(scene, hud, window)?;
+    Some(panel.summary_label())
 }
 
 fn compose_build_route_text(
@@ -4545,10 +4544,13 @@ mod tests {
             "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building"
         ));
         assert!(frame.contains(
+            "BUILD-FLOW-SUMMARY: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi"
+        ));
+        assert!(frame.contains(
             "BUILD-ROUTE: next=resolve minimap=survey blockers=2@resolve>survey route=3@resolve>survey>commit"
         ));
         assert!(frame.contains(
-            "BUILD-FLOW-DETAIL: blockers=2 route=resolve>survey>commit minimap=survey focus=inside pan=hold target=player"
+            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building head=10,12"
         ));
     }
 
