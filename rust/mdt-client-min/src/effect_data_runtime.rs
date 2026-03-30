@@ -154,7 +154,10 @@ fn derive_primary_business_hint(
     }
     match crate::effect_runtime::effect_contract(effect_id) {
         Some(contract) => derive_contract_business_hint(contract, object),
-        None => derive_fallback_business_hint(object),
+        None => match effect_id {
+            Some(_) => payload_target_content_hint(object).or_else(|| derive_fallback_business_hint(object)),
+            None => derive_fallback_business_hint(object),
+        },
     }
 }
 
@@ -1232,6 +1235,39 @@ mod tests {
         assert_eq!(
             input.data_kind.as_deref(),
             Some("object[len=2]{0=Content(raw),1=Point2}")
+        );
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_prefers_payload_target_content_for_unknown_effect_data() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ContentRaw {
+                content_type: 1,
+                content_id: 33,
+            },
+            TypeIoObject::UnitId(404),
+        ]);
+
+        let input = derive_effect_data_business_input(Some(999), Some(&object), Some(5), false, None);
+
+        assert_eq!(input.contract_name, None);
+        assert_eq!(input.semantic, Some(EffectDataSemantic::ObjectArrayLen(2)));
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::PayloadTargetContent {
+                content_kind: EffectBusinessContentKind::Content,
+                content_type: 1,
+                content_id: 33,
+                content_path: vec![0],
+                target: EffectDataBusinessTargetHint::SemanticRef(TypeIoSemanticMatch {
+                    semantic_ref: TypeIoSemanticRef::Unit { unit_id: 404 },
+                    path: vec![1],
+                }),
+            })
+        );
+        assert_eq!(
+            input.data_kind.as_deref(),
+            Some("object[len=2]{0=Content(raw),1=Unit(raw)}")
         );
     }
 
