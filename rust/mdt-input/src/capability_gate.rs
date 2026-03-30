@@ -37,6 +37,22 @@ pub enum CapabilityCommandRequest {
     SetStance(CommandModeStanceSelection),
 }
 
+impl CapabilityCommandRequest {
+    pub fn summary_label(self) -> String {
+        match self {
+            Self::Target(target) => format!("target={}", target.summary_label()),
+            Self::SetCommand(command) => {
+                format!("command={}", optional_u8_label(command.command_id))
+            }
+            Self::SetStance(stance) => format!(
+                "stance={}{}",
+                optional_u8_label(stance.stance_id),
+                if stance.enabled { ":on" } else { ":off" }
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapabilityDecision {
     pub allowed: bool,
@@ -321,6 +337,12 @@ fn on_off(value: bool) -> &'static str {
     }
 }
 
+fn optional_u8_label(value: Option<u8>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,6 +404,36 @@ mod tests {
         );
         assert_eq!(projection.command_mode.summary_label(), "target+command+stance");
         assert_eq!(projection.command_mode.recent_selection_label(), "target+command+stance");
+        assert_eq!(
+            CapabilityCommandRequest::Target(CommandModeTargetProjection::default())
+                .summary_label(),
+            "target=none"
+        );
+        assert_eq!(
+            CapabilityCommandRequest::Target(CommandModeTargetProjection {
+                build_target: Some(9),
+                unit_target: Some(CommandUnitRef { kind: 1, value: 7 }),
+                position_target: None,
+                rect_target: None,
+            })
+            .summary_label(),
+            "target=build+unit"
+        );
+        assert_eq!(
+            CapabilityCommandRequest::SetCommand(CommandModeCommandSelection {
+                command_id: Some(4),
+            })
+            .summary_label(),
+            "command=4"
+        );
+        assert_eq!(
+            CapabilityCommandRequest::SetStance(CommandModeStanceSelection {
+                stance_id: None,
+                enabled: true,
+            })
+            .summary_label(),
+            "stance=none:on"
+        );
         assert_eq!(CapabilityDecision::allowed().label(), "allowed");
         assert_eq!(
             CapabilityDecision::denied(CapabilityDenyReason::MissingCommandTarget).label(),
