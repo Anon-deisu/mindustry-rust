@@ -4078,6 +4078,89 @@ mod tests {
     }
 
     #[test]
+    fn apply_head_execution_observation_preserves_break_head_through_active_construct_until_mismatch() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 13,
+                y: 13,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 14,
+                y: 14,
+                breaking: false,
+                block_id: Some(140),
+                rotation: 1,
+            },
+        ]);
+
+        let begin_result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::PendingBegin);
+        assert_eq!(
+            begin_result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::BeginBreak,
+                head_tile_before: Some((13, 13)),
+                head_tile_after: Some((13, 13)),
+                removed_entry: None,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(13, 13), (14, 14)]);
+        assert_eq!(queue.head_tile, Some((13, 13)));
+        assert_eq!(queue.head_entry().map(|entry| entry.stage), Some(BuilderQueueStage::Queued));
+
+        let active_result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::ActiveConstruct);
+        assert_eq!(
+            active_result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::ContinueConstruct,
+                head_tile_before: Some((13, 13)),
+                head_tile_after: Some((13, 13)),
+                removed_entry: None,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(13, 13), (14, 14)]);
+        assert_eq!(queue.head_tile, Some((13, 13)));
+        assert_eq!(
+            queue.head_entry().map(|entry| entry.stage),
+            Some(BuilderQueueStage::InFlight)
+        );
+
+        let mismatch_result = queue.apply_head_execution_observation(
+            BuilderQueueHeadExecutionObservation::ConstructMismatch,
+        );
+        assert_eq!(
+            mismatch_result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::RemovedInvalidHead,
+                head_tile_before: Some((13, 13)),
+                head_tile_after: Some((14, 14)),
+                removed_entry: Some(BuilderQueueEntry {
+                    x: 13,
+                    y: 13,
+                    breaking: true,
+                    block_id: None,
+                    rotation: Some(0),
+                    progress_permyriad: None,
+                    stage: BuilderQueueStage::InFlight,
+                }),
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(14, 14)]);
+        assert_eq!(queue.head_tile, Some((14, 14)));
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 0);
+        assert_eq!(
+            queue.last_transition,
+            Some(BuilderQueueTransition::RemovedInvalidHead)
+        );
+    }
+
+    #[test]
     fn apply_head_execution_observation_defers_blocked_head_to_queue_tail() {
         let mut queue = BuilderQueueStateMachine::default();
         queue.sync_local_entries([
