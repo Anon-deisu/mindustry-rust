@@ -132,6 +132,39 @@ impl SavePostLoadRuntimeWorldOwnershipSurface {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadRuntimeWorldOwnershipSourceRegion {
+    pub source_region_name: &'static str,
+    pub surfaces: Vec<SavePostLoadRuntimeWorldOwnershipSurface>,
+}
+
+impl SavePostLoadRuntimeWorldOwnershipSourceRegion {
+    pub fn surface(
+        &self,
+        kind: SavePostLoadRuntimeWorldSurfaceKind,
+    ) -> Option<&SavePostLoadRuntimeWorldOwnershipSurface> {
+        self.surfaces.iter().find(|surface| surface.kind == kind)
+    }
+
+    pub fn required_step_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .map(|surface| surface.required_step_count)
+            .sum()
+    }
+
+    pub fn claimed_step_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .map(|surface| surface.claimed_step_count)
+            .sum()
+    }
+
+    pub fn owned_surface_count(&self) -> usize {
+        self.surfaces.iter().filter(|surface| surface.is_owned()).count()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavePostLoadRuntimeWorldOwnership {
     pub world_shell_ready: bool,
     pub surfaces: Vec<SavePostLoadRuntimeWorldOwnershipSurface>,
@@ -155,6 +188,42 @@ impl SavePostLoadRuntimeWorldOwnership {
 
     pub fn owned_surface_count(&self) -> usize {
         self.surfaces.iter().filter(|surface| surface.is_owned()).count()
+    }
+
+    pub fn source_region(
+        &self,
+        source_region_name: &str,
+    ) -> Option<SavePostLoadRuntimeWorldOwnershipSourceRegion> {
+        self.source_regions()
+            .into_iter()
+            .find(|region| region.source_region_name == source_region_name)
+    }
+
+    pub fn source_regions(&self) -> Vec<SavePostLoadRuntimeWorldOwnershipSourceRegion> {
+        let mut source_regions = Vec::new();
+
+        for surface in &self.surfaces {
+            let source_region = match source_regions.iter_mut().find(
+                |candidate: &&mut SavePostLoadRuntimeWorldOwnershipSourceRegion| {
+                    candidate.source_region_name == surface.source_region_name
+                },
+            ) {
+                Some(source_region) => source_region,
+                None => {
+                    source_regions.push(SavePostLoadRuntimeWorldOwnershipSourceRegion {
+                        source_region_name: surface.source_region_name,
+                        surfaces: Vec::new(),
+                    });
+                    source_regions
+                        .last_mut()
+                        .expect("source region was just pushed")
+                }
+            };
+
+            source_region.surfaces.push(surface.clone());
+        }
+
+        source_regions
     }
 
     pub fn can_apply_world_semantics(&self) -> bool {
@@ -374,6 +443,49 @@ mod tests {
                 blockers: Vec::new(),
                 failed_steps: Vec::new(),
             }
+        );
+    }
+
+    #[test]
+    fn runtime_world_ownership_groups_surfaces_by_source_region() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let ownership = observation.runtime_world_ownership();
+        let source_regions = ownership.source_regions();
+        let entities = ownership.source_region("entities").unwrap();
+
+        assert_eq!(
+            source_regions.iter().map(|region| region.source_region_name).collect::<Vec<_>>(),
+            vec!["map", "entities", "markers", "custom"]
+        );
+        assert_eq!(source_regions[0].surfaces.len(), 2);
+        assert_eq!(source_regions[1].surfaces.len(), 4);
+        assert_eq!(source_regions[2].surfaces.len(), 1);
+        assert_eq!(source_regions[3].surfaces.len(), 2);
+        assert_eq!(
+            source_regions[1]
+                .surfaces
+                .iter()
+                .map(|surface| surface.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps,
+                SavePostLoadRuntimeWorldSurfaceKind::TeamPlans,
+                SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities,
+                SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities,
+            ]
+        );
+        assert_eq!(entities.source_region_name, "entities");
+        assert_eq!(entities.required_step_count(), 7);
+        assert_eq!(entities.claimed_step_count(), 7);
+        assert_eq!(entities.owned_surface_count(), 3);
+        assert_eq!(
+            entities
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps)
+                .unwrap()
+                .required_step_count,
+            2
         );
     }
 
