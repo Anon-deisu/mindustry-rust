@@ -2946,6 +2946,39 @@ mod tests {
     }
 
     #[test]
+    fn executor_for_name_resolves_all_named_contracts() {
+        let expected = [
+            "position_target",
+            "lightning",
+            "point_beam",
+            "point_hit",
+            "move_command",
+            "drill_steam",
+            "leg_destroy",
+            "shield_break",
+            "block_content_icon",
+            "content_icon",
+            "payload_target_content",
+            "drop_item",
+            "float_length",
+            "unit_parent",
+        ];
+
+        assert_eq!(
+            expected
+                .iter()
+                .map(|name| {
+                    executor_for_name(name)
+                        .expect("contract executor should resolve")
+                        .contract_name
+                })
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(executor_for_name("missing_contract").is_none());
+    }
+
+    #[test]
     fn line_projections_for_effect_overlay_returns_green_laser_charge_circle_and_spokes() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(GREEN_LASER_CHARGE_EFFECT_ID),
