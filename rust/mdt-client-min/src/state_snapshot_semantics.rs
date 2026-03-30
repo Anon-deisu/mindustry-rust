@@ -258,4 +258,28 @@ mod tests {
         assert_eq!(transition.inventory.duplicate_team_count, 0);
         assert_eq!(transition.inventory.duplicate_item_count, 0);
     }
+
+    #[test]
+    fn derive_transition_without_previous_or_core_data_yields_empty_unsynced_inventory() {
+        let transition = derive_state_snapshot_core_inventory_transition(None, None);
+
+        assert!(!transition.synced);
+        assert!(transition.changed_team_ids.is_empty());
+        assert_eq!(transition.inventory, StateSnapshotCoreInventorySemantics::default());
+    }
+
+    #[test]
+    fn derive_transition_with_empty_core_data_marks_synced_without_changed_teams() {
+        let transition = derive_state_snapshot_core_inventory_transition(
+            None,
+            Some(&AppliedStateSnapshotCoreData {
+                team_count: 0,
+                teams: Vec::new(),
+            }),
+        );
+
+        assert!(transition.synced);
+        assert!(transition.changed_team_ids.is_empty());
+        assert_eq!(transition.inventory, StateSnapshotCoreInventorySemantics::default());
+    }
 }
