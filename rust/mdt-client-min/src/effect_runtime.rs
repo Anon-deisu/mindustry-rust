@@ -1033,6 +1033,7 @@ mod tests {
         observe_runtime_effect_source_binding_state, resolve_runtime_effect_overlay_position,
         resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
         EffectRuntimeBindingState, EffectRuntimeInputView, RuntimeEffectBinding,
+        RuntimeEffectOverlay,
         RuntimeEffectContract,
     };
     use crate::session_state::{
@@ -2161,6 +2162,53 @@ mod tests {
         assert_eq!(
             observe_runtime_effect_overlay_source_binding_state(
                 &building_parent_overlay,
+                &SessionState::default(),
+                &EffectRuntimeInputView::default(),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn effect_runtime_observe_runtime_effect_overlay_binding_state_returns_none_for_world_position_and_missing_binding(
+    ) {
+        let world_position_overlay = RuntimeEffectOverlay {
+            effect_id: None,
+            source_x_bits: 0.0f32.to_bits(),
+            source_y_bits: 0.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 12.0f32.to_bits(),
+            y_bits: 20.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0,
+            reliable: false,
+            has_data: false,
+            lifetime_ticks: 10,
+            remaining_ticks: 10,
+            contract_name: None,
+            binding: Some(RuntimeEffectBinding::WorldPosition {
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 20.0f32.to_bits(),
+            }),
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+        let no_binding_overlay = RuntimeEffectOverlay {
+            binding: None,
+            ..world_position_overlay.clone()
+        };
+
+        assert_eq!(
+            observe_runtime_effect_overlay_binding_state(
+                &world_position_overlay,
+                &SessionState::default(),
+                &EffectRuntimeInputView::default(),
+            ),
+            None
+        );
+        assert_eq!(
+            observe_runtime_effect_overlay_binding_state(
+                &no_binding_overlay,
                 &SessionState::default(),
                 &EffectRuntimeInputView::default(),
             ),
