@@ -5,6 +5,8 @@ use crate::generated::remote_high_frequency_gen::{
 use crate::snapshot_ingest::InboundSnapshot;
 #[path = "packet_registry_typed_remote_glue.rs"]
 mod typed_remote_glue;
+#[path = "well_known_registry_glue.rs"]
+mod well_known_registry_glue;
 use mdt_remote::{
     CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemotePayloadKind,
     CustomChannelRemoteRegistry, HighFrequencyRemoteMethod, InboundRemoteDispatchSpec,
@@ -323,11 +325,13 @@ impl CombinedPacketRegistries {
 impl WellKnownRemotePacketIds {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         let glue = PacketRegistryTypedRemoteGlue::from_remote_manifest(manifest)?;
-        Ok(Self::from_typed_registry(glue.well_known_registry()?))
+        Ok(well_known_registry_glue::from_typed_registry(
+            glue.well_known_registry()?,
+        ))
     }
 
     fn from_typed_registry(registry: WellKnownRemoteRegistry) -> Self {
-        Self::from_resolved_packet_ids(registry.resolved_packet_ids())
+        well_known_registry_glue::from_typed_registry(registry)
     }
 
     fn from_resolved_packet_ids(
@@ -1806,6 +1810,18 @@ mod tests {
                 "typed well-known containment mismatch for packet_id={packet_id}"
             );
         }
+    }
+
+    #[test]
+    fn well_known_remote_packet_ids_match_typed_registry_roundtrip() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let typed_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+        let well_known = WellKnownRemotePacketIds::from_typed_registry(typed_registry.clone());
+
+        super::well_known_registry_glue::assert_typed_registry_roundtrip(
+            &typed_registry,
+            &well_known,
+        );
     }
 
     #[test]
