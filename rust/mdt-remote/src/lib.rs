@@ -2577,6 +2577,14 @@ impl<'a> RemotePacketRegistry<'a> {
             .collect()
     }
 
+    pub fn has_method(&self, method: &str) -> bool {
+        self.first_packet_for_method(method).is_some()
+    }
+
+    pub fn first_packet_for_method(&self, method: &str) -> Option<&TypedRemotePacketMetadata<'a>> {
+        self.packets.iter().find(|packet| packet.method == method)
+    }
+
     pub fn packets_matching(
         &self,
         selector: RemotePacketSelector<'_>,
@@ -2591,7 +2599,9 @@ impl<'a> RemotePacketRegistry<'a> {
         &self,
         selector: RemotePacketSelector<'_>,
     ) -> Option<&TypedRemotePacketMetadata<'a>> {
-        self.packets_matching(selector).into_iter().next()
+        self.packets
+            .iter()
+            .find(|packet| packet.matches_selector(&selector))
     }
 
     pub fn first_high_frequency_method(
@@ -4712,6 +4722,22 @@ mod tests {
             bundle.well_known.resolved_packet_ids(),
             from_manifest.well_known.resolved_packet_ids()
         );
+    }
+
+    #[test]
+    fn remote_packet_registry_can_lookup_methods_directly_from_real_manifest() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
+
+        let direct = registry.first_packet_for_method("stateSnapshot").unwrap();
+        let typed = registry
+            .first_high_frequency_method(HighFrequencyRemoteMethod::StateSnapshot)
+            .unwrap();
+
+        assert_eq!(direct.packet_id, typed.packet_id);
+        assert_eq!(direct.packet_class, typed.packet_class);
+        assert!(registry.has_method("stateSnapshot"));
+        assert!(!registry.has_method("definitelyNotARemoteMethod"));
     }
 
     #[test]
