@@ -11,6 +11,19 @@ pub struct InputSnapshot {
     pub active_actions: Vec<BinaryAction>,
 }
 
+impl InputSnapshot {
+    pub fn summary_label(&self) -> String {
+        format!(
+            "move=1 aim=1 mining={} building={} config={} build-pulse={} action={}",
+            option_count(self.mining_tile.is_some()),
+            bool_count(self.building),
+            option_count(self.config_tap_tile.is_some()),
+            option_count(self.build_pulse.is_some()),
+            self.active_actions.len(),
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum IntentSamplingMode {
     #[default]
@@ -184,6 +197,14 @@ fn normalize_axis(axis: (f32, f32)) -> (f32, f32) {
     }
 }
 
+fn bool_count(value: bool) -> usize {
+    usize::from(value)
+}
+
+fn option_count(value: bool) -> usize {
+    usize::from(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +233,27 @@ mod tests {
             build_pulse: None,
             active_actions: active_actions.to_vec(),
         }
+    }
+
+    #[test]
+    fn input_snapshot_summary_label_counts_present_fields_and_actions() {
+        let snapshot = InputSnapshot {
+            move_axis: (1.0, 0.0),
+            aim_axis: (0.0, 1.0),
+            mining_tile: Some((7, 9)),
+            building: true,
+            config_tap_tile: Some((11, 13)),
+            build_pulse: Some(BuildPulse {
+                tile: (3, 4),
+                breaking: false,
+            }),
+            active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
+        };
+
+        assert_eq!(
+            snapshot.summary_label(),
+            "move=1 aim=1 mining=1 building=1 config=1 build-pulse=1 action=2"
+        );
     }
 
     #[test]
