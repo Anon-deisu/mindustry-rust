@@ -72,6 +72,57 @@ impl CommandModeTargetProjection {
             && self.position_target.is_none()
             && self.rect_target.is_none()
     }
+
+    pub fn summary_label(self) -> String {
+        if self.is_empty() {
+            return "none".to_string();
+        }
+
+        let mut parts = Vec::new();
+        if self.build_target.is_some() {
+            parts.push("build");
+        }
+        if self.unit_target.is_some() {
+            parts.push("unit");
+        }
+        if self.position_target.is_some() {
+            parts.push("position");
+        }
+        if self.rect_target.is_some() {
+            parts.push("rect");
+        }
+
+        parts.join("+")
+    }
+
+    pub fn detail_label(self) -> String {
+        if self.is_empty() {
+            return "none".to_string();
+        }
+
+        let mut parts = Vec::new();
+        if let Some(build_target) = self.build_target {
+            parts.push(format!("build={build_target}"));
+        }
+        if let Some(unit_target) = self.unit_target {
+            parts.push(format!("unit={}:{}", unit_target.kind, unit_target.value));
+        }
+        if let Some(position_target) = self.position_target {
+            parts.push(format!(
+                "position={},{}",
+                f32::from_bits(position_target.x_bits),
+                f32::from_bits(position_target.y_bits)
+            ));
+        }
+        if let Some(rect_target) = self.rect_target {
+            parts.push(format!(
+                "rect={},{},{}:{}",
+                rect_target.x0, rect_target.y0, rect_target.x1, rect_target.y1
+            ));
+        }
+
+        parts.join(" ")
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -512,6 +563,8 @@ mod tests {
     #[test]
     fn target_projection_is_empty_only_without_any_target() {
         assert!(CommandModeTargetProjection::default().is_empty());
+        assert_eq!(CommandModeTargetProjection::default().summary_label(), "none");
+        assert_eq!(CommandModeTargetProjection::default().detail_label(), "none");
         assert!(!CommandModeTargetProjection {
             build_target: Some(7),
             ..CommandModeTargetProjection::default()
@@ -540,6 +593,37 @@ mod tests {
             ..CommandModeTargetProjection::default()
         }
         .is_empty());
+    }
+
+    #[test]
+    fn target_projection_summary_label_reports_empty_mixed_and_full_targets() {
+        assert_eq!(CommandModeTargetProjection::default().summary_label(), "none");
+
+        let mixed = CommandModeTargetProjection {
+            build_target: Some(7),
+            unit_target: Some(unit(1, 9)),
+            position_target: Some(CommandModePositionTarget {
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.5f32.to_bits(),
+            }),
+            rect_target: None,
+        };
+        assert_eq!(mixed.summary_label(), "build+unit+position");
+        assert!(mixed.detail_label().contains("build=7"));
+        assert!(mixed.detail_label().contains("unit=1:9"));
+        assert!(mixed.detail_label().contains("position=1,2.5"));
+
+        let full = CommandModeTargetProjection {
+            rect_target: Some(CommandModeRectProjection {
+                x0: -1,
+                y0: 2,
+                x1: 3,
+                y1: 4,
+            }),
+            ..mixed
+        };
+        assert_eq!(full.summary_label(), "build+unit+position+rect");
+        assert!(full.detail_label().contains("rect=-1,2,3:4"));
     }
 
     #[test]
