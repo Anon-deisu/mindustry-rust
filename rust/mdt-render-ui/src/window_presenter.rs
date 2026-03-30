@@ -1585,6 +1585,10 @@ fn compose_frame_panel_lines(
     if let Some(build_flow_text) = compose_build_flow_status_text(scene, hud, window) {
         lines.push(format!("BUILD-FLOW: {build_flow_text}"));
     }
+    if let Some(build_flow_summary_text) = compose_build_flow_summary_status_text(scene, hud, window)
+    {
+        lines.push(format!("BUILD-FLOW-SUMMARY: {build_flow_summary_text}"));
+    }
     if let Some(build_route_text) = compose_build_route_status_text(scene, hud, window) {
         lines.push(format!("BUILD-ROUTE: {build_route_text}"));
     }
@@ -3301,20 +3305,16 @@ fn compose_build_flow_detail_status_text(
     window: PresenterViewWindow,
 ) -> Option<String> {
     let panel = build_build_user_flow_panel(scene, hud, window)?;
-    let route = panel.route.join(">");
-    Some(format!(
-        "cfgflowd:b{}:route={}:m={}:focus={}:pan={}:target={}",
-        panel.blocker_count(),
-        if route.is_empty() {
-            "none"
-        } else {
-            route.as_str()
-        },
-        panel.minimap_next_action,
-        panel.focus_state.label(),
-        panel.pan_label(),
-        panel.target_kind.label(),
-    ))
+    Some(panel.detail_label())
+}
+
+fn compose_build_flow_summary_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_user_flow_panel(scene, hud, window)?;
+    Some(panel.summary_label())
 }
 
 fn compose_build_route_status_text(
@@ -8357,7 +8357,11 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-FLOW-DETAIL: cfgflowd:b2:route=resolve>survey>commit:m=survey:focus=inside:pan=hold:target=player",
+            "BUILD-FLOW-SUMMARY: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building head=10,12",
         );
     }
 
