@@ -359,6 +359,28 @@ mod tests {
     }
 
     #[test]
+    fn advance_falls_back_to_next_position_when_locked_and_runtime_pointers_are_non_finite() {
+        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (2.0, 1.0) });
+        let update = controller
+            .advance(
+                RuntimeInputState {
+                    unit_id: Some(7),
+                    dead: false,
+                    position: Some((10.0, 20.0)),
+                    pointer: Some((f32::NAN, 99.0)),
+                },
+                100,
+                50,
+                Some((f32::INFINITY, 200.0)),
+            )
+            .unwrap();
+
+        assert_eq!(update.position, (12.0, 21.0));
+        assert_eq!(update.view_center, (12.0, 21.0));
+        assert_eq!(update.pointer, (12.0, 21.0));
+    }
+
+    #[test]
     fn advance_ignores_non_finite_position_or_step() {
         let mut controller = MovementProbeController::new(MovementProbeConfig {
             step: (f32::NAN, 1.0),
