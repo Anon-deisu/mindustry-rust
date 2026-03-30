@@ -171,6 +171,19 @@ pub fn read_status_entries(
     Ok(entries)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn read_status_entries_into(
+    bytes: &[u8],
+    entries: &mut Vec<StatusEntryRaw>,
+    dynamic: bool,
+) -> Result<(), TypeIoReadError> {
+    let (parsed, consumed) = read_status_entries_prefix(bytes, dynamic)?;
+    ensure_consumed(consumed, bytes.len())?;
+    entries.clear();
+    entries.extend(parsed);
+    Ok(())
+}
+
 pub fn read_status_entries_prefix(
     bytes: &[u8],
     dynamic: bool,
@@ -185,6 +198,18 @@ pub fn read_status_entries_prefix(
         entries.push(entry);
     }
     Ok((entries, reader.position()))
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn read_status_entries_into_prefix(
+    bytes: &[u8],
+    entries: &mut Vec<StatusEntryRaw>,
+    dynamic: bool,
+) -> Result<usize, TypeIoReadError> {
+    let (parsed, consumed) = read_status_entries_prefix(bytes, dynamic)?;
+    entries.clear();
+    entries.extend(parsed);
+    Ok(consumed)
 }
 
 pub fn status_name_uses_dynamic_fields(status_name: Option<&str>) -> bool {
@@ -737,6 +762,31 @@ mod tests {
     }
 
     #[test]
+    fn status_entries_into_prefix_overwrites_existing_entries() {
+        let bytes = [1, 0, 27, 0x42, 0x36, 0x00, 0x00, 0].to_vec();
+        let mut entries = vec![StatusEntryRaw {
+            status_id: 91,
+            time: 12.25,
+            dynamic_fields: Some(StatusDynamicFieldsRaw {
+                damage_multiplier: Some(1.5),
+                ..StatusDynamicFieldsRaw::default()
+            }),
+        }];
+
+        let consumed = read_status_entries_into_prefix(&bytes, &mut entries, true).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(
+            entries,
+            vec![StatusEntryRaw {
+                status_id: 27,
+                time: 45.5,
+                dynamic_fields: Some(StatusDynamicFieldsRaw::default()),
+            }]
+        );
+    }
+
+    #[test]
     fn status_entries_with_missing_dynamic_fields_write_zero_flag_byte() {
         let entries = vec![StatusEntryRaw {
             status_id: 27,
@@ -799,6 +849,32 @@ mod tests {
         assert_eq!(bytes.len(), 7);
         assert_eq!(
             read_status_entries(&bytes, false).unwrap(),
+            vec![StatusEntryRaw {
+                status_id: 91,
+                time: 12.25,
+                dynamic_fields: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn status_entries_into_rejects_trailing_payload() {
+        let bytes = [1, 0, 27, 0x42, 0x36, 0x00, 0x00, 0, 0xff].to_vec();
+        let mut entries = vec![StatusEntryRaw {
+            status_id: 91,
+            time: 12.25,
+            dynamic_fields: None,
+        }];
+
+        assert!(matches!(
+            read_status_entries_into(&bytes, &mut entries, true),
+            Err(TypeIoReadError::TrailingBytes {
+                consumed: 8,
+                total: 9,
+            })
+        ));
+        assert_eq!(
+            entries,
             vec![StatusEntryRaw {
                 status_id: 91,
                 time: 12.25,
