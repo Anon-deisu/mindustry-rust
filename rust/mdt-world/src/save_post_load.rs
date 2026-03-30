@@ -2,7 +2,7 @@ use crate::{
     marker_region_is_empty, CustomChunkEntry, MarkerEntry, MarkerModel, ParsedBuildingTail,
     ParsedCustomChunk, SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeReadiness,
     SavePostLoadRuntimeSeedSurface, SavePostLoadRuntimeSourceRegionReadiness,
-    SavePostLoadRuntimeWorldOwnership,
+    SavePostLoadRuntimeWorldOwnership, save_post_load_runtime_world_ownership::SavePostLoadRuntimeWorldOwnershipSourceRegion,
     SavePostLoadRuntimeWorldSemanticsExecution, SavePostLoadWorldObservation, StaticFogChunk,
     TeamPlan, TeamPlanGroup, WorldGraph, WorldLoadUnknownCoverageSummary,
 };
@@ -49,6 +49,23 @@ impl<'a> SavePostLoadWorldApplyBundleReadiness<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadWorldApplyBundleOwnership<'a> {
+    pub runtime_world_ownership: &'a SavePostLoadRuntimeWorldOwnership,
+    pub source_regions: Vec<SavePostLoadRuntimeWorldOwnershipSourceRegion>,
+}
+
+impl<'a> SavePostLoadWorldApplyBundleOwnership<'a> {
+    pub fn source_region(
+        &self,
+        source_region_name: &str,
+    ) -> Option<&SavePostLoadRuntimeWorldOwnershipSourceRegion> {
+        self.source_regions
+            .iter()
+            .find(|region| region.source_region_name == source_region_name)
+    }
+}
+
 impl<'a> SavePostLoadWorldApplyBundle<'a> {
     pub fn graph(&self) -> WorldGraph<'a> {
         self.observation.graph()
@@ -59,6 +76,15 @@ impl<'a> SavePostLoadWorldApplyBundle<'a> {
             runtime_readiness: &self.runtime_readiness,
             runtime_seed_surface: &self.runtime_seed_surface,
             source_regions: self.runtime_readiness.source_regions(),
+        }
+    }
+
+    pub fn runtime_world_ownership_summary(
+        &self,
+    ) -> SavePostLoadWorldApplyBundleOwnership<'_> {
+        SavePostLoadWorldApplyBundleOwnership {
+            runtime_world_ownership: self.runtime_world_ownership(),
+            source_regions: self.runtime_world_ownership().source_regions(),
         }
     }
 
@@ -327,6 +353,27 @@ mod tests {
         assert_eq!(
             readiness_summary.source_region("entities").cloned(),
             runtime_readiness.source_region("entities")
+        );
+    }
+
+    #[test]
+    fn post_load_world_apply_bundle_reports_source_region_ownership() {
+        let observation = test_observation();
+        let bundle = observation.post_load_world_apply_bundle();
+        let ownership_summary = bundle.runtime_world_ownership_summary();
+        let runtime_world_ownership = observation.runtime_world_ownership();
+
+        assert_eq!(
+            ownership_summary.runtime_world_ownership,
+            &runtime_world_ownership
+        );
+        assert_eq!(
+            ownership_summary.source_regions,
+            runtime_world_ownership.source_regions()
+        );
+        assert_eq!(
+            ownership_summary.source_region("entities").cloned(),
+            runtime_world_ownership.source_region("entities")
         );
     }
 
