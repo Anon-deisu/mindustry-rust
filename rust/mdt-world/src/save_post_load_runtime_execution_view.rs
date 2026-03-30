@@ -32,6 +32,59 @@ pub struct SavePostLoadRuntimeExecutionStatusBucket {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadRuntimeExecutionSourceRegion {
+    pub source_region_name: &'static str,
+    pub executed_steps: Vec<SavePostLoadRuntimeApplyStep>,
+    pub failed_steps: Vec<SavePostLoadRuntimeApplyStep>,
+    pub awaiting_world_shell_steps: Vec<SavePostLoadRuntimeApplyStep>,
+    pub blocked_steps: Vec<SavePostLoadRuntimeApplyStep>,
+    pub deferred_steps: Vec<SavePostLoadRuntimeApplyStep>,
+}
+
+impl SavePostLoadRuntimeExecutionSourceRegion {
+    pub fn step_count(&self, status: SavePostLoadRuntimeExecutionStepStatus) -> usize {
+        self.steps_with_status(status).len()
+    }
+
+    pub fn total_step_count(&self) -> usize {
+        SavePostLoadRuntimeExecutionStepStatus::ordered()
+            .into_iter()
+            .map(|status| self.step_count(status))
+            .sum()
+    }
+
+    pub fn steps_with_status(
+        &self,
+        status: SavePostLoadRuntimeExecutionStepStatus,
+    ) -> &[SavePostLoadRuntimeApplyStep] {
+        match status {
+            SavePostLoadRuntimeExecutionStepStatus::Executed => &self.executed_steps,
+            SavePostLoadRuntimeExecutionStepStatus::Failed => &self.failed_steps,
+            SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell => {
+                &self.awaiting_world_shell_steps
+            }
+            SavePostLoadRuntimeExecutionStepStatus::Blocked => &self.blocked_steps,
+            SavePostLoadRuntimeExecutionStepStatus::Deferred => &self.deferred_steps,
+        }
+    }
+
+    fn steps_with_status_mut(
+        &mut self,
+        status: SavePostLoadRuntimeExecutionStepStatus,
+    ) -> &mut Vec<SavePostLoadRuntimeApplyStep> {
+        match status {
+            SavePostLoadRuntimeExecutionStepStatus::Executed => &mut self.executed_steps,
+            SavePostLoadRuntimeExecutionStepStatus::Failed => &mut self.failed_steps,
+            SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell => {
+                &mut self.awaiting_world_shell_steps
+            }
+            SavePostLoadRuntimeExecutionStepStatus::Blocked => &mut self.blocked_steps,
+            SavePostLoadRuntimeExecutionStepStatus::Deferred => &mut self.deferred_steps,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavePostLoadRuntimeApplyExecutionView {
     pub can_seed_runtime_apply: bool,
     pub world_shell_ready: bool,
@@ -67,6 +120,19 @@ impl SavePostLoadRuntimeApplyExecutionView {
         status: SavePostLoadRuntimeExecutionStepStatus,
     ) -> Vec<&SavePostLoadRuntimeApplyStep> {
         steps_with_status(&self.step_status_lookup, status)
+    }
+
+    pub fn source_region(
+        &self,
+        source_region_name: &str,
+    ) -> Option<SavePostLoadRuntimeExecutionSourceRegion> {
+        self.source_regions()
+            .into_iter()
+            .find(|region| region.source_region_name == source_region_name)
+    }
+
+    pub fn source_regions(&self) -> Vec<SavePostLoadRuntimeExecutionSourceRegion> {
+        source_regions(&self.step_status_lookup)
     }
 
     pub fn status_counts(&self) -> BTreeMap<SavePostLoadRuntimeExecutionStepStatus, usize> {
@@ -114,6 +180,19 @@ impl SavePostLoadRuntimeWorldSemanticsExecutionView {
         status: SavePostLoadRuntimeExecutionStepStatus,
     ) -> Vec<&SavePostLoadRuntimeApplyStep> {
         steps_with_status(&self.step_status_lookup, status)
+    }
+
+    pub fn source_region(
+        &self,
+        source_region_name: &str,
+    ) -> Option<SavePostLoadRuntimeExecutionSourceRegion> {
+        self.source_regions()
+            .into_iter()
+            .find(|region| region.source_region_name == source_region_name)
+    }
+
+    pub fn source_regions(&self) -> Vec<SavePostLoadRuntimeExecutionSourceRegion> {
+        source_regions(&self.step_status_lookup)
     }
 
     pub fn status_counts(&self) -> BTreeMap<SavePostLoadRuntimeExecutionStepStatus, usize> {
@@ -239,6 +318,54 @@ fn steps_with_status<'a>(
         .collect()
 }
 
+fn source_regions(
+    lookup: &BTreeMap<SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeExecutionStepStatus>,
+) -> Vec<SavePostLoadRuntimeExecutionSourceRegion> {
+    let mut source_regions = Vec::new();
+
+    for (step, status) in lookup {
+        let source_region_name = source_region_name_for_step(step);
+        let source_region = match source_regions.iter_mut().find(
+            |candidate: &&mut SavePostLoadRuntimeExecutionSourceRegion| {
+                candidate.source_region_name == source_region_name
+            },
+        ) {
+            Some(source_region) => source_region,
+            None => {
+                source_regions.push(SavePostLoadRuntimeExecutionSourceRegion {
+                    source_region_name,
+                    executed_steps: Vec::new(),
+                    failed_steps: Vec::new(),
+                    awaiting_world_shell_steps: Vec::new(),
+                    blocked_steps: Vec::new(),
+                    deferred_steps: Vec::new(),
+                });
+                source_regions
+                    .last_mut()
+                    .expect("source region was just pushed")
+            }
+        };
+        source_region.steps_with_status_mut(*status).push(step.clone());
+    }
+
+    source_regions
+}
+
+const fn source_region_name_for_step(step: &SavePostLoadRuntimeApplyStep) -> &'static str {
+    match step {
+        SavePostLoadRuntimeApplyStep::WorldShell | SavePostLoadRuntimeApplyStep::Building { .. } => {
+            "map"
+        }
+        SavePostLoadRuntimeApplyStep::EntityRemap { .. }
+        | SavePostLoadRuntimeApplyStep::TeamPlan { .. }
+        | SavePostLoadRuntimeApplyStep::LoadableEntity { .. }
+        | SavePostLoadRuntimeApplyStep::SkippedEntity { .. } => "entities",
+        SavePostLoadRuntimeApplyStep::Marker { .. } => "markers",
+        SavePostLoadRuntimeApplyStep::StaticFog
+        | SavePostLoadRuntimeApplyStep::CustomChunk { .. } => "custom",
+    }
+}
+
 fn status_counts(
     lookup: &BTreeMap<SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeExecutionStepStatus>,
 ) -> BTreeMap<SavePostLoadRuntimeExecutionStepStatus, usize> {
@@ -328,6 +455,46 @@ mod tests {
             SavePostLoadRuntimeExecutionStepStatus::Executed
         );
         assert_eq!(status_buckets[0].steps.len(), 14);
+    }
+
+    #[test]
+    fn runtime_apply_execution_view_groups_steps_by_source_region() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let view = observation.runtime_apply_execution_view();
+        let source_regions = view.source_regions();
+        let entities = view.source_region("entities").unwrap();
+
+        assert_eq!(
+            source_regions
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            vec!["map", "entities", "markers", "custom"]
+        );
+        assert_eq!(source_regions[0].total_step_count(), 2);
+        assert_eq!(source_regions[1].total_step_count(), 7);
+        assert_eq!(source_regions[2].total_step_count(), 2);
+        assert_eq!(source_regions[3].total_step_count(), 3);
+        assert_eq!(
+            entities.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
+            7
+        );
+        assert_eq!(
+            entities.step_count(SavePostLoadRuntimeExecutionStepStatus::Blocked),
+            0
+        );
+        assert!(
+            entities
+                .steps_with_status(SavePostLoadRuntimeExecutionStepStatus::Executed)
+                .contains(&SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 })
+        );
+        assert!(
+            entities
+                .steps_with_status(SavePostLoadRuntimeExecutionStepStatus::Executed)
+                .contains(&SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 })
+        );
     }
 
     #[test]
@@ -429,10 +596,46 @@ mod tests {
         );
         assert!(status_buckets.iter().any(|bucket| {
             bucket.status == SavePostLoadRuntimeExecutionStepStatus::Failed
-            && bucket
+                && bucket
                     .steps
                     .contains(&SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 })
         }));
+    }
+
+    #[test]
+    fn runtime_world_semantics_execution_view_groups_source_regions() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.markers[1].id = observation.markers[0].id;
+
+        let view = observation.runtime_world_semantics_execution_view();
+        let source_regions = view.source_regions();
+        let markers = view.source_region("markers").unwrap();
+
+        assert_eq!(
+            source_regions
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            vec!["map", "entities", "markers", "custom"]
+        );
+        assert_eq!(source_regions[0].total_step_count(), 2);
+        assert_eq!(source_regions[1].total_step_count(), 5);
+        assert_eq!(source_regions[2].total_step_count(), 2);
+        assert_eq!(source_regions[3].total_step_count(), 1);
+        assert_eq!(
+            markers.step_count(SavePostLoadRuntimeExecutionStepStatus::Failed),
+            1
+        );
+        assert_eq!(
+            markers.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
+            1
+        );
+        assert!(
+            markers
+                .steps_with_status(SavePostLoadRuntimeExecutionStepStatus::Failed)
+                .contains(&SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 })
+        );
     }
 
     #[test]
