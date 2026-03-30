@@ -39,6 +39,28 @@ impl SavePostLoadRuntimeSeedPlan {
             + self.skipped_entity_seeds.len()
     }
 
+    pub fn summary_label(&self) -> String {
+        format!(
+            "seed={} steps={} regions={}",
+            bool_label(self.can_seed_runtime_apply()),
+            self.seed_step_count(),
+            self.source_regions().len(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "seed={} steps={} regions=[{}]",
+            bool_label(self.can_seed_runtime_apply()),
+            self.seed_step_count(),
+            self.source_regions()
+                .iter()
+                .map(SavePostLoadRuntimeSeedRegion::summary_label)
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+
     pub fn source_region(&self, source_region_name: &str) -> Option<SavePostLoadRuntimeSeedRegion> {
         self.source_regions()
             .into_iter()
@@ -166,6 +188,27 @@ impl SavePostLoadRuntimeSeedRegion {
             + self.building_seeds.len()
             + self.loadable_entity_seeds.len()
             + self.skipped_entity_seeds.len()
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "region={} world={} remaps={} plans={} markers={} fog={} chunks={} buildings={} loadable={} skipped={} total={}",
+            self.source_region_name,
+            usize::from(self.world_seed.is_some()),
+            self.entity_remap_seeds.len(),
+            self.team_plan_seeds.len(),
+            self.marker_seeds.len(),
+            usize::from(self.static_fog_seed.is_some()),
+            self.custom_chunk_seeds.len(),
+            self.building_seeds.len(),
+            self.loadable_entity_seeds.len(),
+            self.skipped_entity_seeds.len(),
+            self.seed_step_count(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        self.summary_label()
     }
 }
 
@@ -424,6 +467,10 @@ fn runtime_entity_seed(
     }
 }
 
+fn bool_label(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,6 +494,10 @@ mod tests {
         assert_eq!(plan.activation, observation.activation_surface());
         assert!(!plan.can_seed_runtime_apply());
         assert_eq!(plan.seed_step_count(), 14);
+        assert_eq!(plan.summary_label(), "seed=no steps=14 regions=4");
+        assert!(plan
+            .detail_label()
+            .contains("region=entities world=0 remaps=2 plans=2 markers=0 fog=0 chunks=0 buildings=0 loadable=2 skipped=1 total=7"));
         assert_eq!(
             source_regions
                 .iter()
@@ -458,6 +509,10 @@ mod tests {
         assert_eq!(source_regions[1].seed_step_count(), 7);
         assert_eq!(source_regions[2].seed_step_count(), 2);
         assert_eq!(source_regions[3].seed_step_count(), 3);
+        assert_eq!(
+            source_regions[0].summary_label(),
+            "region=map world=1 remaps=0 plans=0 markers=0 fog=0 chunks=0 buildings=1 loadable=0 skipped=0 total=2"
+        );
         assert_eq!(source_regions[0].world_seed.as_ref(), Some(&plan.world_seed));
         assert_eq!(source_regions[0].building_seeds.len(), 1);
         assert_eq!(entities.seed_step_count(), 7);
@@ -657,6 +712,7 @@ mod tests {
         assert!(plan.can_seed_runtime_apply());
         assert!(plan.activation.can_seed_runtime_apply());
         assert!(plan.skipped_entity_seeds.is_empty());
+        assert_eq!(plan.summary_label(), "seed=yes steps=14 regions=4");
         assert_eq!(
             plan.loadable_entity_seeds
                 .iter()
@@ -682,6 +738,7 @@ mod tests {
 
         assert!(plan.static_fog_seed.is_none());
         assert_eq!(plan.seed_step_count(), 12);
+        assert_eq!(plan.summary_label(), "seed=no steps=12 regions=4");
         assert_eq!(plan.custom_chunk_seeds.len(), 1);
         assert_eq!(plan.custom_chunk_seeds[0].name, "mystery");
         assert_eq!(script.total_step_count(), 12);
@@ -703,6 +760,9 @@ mod tests {
         assert_eq!(plan.custom_chunk_seeds.len(), 1);
         assert_eq!(plan.custom_chunk_seeds[0].name, "static-fog-data");
         assert_eq!(plan.seed_step_count(), 12);
+        assert!(plan
+            .detail_label()
+            .contains("region=custom world=0 remaps=0 plans=0 markers=0 fog=0 chunks=1 buildings=0 loadable=0 skipped=0 total=1"));
         assert_eq!(script.total_step_count(), 12);
         assert_eq!(script.total_step_count(), plan.seed_step_count());
     }
