@@ -2055,7 +2055,7 @@ fn compose_minimap_visibility_detail_text(
     let visibility = build_minimap_user_flow_panel(scene, hud, window)?;
     let minimap = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "visibility={} coverage={} density=map:{} window:{} offscreen:{}",
+        "visibility={} coverage={} density=map:{}% window:{}% offscreen:{}%",
         visibility.visibility_label(),
         visibility.coverage_label(),
         minimap.map_object_density_percent(),
@@ -4242,7 +4242,7 @@ mod tests {
             "VIS-MINIMAP: overlay=1 fog=1 known=144(3%) vis=120(83%/2%) hid=24(16%/0%) map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1"
         ));
         assert!(frame.contains(
-            "MINIMAP-VIS-DETAIL: visibility=mapped coverage=full density=map:4 window:4 offscreen:0"
+            "MINIMAP-VIS-DETAIL: visibility=mixed coverage=offscreen density=map:0% window:400% offscreen:0%"
         ));
         assert!(frame.contains(
             "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"

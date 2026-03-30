@@ -1545,7 +1545,7 @@ fn compose_frame_panel_lines(
     if let Some(minimap_legend_text) = compose_minimap_legend_status_text(hud) {
         lines.push(format!("MINIMAP-LEGEND: {minimap_legend_text}"));
     }
-    for minimap_detail_text in compose_minimap_detail_status_lines(scene, hud) {
+    for minimap_detail_text in compose_minimap_detail_status_lines(scene, hud, window) {
         lines.push(format!("MINIMAP-DETAIL: {minimap_detail_text}"));
     }
     if let Some(render_pipeline_text) = compose_render_pipeline_status_text(scene, window) {
@@ -3063,17 +3063,12 @@ fn compose_minimap_legend_status_text(hud: &HudModel) -> Option<String> {
     Some("legend:pl@/mkM/pnP/bk#/rtR/tr./uk?".to_string())
 }
 
-fn compose_minimap_detail_status_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
-    let Some(panel) = build_minimap_panel(
-        scene,
-        hud,
-        PresenterViewWindow {
-            origin_x: 0,
-            origin_y: 0,
-            width: 0,
-            height: 0,
-        },
-    ) else {
+fn compose_minimap_detail_status_lines(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Vec<String> {
+    let Some(panel) = build_minimap_panel(scene, hud, window) else {
         return Vec::new();
     };
 
@@ -3092,9 +3087,22 @@ fn compose_minimap_detail_status_lines(scene: &RenderModel, hud: &HudModel) -> V
             )
         })
         .collect::<Vec<_>>();
+    lines.push(compose_minimap_density_visibility_status_text(&panel));
     lines.push(compose_minimap_window_distribution_status_text(&panel));
     lines.push(compose_minimap_window_kind_distribution_status_text(&panel));
     lines
+}
+
+fn compose_minimap_density_visibility_status_text(panel: &MinimapPanelModel) -> String {
+    format!(
+        "minidv:ov{}:fg{}:cov{}:mapd{}:wind{}:out{}",
+        bool_flag(panel.overlay_visible),
+        bool_flag(panel.fog_enabled),
+        panel.window_coverage_percent,
+        panel.map_object_density_percent(),
+        panel.window_object_density_percent(),
+        panel.outside_object_percent(),
+    )
 }
 
 fn compose_minimap_window_distribution_status_text(panel: &MinimapPanelModel) -> String {
@@ -6297,6 +6305,13 @@ mod tests {
             panel.window_object_density_percent()
         );
         assert_eq!(inset.outside_object_percent, panel.outside_object_percent());
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            &format!(
+                "MINIMAP-DETAIL: {}",
+                super::compose_minimap_density_visibility_status_text(&panel)
+            ),
+        );
         assert_eq!(inset.focus_tile, Some((7, 6)));
         assert_eq!(inset.player_tile, Some((4, 2)));
         assert_eq!(inset.ping_tile, Some((5, 3)));
@@ -6433,6 +6448,13 @@ mod tests {
             panel.window_object_density_percent()
         );
         assert_eq!(inset.outside_object_percent, panel.outside_object_percent());
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            &format!(
+                "MINIMAP-DETAIL: {}",
+                super::compose_minimap_density_visibility_status_text(&panel)
+            ),
+        );
     }
 
     #[test]
@@ -7270,6 +7292,9 @@ mod tests {
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
+        let inset = frame.minimap_inset.as_ref().expect("minimap inset");
+        let panel = super::build_minimap_panel(&scene, &hud, inset.window)
+            .expect("expected minimap panel");
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-KINDS: minikind:obj7@pl1:mk2:pn0:bk0:rt4:tr0:uk0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1",
@@ -7277,6 +7302,13 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-DETAIL: minid:1/6:marker-line=1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            &format!(
+                "MINIMAP-DETAIL: {}",
+                super::compose_minimap_density_visibility_status_text(&panel)
+            ),
         );
         assert_frame_line_contains(
             &frame.panel_lines,
