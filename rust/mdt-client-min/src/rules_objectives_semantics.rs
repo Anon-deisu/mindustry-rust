@@ -1345,6 +1345,37 @@ mod tests {
     }
 
     #[test]
+    fn objectives_projection_complete_by_index_is_idempotent() {
+        let mut projection = ObjectivesProjection::default();
+
+        projection.replace_from_json(
+            r#"[{"type":"Research","content":"router","completed":false,"flagsAdded":["a"],"flagsRemoved":["b"]},{"type":"Research","content":"duo","completed":false,"parents":[0]}]"#,
+        );
+        projection.apply_set_flag(Some("b"), true);
+
+        assert!(!projection.objectives[0].completed);
+        assert!(!projection.objectives[1].qualified);
+        assert!(projection.objective_flags.contains("b"));
+
+        projection.complete_by_index(0);
+        let flags_after_first_completion = projection.objective_flags.clone();
+
+        assert!(projection.objectives[0].completed);
+        assert!(projection.objectives[1].qualified);
+        assert!(flags_after_first_completion.contains("a"));
+        assert!(!flags_after_first_completion.contains("b"));
+
+        projection.complete_by_index(0);
+
+        assert_eq!(projection.objective_flags, flags_after_first_completion);
+        assert!(projection.objectives[0].completed);
+        assert!(projection.objectives[1].qualified);
+        assert_eq!(projection.complete_by_index_count, 2);
+        assert_eq!(projection.complete_out_of_range_count, 0);
+        assert_eq!(projection.last_completed_index, Some(0));
+    }
+
+    #[test]
     fn mixed_rules_objectives_sequence_is_deterministic() {
         let mut rules_a = RulesProjection::default();
         let mut objectives_a = ObjectivesProjection::default();
