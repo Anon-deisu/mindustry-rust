@@ -58,6 +58,76 @@ impl HudSummary {
     pub fn hidden_map_percent(&self) -> usize {
         percent_of(self.hidden_tile_count, self.map_tile_count())
     }
+
+    pub fn visibility_label(&self) -> &'static str {
+        if self.map_tile_count() == 0 {
+            "empty"
+        } else if self.known_tile_count() == 0 {
+            "unseen"
+        } else if self.visible_tile_count == 0 {
+            "hidden"
+        } else if self.unknown_tile_count() == 0 && self.hidden_tile_count == 0 {
+            "clear"
+        } else if self.unknown_tile_count() == 0 {
+            "mapped"
+        } else {
+            "mixed"
+        }
+    }
+
+    pub fn overlay_label(&self) -> &'static str {
+        if self.overlay_visible {
+            "on"
+        } else {
+            "off"
+        }
+    }
+
+    pub fn fog_label(&self) -> &'static str {
+        if self.fog_enabled {
+            "on"
+        } else {
+            "off"
+        }
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "team={} block={} plans={} markers={} vis={} known={} visible={} overlay={} fog={} minimap={}",
+            self.team_id,
+            self.selected_block,
+            self.plan_count,
+            self.marker_count,
+            self.visibility_label(),
+            self.known_tile_percent(),
+            self.visible_map_percent(),
+            self.overlay_label(),
+            self.fog_label(),
+            self.minimap.summary_label(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "player={} team={} block={} plans={} markers={} map={}x{} tiles={} vis={} known={} unknown={} visible={} hidden={} overlay={} fog={} minimap={}",
+            self.player_name,
+            self.team_id,
+            self.selected_block,
+            self.plan_count,
+            self.marker_count,
+            self.map_width,
+            self.map_height,
+            self.map_tile_count(),
+            self.visibility_label(),
+            self.known_tile_percent(),
+            self.unknown_tile_percent(),
+            self.visible_map_percent(),
+            self.hidden_map_percent(),
+            self.overlay_label(),
+            self.fog_label(),
+            self.minimap.detail_label(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,12 +136,66 @@ pub struct HudMinimapSummary {
     pub view_window: HudViewWindowSummary,
 }
 
+impl HudMinimapSummary {
+    pub fn focus_tile_label(&self) -> String {
+        self.focus_tile
+            .map(|(x, y)| format!("{x}:{y}"))
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "focus={} window={}+{}",
+            self.focus_tile_label(),
+            self.view_window.origin_label(),
+            self.view_window.size_label(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "focus={} window-origin={} window-size={} window-area={}",
+            self.focus_tile_label(),
+            self.view_window.origin_label(),
+            self.view_window.size_label(),
+            self.view_window.tile_count(),
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HudViewWindowSummary {
     pub origin_x: usize,
     pub origin_y: usize,
     pub width: usize,
     pub height: usize,
+}
+
+impl HudViewWindowSummary {
+    pub fn tile_count(&self) -> usize {
+        self.width.saturating_mul(self.height)
+    }
+
+    pub fn origin_label(&self) -> String {
+        format!("{}:{}", self.origin_x, self.origin_y)
+    }
+
+    pub fn size_label(&self) -> String {
+        format!("{}x{}", self.width, self.height)
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!("origin={} size={}", self.origin_label(), self.size_label(),)
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "origin={} size={} area={}",
+            self.origin_label(),
+            self.size_label(),
+            self.tile_count(),
+        )
+    }
 }
 
 fn percent_of(part: usize, total: usize) -> usize {
@@ -1227,6 +1351,34 @@ mod tests {
         assert_eq!(summary.unknown_tile_percent(), 60);
         assert_eq!(summary.visible_map_percent(), 25);
         assert_eq!(summary.hidden_map_percent(), 15);
+        assert_eq!(summary.visibility_label(), "mixed");
+        assert_eq!(summary.overlay_label(), "on");
+        assert_eq!(summary.fog_label(), "on");
+        assert_eq!(summary.minimap.focus_tile_label(), "2:3");
+        assert_eq!(summary.minimap.view_window.tile_count(), 16);
+        assert_eq!(summary.minimap.view_window.origin_label(), "1:2");
+        assert_eq!(summary.minimap.view_window.size_label(), "4x4");
+        assert_eq!(
+            summary.minimap.view_window.summary_label(),
+            "origin=1:2 size=4x4"
+        );
+        assert_eq!(
+            summary.minimap.view_window.detail_label(),
+            "origin=1:2 size=4x4 area=16"
+        );
+        assert_eq!(summary.minimap.summary_label(), "focus=2:3 window=1:2+4x4");
+        assert_eq!(
+            summary.minimap.detail_label(),
+            "focus=2:3 window-origin=1:2 window-size=4x4 window-area=16"
+        );
+        assert_eq!(
+            summary.summary_label(),
+            "team=2 block=payload-router plans=3 markers=4 vis=mixed known=40 visible=25 overlay=on fog=on minimap=focus=2:3 window=1:2+4x4"
+        );
+        assert_eq!(
+            summary.detail_label(),
+            "player=operator team=2 block=payload-router plans=3 markers=4 map=10x10 tiles=100 vis=mixed known=40 unknown=60 visible=25 hidden=15 overlay=on fog=on minimap=focus=2:3 window-origin=1:2 window-size=4x4 window-area=16"
+        );
     }
 
     #[test]
@@ -1261,6 +1413,27 @@ mod tests {
         assert_eq!(empty_summary.unknown_tile_percent(), 0);
         assert_eq!(empty_summary.visible_map_percent(), 0);
         assert_eq!(empty_summary.hidden_map_percent(), 0);
+        assert_eq!(empty_summary.visibility_label(), "empty");
+        assert_eq!(empty_summary.overlay_label(), "off");
+        assert_eq!(empty_summary.fog_label(), "off");
+        assert_eq!(empty_summary.minimap.focus_tile_label(), "none");
+        assert_eq!(empty_summary.minimap.view_window.tile_count(), 0);
+        assert_eq!(
+            empty_summary.minimap.summary_label(),
+            "focus=none window=0:0+0x0"
+        );
+        assert_eq!(
+            empty_summary.minimap.detail_label(),
+            "focus=none window-origin=0:0 window-size=0x0 window-area=0"
+        );
+        assert_eq!(
+            empty_summary.summary_label(),
+            "team=0 block= plans=0 markers=0 vis=empty known=0 visible=0 overlay=off fog=off minimap=focus=none window=0:0+0x0"
+        );
+        assert_eq!(
+            empty_summary.detail_label(),
+            "player= team=0 block= plans=0 markers=0 map=0x0 tiles=0 vis=empty known=0 unknown=0 visible=0 hidden=0 overlay=off fog=off minimap=focus=none window-origin=0:0 window-size=0x0 window-area=0"
+        );
 
         let overflowing_summary = super::HudSummary {
             player_name: String::new(),
@@ -1291,5 +1464,63 @@ mod tests {
         assert_eq!(overflowing_summary.known_tile_percent(), 0);
         assert_eq!(overflowing_summary.visible_map_percent(), 0);
         assert_eq!(overflowing_summary.hidden_map_percent(), 0);
+        assert_eq!(overflowing_summary.visibility_label(), "mixed");
+        assert_eq!(
+            overflowing_summary.detail_label(),
+            "player= team=0 block= plans=0 markers=0 map=18446744073709551615x2 tiles=18446744073709551615 vis=mixed known=0 unknown=1 visible=0 hidden=0 overlay=off fog=off minimap=focus=none window-origin=0:0 window-size=0x0 window-area=0"
+        );
+    }
+
+    #[test]
+    fn hud_summary_visibility_label_covers_state_transitions() {
+        let base = super::HudSummary {
+            player_name: String::new(),
+            team_id: 0,
+            selected_block: String::new(),
+            plan_count: 0,
+            marker_count: 0,
+            map_width: 2,
+            map_height: 2,
+            overlay_visible: false,
+            fog_enabled: false,
+            visible_tile_count: 0,
+            hidden_tile_count: 0,
+            minimap: super::HudMinimapSummary {
+                focus_tile: None,
+                view_window: super::HudViewWindowSummary {
+                    origin_x: 0,
+                    origin_y: 0,
+                    width: 0,
+                    height: 0,
+                },
+            },
+        };
+
+        assert_eq!(base.visibility_label(), "unseen");
+        assert_eq!(
+            super::HudSummary {
+                hidden_tile_count: 4,
+                ..base.clone()
+            }
+            .visibility_label(),
+            "hidden"
+        );
+        assert_eq!(
+            super::HudSummary {
+                visible_tile_count: 4,
+                ..base.clone()
+            }
+            .visibility_label(),
+            "clear"
+        );
+        assert_eq!(
+            super::HudSummary {
+                visible_tile_count: 2,
+                hidden_tile_count: 2,
+                ..base
+            }
+            .visibility_label(),
+            "mapped"
+        );
     }
 }
