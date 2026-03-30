@@ -499,6 +499,95 @@ mod tests {
         assert!(survey.window_clamped_right);
         assert!(survey.window_clamped_bottom);
 
+        let survey_plan_priority = build_minimap_user_flow_panel(
+            &RenderModel {
+                objects: vec![
+                    RenderObject {
+                        id: "player:1".to_string(),
+                        layer: 1,
+                        x: 8.0,
+                        y: 8.0,
+                    },
+                    RenderObject {
+                        id: "plan:build:1:1:1:301".to_string(),
+                        layer: 2,
+                        x: 8.0,
+                        y: 8.0,
+                    },
+                ],
+                ..base_scene.clone()
+            },
+            &HudModel {
+                summary: Some(HudSummary {
+                    visible_tile_count: 0,
+                    hidden_tile_count: 16,
+                    plan_count: 1,
+                    minimap: HudMinimapSummary {
+                        focus_tile: Some((1, 1)),
+                        ..summary.minimap
+                    },
+                    ..summary.clone()
+                }),
+                ..HudModel::default()
+            },
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 8,
+                height: 8,
+            },
+        )
+        .expect("survey plan priority panel");
+        assert_eq!(survey_plan_priority.target_kind, MinimapUserTargetKind::Plan);
+        assert_eq!(survey_plan_priority.visibility_label(), "hidden");
+        assert_eq!(survey_plan_priority.next_action, "survey");
+
+        let survey_marker_priority = build_minimap_user_flow_panel(
+            &RenderModel {
+                objects: vec![
+                    RenderObject {
+                        id: "player:1".to_string(),
+                        layer: 1,
+                        x: 8.0,
+                        y: 8.0,
+                    },
+                    RenderObject {
+                        id: "marker:point:2".to_string(),
+                        layer: 2,
+                        x: 8.0,
+                        y: 8.0,
+                    },
+                ],
+                ..base_scene.clone()
+            },
+            &HudModel {
+                summary: Some(HudSummary {
+                    visible_tile_count: 0,
+                    hidden_tile_count: 0,
+                    marker_count: 1,
+                    minimap: HudMinimapSummary {
+                        focus_tile: Some((1, 1)),
+                        ..summary.minimap
+                    },
+                    ..summary.clone()
+                }),
+                ..HudModel::default()
+            },
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 8,
+                height: 8,
+            },
+        )
+        .expect("survey marker priority panel");
+        assert_eq!(
+            survey_marker_priority.target_kind,
+            MinimapUserTargetKind::Marker
+        );
+        assert_eq!(survey_marker_priority.visibility_label(), "unseen");
+        assert_eq!(survey_marker_priority.next_action, "survey");
+
         let hidden = build_minimap_user_flow_panel(
             &base_scene,
             &HudModel {
