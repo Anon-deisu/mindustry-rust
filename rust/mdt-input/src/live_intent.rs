@@ -986,8 +986,11 @@ mod tests {
         assert!(tracker.state().building);
         assert_eq!(tracker.state().last_config_tap_tile, Some((7, 8)));
         assert_eq!(tracker.state().config_tap_count, 1);
-        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Chat]);
-        assert!(tracker.state().released_actions.is_empty());
+        assert_eq!(
+            tracker.state().pressed_actions,
+            vec![BinaryAction::Fire, BinaryAction::Chat]
+        );
+        assert_eq!(tracker.state().released_actions, vec![BinaryAction::Fire]);
         assert!(tracker.state().is_action_active(BinaryAction::Chat));
         assert!(!tracker.state().is_action_active(BinaryAction::Fire));
     }

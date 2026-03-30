@@ -260,6 +260,12 @@ pub struct CommandModeState {
 }
 
 impl CommandModeState {
+    fn clear_recent_target_state(&mut self) {
+        self.last_target = None;
+        self.last_command_selection = None;
+        self.last_stance_selection = None;
+    }
+
     pub fn clear(&mut self) {
         self.active = false;
         self.selected_units.clear();
@@ -318,7 +324,7 @@ impl CommandModeState {
         self.selected_units = group.unit_ids;
         self.command_buildings.clear();
         self.command_rect = None;
-        self.clear_recent_selections();
+        self.clear_recent_target_state();
         self.last_control_group_operation = Some(CommandModeRecentControlGroupOperation::Recall);
         true
     }
@@ -341,9 +347,7 @@ impl CommandModeState {
     }
 
     pub fn clear_recent_selections(&mut self) {
-        self.last_target = None;
-        self.last_command_selection = None;
-        self.last_stance_selection = None;
+        self.clear_recent_target_state();
     }
 
     pub fn record_unit_clear(&mut self) {
@@ -356,6 +360,7 @@ impl CommandModeState {
         selected_unit_ids: &[i32],
     ) {
         self.active = true;
+        self.clear_recent_target_state();
         self.selected_units = dedupe_i32(selected_unit_ids);
         self.command_buildings.clear();
         self.command_rect = None;
@@ -372,6 +377,7 @@ impl CommandModeState {
         build_pos: Option<i32>,
     ) {
         self.active = true;
+        self.clear_recent_target_state();
         self.selected_units = dedupe_i32(selected_unit_ids);
         self.command_buildings = build_pos.into_iter().collect();
         self.command_rect = None;
@@ -384,6 +390,7 @@ impl CommandModeState {
 
     pub fn record_building_control_select(&mut self, build_pos: Option<i32>) {
         self.active = true;
+        self.clear_recent_target_state();
         self.selected_units.clear();
         self.command_buildings = build_pos.into_iter().collect();
         self.command_rect = None;
@@ -400,6 +407,7 @@ impl CommandModeState {
         op: CommandModeSelectionOp,
     ) {
         self.active = true;
+        self.clear_recent_target_state();
         self.selected_units = merge_selected_units(&self.selected_units, selected_unit_ids, op);
         self.command_buildings.clear();
         self.command_rect = None;
@@ -417,6 +425,7 @@ impl CommandModeState {
     ) {
         let rect = rect.normalized();
         self.active = true;
+        self.clear_recent_target_state();
         self.selected_units = merge_selected_units(&self.selected_units, selected_unit_ids, op);
         self.command_buildings.clear();
         self.command_rect = Some(rect);
@@ -428,6 +437,7 @@ impl CommandModeState {
 
     pub fn record_command_building(&mut self, buildings: &[i32], position: (f32, f32)) {
         self.active = true;
+        self.clear_recent_target_state();
         self.selected_units.clear();
         self.command_buildings = dedupe_i32(buildings);
         self.command_rect = None;
@@ -445,6 +455,7 @@ impl CommandModeState {
         pos_target: Option<(f32, f32)>,
     ) {
         self.active = true;
+        self.clear_recent_target_state();
         self.selected_units = dedupe_i32(unit_ids);
         self.command_buildings.clear();
         self.command_rect = None;
@@ -824,6 +835,7 @@ mod tests {
         assert!(state.projection().command_buildings.is_empty());
         assert_eq!(state.projection().command_rect, None);
         assert_eq!(state.projection().last_target, None);
+        assert_eq!(state.projection().last_control_group_operation, Some(CommandModeRecentControlGroupOperation::Recall));
         assert_eq!(state.projection().last_command_selection, None);
         assert_eq!(state.projection().last_stance_selection, None);
     }
@@ -832,10 +844,14 @@ mod tests {
     fn command_entries_clear_stale_opposite_selection_state() {
         let mut state = CommandModeState::default();
         state.select_unit_target(Some(unit(2, 11)), &[11, 22], CommandModeSelectionOp::Replace);
+        state.record_set_unit_command(&[11, 22], Some(5));
+        state.record_set_unit_stance(&[11, 22], Some(7), true);
         state.record_command_building(&[90, 91, 90], (3.0, 4.0));
 
         assert!(state.projection().selected_units.is_empty());
         assert_eq!(state.projection().command_buildings, vec![90, 91]);
+        assert_eq!(state.projection().last_command_selection, None);
+        assert_eq!(state.projection().last_stance_selection, None);
         assert_eq!(
             state.projection().last_target,
             Some(CommandModeTargetProjection {
@@ -847,10 +863,14 @@ mod tests {
             })
         );
 
+        state.record_set_unit_command(&[7, 8], Some(9));
+        state.record_set_unit_stance(&[7, 8], Some(3), false);
         state.record_command_units(&[7, 8, 7], Some(12), Some(unit(1, 44)), Some((5.0, 6.0)));
 
         assert_eq!(state.projection().selected_units, vec![7, 8]);
         assert!(state.projection().command_buildings.is_empty());
+        assert_eq!(state.projection().last_command_selection, None);
+        assert_eq!(state.projection().last_stance_selection, None);
         assert_eq!(
             state.projection().last_target,
             Some(CommandModeTargetProjection {
@@ -995,6 +1015,8 @@ mod tests {
     fn select_unit_target_toggle_updates_selection_without_touching_control_groups() {
         let mut state = CommandModeState::default();
         state.bind_control_group(4, &[10, 20]);
+        state.record_set_unit_command(&[10, 20], Some(4));
+        state.record_set_unit_stance(&[10, 20], Some(8), true);
         state.select_unit_target(
             Some(unit(2, 10)),
             &[10, 20],
@@ -1011,6 +1033,8 @@ mod tests {
                 ..CommandModeTargetProjection::default()
             })
         );
+        assert_eq!(state.projection().last_command_selection, None);
+        assert_eq!(state.projection().last_stance_selection, None);
         assert_eq!(
             state.projection().control_groups,
             vec![CommandModeControlGroupProjection {
