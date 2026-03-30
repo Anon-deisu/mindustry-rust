@@ -118,6 +118,35 @@ impl MinimapUserFlowPanelModel {
             },
         }
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn summary_label(&self) -> String {
+        format!(
+            "next={} focus={} cover={} pan={} target={}",
+            self.next_action,
+            self.focus_state.label(),
+            self.coverage_label(),
+            self.pan_label(),
+            self.target_kind.label(),
+        )
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn detail_label(&self) -> String {
+        format!(
+            "next={} focus={} vis={} cover={} pan={} target={} overlay-targets={} visible={} unknown={} window={}",
+            self.next_action,
+            self.focus_state.label(),
+            self.visibility_label(),
+            self.coverage_label(),
+            self.pan_label(),
+            self.target_kind.label(),
+            self.overlay_target_count,
+            self.visible_tile_count,
+            self.unknown_tile_percent,
+            self.window_coverage_percent,
+        )
+    }
 }
 
 pub(crate) fn build_minimap_user_flow_panel(
@@ -394,10 +423,76 @@ mod tests {
         .expect("survey panel");
         assert_eq!(survey.next_action, "survey");
         assert_eq!(survey.visibility_label(), "unseen");
+        assert_eq!(
+            survey.summary_label(),
+            format!(
+                "next={} focus={} cover={} pan={} target={}",
+                survey.next_action,
+                survey.focus_state.label(),
+                survey.coverage_label(),
+                survey.pan_label(),
+                survey.target_kind.label(),
+            )
+        );
+        assert_eq!(
+            survey.detail_label(),
+            format!(
+                "next={} focus={} vis={} cover={} pan={} target={} overlay-targets={} visible={} unknown={} window={}",
+                survey.next_action,
+                survey.focus_state.label(),
+                survey.visibility_label(),
+                survey.coverage_label(),
+                survey.pan_label(),
+                survey.target_kind.label(),
+                survey.overlay_target_count,
+                survey.visible_tile_count,
+                survey.unknown_tile_percent,
+                survey.window_coverage_percent,
+            )
+        );
         assert!(survey.window_clamped_left);
         assert!(survey.window_clamped_top);
         assert!(survey.window_clamped_right);
         assert!(survey.window_clamped_bottom);
+
+        let hidden = build_minimap_user_flow_panel(
+            &base_scene,
+            &HudModel {
+                summary: Some(HudSummary {
+                    visible_tile_count: 0,
+                    hidden_tile_count: 24,
+                    minimap: HudMinimapSummary {
+                        focus_tile: Some((1, 1)),
+                        ..summary.minimap
+                    },
+                    ..summary.clone()
+                }),
+                ..HudModel::default()
+            },
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 8,
+                height: 8,
+            },
+        )
+        .expect("hidden panel");
+        assert_eq!(hidden.visibility_label(), "hidden");
+        assert_eq!(
+            hidden.summary_label(),
+            format!(
+                "next={} focus={} cover={} pan={} target={}",
+                hidden.next_action,
+                hidden.focus_state.label(),
+                hidden.coverage_label(),
+                hidden.pan_label(),
+                hidden.target_kind.label(),
+            )
+        );
+        assert!(
+            hidden.detail_label().contains("vis=hidden"),
+            "detail label should surface hidden visibility"
+        );
 
         let inspect = build_minimap_user_flow_panel(
             &RenderModel {
@@ -465,6 +560,33 @@ mod tests {
         assert_eq!(hold.next_action, "hold");
         assert_eq!(hold.target_kind, MinimapUserTargetKind::Player);
         assert_eq!(hold.coverage_label(), "full");
+        assert_eq!(
+            hold.summary_label(),
+            format!(
+                "next={} focus={} cover={} pan={} target={}",
+                hold.next_action,
+                hold.focus_state.label(),
+                hold.coverage_label(),
+                hold.pan_label(),
+                hold.target_kind.label(),
+            )
+        );
+        assert_eq!(
+            hold.detail_label(),
+            format!(
+                "next={} focus={} vis={} cover={} pan={} target={} overlay-targets={} visible={} unknown={} window={}",
+                hold.next_action,
+                hold.focus_state.label(),
+                hold.visibility_label(),
+                hold.coverage_label(),
+                hold.pan_label(),
+                hold.target_kind.label(),
+                hold.overlay_target_count,
+                hold.visible_tile_count,
+                hold.unknown_tile_percent,
+                hold.window_coverage_percent,
+            )
+        );
         assert!(hold.window_clamped_left);
         assert!(hold.window_clamped_top);
         assert!(hold.window_clamped_right);
