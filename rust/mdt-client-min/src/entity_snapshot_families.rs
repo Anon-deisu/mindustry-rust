@@ -33,17 +33,13 @@ pub(crate) fn is_runtime_compatible_alpha_shape_entity_class_id(class_id: u8) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
 
     #[test]
     fn current_vanilla_alpha_shape_entity_class_ids_exclude_legacy_aliases() {
-        let ids = ALPHA_SHAPE_CURRENT_VANILLA_ENTITY_CLASS_IDS
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-
-        assert!(!ids.contains(&ALPHA_SHAPE_LEGACY_ALIAS_ENTITY_CLASS_IDS[0]));
-        assert!(!ids.contains(&ALPHA_SHAPE_LEGACY_ALIAS_ENTITY_CLASS_IDS[1]));
-        assert_eq!(ids.len(), 15);
+        for legacy_alias in ALPHA_SHAPE_LEGACY_ALIAS_ENTITY_CLASS_IDS {
+            assert!(!ALPHA_SHAPE_CURRENT_VANILLA_ENTITY_CLASS_IDS.contains(&legacy_alias));
+        }
+        assert_eq!(ALPHA_SHAPE_CURRENT_VANILLA_ENTITY_CLASS_IDS.len(), 15);
     }
 
     #[test]
