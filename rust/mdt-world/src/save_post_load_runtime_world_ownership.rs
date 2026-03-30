@@ -19,6 +19,20 @@ pub enum SavePostLoadRuntimeWorldSurfaceKind {
 }
 
 impl SavePostLoadRuntimeWorldSurfaceKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::WorldShell => "world-shell",
+            Self::EntityRemaps => "entity-remaps",
+            Self::TeamPlans => "team-plans",
+            Self::Markers => "markers",
+            Self::StaticFog => "static-fog",
+            Self::CustomChunks => "custom-chunks",
+            Self::Buildings => "buildings",
+            Self::LoadableEntities => "loadable-entities",
+            Self::SkippedEntities => "skipped-entities",
+        }
+    }
+
     pub fn source_region_name(&self) -> &'static str {
         source_region_name_for_stage_kind(self.stage_kind())
     }
@@ -106,6 +120,19 @@ pub enum SavePostLoadRuntimeWorldOwnershipStatus {
     Deferred,
 }
 
+impl SavePostLoadRuntimeWorldOwnershipStatus {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Absent => "absent",
+            Self::Owned => "owned",
+            Self::Failed => "failed",
+            Self::AwaitingWorldShell => "awaiting-world-shell",
+            Self::Blocked => "blocked",
+            Self::Deferred => "deferred",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavePostLoadRuntimeWorldOwnershipSurface {
     pub kind: SavePostLoadRuntimeWorldSurfaceKind,
@@ -120,6 +147,31 @@ pub struct SavePostLoadRuntimeWorldOwnershipSurface {
 impl SavePostLoadRuntimeWorldOwnershipSurface {
     pub fn is_owned(&self) -> bool {
         self.status == SavePostLoadRuntimeWorldOwnershipStatus::Owned
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "{}:{}:{}/{} blockers={} failed={}",
+            self.kind.label(),
+            self.status.label(),
+            self.claimed_step_count,
+            self.required_step_count,
+            self.blockers.len(),
+            self.failed_steps.len(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "kind={} region={} status={} claim={}/{} blockers={} failed={}",
+            self.kind.label(),
+            self.source_region_name,
+            self.status.label(),
+            self.claimed_step_count,
+            self.required_step_count,
+            self.blockers.len(),
+            self.failed_steps.len(),
+        )
     }
 
     pub fn has_blockers(&self) -> bool {
@@ -162,6 +214,80 @@ impl SavePostLoadRuntimeWorldOwnershipSourceRegion {
     pub fn owned_surface_count(&self) -> usize {
         self.surfaces.iter().filter(|surface| surface.is_owned()).count()
     }
+
+    pub fn awaiting_world_shell_surface_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .filter(|surface| {
+                surface.status == SavePostLoadRuntimeWorldOwnershipStatus::AwaitingWorldShell
+            })
+            .count()
+    }
+
+    pub fn blocked_surface_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .filter(|surface| surface.status == SavePostLoadRuntimeWorldOwnershipStatus::Blocked)
+            .count()
+    }
+
+    pub fn failed_surface_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .filter(|surface| surface.status == SavePostLoadRuntimeWorldOwnershipStatus::Failed)
+            .count()
+    }
+
+    pub fn deferred_surface_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .filter(|surface| surface.status == SavePostLoadRuntimeWorldOwnershipStatus::Deferred)
+            .count()
+    }
+
+    pub fn absent_surface_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .filter(|surface| surface.status == SavePostLoadRuntimeWorldOwnershipStatus::Absent)
+            .count()
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "region={} own={}/{} claim={}/{} wait={} block={} fail={} defer={} absent={}",
+            self.source_region_name,
+            self.owned_surface_count(),
+            self.surfaces.len(),
+            self.claimed_step_count(),
+            self.required_step_count(),
+            self.awaiting_world_shell_surface_count(),
+            self.blocked_surface_count(),
+            self.failed_surface_count(),
+            self.deferred_surface_count(),
+            self.absent_surface_count(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "region={} own={}/{} claim={}/{} wait={} block={} fail={} defer={} absent={} surfaces=[{}]",
+            self.source_region_name,
+            self.owned_surface_count(),
+            self.surfaces.len(),
+            self.claimed_step_count(),
+            self.required_step_count(),
+            self.awaiting_world_shell_surface_count(),
+            self.blocked_surface_count(),
+            self.failed_surface_count(),
+            self.deferred_surface_count(),
+            self.absent_surface_count(),
+            self.surfaces
+                .iter()
+                .map(SavePostLoadRuntimeWorldOwnershipSurface::summary_label)
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,6 +314,83 @@ impl SavePostLoadRuntimeWorldOwnership {
 
     pub fn owned_surface_count(&self) -> usize {
         self.surfaces.iter().filter(|surface| surface.is_owned()).count()
+    }
+
+    pub fn awaiting_world_shell_surface_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .filter(|surface| {
+                surface.status == SavePostLoadRuntimeWorldOwnershipStatus::AwaitingWorldShell
+            })
+            .count()
+    }
+
+    pub fn blocked_surface_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .filter(|surface| surface.status == SavePostLoadRuntimeWorldOwnershipStatus::Blocked)
+            .count()
+    }
+
+    pub fn failed_surface_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .filter(|surface| surface.status == SavePostLoadRuntimeWorldOwnershipStatus::Failed)
+            .count()
+    }
+
+    pub fn deferred_surface_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .filter(|surface| surface.status == SavePostLoadRuntimeWorldOwnershipStatus::Deferred)
+            .count()
+    }
+
+    pub fn absent_surface_count(&self) -> usize {
+        self.surfaces
+            .iter()
+            .filter(|surface| surface.status == SavePostLoadRuntimeWorldOwnershipStatus::Absent)
+            .count()
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "shell={} semantics={} own={}/{} claim={}/{} wait={} block={} fail={} defer={} absent={} regions={}",
+            bool_label(self.world_shell_ready),
+            bool_label(self.can_apply_world_semantics()),
+            self.owned_surface_count(),
+            self.surfaces.len(),
+            self.claimed_step_count(),
+            self.required_step_count(),
+            self.awaiting_world_shell_surface_count(),
+            self.blocked_surface_count(),
+            self.failed_surface_count(),
+            self.deferred_surface_count(),
+            self.absent_surface_count(),
+            self.source_regions().len(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "shell={} semantics={} own={}/{} claim={}/{} wait={} block={} fail={} defer={} absent={} regions=[{}]",
+            bool_label(self.world_shell_ready),
+            bool_label(self.can_apply_world_semantics()),
+            self.owned_surface_count(),
+            self.surfaces.len(),
+            self.claimed_step_count(),
+            self.required_step_count(),
+            self.awaiting_world_shell_surface_count(),
+            self.blocked_surface_count(),
+            self.failed_surface_count(),
+            self.deferred_surface_count(),
+            self.absent_surface_count(),
+            self.source_regions()
+                .iter()
+                .map(SavePostLoadRuntimeWorldOwnershipSourceRegion::summary_label)
+                .collect::<Vec<_>>()
+                .join(","),
+        )
     }
 
     pub fn source_region(
@@ -256,6 +459,10 @@ impl SavePostLoadRuntimeSeedPlan {
     pub fn runtime_world_ownership(&self) -> SavePostLoadRuntimeWorldOwnership {
         self.execute_runtime_world_semantics().ownership
     }
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 pub(crate) fn build_runtime_world_ownership(
@@ -403,6 +610,13 @@ mod tests {
         assert_eq!(ownership.claimed_step_count(), 14);
         assert_eq!(ownership.owned_surface_count(), 8);
         assert_eq!(
+            ownership.summary_label(),
+            "shell=yes semantics=yes own=8/9 claim=14/14 wait=0 block=0 fail=0 defer=0 absent=1 regions=4"
+        );
+        assert!(ownership.detail_label().contains(
+            "region=entities own=3/4 claim=7/7 wait=0 block=0 fail=0 defer=0 absent=1"
+        ));
+        assert_eq!(
             ownership
                 .surface(SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities)
                 .unwrap(),
@@ -481,6 +695,13 @@ mod tests {
         assert_eq!(entities.claimed_step_count(), 7);
         assert_eq!(entities.owned_surface_count(), 3);
         assert_eq!(
+            entities.summary_label(),
+            "region=entities own=3/4 claim=7/7 wait=0 block=0 fail=0 defer=0 absent=1"
+        );
+        assert!(entities.detail_label().contains(
+            "team-plans:owned:2/2 blockers=0 failed=0"
+        ));
+        assert_eq!(
             entities
                 .surface(SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps)
                 .unwrap()
@@ -554,6 +775,7 @@ mod tests {
         let entity_remaps = ownership
             .surface(SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps)
             .unwrap();
+        let entities = ownership.source_region("entities").unwrap();
         let custom_chunks = ownership
             .surface(SavePostLoadRuntimeWorldSurfaceKind::CustomChunks)
             .unwrap();
@@ -564,6 +786,13 @@ mod tests {
         assert_eq!(ownership.required_step_count(), 14);
         assert_eq!(ownership.claimed_step_count(), 4);
         assert_eq!(ownership.owned_surface_count(), 2);
+        assert_eq!(
+            ownership.summary_label(),
+            "shell=no semantics=no own=2/9 claim=4/14 wait=3 block=3 fail=0 defer=1 absent=0 regions=4"
+        );
+        assert!(entities.detail_label().contains(
+            "entity-remaps:owned:2/2 blockers=0 failed=0"
+        ));
         assert_eq!(
             ownership
                 .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
@@ -598,6 +827,10 @@ mod tests {
         );
         assert_eq!(entity_remaps.required_step_count, 2);
         assert_eq!(entity_remaps.claimed_step_count, 2);
+        assert_eq!(
+            entity_remaps.detail_label(),
+            "kind=entity-remaps region=entities status=owned claim=2/2 blockers=0 failed=0"
+        );
         assert_eq!(
             custom_chunks.status,
             SavePostLoadRuntimeWorldOwnershipStatus::Owned
@@ -674,6 +907,14 @@ mod tests {
             .contains(&SavePostLoadConsumerBlocker::ContractIssue(
                 crate::SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
             )));
+        assert_eq!(
+            SavePostLoadRuntimeWorldOwnershipStatus::AwaitingWorldShell.label(),
+            "awaiting-world-shell"
+        );
+        assert_eq!(
+            SavePostLoadRuntimeWorldSurfaceKind::StaticFog.label(),
+            "static-fog"
+        );
     }
 
     fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {
