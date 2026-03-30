@@ -581,6 +581,22 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
     objects
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+fn marker_projection_summary(marker: &MarkerEntry) -> String {
+    let objects = project_marker_objects(marker);
+    let line_end_count = objects
+        .iter()
+        .filter(|object| object.id.ends_with(":line-end"))
+        .count();
+
+    format!(
+        "kind={} objects={} line-end={}",
+        marker_kind_id_segment(marker),
+        objects.len(),
+        line_end_count
+    )
+}
+
 fn marker_text_payload(marker: &MarkerEntry) -> Option<&str> {
     match &marker.marker {
         MarkerModel::Text(text) => Some(text.text.as_str()),
@@ -760,7 +776,7 @@ fn tile_in_window(
 #[cfg(test)]
 mod tests {
     use super::{
-        fog_reveal_is_visible, project_hud_model, project_render_model,
+        fog_reveal_is_visible, marker_projection_summary, project_hud_model, project_render_model,
         project_render_model_with_player_position, project_render_model_with_view_window,
     };
     use crate::render_model::{
@@ -1143,6 +1159,80 @@ mod tests {
                     y1: 16.0,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn marker_projection_summary_reports_kind_object_count_and_line_end_count() {
+        let point_marker = MarkerEntry {
+            id: 42,
+            marker: MarkerModel::Point(PointMarkerModel {
+                class_tag: "Point".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: 16.0f32.to_bits(),
+                y_bits: 24.0f32.to_bits(),
+                radius_bits: 1.0f32.to_bits(),
+                stroke_bits: 0.5f32.to_bits(),
+                color: Some("ffffff".to_string()),
+            }),
+        };
+        let line_marker = MarkerEntry {
+            id: 77,
+            marker: MarkerModel::Line(LineMarkerModel {
+                class_tag: "Line".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: 16.0f32.to_bits(),
+                y_bits: 24.0f32.to_bits(),
+                end_x_bits: 40.0f32.to_bits(),
+                end_y_bits: 56.0f32.to_bits(),
+                stroke_bits: 1.0f32.to_bits(),
+                outline: true,
+                color1: Some("ffd37f".to_string()),
+                color2: Some("ffd37f".to_string()),
+            }),
+        };
+        let mut vertices_bits = vec![0u32; 24];
+        for (index, (x, y)) in [(8.0f32, 16.0f32), (24.0, 16.0), (24.0, 32.0), (8.0, 32.0)]
+            .into_iter()
+            .enumerate()
+        {
+            let base = index * 6;
+            vertices_bits[base] = x.to_bits();
+            vertices_bits[base + 1] = y.to_bits();
+        }
+        let quad_marker = MarkerEntry {
+            id: 46,
+            marker: MarkerModel::Quad(QuadMarkerModel {
+                class_tag: "Quad".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                texture: mdt_world::MarkerTextureRef {
+                    kind: "atlas".to_string(),
+                    value: "block-1".to_string(),
+                },
+                vertices_bits,
+            }),
+        };
+
+        assert_eq!(
+            marker_projection_summary(&point_marker),
+            "kind=point objects=1 line-end=0"
+        );
+        assert_eq!(
+            marker_projection_summary(&line_marker),
+            "kind=line objects=2 line-end=1"
+        );
+        assert_eq!(
+            marker_projection_summary(&quad_marker),
+            "kind=quad objects=9 line-end=4"
         );
     }
 
