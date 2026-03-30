@@ -3999,7 +3999,8 @@ fn runtime_ui_text_len(value: Option<&str>) -> usize {
 
 fn runtime_ui_uri_scheme(value: Option<&str>) -> String {
     value
-        .and_then(|uri| uri.split_once(':').map(|(scheme, _)| scheme))
+        .map(str::trim)
+        .and_then(|uri| uri.split_once(':').map(|(scheme, _)| scheme.trim()))
         .filter(|scheme| !scheme.is_empty())
         .map(|scheme| compact_runtime_ui_text(Some(scheme)))
         .unwrap_or_else(|| "none".to_string())
@@ -8628,6 +8629,25 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "RUNTIME-PROMPT-DETAIL: promptd:ma1:fm17:fh15:fo2:tin53:id404:t6:m12:d5:n1:e1",
+        );
+    }
+
+    #[test]
+    fn runtime_ui_uri_scheme_rejects_empty_and_colonless_values() {
+        for uri in ["", "noscheme", "://example.com"] {
+            assert_eq!(super::runtime_ui_uri_scheme(Some(uri)), "none");
+        }
+        assert_eq!(
+            super::runtime_ui_uri_scheme(Some("https://example.com")),
+            "https"
+        );
+    }
+
+    #[test]
+    fn runtime_ui_uri_scheme_trims_whitespace_around_the_uri() {
+        assert_eq!(
+            super::runtime_ui_uri_scheme(Some("  https://example.com  ")),
+            "https"
         );
     }
 
