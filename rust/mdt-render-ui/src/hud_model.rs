@@ -184,6 +184,44 @@ impl RuntimeUiStackSummary {
             && self.chat_message_count == 0
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn summary_label(&self) -> String {
+        format!(
+            "fg={} prompt={} depth={} notice={} depth={} chat={} groups={}",
+            self.foreground_label(),
+            self.prompt_label(),
+            self.prompt_depth(),
+            self.notice_label(),
+            self.notice_depth(),
+            if self.chat_active { "on" } else { "off" },
+            self.active_group_count(),
+        )
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn detail_label(&self) -> String {
+        format!(
+            "fg={} prompt={} layers=[{}] notice={} layers=[{}] chat={} groups={} depth={} menu={} hud={} dialog={} text-input={} server-msg={} chat-msg={} chat-sender={}",
+            self.foreground_label(),
+            self.prompt_label(),
+            self.prompt_layer_labels().join(","),
+            self.notice_label(),
+            self.notice_layer_labels().join(","),
+            if self.chat_active { "on" } else { "off" },
+            self.active_group_count(),
+            self.total_depth(),
+            self.menu_depth(),
+            self.hud_depth(),
+            self.dialog_depth(),
+            self.text_input_open_count,
+            self.server_message_count,
+            self.chat_message_count,
+            self.last_chat_sender_entity_id
+                .map(|entity_id| entity_id.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        )
+    }
+
     pub(crate) fn foreground_label(&self) -> &'static str {
         self.foreground_kind
             .map(RuntimeUiStackForegroundSummaryKind::label)
@@ -1014,6 +1052,14 @@ mod tests {
         assert_eq!(summary.dialog_depth(), 8);
         assert_eq!(summary.active_group_count(), 3);
         assert_eq!(summary.total_depth(), 8);
+        assert_eq!(
+            summary.summary_label(),
+            "fg=input prompt=input depth=3 notice=warn depth=4 chat=on groups=3"
+        );
+        assert_eq!(
+            summary.detail_label(),
+            "fg=input prompt=input layers=[input,follow-up,menu] notice=warn layers=[hud,reliable,info,warn] chat=on groups=3 depth=8 menu=3 hud=4 dialog=8 text-input=2 server-msg=1 chat-msg=2 chat-sender=77"
+        );
         assert!(!summary.is_empty());
     }
 
@@ -1139,6 +1185,14 @@ mod tests {
         };
 
         assert!(!summary.is_empty());
+        assert_eq!(
+            summary.summary_label(),
+            "fg=none prompt=none depth=0 notice=none depth=0 chat=off groups=0"
+        );
+        assert_eq!(
+            summary.detail_label(),
+            "fg=none prompt=none layers=[] notice=none layers=[] chat=off groups=0 depth=0 menu=0 hud=0 dialog=0 text-input=1 server-msg=1 chat-msg=1 chat-sender=none"
+        );
     }
 
     #[test]
