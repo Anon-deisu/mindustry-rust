@@ -1166,6 +1166,28 @@ impl SavePostLoadRuntimeSeedRegionSurface {
     pub fn has_blockers(&self) -> bool {
         !self.blockers.is_empty()
     }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "{}@{}:{}:{}:b{}",
+            runtime_region_kind_label(self.kind),
+            self.source_region_name,
+            self.step_count,
+            runtime_disposition_label(self.disposition),
+            self.blockers.len(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "kind={} source={} steps={} disposition={} blockers={}",
+            runtime_region_kind_label(self.kind),
+            self.source_region_name,
+            self.step_count,
+            runtime_disposition_label(self.disposition),
+            self.blockers.len(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1201,6 +1223,50 @@ impl SavePostLoadRuntimeSeedSurface {
 
     pub fn region_count(&self) -> usize {
         self.blocked_region_count() + self.awaiting_world_shell_region_count()
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "seed={} shell={} apply={} wait={} block={} defer={} next={} blocked_regions={} awaiting_regions={}",
+            bool_label(self.can_seed_runtime_apply),
+            bool_label(self.world_shell_ready),
+            self.apply_now_step_count,
+            self.awaiting_world_shell_step_count,
+            self.blocked_step_count,
+            self.deferred_step_count,
+            next_apply_now_batch_label(
+                self.next_apply_now_batch_index,
+                self.next_apply_now_batch_step_count,
+            ),
+            self.blocked_region_count(),
+            self.awaiting_world_shell_region_count(),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "seed={} shell={} apply={} wait={} block={} defer={} next={} blocked=[{}] awaiting=[{}]",
+            bool_label(self.can_seed_runtime_apply),
+            bool_label(self.world_shell_ready),
+            self.apply_now_step_count,
+            self.awaiting_world_shell_step_count,
+            self.blocked_step_count,
+            self.deferred_step_count,
+            next_apply_now_batch_label(
+                self.next_apply_now_batch_index,
+                self.next_apply_now_batch_step_count,
+            ),
+            self.blocked_regions
+                .iter()
+                .map(SavePostLoadRuntimeSeedRegionSurface::summary_label)
+                .collect::<Vec<_>>()
+                .join(","),
+            self.awaiting_world_shell_regions
+                .iter()
+                .map(SavePostLoadRuntimeSeedRegionSurface::summary_label)
+                .collect::<Vec<_>>()
+                .join(","),
+        )
     }
 
     pub fn blocked_region(
@@ -1412,6 +1478,40 @@ fn collect_runtime_seed_regions(
             blockers: region.blockers.clone(),
         })
         .collect()
+}
+
+fn runtime_region_kind_label(kind: SavePostLoadRuntimeRegionKind) -> &'static str {
+    match kind {
+        SavePostLoadRuntimeRegionKind::WorldShell => "world-shell",
+        SavePostLoadRuntimeRegionKind::EntityRemaps => "entity-remaps",
+        SavePostLoadRuntimeRegionKind::TeamPlans => "team-plans",
+        SavePostLoadRuntimeRegionKind::Markers => "markers",
+        SavePostLoadRuntimeRegionKind::StaticFog => "static-fog",
+        SavePostLoadRuntimeRegionKind::CustomChunks => "custom-chunks",
+        SavePostLoadRuntimeRegionKind::Buildings => "buildings",
+        SavePostLoadRuntimeRegionKind::LoadableEntities => "loadable-entities",
+        SavePostLoadRuntimeRegionKind::SkippedEntities => "skipped-entities",
+    }
+}
+
+fn runtime_disposition_label(disposition: SavePostLoadConsumerRuntimeDisposition) -> &'static str {
+    match disposition {
+        SavePostLoadConsumerRuntimeDisposition::ApplyNow => "apply",
+        SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell => "wait",
+        SavePostLoadConsumerRuntimeDisposition::Blocked => "block",
+        SavePostLoadConsumerRuntimeDisposition::Deferred => "defer",
+    }
+}
+
+fn next_apply_now_batch_label(batch_index: Option<usize>, step_count: Option<usize>) -> String {
+    match (batch_index, step_count) {
+        (Some(batch_index), Some(step_count)) => format!("{batch_index}/{step_count}"),
+        _ => "none".to_string(),
+    }
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 impl SaveEntityChunkObservation {
@@ -43658,6 +43758,38 @@ mod tests {
         assert_eq!(seed_surface.blocked_region_count(), 0);
         assert_eq!(seed_surface.awaiting_world_shell_region_count(), 0);
         assert_eq!(
+            seed_surface.summary_label(),
+            format!(
+                "seed={} shell={} apply={} wait={} block={} defer={} next={} blocked_regions=0 awaiting_regions=0",
+                bool_label(seed_surface.can_seed_runtime_apply),
+                bool_label(seed_surface.world_shell_ready),
+                seed_surface.apply_now_step_count,
+                seed_surface.awaiting_world_shell_step_count,
+                seed_surface.blocked_step_count,
+                seed_surface.deferred_step_count,
+                next_apply_now_batch_label(
+                    seed_surface.next_apply_now_batch_index,
+                    seed_surface.next_apply_now_batch_step_count,
+                ),
+            )
+        );
+        assert_eq!(
+            seed_surface.detail_label(),
+            format!(
+                "seed={} shell={} apply={} wait={} block={} defer={} next={} blocked=[] awaiting=[]",
+                bool_label(seed_surface.can_seed_runtime_apply),
+                bool_label(seed_surface.world_shell_ready),
+                seed_surface.apply_now_step_count,
+                seed_surface.awaiting_world_shell_step_count,
+                seed_surface.blocked_step_count,
+                seed_surface.deferred_step_count,
+                next_apply_now_batch_label(
+                    seed_surface.next_apply_now_batch_index,
+                    seed_surface.next_apply_now_batch_step_count,
+                ),
+            )
+        );
+        assert_eq!(
             seed_surface.blocked_region(SavePostLoadRuntimeRegionKind::WorldShell),
             None
         );
@@ -43723,6 +43855,30 @@ mod tests {
         assert_eq!(seed_surface.blocked_region_count(), 0);
         assert_eq!(seed_surface.awaiting_world_shell_region_count(), 0);
         assert_eq!(seed_surface.region_count(), 0);
+        assert_eq!(
+            seed_surface.summary_label(),
+            format!(
+                "seed=yes shell=yes apply={} wait=0 block=0 defer={} next={} blocked_regions=0 awaiting_regions=0",
+                seed_surface.apply_now_step_count,
+                seed_surface.deferred_step_count,
+                next_apply_now_batch_label(
+                    seed_surface.next_apply_now_batch_index,
+                    seed_surface.next_apply_now_batch_step_count,
+                ),
+            )
+        );
+        assert_eq!(
+            seed_surface.detail_label(),
+            format!(
+                "seed=yes shell=yes apply={} wait=0 block=0 defer={} next={} blocked=[] awaiting=[]",
+                seed_surface.apply_now_step_count,
+                seed_surface.deferred_step_count,
+                next_apply_now_batch_label(
+                    seed_surface.next_apply_now_batch_index,
+                    seed_surface.next_apply_now_batch_step_count,
+                ),
+            )
+        );
         assert!(!seed_surface.has_blockers());
         assert!(!seed_surface.has_pending_world_shell());
     }
@@ -44117,6 +44273,16 @@ mod tests {
         assert_eq!(seed_surface.region_count(), 3);
         assert_eq!(seed_surface.blocked_region_count(), 2);
         assert_eq!(seed_surface.awaiting_world_shell_region_count(), 1);
+        assert_eq!(
+            seed_surface.summary_label(),
+            "seed=no shell=no apply=1 wait=1 block=2 defer=1 next=1/1 blocked_regions=2 awaiting_regions=1"
+        );
+        assert!(seed_surface
+            .detail_label()
+            .contains("world-shell@map:1:block:b1"));
+        assert!(seed_surface
+            .detail_label()
+            .contains("loadable-entities@entities:1:wait:b0"));
         assert_eq!(
             seed_surface
                 .blocked_region(SavePostLoadRuntimeRegionKind::WorldShell)
