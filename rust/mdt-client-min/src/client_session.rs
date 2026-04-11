@@ -50803,6 +50803,63 @@ mod tests {
     }
 
     #[test]
+    fn player_disconnect_packet_clears_runtime_typed_player_unit_ownership() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let local_player_id = session.state().world_player_id.unwrap();
+        let entity_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let entity_packet = encode_packet(
+            entity_packet_id,
+            &sample_snapshot_packet("entitySnapshot.packet"),
+            false,
+        )
+        .unwrap();
+        session.ingest_packet_bytes(&entity_packet).unwrap();
+
+        let before = session.state().runtime_typed_entity_projection();
+        assert_eq!(before.local_player_owned_unit_entity_id, Some(100));
+        assert_eq!(before.player_with_owned_unit_count, 1);
+        assert_eq!(before.owned_unit_count, 1);
+        assert_eq!(before.owned_unit_entity_id_for_player(local_player_id), Some(100));
+        assert_eq!(before.owner_player_entity_id_for_unit(100), Some(local_player_id));
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "playerDisconnect")
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &local_player_id.to_be_bytes(), false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        let after = session.state().runtime_typed_entity_projection();
+        assert!(after.by_entity_id.contains_key(&100));
+        assert!(!after.by_entity_id.contains_key(&local_player_id));
+        assert_eq!(after.local_player_owned_unit_entity_id, None);
+        assert_eq!(after.player_with_owned_unit_count, 0);
+        assert_eq!(after.owned_unit_count, 0);
+        assert_eq!(after.owned_unit_entity_id_for_player(local_player_id), None);
+        assert_eq!(after.owner_player_entity_id_for_unit(100), None);
+        assert!(after.player_owned_unit_by_player_entity_id.is_empty());
+        assert!(after.unit_owner_player_by_unit_entity_id.is_empty());
+    }
+
+    #[test]
     fn player_disconnect_packet_clears_resource_delta_and_snapshot_projection_for_local_player() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
