@@ -3615,6 +3615,12 @@ mod tests {
             state.last_hidden_snapshot_parse_error_payload_len,
             Some(payload.len())
         );
+        assert_eq!(state.last_hidden_snapshot, None);
+        assert_eq!(state.hidden_snapshot_ids, BTreeSet::new());
+        assert_eq!(state.hidden_snapshot_delta_projection, None);
+        assert_eq!(state.entity_table_projection.hidden_apply_count, 0);
+        assert_eq!(state.entity_table_projection.hidden_count, 0);
+        assert_eq!(state.runtime_typed_entity_projection().hidden_count, 0);
     }
 
     #[test]
@@ -4068,5 +4074,11 @@ mod tests {
             state.last_hidden_snapshot_parse_error_payload_len,
             Some(payload.len())
         );
+        assert_eq!(state.last_hidden_snapshot, None);
+        assert_eq!(state.hidden_snapshot_ids, BTreeSet::new());
+        assert_eq!(state.hidden_snapshot_delta_projection, None);
+        assert_eq!(state.entity_table_projection.hidden_apply_count, 0);
+        assert_eq!(state.entity_table_projection.hidden_count, 0);
+        assert_eq!(state.runtime_typed_entity_projection().hidden_count, 0);
     }
 }
