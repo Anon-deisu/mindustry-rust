@@ -3911,9 +3911,10 @@ fn compose_live_effect_status_text(
     effect: &crate::RuntimeLiveEffectSummaryObservability,
 ) -> String {
     format!(
-        "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
+        "{}/{}:ov{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
+        effect.active_overlay_count,
         optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
@@ -3929,9 +3930,10 @@ fn compose_live_effect_panel_status_text(
     effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
 ) -> String {
     format!(
-        "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
+        "{}/{}:ov{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
+        effect.active_overlay_count,
         optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
@@ -8348,7 +8350,7 @@ mod tests {
             .status_text
             .contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.status_text.contains(
-            "fx=11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
+            "fx=11/73:ov1@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
         ));
         assert!(frame
             .status_text
@@ -8551,7 +8553,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-LIVE-EFFECT: livefx:11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0",
+            "RUNTIME-LIVE-EFFECT: livefx:11/73:ov1@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

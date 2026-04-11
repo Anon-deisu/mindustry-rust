@@ -2933,9 +2933,10 @@ fn compose_live_entity_panel_text(
 
 fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservability) -> String {
     format!(
-        "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
+        "{}/{}:ov{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
+        effect.active_overlay_count,
         optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
@@ -2951,9 +2952,10 @@ fn compose_live_effect_panel_text(
     effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
 ) -> String {
     format!(
-        "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
+        "{}/{}:ov{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
+        effect.active_overlay_count,
         optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
@@ -4720,14 +4722,14 @@ mod tests {
             "RUNTIME-LIVE-ENTITY-DETAIL: local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT: 11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
+            "RUNTIME-LIVE-EFFECT: 11/73:ov1@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
         ));
         assert!(frame.contains(
             "RUNTIME-LIVE-EFFECT-DETAIL: hint=pos:point2:3:4@1/0 source=active pos=28.0:36.0 contract=lightning reliable=lightning"
         ));
         assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.contains(
-            "fx=11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
+            "fx=11/73:ov1@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
         ));
     }
 
