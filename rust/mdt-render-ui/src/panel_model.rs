@@ -1101,6 +1101,79 @@ impl RuntimeCoreBindingPanelModel {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RuntimeBootstrapPanelModel {
+    pub rules_label: String,
+    pub tags_label: String,
+    pub locales_label: String,
+    pub team_count: usize,
+    pub marker_count: usize,
+    pub custom_chunk_count: usize,
+    pub content_patch_count: usize,
+    pub player_team_plan_count: usize,
+    pub static_fog_team_count: usize,
+}
+
+impl From<&crate::hud_model::RuntimeBootstrapObservability> for RuntimeBootstrapPanelModel {
+    fn from(value: &crate::hud_model::RuntimeBootstrapObservability) -> Self {
+        Self {
+            rules_label: value.rules_label.clone(),
+            tags_label: value.tags_label.clone(),
+            locales_label: value.locales_label.clone(),
+            team_count: value.team_count,
+            marker_count: value.marker_count,
+            custom_chunk_count: value.custom_chunk_count,
+            content_patch_count: value.content_patch_count,
+            player_team_plan_count: value.player_team_plan_count,
+            static_fog_team_count: value.static_fog_team_count,
+        }
+    }
+}
+
+impl RuntimeBootstrapPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.rules_label.is_empty()
+            && self.tags_label.is_empty()
+            && self.locales_label.is_empty()
+            && self.team_count == 0
+            && self.marker_count == 0
+            && self.custom_chunk_count == 0
+            && self.content_patch_count == 0
+            && self.player_team_plan_count == 0
+            && self.static_fog_team_count == 0
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "rules={}:tags={}:locales={}:teams={}:markers={}:chunks={}:patches={}:plans={}:fog={}",
+            self.rules_label,
+            self.tags_label,
+            self.locales_label,
+            self.team_count,
+            self.marker_count,
+            self.custom_chunk_count,
+            self.content_patch_count,
+            self.player_team_plan_count,
+            self.static_fog_team_count,
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "rules-label={}:tags-label={}:locales-label={}:team-count={}:marker-count={}:custom-chunk-count={}:content-patch-count={}:player-team-plan-count={}:static-fog-team-count={}",
+            self.rules_label,
+            self.tags_label,
+            self.locales_label,
+            self.team_count,
+            self.marker_count,
+            self.custom_chunk_count,
+            self.content_patch_count,
+            self.player_team_plan_count,
+            self.static_fog_team_count,
+        )
+    }
+}
+
 impl MinimapPanelModel {
     pub fn visible_map_percent(&self) -> usize {
         percent_of(self.visible_tile_count, self.map_tile_count)
@@ -1125,6 +1198,7 @@ impl MinimapPanelModel {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeSessionPanelModel {
+    pub bootstrap: RuntimeBootstrapPanelModel,
     pub core_binding: RuntimeCoreBindingPanelModel,
     pub resource_delta: RuntimeResourceDeltaPanelModel,
     pub kick: RuntimeKickPanelModel,
@@ -1134,7 +1208,8 @@ pub struct RuntimeSessionPanelModel {
 
 impl RuntimeSessionPanelModel {
     pub fn is_empty(&self) -> bool {
-        self.resource_delta.is_empty()
+        self.bootstrap.is_empty()
+            && self.resource_delta.is_empty()
             && self.kick.is_empty()
             && self.loading.is_empty()
             && self.reconnect.is_empty()
@@ -1333,6 +1408,56 @@ pub struct RuntimeLiveEntityPanelModel {
     pub local_hidden: Option<bool>,
     pub local_last_seen_entity_snapshot_count: Option<u64>,
     pub local_position: Option<crate::RuntimeWorldPositionObservability>,
+}
+
+impl RuntimeLiveEntityPanelModel {
+    pub fn local_owned_unit_payload_label(&self) -> String {
+        format!(
+            "payload=unit={}/{}",
+            optional_u8_label(self.local_unit_kind),
+            optional_u32_label(self.local_unit_value),
+        )
+    }
+
+    pub fn local_owned_unit_nested_label(&self) -> String {
+        format!(
+            "nested=snapshot={}",
+            optional_u64_label(self.local_last_seen_entity_snapshot_count),
+        )
+    }
+
+    pub fn local_owned_unit_stack_label(&self) -> String {
+        format!(
+            "stack=entities={} hidden={} players={} units={} last={}/{}/{}",
+            self.entity_count,
+            self.hidden_count,
+            self.player_count,
+            self.unit_count,
+            optional_i32_label(self.last_entity_id),
+            optional_i32_label(self.last_player_entity_id),
+            optional_i32_label(self.last_unit_entity_id),
+        )
+    }
+
+    pub fn local_owned_unit_controller_label(&self) -> String {
+        format!(
+            "controller=entity={} pos={} hidden={}",
+            optional_i32_label(self.local_entity_id),
+            world_position_text(self.local_position.as_ref()),
+            optional_bool_label(self.local_hidden),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "local={} {} {} {} {}",
+            optional_i32_label(self.local_entity_id),
+            self.local_owned_unit_payload_label(),
+            self.local_owned_unit_nested_label(),
+            self.local_owned_unit_stack_label(),
+            self.local_owned_unit_controller_label(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2184,6 +2309,10 @@ pub fn build_runtime_core_binding_panel(hud: &HudModel) -> Option<RuntimeCoreBin
     })
 }
 
+pub fn build_runtime_bootstrap_panel(hud: &HudModel) -> Option<RuntimeBootstrapPanelModel> {
+    Some(build_runtime_session_panel(hud)?.bootstrap)
+}
+
 pub fn build_runtime_kick_panel(hud: &HudModel) -> Option<RuntimeKickPanelModel> {
     Some(build_runtime_session_panel(hud)?.kick)
 }
@@ -2199,6 +2328,7 @@ pub fn build_runtime_reconnect_panel(hud: &HudModel) -> Option<RuntimeReconnectP
 pub fn build_runtime_session_panel(hud: &HudModel) -> Option<RuntimeSessionPanelModel> {
     let session = &hud.runtime_ui.as_ref()?.session;
     Some(RuntimeSessionPanelModel {
+        bootstrap: RuntimeBootstrapPanelModel::from(&session.bootstrap),
         core_binding: RuntimeCoreBindingPanelModel {
             kind: session.core_binding.kind,
             ambiguous_team_count: session.core_binding.ambiguous_team_count,
@@ -2325,6 +2455,50 @@ pub fn build_runtime_live_entity_panel(hud: &HudModel) -> Option<RuntimeLiveEnti
     })
 }
 
+fn optional_i32_label(value: Option<i32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_u8_label(value: Option<u8>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_u32_label(value: Option<u32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_u64_label(value: Option<u64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_bool_label(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "1",
+        Some(false) => "0",
+        None => "none",
+    }
+}
+
+fn world_position_text(value: Option<&crate::RuntimeWorldPositionObservability>) -> String {
+    value
+        .map(|value| {
+            format!(
+                "{:.1}:{:.1}",
+                f32::from_bits(value.x_bits),
+                f32::from_bits(value.y_bits)
+            )
+        })
+        .unwrap_or_else(|| "none".to_string())
+}
+
 pub fn build_runtime_live_effect_panel(hud: &HudModel) -> Option<RuntimeLiveEffectPanelModel> {
     let effect = &hud.runtime_ui.as_ref()?.live.effect;
     Some(RuntimeLiveEffectPanelModel {
@@ -2408,6 +2582,7 @@ mod tests {
     use super::{
         build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
+        build_runtime_bootstrap_panel,
         build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
         build_runtime_command_mode_panel, build_runtime_core_binding_panel,
         build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
@@ -2430,7 +2605,8 @@ mod tests {
             RuntimeCommandUnitRefObservability, RuntimeCoreBindingKindObservability,
             RuntimeCoreBindingObservability, RuntimeReconnectObservability,
             RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
-            RuntimeResourceDeltaObservability, RuntimeSessionObservability,
+            RuntimeBootstrapObservability, RuntimeResourceDeltaObservability,
+            RuntimeSessionObservability,
             RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
         },
         BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
@@ -3457,12 +3633,9 @@ mod tests {
 
     #[test]
     fn build_runtime_world_label_panel_saturates_total_count() {
-        let saturated_panel = build_runtime_world_label_panel(&runtime_world_label_test_hud(
-            u64::MAX - 1,
-            1,
-            1,
-        ))
-        .expect("expected runtime world-label panel");
+        let saturated_panel =
+            build_runtime_world_label_panel(&runtime_world_label_test_hud(u64::MAX - 1, 1, 1))
+                .expect("expected runtime world-label panel");
         assert_eq!(saturated_panel.label_count, u64::MAX - 1);
         assert_eq!(saturated_panel.reliable_label_count, 1);
         assert_eq!(saturated_panel.remove_label_count, 1);
@@ -3626,6 +3799,26 @@ mod tests {
                 x_bits: 20.0f32.to_bits(),
                 y_bits: 33.0f32.to_bits(),
             })
+        );
+        assert_eq!(
+            panel.local_owned_unit_payload_label(),
+            "payload=unit=2/999"
+        );
+        assert_eq!(
+            panel.local_owned_unit_nested_label(),
+            "nested=snapshot=7"
+        );
+        assert_eq!(
+            panel.local_owned_unit_stack_label(),
+            "stack=entities=12 hidden=3 players=2 units=1 last=202/102/202"
+        );
+        assert_eq!(
+            panel.local_owned_unit_controller_label(),
+            "controller=entity=404 pos=20.0:33.0 hidden=0"
+        );
+        assert_eq!(
+            panel.detail_label(),
+            "local=404 payload=unit=2/999 nested=snapshot=7 stack=entities=12 hidden=3 players=2 units=1 last=202/102/202 controller=entity=404 pos=20.0:33.0 hidden=0"
         );
     }
 
@@ -4112,6 +4305,17 @@ mod tests {
                 world_labels: RuntimeWorldLabelObservability::default(),
                 markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
+                    bootstrap: RuntimeBootstrapObservability {
+                        rules_label: "rules-hash-1".to_string(),
+                        tags_label: "tags-hash-2".to_string(),
+                        locales_label: "locales-hash-3".to_string(),
+                        team_count: 2,
+                        marker_count: 3,
+                        custom_chunk_count: 4,
+                        content_patch_count: 5,
+                        player_team_plan_count: 6,
+                        static_fog_team_count: 7,
+                    },
                     core_binding: RuntimeCoreBindingObservability {
                         kind: Some(
                             RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation,
@@ -4214,7 +4418,28 @@ mod tests {
         let panel = build_runtime_session_panel(&hud).expect("expected runtime session panel");
         let core_binding =
             build_runtime_core_binding_panel(&hud).expect("expected runtime core binding panel");
+        let bootstrap =
+            build_runtime_bootstrap_panel(&hud).expect("expected runtime bootstrap panel");
 
+        assert_eq!(panel.bootstrap, bootstrap);
+        assert_eq!(bootstrap.rules_label, "rules-hash-1");
+        assert_eq!(bootstrap.tags_label, "tags-hash-2");
+        assert_eq!(bootstrap.locales_label, "locales-hash-3");
+        assert_eq!(bootstrap.team_count, 2);
+        assert_eq!(bootstrap.marker_count, 3);
+        assert_eq!(bootstrap.custom_chunk_count, 4);
+        assert_eq!(bootstrap.content_patch_count, 5);
+        assert_eq!(bootstrap.player_team_plan_count, 6);
+        assert_eq!(bootstrap.static_fog_team_count, 7);
+        assert_eq!(
+            bootstrap.summary_label(),
+            "rules=rules-hash-1:tags=tags-hash-2:locales=locales-hash-3:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7"
+        );
+        assert_eq!(
+            bootstrap.detail_label(),
+            "rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7"
+        );
+        assert!(!bootstrap.is_empty());
         assert_eq!(
             panel.core_binding.kind,
             Some(RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation)
@@ -4301,6 +4526,7 @@ mod tests {
                 world_labels: RuntimeWorldLabelObservability::default(),
                 markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
+                    bootstrap: RuntimeBootstrapObservability::default(),
                     core_binding: RuntimeCoreBindingObservability::default(),
                     resource_delta: RuntimeResourceDeltaObservability::default(),
                     kick: crate::hud_model::RuntimeKickObservability {
@@ -4398,9 +4624,13 @@ mod tests {
         };
         let empty_panel =
             build_runtime_session_panel(&empty_hud).expect("expected runtime session panel");
+        let empty_bootstrap =
+            build_runtime_bootstrap_panel(&empty_hud).expect("expected runtime bootstrap panel");
         let empty_core_binding = build_runtime_core_binding_panel(&empty_hud)
             .expect("expected runtime core binding panel");
         assert!(empty_panel.is_empty());
+        assert!(empty_panel.bootstrap.is_empty());
+        assert!(empty_bootstrap.is_empty());
         assert!(empty_core_binding.is_empty());
         assert!(empty_panel.resource_delta.is_empty());
         assert!(empty_panel.kick.is_empty());
@@ -4420,6 +4650,7 @@ mod tests {
                 world_labels: RuntimeWorldLabelObservability::default(),
                 markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
+                    bootstrap: RuntimeBootstrapObservability::default(),
                     core_binding: RuntimeCoreBindingObservability::default(),
                     resource_delta: RuntimeResourceDeltaObservability {
                         take_items_count: 1,

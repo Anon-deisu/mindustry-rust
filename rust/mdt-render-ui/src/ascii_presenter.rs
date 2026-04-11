@@ -9,6 +9,7 @@ use crate::panel_model::{
     build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_marker_panel,
     build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
     build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
+    build_runtime_bootstrap_panel,
     build_runtime_ui_notice_panel, build_runtime_ui_stack_panel, build_runtime_world_label_panel,
     MinimapPanelModel, PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     RuntimeUiNoticePanelModel,
@@ -1757,18 +1758,45 @@ fn compose_runtime_kick_row_text(hud: &HudModel) -> Option<String> {
     Some(compose_runtime_kick_panel_text(&panel))
 }
 
+fn compose_runtime_bootstrap_row_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_bootstrap_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(panel.summary_label())
+}
+
+fn compose_runtime_bootstrap_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_bootstrap_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(panel.detail_label())
+}
+
 fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_session_panel(hud)?;
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "resource={}; kick={}; loading={}; reconnect={}",
-        compose_runtime_resource_delta_panel_text(&panel.resource_delta),
-        compose_runtime_kick_panel_text(&panel.kick),
-        compose_runtime_loading_panel_text(&panel.loading),
-        compose_runtime_reconnect_panel_text(&panel.reconnect),
-    ))
+    let mut segments = Vec::new();
+    if let Some(bootstrap_text) = compose_runtime_bootstrap_row_text(hud) {
+        segments.push(format!("bootstrap={bootstrap_text}"));
+    }
+    segments.push(format!(
+        "resource={}",
+        compose_runtime_resource_delta_panel_text(&panel.resource_delta)
+    ));
+    segments.push(format!("kick={}", compose_runtime_kick_panel_text(&panel.kick)));
+    segments.push(format!(
+        "loading={}",
+        compose_runtime_loading_panel_text(&panel.loading)
+    ));
+    segments.push(format!(
+        "reconnect={}",
+        compose_runtime_reconnect_panel_text(&panel.reconnect)
+    ));
+    Some(segments.join("; "))
 }
 
 fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
@@ -1776,13 +1804,27 @@ fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "resource=[{}] kick=[{}] loading=[{}] reconnect=[{}]",
-        compose_runtime_resource_delta_detail_panel_text(&panel.resource_delta),
-        compose_runtime_kick_detail_panel_text(&panel.kick),
-        compose_runtime_loading_detail_panel_text(&panel.loading),
-        compose_runtime_reconnect_detail_panel_text(&panel.reconnect),
-    ))
+    let mut segments = Vec::new();
+    if let Some(bootstrap_text) = compose_runtime_bootstrap_detail_text(hud) {
+        segments.push(format!("bootstrap=[{bootstrap_text}]"));
+    }
+    segments.push(format!(
+        "resource=[{}]",
+        compose_runtime_resource_delta_detail_panel_text(&panel.resource_delta)
+    ));
+    segments.push(format!(
+        "kick=[{}]",
+        compose_runtime_kick_detail_panel_text(&panel.kick)
+    ));
+    segments.push(format!(
+        "loading=[{}]",
+        compose_runtime_loading_detail_panel_text(&panel.loading)
+    ));
+    segments.push(format!(
+        "reconnect=[{}]",
+        compose_runtime_reconnect_detail_panel_text(&panel.reconnect)
+    ));
+    Some(segments.join(" "))
 }
 
 fn compose_runtime_resource_delta_panel_text(
@@ -1927,20 +1969,7 @@ fn compose_runtime_live_entity_panel_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_live_entity_detail_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_entity_panel(hud)?;
-    Some(format!(
-        "local={} unit={}/{} pos={} hidden={} seen={} players={} units={} last={}/{}/{}",
-        optional_i32_label(panel.local_entity_id),
-        optional_u8_label(panel.local_unit_kind),
-        optional_u32_label(panel.local_unit_value),
-        world_position_text(panel.local_position.as_ref()),
-        optional_bool_label(panel.local_hidden),
-        optional_u64_label(panel.local_last_seen_entity_snapshot_count),
-        panel.player_count,
-        panel.unit_count,
-        optional_i32_label(panel.last_entity_id),
-        optional_i32_label(panel.last_player_entity_id),
-        optional_i32_label(panel.last_unit_entity_id),
-    ))
+    Some(panel.detail_label())
 }
 
 fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
@@ -3256,10 +3285,10 @@ mod tests {
     };
     use crate::{
         hud_model::{
-            HudSummary, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
-            RuntimeReconnectReasonKind, RuntimeResourceDeltaObservability,
-            RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
-            RuntimeWorldReloadObservability,
+            HudSummary, RuntimeBootstrapObservability, RuntimeReconnectObservability,
+            RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
+            RuntimeResourceDeltaObservability, RuntimeSessionObservability,
+            RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
         },
         panel_model::PresenterViewWindow,
         project_scene_models, project_scene_models_with_view_window,
@@ -4036,6 +4065,17 @@ mod tests {
                     last_control_name: Some("flushText".to_string()),
                 },
                 session: RuntimeSessionObservability {
+                    bootstrap: RuntimeBootstrapObservability {
+                        rules_label: "rules-hash-1".to_string(),
+                        tags_label: "tags-hash-2".to_string(),
+                        locales_label: "locales-hash-3".to_string(),
+                        team_count: 2,
+                        marker_count: 3,
+                        custom_chunk_count: 4,
+                        content_patch_count: 5,
+                        player_team_plan_count: 6,
+                        static_fog_team_count: 7,
+                    },
                     core_binding: crate::RuntimeCoreBindingObservability {
                         kind: Some(
                             crate::RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation,
@@ -4260,12 +4300,8 @@ mod tests {
         assert!(frame.contains(
             "BUILD-INTERACTION: mode=place select=head-diverged queue=mixed pending=3 place-ready=1 cfg=2/2 top=message head=flight@100:99:place:b301:r1 auth=rollback pending=mismatch src=constructFinish tile=23:45 block=power-node orphan=1"
         ));
-        assert!(frame.contains(
-            "BUILD: sel=257 rot=2 building=1 cfg=2"
-        ));
-        assert!(frame.contains(
-            "BUILD-QUEUE: queue=1/2/3/4/1 head=flight@100:99:place:b301:r1"
-        ));
+        assert!(frame.contains("BUILD: sel=257 rot=2 building=1 cfg=2"));
+        assert!(frame.contains("BUILD-QUEUE: queue=1/2/3/4/1 head=flight@100:99:place:b301:r1"));
         assert!(frame
             .contains("BUILD-INSPECTOR: family=message tracked=1 sample=18:40:len=5:text=hello"));
         assert!(frame.contains(
@@ -4349,10 +4385,10 @@ mod tests {
             "RUNTIME-MARKER-DETAIL: total=280 mutate=165 text=57 texture=58 fail=2 last=808 control-len=9"
         ));
         assert!(frame.contains(
-            "RUNTIME-SESSION: resource=tiles=80/81/82/83 set=22/23/24/25 clear=84/85 tile=26/27 flow=1/2/3 last=to_unit@6#none:bpnone:u2:808:eid404 proj=2/3/1 auth=4 delta=5/6/7 chg=999/900/6/1; kick=idInUse@7:IdInUse:wait_for_old~; loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6; reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
+            "RUNTIME-SESSION: bootstrap=rules=rules-hash-1:tags=tags-hash-2:locales=locales-hash-3:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7; resource=tiles=80/81/82/83 set=22/23/24/25 clear=84/85 tile=26/27 flow=1/2/3 last=to_unit@6#none:bpnone:u2:808:eid404 proj=2/3/1 auth=4 delta=5/6/7 chg=999/900/6/1; kick=idInUse@7:IdInUse:wait_for_old~; loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6; reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
         ));
         assert!(frame.contains(
-            "RUNTIME-SESSION-DETAIL: resource=[tile-rm=80 tile-set=81 floor-set=82 overlay-set=83 item-set=22/23 liquid-set=24/25 clear=84/85 tile-apply=26/27 flow=1/2/3 last-kind=to_unit item=6 amount=none build=none unit=2:808 to-entity=404 projection=2/3/1 authoritative=4 delta=5/6/7 changed=999/900/6/1] kick=[reason-len=7 ordinal=7 category-len=7 hint-len=20] loading=[ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6] reconnect=[phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567]"
+            "RUNTIME-SESSION-DETAIL: bootstrap=[rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7] resource=[tile-rm=80 tile-set=81 floor-set=82 overlay-set=83 item-set=22/23 liquid-set=24/25 clear=84/85 tile-apply=26/27 flow=1/2/3 last-kind=to_unit item=6 amount=none build=none unit=2:808 to-entity=404 projection=2/3/1 authoritative=4 delta=5/6/7 changed=999/900/6/1] kick=[reason-len=7 ordinal=7 category-len=7 hint-len=20] loading=[ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6] reconnect=[phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567]"
         ));
         assert!(frame.contains("RUNTIME-KICK: idInUse@7:IdInUse:wait_for_old~"));
         assert!(frame
@@ -4381,7 +4417,7 @@ mod tests {
             "RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-ENTITY-DETAIL: local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none"
+            "RUNTIME-LIVE-ENTITY-DETAIL: local=404 payload=unit=2/999 nested=snapshot=3 stack=entities=1 hidden=0 players=1 units=0 last=404/404/none controller=entity=404 pos=20.0:33.0 hidden=0"
         ));
         assert!(frame.contains(
             "RUNTIME-LIVE-EFFECT: 11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"

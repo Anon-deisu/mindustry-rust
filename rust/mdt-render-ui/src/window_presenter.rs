@@ -11,6 +11,7 @@ use crate::{
         build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
+        build_runtime_bootstrap_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
         RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
@@ -1156,9 +1157,10 @@ fn window_render_command<'a>(
         RenderObjectSemanticKind::MarkerLineEnd => None,
         RenderObjectSemanticKind::MarkerLine => {
             if let Some(line_end) = line_end_objects.get(&object.id) {
-                let (Some(start_tile), Some(end_tile)) =
-                    (window_world_object_tile(object), window_world_object_tile(line_end))
-                else {
+                let (Some(start_tile), Some(end_tile)) = (
+                    window_world_object_tile(object),
+                    window_world_object_tile(line_end),
+                ) else {
                     return None;
                 };
                 return Some(WindowRenderCommand::Line {
@@ -1585,7 +1587,8 @@ fn compose_frame_panel_lines(
     if let Some(build_flow_text) = compose_build_flow_status_text(scene, hud, window) {
         lines.push(format!("BUILD-FLOW: {build_flow_text}"));
     }
-    if let Some(build_flow_summary_text) = compose_build_flow_summary_status_text(scene, hud, window)
+    if let Some(build_flow_summary_text) =
+        compose_build_flow_summary_status_text(scene, hud, window)
     {
         lines.push(format!("BUILD-FLOW-SUMMARY: {build_flow_summary_text}"));
     }
@@ -2689,18 +2692,46 @@ fn compose_runtime_kick_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_bootstrap_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_bootstrap_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(panel.summary_label())
+}
+
+fn compose_runtime_bootstrap_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_bootstrap_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(panel.detail_label())
+}
+
 fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_session_panel(hud)?;
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "sess:rd={};k={};l={};r={}",
-        compose_runtime_resource_delta_panel_status_text(&panel.resource_delta),
-        compose_runtime_kick_panel_status_text(&panel.kick),
-        compose_runtime_loading_panel_status_text(&panel.loading),
-        compose_runtime_reconnect_panel_status_text(&panel.reconnect),
-    ))
+    let bootstrap_text = compose_runtime_bootstrap_status_text(hud);
+    let mut segments = Vec::new();
+    if let Some(bootstrap_text) = bootstrap_text {
+        segments.push(format!("bootstrap={bootstrap_text}"));
+    }
+    segments.push(format!(
+        "rd={}",
+        compose_runtime_resource_delta_panel_status_text(&panel.resource_delta)
+    ));
+    segments.push(format!("k={}", compose_runtime_kick_panel_status_text(&panel.kick)));
+    segments.push(format!(
+        "l={}",
+        compose_runtime_loading_panel_status_text(&panel.loading)
+    ));
+    segments.push(format!(
+        "r={}",
+        compose_runtime_reconnect_panel_status_text(&panel.reconnect)
+    ));
+    Some(format!("sess:{}", segments.join(";")))
 }
 
 fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> {
@@ -2708,13 +2739,27 @@ fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> 
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "sessd:rd({}):k({}):l({}):r({})",
-        compose_runtime_resource_delta_detail_panel_status_text(&panel.resource_delta),
-        compose_runtime_kick_detail_panel_status_text(&panel.kick),
-        compose_runtime_loading_detail_panel_status_text(&panel.loading),
-        compose_runtime_reconnect_detail_panel_status_text(&panel.reconnect),
-    ))
+    let mut segments = Vec::new();
+    if let Some(bootstrap_text) = compose_runtime_bootstrap_detail_status_text(hud) {
+        segments.push(format!("bootstrap({bootstrap_text})"));
+    }
+    segments.push(format!(
+        "rd({})",
+        compose_runtime_resource_delta_detail_panel_status_text(&panel.resource_delta)
+    ));
+    segments.push(format!(
+        "k({})",
+        compose_runtime_kick_detail_panel_status_text(&panel.kick)
+    ));
+    segments.push(format!(
+        "l({})",
+        compose_runtime_loading_detail_panel_status_text(&panel.loading)
+    ));
+    segments.push(format!(
+        "r({})",
+        compose_runtime_reconnect_detail_panel_status_text(&panel.reconnect)
+    ));
+    Some(format!("sessd:{}", segments.join(":")))
 }
 
 fn compose_runtime_resource_delta_panel_status_text(
@@ -2870,20 +2915,7 @@ fn compose_runtime_live_entity_panel_status_text(hud: &HudModel) -> Option<Strin
 
 fn compose_runtime_live_entity_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_entity_panel(hud)?;
-    Some(format!(
-        "liveentd:loc{}:u{}/{}:p{}:h{}:s{}:cnt{}/{}:last{}/{}/{}",
-        optional_i32_label(panel.local_entity_id),
-        optional_u8_label(panel.local_unit_kind),
-        optional_u32_label(panel.local_unit_value),
-        world_position_status_text(panel.local_position.as_ref()),
-        optional_bool_label(panel.local_hidden),
-        optional_u64_label(panel.local_last_seen_entity_snapshot_count),
-        panel.player_count,
-        panel.unit_count,
-        optional_i32_label(panel.last_entity_id),
-        optional_i32_label(panel.last_player_entity_id),
-        optional_i32_label(panel.last_unit_entity_id),
-    ))
+    Some(format!("liveentd:{}", panel.detail_label()))
 }
 
 fn compose_runtime_live_effect_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -5415,10 +5447,10 @@ mod tests {
     };
     use crate::{
         hud_model::{
-            HudSummary, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
-            RuntimeReconnectReasonKind, RuntimeResourceDeltaObservability,
-            RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
-            RuntimeWorldReloadObservability,
+            HudSummary, RuntimeBootstrapObservability, RuntimeReconnectObservability,
+            RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
+            RuntimeResourceDeltaObservability, RuntimeSessionObservability,
+            RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
         },
         BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
         RenderModel, RenderObject, RenderViewWindow, RuntimeAdminObservability,
@@ -7293,8 +7325,8 @@ mod tests {
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         let inset = frame.minimap_inset.as_ref().expect("minimap inset");
-        let panel = super::build_minimap_panel(&scene, &hud, inset.window)
-            .expect("expected minimap panel");
+        let panel =
+            super::build_minimap_panel(&scene, &hud, inset.window).expect("expected minimap panel");
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-KINDS: minikind:obj7@pl1:mk2:pn0:bk0:rt4:tr0:uk0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1",
@@ -7762,6 +7794,17 @@ mod tests {
                     last_control_name: Some("flushText".to_string()),
                 },
                 session: RuntimeSessionObservability {
+                    bootstrap: RuntimeBootstrapObservability {
+                        rules_label: "rules-hash-1".to_string(),
+                        tags_label: "tags-hash-2".to_string(),
+                        locales_label: "locales-hash-3".to_string(),
+                        team_count: 2,
+                        marker_count: 3,
+                        custom_chunk_count: 4,
+                        content_patch_count: 5,
+                        player_team_plan_count: 6,
+                        static_fog_team_count: 7,
+                    },
                     core_binding: crate::RuntimeCoreBindingObservability {
                         kind: Some(
                             crate::RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation,
@@ -8137,11 +8180,11 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-SESSION: sess:rd=resd:tile80/81/82/83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3@to_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1;k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~",
+            "RUNTIME-SESSION: sess:bootstrap=rules=rules-hash-1:tags=tags-hash-2:locales=locales-hash-3:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7;rd=resd:tile80/81/82/83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3@to_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1;k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-SESSION-DETAIL: sessd:rd(resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1):k(kickd:r7:o7:c7:h20):l(loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567)",
+            "RUNTIME-SESSION-DETAIL: sessd:bootstrap(rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7):rd(resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1):k(kickd:r7:o7:c7:h20):l(loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567)",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -8185,7 +8228,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-LIVE-ENTITY-DETAIL: liveentd:loc404:u2/999:p20.0:33.0:h0:s3:cnt1/0:last404/404/none",
+            "RUNTIME-LIVE-ENTITY-DETAIL: liveentd:local=404 payload=unit=2/999 nested=snapshot=3 stack=entities=1 hidden=0 players=1 units=0 last=404/404/none controller=entity=404 pos=20.0:33.0 hidden=0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

@@ -206,6 +206,50 @@ fn percent_of(part: usize, total: usize) -> usize {
     }
 }
 
+fn optional_i32_label(value: Option<i32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_u8_label(value: Option<u8>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_u32_label(value: Option<u32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_u64_label(value: Option<u64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_bool_label(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "1",
+        Some(false) => "0",
+        None => "none",
+    }
+}
+
+fn world_position_text(value: Option<&RuntimeWorldPositionObservability>) -> String {
+    value
+        .map(|value| {
+            format!(
+                "{:.1}:{:.1}",
+                f32::from_bits(value.x_bits),
+                f32::from_bits(value.y_bits)
+            )
+        })
+        .unwrap_or_else(|| "none".to_string())
+}
+
 /// Structured runtime UI observability projection.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeUiObservability {
@@ -648,9 +692,68 @@ pub struct RuntimeCoreBindingObservability {
     pub missing_team_sample: Vec<u8>,
 }
 
+/// Structured bootstrap summary for world bootstrap rules/tags/locales and team hints.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeBootstrapObservability {
+    pub rules_label: String,
+    pub tags_label: String,
+    pub locales_label: String,
+    pub team_count: usize,
+    pub marker_count: usize,
+    pub custom_chunk_count: usize,
+    pub content_patch_count: usize,
+    pub player_team_plan_count: usize,
+    pub static_fog_team_count: usize,
+}
+
+impl RuntimeBootstrapObservability {
+    pub fn is_empty(&self) -> bool {
+        self.rules_label.is_empty()
+            && self.tags_label.is_empty()
+            && self.locales_label.is_empty()
+            && self.team_count == 0
+            && self.marker_count == 0
+            && self.custom_chunk_count == 0
+            && self.content_patch_count == 0
+            && self.player_team_plan_count == 0
+            && self.static_fog_team_count == 0
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "rules={}:tags={}:locales={}:teams={}:markers={}:chunks={}:patches={}:plans={}:fog={}",
+            self.rules_label,
+            self.tags_label,
+            self.locales_label,
+            self.team_count,
+            self.marker_count,
+            self.custom_chunk_count,
+            self.content_patch_count,
+            self.player_team_plan_count,
+            self.static_fog_team_count,
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "rules-label={}:tags-label={}:locales-label={}:team-count={}:marker-count={}:custom-chunk-count={}:content-patch-count={}:player-team-plan-count={}:static-fog-team-count={}",
+            self.rules_label,
+            self.tags_label,
+            self.locales_label,
+            self.team_count,
+            self.marker_count,
+            self.custom_chunk_count,
+            self.content_patch_count,
+            self.player_team_plan_count,
+            self.static_fog_team_count,
+        )
+    }
+}
+
 /// Structured session/runtime lifecycle summary for kick/loading/reconnect state.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeSessionObservability {
+    pub bootstrap: RuntimeBootstrapObservability,
     pub core_binding: RuntimeCoreBindingObservability,
     pub resource_delta: RuntimeResourceDeltaObservability,
     pub kick: RuntimeKickObservability,
@@ -803,6 +906,56 @@ pub struct RuntimeLiveEntitySummaryObservability {
     pub local_hidden: Option<bool>,
     pub local_last_seen_entity_snapshot_count: Option<u64>,
     pub local_position: Option<RuntimeWorldPositionObservability>,
+}
+
+impl RuntimeLiveEntitySummaryObservability {
+    pub fn local_owned_unit_payload_label(&self) -> String {
+        format!(
+            "payload=unit={}/{}",
+            optional_u8_label(self.local_unit_kind),
+            optional_u32_label(self.local_unit_value),
+        )
+    }
+
+    pub fn local_owned_unit_nested_label(&self) -> String {
+        format!(
+            "nested=snapshot={}",
+            optional_u64_label(self.local_last_seen_entity_snapshot_count),
+        )
+    }
+
+    pub fn local_owned_unit_stack_label(&self) -> String {
+        format!(
+            "stack=entities={} hidden={} players={} units={} last={}/{}/{}",
+            self.entity_count,
+            self.hidden_count,
+            self.player_count,
+            self.unit_count,
+            optional_i32_label(self.last_entity_id),
+            optional_i32_label(self.last_player_entity_id),
+            optional_i32_label(self.last_unit_entity_id),
+        )
+    }
+
+    pub fn local_owned_unit_controller_label(&self) -> String {
+        format!(
+            "controller=entity={} pos={} hidden={}",
+            optional_i32_label(self.local_entity_id),
+            world_position_text(self.local_position.as_ref()),
+            optional_bool_label(self.local_hidden),
+        )
+    }
+
+    pub fn detail_label(&self) -> String {
+        format!(
+            "local={} {} {} {} {}",
+            optional_i32_label(self.local_entity_id),
+            self.local_owned_unit_payload_label(),
+            self.local_owned_unit_nested_label(),
+            self.local_owned_unit_stack_label(),
+            self.local_owned_unit_controller_label(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1080,10 +1233,11 @@ fn runtime_chat_active(chat: &RuntimeChatObservability) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        HudModel, RuntimeChatObservability, RuntimeHudTextObservability, RuntimeMenuObservability,
+        HudModel, RuntimeChatObservability, RuntimeHudTextObservability,
+        RuntimeLiveEntitySummaryObservability, RuntimeMenuObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiNoticeLayerKind,
         RuntimeUiObservability, RuntimeUiPromptLayerKind, RuntimeUiStackForegroundSummaryKind,
-        RuntimeUiStackSummary,
+        RuntimeUiStackSummary, RuntimeWorldPositionObservability,
     };
 
     #[test]
@@ -1521,6 +1675,49 @@ mod tests {
             }
             .visibility_label(),
             "mapped"
+        );
+    }
+
+    #[test]
+    fn runtime_live_entity_detail_label_surfaces_local_owned_unit_facets() {
+        let entity = RuntimeLiveEntitySummaryObservability {
+            entity_count: 12,
+            hidden_count: 3,
+            player_count: 2,
+            unit_count: 1,
+            last_entity_id: Some(202),
+            last_player_entity_id: Some(102),
+            last_unit_entity_id: Some(202),
+            local_entity_id: Some(404),
+            local_unit_kind: Some(2),
+            local_unit_value: Some(999),
+            local_hidden: Some(false),
+            local_last_seen_entity_snapshot_count: Some(7),
+            local_position: Some(RuntimeWorldPositionObservability {
+                x_bits: 20.0f32.to_bits(),
+                y_bits: 33.0f32.to_bits(),
+            }),
+        };
+
+        assert_eq!(
+            entity.local_owned_unit_payload_label(),
+            "payload=unit=2/999"
+        );
+        assert_eq!(
+            entity.local_owned_unit_nested_label(),
+            "nested=snapshot=7"
+        );
+        assert_eq!(
+            entity.local_owned_unit_stack_label(),
+            "stack=entities=12 hidden=3 players=2 units=1 last=202/102/202"
+        );
+        assert_eq!(
+            entity.local_owned_unit_controller_label(),
+            "controller=entity=404 pos=20.0:33.0 hidden=0"
+        );
+        assert_eq!(
+            entity.detail_label(),
+            "local=404 payload=unit=2/999 nested=snapshot=7 stack=entities=12 hidden=3 players=2 units=1 last=202/102/202 controller=entity=404 pos=20.0:33.0 hidden=0"
         );
     }
 }
