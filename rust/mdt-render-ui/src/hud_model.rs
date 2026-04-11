@@ -218,7 +218,19 @@ fn optional_u8_label(value: Option<u8>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn optional_i16_label(value: Option<i16>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
 fn optional_u32_label(value: Option<u32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_usize_label(value: Option<usize>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
@@ -247,6 +259,13 @@ fn world_position_text(value: Option<&RuntimeWorldPositionObservability>) -> Str
                 f32::from_bits(value.y_bits)
             )
         })
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn compact_sha_label(value: Option<&str>) -> String {
+    value
+        .map(|value| value.chars().take(12).collect::<String>())
+        .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "none".to_string())
 }
 
@@ -906,50 +925,75 @@ pub struct RuntimeLiveEntitySummaryObservability {
     pub local_hidden: Option<bool>,
     pub local_last_seen_entity_snapshot_count: Option<u64>,
     pub local_position: Option<RuntimeWorldPositionObservability>,
+    pub local_owned_unit_entity_id: Option<i32>,
+    pub local_owned_unit_payload_count: Option<i32>,
+    pub local_owned_unit_payload_class_id: Option<u8>,
+    pub local_owned_unit_payload_revision: Option<i16>,
+    pub local_owned_unit_payload_body_len: Option<usize>,
+    pub local_owned_unit_payload_sha256: Option<String>,
+    pub local_owned_unit_payload_nested_descendant_count: Option<usize>,
+    pub local_owned_carried_item_id: Option<i16>,
+    pub local_owned_carried_item_amount: Option<i32>,
+    pub local_owned_controller_type: Option<u8>,
+    pub local_owned_controller_value: Option<i32>,
 }
 
 impl RuntimeLiveEntitySummaryObservability {
     pub fn local_owned_unit_payload_label(&self) -> String {
         format!(
-            "payload=unit={}/{}",
-            optional_u8_label(self.local_unit_kind),
-            optional_u32_label(self.local_unit_value),
+            "payload=count={}:unit={}/r{}/l{}:s{}",
+            optional_i32_label(self.local_owned_unit_payload_count),
+            optional_u8_label(self.local_owned_unit_payload_class_id),
+            optional_i16_label(self.local_owned_unit_payload_revision),
+            optional_usize_label(self.local_owned_unit_payload_body_len),
+            compact_sha_label(self.local_owned_unit_payload_sha256.as_deref()),
         )
     }
 
     pub fn local_owned_unit_nested_label(&self) -> String {
         format!(
-            "nested=snapshot={}",
-            optional_u64_label(self.local_last_seen_entity_snapshot_count),
+            "nested={}",
+            optional_usize_label(self.local_owned_unit_payload_nested_descendant_count),
         )
     }
 
     pub fn local_owned_unit_stack_label(&self) -> String {
-        format!(
-            "stack=entities={} hidden={} players={} units={} last={}/{}/{}",
-            self.entity_count,
-            self.hidden_count,
-            self.player_count,
-            self.unit_count,
-            optional_i32_label(self.last_entity_id),
-            optional_i32_label(self.last_player_entity_id),
-            optional_i32_label(self.last_unit_entity_id),
-        )
+        match (
+            self.local_owned_carried_item_id,
+            self.local_owned_carried_item_amount,
+        ) {
+            (None, None) => "stack=none".to_string(),
+            (item_id, amount) => format!(
+                "stack={}x{}",
+                optional_i16_label(item_id),
+                optional_i32_label(amount),
+            ),
+        }
     }
 
     pub fn local_owned_unit_controller_label(&self) -> String {
         format!(
-            "controller=entity={} pos={} hidden={}",
-            optional_i32_label(self.local_entity_id),
-            world_position_text(self.local_position.as_ref()),
-            optional_bool_label(self.local_hidden),
+            "controller={}/{}",
+            optional_u8_label(self.local_owned_controller_type),
+            optional_i32_label(self.local_owned_controller_value),
         )
     }
 
     pub fn detail_label(&self) -> String {
         format!(
-            "local={} {} {} {} {}",
+            "local={} unit={}/{} pos={} hidden={} seen={} players={} units={} last={}/{}/{} owned={} {} {} {} {}",
             optional_i32_label(self.local_entity_id),
+            optional_u8_label(self.local_unit_kind),
+            optional_u32_label(self.local_unit_value),
+            world_position_text(self.local_position.as_ref()),
+            optional_bool_label(self.local_hidden),
+            optional_u64_label(self.local_last_seen_entity_snapshot_count),
+            self.player_count,
+            self.unit_count,
+            optional_i32_label(self.last_entity_id),
+            optional_i32_label(self.last_player_entity_id),
+            optional_i32_label(self.last_unit_entity_id),
+            optional_i32_label(self.local_owned_unit_entity_id),
             self.local_owned_unit_payload_label(),
             self.local_owned_unit_nested_label(),
             self.local_owned_unit_stack_label(),
@@ -1697,27 +1741,40 @@ mod tests {
                 x_bits: 20.0f32.to_bits(),
                 y_bits: 33.0f32.to_bits(),
             }),
+            local_owned_unit_entity_id: Some(202),
+            local_owned_unit_payload_count: Some(2),
+            local_owned_unit_payload_class_id: Some(5),
+            local_owned_unit_payload_revision: Some(7),
+            local_owned_unit_payload_body_len: Some(12),
+            local_owned_unit_payload_sha256: Some(
+                "0123456789abcdef0123456789abcdef".to_string(),
+            ),
+            local_owned_unit_payload_nested_descendant_count: Some(2),
+            local_owned_carried_item_id: Some(6),
+            local_owned_carried_item_amount: Some(4),
+            local_owned_controller_type: Some(4),
+            local_owned_controller_value: Some(101),
         };
 
         assert_eq!(
             entity.local_owned_unit_payload_label(),
-            "payload=unit=2/999"
+            "payload=count=2:unit=5/r7/l12:s0123456789ab"
         );
         assert_eq!(
             entity.local_owned_unit_nested_label(),
-            "nested=snapshot=7"
+            "nested=2"
         );
         assert_eq!(
             entity.local_owned_unit_stack_label(),
-            "stack=entities=12 hidden=3 players=2 units=1 last=202/102/202"
+            "stack=6x4"
         );
         assert_eq!(
             entity.local_owned_unit_controller_label(),
-            "controller=entity=404 pos=20.0:33.0 hidden=0"
+            "controller=4/101"
         );
         assert_eq!(
             entity.detail_label(),
-            "local=404 payload=unit=2/999 nested=snapshot=7 stack=entities=12 hidden=3 players=2 units=1 last=202/102/202 controller=entity=404 pos=20.0:33.0 hidden=0"
+            "local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=7 players=2 units=1 last=202/102/202 owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
         );
     }
 }

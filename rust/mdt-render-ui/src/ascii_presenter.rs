@@ -4188,6 +4188,19 @@ mod tests {
                             x_bits: 20.0f32.to_bits(),
                             y_bits: 33.0f32.to_bits(),
                         }),
+                        local_owned_unit_entity_id: Some(202),
+                        local_owned_unit_payload_count: Some(2),
+                        local_owned_unit_payload_class_id: Some(5),
+                        local_owned_unit_payload_revision: Some(7),
+                        local_owned_unit_payload_body_len: Some(12),
+                        local_owned_unit_payload_sha256: Some(
+                            "0123456789abcdef0123456789abcdef".to_string(),
+                        ),
+                        local_owned_unit_payload_nested_descendant_count: Some(2),
+                        local_owned_carried_item_id: Some(6),
+                        local_owned_carried_item_amount: Some(4),
+                        local_owned_controller_type: Some(4),
+                        local_owned_controller_value: Some(101),
                     },
                     effect: crate::RuntimeLiveEffectSummaryObservability {
                         effect_count: 11,
@@ -4417,7 +4430,7 @@ mod tests {
             "RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-ENTITY-DETAIL: local=404 payload=unit=2/999 nested=snapshot=3 stack=entities=1 hidden=0 players=1 units=0 last=404/404/none controller=entity=404 pos=20.0:33.0 hidden=0"
+            "RUNTIME-LIVE-ENTITY-DETAIL: local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
         ));
         assert!(frame.contains(
             "RUNTIME-LIVE-EFFECT: 11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"

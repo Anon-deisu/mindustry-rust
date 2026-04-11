@@ -390,6 +390,26 @@ impl EffectRuntimeBindingState {
     }
 }
 
+fn increment_effect_runtime_binding_state_counters(
+    state: Option<EffectRuntimeBindingState>,
+    follow_count: &mut u64,
+    reject_count: &mut u64,
+    fallback_count: &mut u64,
+) {
+    match state {
+        Some(EffectRuntimeBindingState::ParentFollow) => {
+            *follow_count = follow_count.saturating_add(1);
+        }
+        Some(EffectRuntimeBindingState::BindingRejected) => {
+            *reject_count = reject_count.saturating_add(1);
+        }
+        Some(EffectRuntimeBindingState::UnresolvedFallback) => {
+            *fallback_count = fallback_count.saturating_add(1);
+        }
+        None => {}
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConfiguredContentRef {
     pub content_type: u8,
@@ -4288,6 +4308,25 @@ fn typed_runtime_building_model(
                     .and_then(|projection| projection.payload_unit_class_id),
             },
         ),
+        "block-producer" => {
+            let runtime = configured
+                .constructor_runtime_by_build_pos
+                .get(&build_pos)?;
+            (
+                TypedBuildingRuntimeKind::Constructor,
+                TypedBuildingRuntimeValue::Constructor {
+                    recipe_block_id: configured
+                        .constructor_recipe_block_by_build_pos
+                        .get(&build_pos)
+                        .copied()?,
+                    progress_bits: Some(runtime.progress_bits),
+                    payload_present: Some(runtime.payload_present),
+                    pay_rotation_bits: Some(runtime.pay_rotation_bits),
+                    payload_build_block_id: runtime.payload_build_block_id,
+                    payload_unit_class_id: runtime.payload_unit_class_id,
+                },
+            )
+        }
         "payload-loader" | "payload-unloader" => {
             let runtime = configured
                 .payload_loader_runtime_by_build_pos
@@ -5487,6 +5526,7 @@ pub struct EntitySnapshotPayloadApplyEntry {
     pub last_seen_entity_snapshot_count: u64,
     pub payload_count: i32,
     pub building_pos: Option<i32>,
+    pub unit_payload: Option<mdt_world::UnitPayloadSnapshot>,
     pub carried_item_stack: Option<ResourceUnitItemStack>,
 }
 
@@ -5503,6 +5543,7 @@ impl EntitySnapshotPayloadApplyProjection {
         last_seen_entity_snapshot_count: u64,
         payload_count: i32,
         building_pos: Option<i32>,
+        unit_payload: Option<mdt_world::UnitPayloadSnapshot>,
         carried_item_stack: Option<ResourceUnitItemStack>,
     ) {
         self.by_entity_id.insert(
@@ -5512,6 +5553,7 @@ impl EntitySnapshotPayloadApplyProjection {
                 last_seen_entity_snapshot_count,
                 payload_count,
                 building_pos,
+                unit_payload,
                 carried_item_stack,
             },
         );
@@ -5555,6 +5597,7 @@ pub struct TypedRuntimePlayerEntity {
 pub struct TypedRuntimeUnitEntity {
     pub base: TypedRuntimeEntityBase,
     pub semantic: EntityUnitSemanticProjection,
+    pub unit_payload: Option<mdt_world::UnitPayloadSnapshot>,
     pub carried_item_stack: Option<ResourceUnitItemStack>,
 }
 
@@ -5797,6 +5840,7 @@ fn typed_runtime_entity_model(
             Some(TypedRuntimeEntityModel::Unit(TypedRuntimeUnitEntity {
                 base,
                 semantic,
+                unit_payload: payload_apply.and_then(|entry| entry.unit_payload.clone()),
                 carried_item_stack: payload_apply
                     .and_then(|entry| entry.carried_item_stack.clone())
                     .or_else(|| {
@@ -6267,6 +6311,12 @@ pub struct SessionState {
     pub last_effect_business_path: Option<Vec<usize>>,
     pub last_effect_runtime_binding_state: Option<EffectRuntimeBindingState>,
     pub last_effect_runtime_source_binding_state: Option<EffectRuntimeBindingState>,
+    pub received_effect_binding_target_follow_count: u64,
+    pub received_effect_binding_target_reject_count: u64,
+    pub received_effect_binding_target_fallback_count: u64,
+    pub received_effect_binding_source_follow_count: u64,
+    pub received_effect_binding_source_reject_count: u64,
+    pub received_effect_binding_source_fallback_count: u64,
     pub last_effect_data_parse_failed: bool,
     pub failed_effect_data_parse_count: u64,
     pub last_effect_data_parse_error: Option<String>,
@@ -6730,6 +6780,37 @@ impl SessionState {
         self.last_connect_redirect_port = last_connect_redirect_port;
     }
 
+    pub fn clear_last_effect_runtime_binding_states(&mut self) {
+        self.last_effect_runtime_binding_state = None;
+        self.last_effect_runtime_source_binding_state = None;
+    }
+
+    pub fn record_effect_runtime_binding_state(
+        &mut self,
+        state: Option<EffectRuntimeBindingState>,
+    ) {
+        self.last_effect_runtime_binding_state = state;
+        increment_effect_runtime_binding_state_counters(
+            state,
+            &mut self.received_effect_binding_target_follow_count,
+            &mut self.received_effect_binding_target_reject_count,
+            &mut self.received_effect_binding_target_fallback_count,
+        );
+    }
+
+    pub fn record_effect_runtime_source_binding_state(
+        &mut self,
+        state: Option<EffectRuntimeBindingState>,
+    ) {
+        self.last_effect_runtime_source_binding_state = state;
+        increment_effect_runtime_binding_state_counters(
+            state,
+            &mut self.received_effect_binding_source_follow_count,
+            &mut self.received_effect_binding_source_reject_count,
+            &mut self.received_effect_binding_source_fallback_count,
+        );
+    }
+
     pub fn typed_runtime_entity_at(&self, entity_id: i32) -> Option<TypedRuntimeEntityModel> {
         let entity = self.entity_table_projection.by_entity_id.get(&entity_id)?;
         typed_runtime_entity_model(
@@ -6939,6 +7020,7 @@ impl SessionState {
         class_id: u8,
         payload_count: i32,
         building_pos: Option<i32>,
+        unit_payload: Option<mdt_world::UnitPayloadSnapshot>,
         carried_item_stack: Option<ResourceUnitItemStack>,
     ) {
         self.entity_snapshot_payload_apply_projection.upsert(
@@ -6947,6 +7029,7 @@ impl SessionState {
             self.received_entity_snapshot_count,
             payload_count,
             building_pos,
+            unit_payload,
             carried_item_stack,
         );
     }
@@ -7356,10 +7439,8 @@ impl SessionState {
         let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
         let runtime_transition =
             self.hidden_snapshot_runtime_transition(&cleared_hidden_ids, local_player_entity_id);
-        let _ = self.apply_hidden_snapshot_runtime_transition(
-            &runtime_transition,
-            local_player_entity_id,
-        );
+        let _ = self
+            .apply_hidden_snapshot_runtime_transition(&runtime_transition, local_player_entity_id);
         self.hidden_snapshot_ids = cleared_hidden_ids;
         self.apply_hidden_snapshot_typed_runtime_transition(&typed_runtime_transition);
     }
@@ -7655,12 +7736,14 @@ impl SessionState {
         let Some(build_pos) = build_pos else {
             return;
         };
-        let Some(entry) = self.payload_lifecycle_projection.by_carrier.get_mut(
-            &UnitRefProjection {
-                kind: 1,
-                value: build_pos,
-            },
-        ) else {
+        let Some(entry) =
+            self.payload_lifecycle_projection
+                .by_carrier
+                .get_mut(&UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                })
+        else {
             return;
         };
         if entry.target_unit.is_none() {
@@ -7980,6 +8063,22 @@ mod tests {
         )
     }
 
+    fn test_unit_payload_snapshot(
+        class_id: u8,
+        revision: i16,
+        body_len: usize,
+        body_sha256: &str,
+        nested_unit_payloads: Vec<mdt_world::UnitPayloadSnapshot>,
+    ) -> mdt_world::UnitPayloadSnapshot {
+        mdt_world::UnitPayloadSnapshot {
+            class_id,
+            revision,
+            body_len,
+            body_sha256: body_sha256.to_string(),
+            nested_unit_payloads,
+        }
+    }
+
     fn test_building_projection(last_update: BuildingProjectionUpdateKind) -> BuildingProjection {
         BuildingProjection {
             block_id: None,
@@ -8095,7 +8194,9 @@ mod tests {
     #[test]
     fn refine_effect_data_semantic_for_nested_object_array_keeps_unmatched_object_array_len() {
         let semantic = refine_effect_data_semantic_for_nested_object_array(
-            Some(&nested_object_array(TypeIoObject::String(Some("noop".to_string())))),
+            Some(&nested_object_array(TypeIoObject::String(Some(
+                "noop".to_string(),
+            )))),
             Some(EffectDataSemantic::ObjectArrayLen(1)),
         );
 
@@ -9259,9 +9360,10 @@ mod tests {
             None,
             None,
         );
-        state
-            .resource_delta_projection
-            .seed_world_build_liquids(build_pos, &[(15, 0.75f32.to_bits()), (17, 0.0f32.to_bits())]);
+        state.resource_delta_projection.seed_world_build_liquids(
+            build_pos,
+            &[(15, 0.75f32.to_bits()), (17, 0.0f32.to_bits())],
+        );
 
         assert_eq!(
             state
@@ -11995,8 +12097,11 @@ mod tests {
         let links = BTreeSet::from([0x0006_000di32, 0x0007_0009i32]);
         for (build_pos, block_id, block_name) in [
             (0x0006_0009i32, 302, "power-node"),
-            (0x0006_000ai32, 303, "beam-node"),
-            (0x0006_000bi32, 304, "beam-tower"),
+            (0x0006_000ai32, 303, "power-node-large"),
+            (0x0006_000bi32, 304, "surge-tower"),
+            (0x0006_000ci32, 305, "beam-link"),
+            (0x0006_000di32, 306, "beam-node"),
+            (0x0006_000ei32, 307, "beam-tower"),
         ] {
             state.building_table_projection.apply_block_snapshot_head(
                 build_pos,
@@ -12200,6 +12305,87 @@ mod tests {
                     payload_present: Some(true),
                     pay_rotation_bits: Some(0x4000_0000),
                     payload_build_block_id: Some(11),
+                    payload_unit_class_id: None,
+                },
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_block_producer_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000bi32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            304,
+            Some("block-producer".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_constructor_recipe_block(build_pos, None);
+        state.configured_block_projection.apply_constructor_runtime(
+            build_pos,
+            ConstructorRuntimeProjection {
+                progress_bits: 0x3f50_0000,
+                payload_present: true,
+                pay_rotation_bits: 0x4020_0000,
+                payload_build_block_id: Some(12),
+                payload_unit_class_id: None,
+            },
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                304,
+                "block-producer",
+                TypedBuildingRuntimeKind::Constructor,
+                TypedBuildingRuntimeValue::Constructor {
+                    recipe_block_id: None,
+                    progress_bits: Some(0x3f50_0000),
+                    payload_present: Some(true),
+                    pay_rotation_bits: Some(0x4020_0000),
+                    payload_build_block_id: Some(12),
                     payload_unit_class_id: None,
                 },
                 Vec::new(),
@@ -14705,6 +14891,7 @@ mod tests {
                     controller_type: 0,
                     controller_value: None,
                 },
+                unit_payload: None,
                 carried_item_stack: Some(ResourceUnitItemStack {
                     item_id: Some(4),
                     amount: 7,
@@ -14752,11 +14939,26 @@ mod tests {
                 controller_value: None,
             }),
         );
+        let nested_unit_payload = test_unit_payload_snapshot(
+            9,
+            2,
+            4,
+            "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+            Vec::new(),
+        );
+        let unit_payload = test_unit_payload_snapshot(
+            5,
+            7,
+            12,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            vec![nested_unit_payload.clone()],
+        );
         state.apply_entity_snapshot_payload_apply_projection(
             202,
             5,
             2,
             Some(88),
+            Some(unit_payload.clone()),
             Some(ResourceUnitItemStack {
                 item_id: Some(6),
                 amount: 4,
@@ -14773,6 +14975,7 @@ mod tests {
                 last_seen_entity_snapshot_count: 11,
                 payload_count: 2,
                 building_pos: Some(88),
+                unit_payload: Some(unit_payload.clone()),
                 carried_item_stack: Some(ResourceUnitItemStack {
                     item_id: Some(6),
                     amount: 4,
@@ -14809,6 +15012,7 @@ mod tests {
                     controller_type: 0,
                     controller_value: None,
                 },
+                unit_payload: Some(unit_payload.clone()),
                 carried_item_stack: Some(ResourceUnitItemStack {
                     item_id: Some(6),
                     amount: 4,
@@ -14865,11 +15069,26 @@ mod tests {
                     amount: 2,
                 },
             );
+        let nested_unit_payload = test_unit_payload_snapshot(
+            9,
+            2,
+            4,
+            "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+            Vec::new(),
+        );
+        let unit_payload = test_unit_payload_snapshot(
+            5,
+            7,
+            12,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            vec![nested_unit_payload.clone()],
+        );
         state.apply_entity_snapshot_payload_apply_projection(
             202,
             5,
             2,
             Some(88),
+            Some(unit_payload.clone()),
             Some(ResourceUnitItemStack {
                 item_id: Some(6),
                 amount: 4,
@@ -14881,6 +15100,7 @@ mod tests {
             Some(TypedRuntimeEntityModel::Unit(unit))
                 if unit.semantic.payload_count == Some(2)
                     && unit.semantic.building_pos == Some(88)
+                    && unit.unit_payload == Some(unit_payload.clone())
                     && unit.carried_item_stack
                         == Some(ResourceUnitItemStack {
                             item_id: Some(6),
@@ -14900,6 +15120,7 @@ mod tests {
             Some(TypedRuntimeEntityModel::Unit(unit))
                 if unit.semantic.payload_count.is_none()
                     && unit.semantic.building_pos.is_none()
+                    && unit.unit_payload.is_none()
                     && unit.carried_item_stack
                         == Some(ResourceUnitItemStack {
                             item_id: Some(9),
@@ -15378,7 +15599,8 @@ mod tests {
         state.refresh_runtime_typed_entity_from_tables(202);
         assert!(matches!(
             state.runtime_typed_entity_projection().entity_at(202),
-            Some(TypedRuntimeEntityModel::Unit(unit)) if unit.carried_item_stack.is_none()
+            Some(TypedRuntimeEntityModel::Unit(unit))
+                if unit.unit_payload.is_none() && unit.carried_item_stack.is_none()
         ));
 
         state

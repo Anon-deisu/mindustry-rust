@@ -21,7 +21,7 @@ use crate::session_state::{
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
     EffectDataSemantic, EffectRuntimeBindingState, HiddenSnapshotDeltaProjection,
     PayloadLoaderRuntimeProjection, PayloadRouterPayloadKind, ReconnectPhaseProjection,
-    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
+    ReconnectReasonKind, ResourceUnitItemStack, SessionResetKind, SessionState, SessionTimeoutKind,
     StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
     TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
     TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, TypedRuntimeEntityModel,
@@ -30,7 +30,8 @@ use crate::session_state::{
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
-    RuntimeChatObservability, RuntimeCoreBindingKindObservability, RuntimeCoreBindingObservability,
+    RuntimeBootstrapObservability, RuntimeChatObservability,
+    RuntimeCoreBindingKindObservability, RuntimeCoreBindingObservability,
     RuntimeKickObservability, RuntimeLoadingObservability, RuntimeMarkerObservability,
     RuntimeReconnectObservability, RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
     RuntimeResourceDeltaObservability, RuntimeSessionObservability, RuntimeSessionResetKind,
@@ -64,6 +65,26 @@ const TILE_WORLD_ACTION_MARKER_TTL_TICKS: u8 = 8;
 pub struct RuntimeEffectClipView {
     pub center: (f32, f32),
     pub size: (f32, f32),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeLocalOwnedUnitPayloadObservability {
+    class_id: u8,
+    revision: i16,
+    body_len: usize,
+    body_sha256: String,
+    nested_descendant_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeLocalOwnedUnitObservability {
+    entity_id: i32,
+    payload_count: Option<i32>,
+    payload: Option<RuntimeLocalOwnedUnitPayloadObservability>,
+    carried_item_stack: Option<ResourceUnitItemStack>,
+    controller_type: u8,
+    controller_value: Option<i32>,
+    runtime_sync: Option<crate::session_state::EntityUnitRuntimeSyncProjection>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -1402,14 +1423,16 @@ fn runtime_block_snapshot_label(session_state: &SessionState) -> String {
                     if let Some(time_scale_bits) = snapshot.first_time_scale_bits {
                         label.push_str(&format!(":ts0x{time_scale_bits:08x}"));
                     }
-                    if let Some(time_scale_duration_bits) = snapshot.first_time_scale_duration_bits {
+                    if let Some(time_scale_duration_bits) = snapshot.first_time_scale_duration_bits
+                    {
                         label.push_str(&format!(":tsd0x{time_scale_duration_bits:08x}"));
                     }
                     if let Some(last_disabler_pos) = snapshot.first_last_disabler_pos {
                         let (dx, dy) = unpack_runtime_point2(last_disabler_pos);
                         label.push_str(&format!(":ld{dx}:{dy}"));
                     }
-                    if let Some(legacy_consume_connected) = snapshot.first_legacy_consume_connected {
+                    if let Some(legacy_consume_connected) = snapshot.first_legacy_consume_connected
+                    {
                         label.push_str(&format!(
                             ":lcc{}",
                             if legacy_consume_connected { 1 } else { 0 }
@@ -2197,27 +2220,98 @@ fn runtime_local_entity_label(session_state: &SessionState) -> String {
         entity.unit_value,
         if entity.hidden { 1 } else { 0 },
     );
-    let runtime_entity_projection = session_state.runtime_typed_entity_projection();
-    let Some(owned_unit_entity_id) = runtime_entity_projection.local_player_owned_unit_entity_id
-    else {
+    let Some(owned_unit) = runtime_local_owned_unit_observability(session_state) else {
         return base;
     };
-    let Some(TypedRuntimeEntityModel::Unit(unit)) =
-        runtime_entity_projection.entity_at(owned_unit_entity_id)
-    else {
-        return base;
+    let mut label = format!("{base}:ou{}", owned_unit.entity_id);
+    if let Some(runtime_sync) = owned_unit.runtime_sync.as_ref() {
+        let base_rotation = runtime_sync
+            .base_rotation_bits
+            .map(|bits| format!("0x{bits:08x}"))
+            .unwrap_or_else(|| "none".to_string());
+        label.push_str(&format!(
+            "@am0x{:08x}:el0x{:08x}:fg0x{:016x}:br{}",
+            runtime_sync.ammo_bits, runtime_sync.elevation_bits, runtime_sync.flag_bits,
+            base_rotation,
+        ));
+    }
+    label.push_str(&format!(
+        ":pc{}:ct{}:cv{}",
+        runtime_optional_display_label(owned_unit.payload_count),
+        owned_unit.controller_type,
+        runtime_optional_display_label(owned_unit.controller_value),
+    ));
+    match owned_unit.payload.as_ref() {
+        Some(payload) => {
+            label.push_str(&format!(
+                ":up{}@r{}:l{}:s{}:nd{}",
+                payload.class_id,
+                payload.revision,
+                payload.body_len,
+                payload.body_sha256.chars().take(12).collect::<String>(),
+                payload.nested_descendant_count,
+            ));
+        }
+        None => label.push_str(":upnone"),
+    }
+    match owned_unit.carried_item_stack.as_ref() {
+        Some(stack) => label.push_str(&format!(
+            ":stk{}:{}",
+            runtime_optional_display_label(stack.item_id),
+            stack.amount
+        )),
+        None => label.push_str(":stknone"),
+    }
+    label
+}
+
+fn runtime_local_owned_unit_observability(
+    session_state: &SessionState,
+) -> Option<RuntimeLocalOwnedUnitObservability> {
+    let projection = session_state.runtime_typed_entity_projection();
+    runtime_local_owned_unit_observability_from_projection(&projection)
+}
+
+fn runtime_local_owned_unit_observability_from_projection(
+    projection: &TypedRuntimeEntityProjection,
+) -> Option<RuntimeLocalOwnedUnitObservability> {
+    let owned_unit_entity_id = projection.local_player_owned_unit_entity_id?;
+    let TypedRuntimeEntityModel::Unit(unit) = projection.entity_at(owned_unit_entity_id)? else {
+        return None;
     };
-    let Some(runtime_sync) = unit.semantic.runtime_sync.as_ref() else {
-        return format!("{base}:ou{owned_unit_entity_id}");
-    };
-    let base_rotation = runtime_sync
-        .base_rotation_bits
-        .map(|bits| format!("0x{bits:08x}"))
-        .unwrap_or_else(|| "none".to_string());
-    format!(
-        "{base}:ou{owned_unit_entity_id}@am0x{:08x}:el0x{:08x}:fg0x{:016x}:br{}",
-        runtime_sync.ammo_bits, runtime_sync.elevation_bits, runtime_sync.flag_bits, base_rotation,
-    )
+    Some(RuntimeLocalOwnedUnitObservability {
+        entity_id: owned_unit_entity_id,
+        payload_count: unit.semantic.payload_count,
+        payload: unit
+            .unit_payload
+            .as_ref()
+            .map(runtime_local_owned_unit_payload_observability),
+        carried_item_stack: unit.carried_item_stack.clone(),
+        controller_type: unit.semantic.controller_type,
+        controller_value: unit.semantic.controller_value,
+        runtime_sync: unit.semantic.runtime_sync.clone(),
+    })
+}
+
+fn runtime_local_owned_unit_payload_observability(
+    payload: &mdt_world::UnitPayloadSnapshot,
+) -> RuntimeLocalOwnedUnitPayloadObservability {
+    RuntimeLocalOwnedUnitPayloadObservability {
+        class_id: payload.class_id,
+        revision: payload.revision,
+        body_len: payload.body_len,
+        body_sha256: payload.body_sha256.clone(),
+        nested_descendant_count: runtime_unit_payload_descendant_count(payload),
+    }
+}
+
+fn runtime_unit_payload_descendant_count(payload: &mdt_world::UnitPayloadSnapshot) -> usize {
+    payload.nested_unit_payloads.len()
+        + payload
+            .nested_unit_payloads
+            .iter()
+            .map(runtime_unit_payload_descendant_count)
+            .sum::<usize>()
 }
 
 fn runtime_entity_gate_label(session_state: &SessionState) -> String {
@@ -2866,6 +2960,7 @@ fn runtime_session_observability(
     world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeSessionObservability {
     RuntimeSessionObservability {
+        bootstrap: runtime_bootstrap_observability(session_state.world_bootstrap_projection.as_ref()),
         core_binding: RuntimeCoreBindingObservability {
             kind: session_state
                 .core_inventory_runtime_binding_kind
@@ -2945,6 +3040,32 @@ fn runtime_session_observability(
             last_redirect_ip: session_state.last_connect_redirect_ip.clone(),
             last_redirect_port: session_state.last_connect_redirect_port,
         },
+    }
+}
+
+fn runtime_bootstrap_observability(
+    projection: Option<&WorldBootstrapProjection>,
+) -> RuntimeBootstrapObservability {
+    let Some(projection) = projection else {
+        return RuntimeBootstrapObservability::default();
+    };
+
+    RuntimeBootstrapObservability {
+        rules_label: runtime_bootstrap_hash_label(Some(projection), |projection| {
+            projection.rules_sha256.as_str()
+        }),
+        tags_label: runtime_bootstrap_hash_label(Some(projection), |projection| {
+            projection.tags_sha256.as_str()
+        }),
+        locales_label: runtime_bootstrap_hash_label(Some(projection), |projection| {
+            projection.map_locales_sha256.as_str()
+        }),
+        team_count: projection.team_count,
+        marker_count: projection.marker_count,
+        custom_chunk_count: projection.custom_chunk_count,
+        content_patch_count: projection.content_patch_count,
+        player_team_plan_count: projection.player_team_plan_count,
+        static_fog_team_count: projection.static_fog_team_count,
     }
 }
 
@@ -3077,6 +3198,13 @@ fn runtime_live_entity_summary_observability(
 ) -> RuntimeLiveEntitySummaryObservability {
     let typed_projection = session_state.runtime_typed_entity_projection();
     let local_entity = typed_projection.local_player().map(|player| &player.base);
+    let local_owned_unit = runtime_local_owned_unit_observability_from_projection(&typed_projection);
+    let local_owned_payload = local_owned_unit
+        .as_ref()
+        .and_then(|owned_unit| owned_unit.payload.as_ref());
+    let local_owned_stack = local_owned_unit
+        .as_ref()
+        .and_then(|owned_unit| owned_unit.carried_item_stack.as_ref());
 
     RuntimeLiveEntitySummaryObservability {
         entity_count: session_state.entity_table_projection.by_entity_id.len(),
@@ -3096,6 +3224,25 @@ fn runtime_live_entity_summary_observability(
             x_bits: entity.x_bits,
             y_bits: entity.y_bits,
         }),
+        local_owned_unit_entity_id: local_owned_unit.as_ref().map(|owned_unit| owned_unit.entity_id),
+        local_owned_unit_payload_count: local_owned_unit
+            .as_ref()
+            .and_then(|owned_unit| owned_unit.payload_count),
+        local_owned_unit_payload_class_id: local_owned_payload.map(|payload| payload.class_id),
+        local_owned_unit_payload_revision: local_owned_payload.map(|payload| payload.revision),
+        local_owned_unit_payload_body_len: local_owned_payload.map(|payload| payload.body_len),
+        local_owned_unit_payload_sha256: local_owned_payload
+            .map(|payload| payload.body_sha256.clone()),
+        local_owned_unit_payload_nested_descendant_count: local_owned_payload
+            .map(|payload| payload.nested_descendant_count),
+        local_owned_carried_item_id: local_owned_stack.and_then(|stack| stack.item_id),
+        local_owned_carried_item_amount: local_owned_stack.map(|stack| stack.amount),
+        local_owned_controller_type: local_owned_unit
+            .as_ref()
+            .map(|owned_unit| owned_unit.controller_type),
+        local_owned_controller_value: local_owned_unit
+            .as_ref()
+            .and_then(|owned_unit| owned_unit.controller_value),
     }
 }
 
@@ -4352,7 +4499,9 @@ fn runtime_build_health_update_label(session_state: &SessionState) -> String {
         "bhu{}:{}@{}#{}",
         session_state.received_build_health_update_count,
         session_state.last_build_health_update_pair_count,
-        runtime_optional_runtime_point2_label(session_state.last_build_health_update_first_build_pos),
+        runtime_optional_runtime_point2_label(
+            session_state.last_build_health_update_first_build_pos
+        ),
         runtime_optional_bits_label(session_state.last_build_health_update_first_health_bits),
     )
 }
@@ -4972,13 +5121,23 @@ fn runtime_effect_binding_detail_label(
         "none"
     };
     format!(
-        "source={} session={}/{} overlay={}/{} active={}",
+        "source={} session={}/{} overlay={}/{} active={} target_counts={} source_counts={}",
         selected_source,
         runtime_optional_effect_binding_state_label(session_target),
         runtime_optional_effect_binding_state_label(session_source),
         runtime_optional_effect_binding_state_label(overlay_target),
         runtime_optional_effect_binding_state_label(overlay_source),
         world_overlay.effect_overlays.len(),
+        runtime_effect_binding_count_triplet_label(
+            session_state.received_effect_binding_target_follow_count,
+            session_state.received_effect_binding_target_reject_count,
+            session_state.received_effect_binding_target_fallback_count,
+        ),
+        runtime_effect_binding_count_triplet_label(
+            session_state.received_effect_binding_source_follow_count,
+            session_state.received_effect_binding_source_reject_count,
+            session_state.received_effect_binding_source_fallback_count,
+        ),
     )
 }
 
@@ -5029,6 +5188,14 @@ fn runtime_optional_effect_binding_state_label(
     state.map_or("none", EffectRuntimeBindingState::as_str)
 }
 
+fn runtime_effect_binding_count_triplet_label(
+    follow_count: u64,
+    reject_count: u64,
+    fallback_count: u64,
+) -> String {
+    format!("{follow_count}/{reject_count}/{fallback_count}")
+}
+
 fn runtime_bootstrap_hash_label<F>(
     projection: Option<&WorldBootstrapProjection>,
     selector: F,
@@ -5050,9 +5217,15 @@ fn runtime_bootstrap_label(projection: Option<&WorldBootstrapProjection>) -> Str
 
     format!(
         "rules={}:tags={}:locales={}:teams={}:markers={}:chunks={}:patches={}:plans={}:fog={}",
-        runtime_bootstrap_hash_label(Some(projection), |projection| projection.rules_sha256.as_str()),
-        runtime_bootstrap_hash_label(Some(projection), |projection| projection.tags_sha256.as_str()),
-        runtime_bootstrap_hash_label(Some(projection), |projection| projection.map_locales_sha256.as_str()),
+        runtime_bootstrap_hash_label(Some(projection), |projection| projection
+            .rules_sha256
+            .as_str()),
+        runtime_bootstrap_hash_label(Some(projection), |projection| projection
+            .tags_sha256
+            .as_str()),
+        runtime_bootstrap_hash_label(Some(projection), |projection| projection
+            .map_locales_sha256
+            .as_str()),
         projection.team_count,
         projection.marker_count,
         projection.custom_chunk_count,
@@ -6588,6 +6761,7 @@ mod tests {
                         controller_type: 0,
                         controller_value: None,
                     },
+                    unit_payload: None,
                     carried_item_stack: None,
                 },
             ));
@@ -6638,6 +6812,7 @@ mod tests {
                         controller_type: 0,
                         controller_value: None,
                     },
+                    unit_payload: None,
                     carried_item_stack: None,
                 },
             ));
@@ -6753,7 +6928,10 @@ mod tests {
         expected.last_update = Some(BuildingProjectionUpdateKind::BuildHealthUpdate);
         expected.last_removed = false;
 
-        assert_eq!(runtime_building_table_projection_for_label(&snapshot, None), snapshot);
+        assert_eq!(
+            runtime_building_table_projection_for_label(&snapshot, None),
+            snapshot
+        );
         assert_eq!(merged, expected);
         assert_eq!(
             runtime_building_label(&snapshot, None),
@@ -7242,9 +7420,12 @@ mod tests {
         let mut set_camera_position_payload = Vec::new();
         set_camera_position_payload.extend_from_slice(&52.0f32.to_bits().to_be_bytes());
         set_camera_position_payload.extend_from_slice(&68.0f32.to_bits().to_be_bytes());
-        let set_camera_position =
-            encode_packet(set_camera_position_packet_id, &set_camera_position_payload, false)
-                .unwrap();
+        let set_camera_position = encode_packet(
+            set_camera_position_packet_id,
+            &set_camera_position_payload,
+            false,
+        )
+        .unwrap();
         for _ in 0..80 {
             session.ingest_packet_bytes(&set_camera_position).unwrap();
         }
@@ -10854,8 +11035,7 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_renders_point_beam_executor_line_from_followed_parent_unit_source()
-    {
+    fn render_runtime_adapter_renders_point_beam_executor_line_from_followed_parent_unit_source() {
         let mut adapter = RenderRuntimeAdapter::default();
         let input = ClientSnapshotInputState::default();
         let mut state = SessionState::default();
@@ -13007,7 +13187,7 @@ mod tests {
             .status_text
             .contains("runtime_effect_binding=follow/follow"));
         assert!(hud.status_text.contains(
-            "runtime_effect_binding_detail=source=session session=follow/follow overlay=follow/follow active=1"
+            "runtime_effect_binding_detail=source=session session=follow/follow overlay=follow/follow active=1 target_counts=1/0/0 source_counts=1/0/0"
         ));
         let live_effect = &hud
             .runtime_ui
@@ -13017,6 +13197,70 @@ mod tests {
             .effect;
         assert_eq!(live_effect.active_overlay_count, 1);
         assert_eq!(live_effect.active_effect_id, Some(8));
+        assert_eq!(
+            live_effect.last_contract_name.as_deref(),
+            Some("position_target")
+        );
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_effect_binding_detail_counts_after_mixed_outcomes_in_hud()
+    {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let local_player_entity_id = session
+            .state()
+            .entity_table_projection
+            .local_player_entity_id
+            .unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+
+        let mut rejected_payload = encode_effect_payload(9, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut rejected_payload,
+            &TypeIoObject::BuildingPos(mdt_typeio::pack_point2(7, 11)),
+        );
+        let rejected_packet = encode_packet(packet_id, &rejected_payload, false).unwrap();
+        let rejected_event = session.ingest_packet_bytes(&rejected_packet).unwrap();
+
+        let mut fallback_payload = encode_effect_payload(9, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut fallback_payload, &TypeIoObject::UnitId(404));
+        let fallback_packet = encode_packet(packet_id, &fallback_payload, false).unwrap();
+        let fallback_event = session.ingest_packet_bytes(&fallback_packet).unwrap();
+
+        let mut follow_payload = encode_effect_payload(9, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut follow_payload, &TypeIoObject::UnitId(local_player_entity_id));
+        let follow_packet = encode_packet(packet_id, &follow_payload, false).unwrap();
+        let follow_event = session.ingest_packet_bytes(&follow_packet).unwrap();
+
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.observe_events(&[rejected_event, fallback_event, follow_event]);
+
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = session.snapshot_input();
+        adapter.apply(&mut scene, &mut hud, input, session.state());
+
+        assert!(hud
+            .status_text
+            .contains("runtime_effect_binding=follow/follow"));
+        assert!(hud.status_text.contains(
+            "runtime_effect_binding_detail=source=session session=follow/follow overlay=follow/follow active=3 target_counts=1/1/1 source_counts=1/1/1"
+        ));
+        let live_effect = &hud
+            .runtime_ui
+            .as_ref()
+            .expect("runtime_ui observability should be present")
+            .live
+            .effect;
+        assert_eq!(live_effect.active_overlay_count, 3);
+        assert_eq!(live_effect.active_effect_id, Some(9));
         assert_eq!(
             live_effect.last_contract_name.as_deref(),
             Some("position_target")
@@ -13261,16 +13505,18 @@ mod tests {
 
         assert_eq!(
             runtime_effect_binding_detail_label(&input, &SessionState::default(), &world_overlay),
-            "source=overlay session=none/none overlay=fallback/fallback active=1"
+            "source=overlay session=none/none overlay=fallback/fallback active=1 target_counts=0/0/0 source_counts=0/0/0"
         );
 
         let mut state = SessionState::default();
         state.last_effect_runtime_binding_state = Some(EffectRuntimeBindingState::BindingRejected);
         state.last_effect_runtime_source_binding_state =
             Some(EffectRuntimeBindingState::ParentFollow);
+        state.received_effect_binding_target_reject_count = 3;
+        state.received_effect_binding_source_follow_count = 2;
         assert_eq!(
             runtime_effect_binding_detail_label(&input, &state, &world_overlay),
-            "source=session session=reject/follow overlay=fallback/fallback active=1"
+            "source=session session=reject/follow overlay=fallback/fallback active=1 target_counts=0/3/0 source_counts=2/0/0"
         );
     }
 
@@ -14231,6 +14477,15 @@ mod tests {
             runtime_ui.session.core_binding.kind,
             Some(RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation)
         );
+        assert_eq!(runtime_ui.session.bootstrap.rules_label, "01234567");
+        assert_eq!(runtime_ui.session.bootstrap.tags_label, "00112233");
+        assert_eq!(runtime_ui.session.bootstrap.locales_label, "fedcba98");
+        assert_eq!(runtime_ui.session.bootstrap.team_count, 2);
+        assert_eq!(runtime_ui.session.bootstrap.marker_count, 4);
+        assert_eq!(runtime_ui.session.bootstrap.custom_chunk_count, 1);
+        assert_eq!(runtime_ui.session.bootstrap.content_patch_count, 3);
+        assert_eq!(runtime_ui.session.bootstrap.player_team_plan_count, 5);
+        assert_eq!(runtime_ui.session.bootstrap.static_fog_team_count, 1);
         assert_eq!(runtime_ui.session.core_binding.ambiguous_team_count, 1);
         assert_eq!(
             runtime_ui.session.core_binding.ambiguous_team_sample,
@@ -14406,6 +14661,20 @@ mod tests {
                 y_bits: 33.0f32.to_bits(),
             })
         );
+        assert_eq!(runtime_ui.live.entity.local_owned_unit_entity_id, None);
+        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_count, None);
+        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_class_id, None);
+        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_revision, None);
+        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_body_len, None);
+        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_sha256, None);
+        assert_eq!(
+            runtime_ui.live.entity.local_owned_unit_payload_nested_descendant_count,
+            None
+        );
+        assert_eq!(runtime_ui.live.entity.local_owned_carried_item_id, None);
+        assert_eq!(runtime_ui.live.entity.local_owned_carried_item_amount, None);
+        assert_eq!(runtime_ui.live.entity.local_owned_controller_type, None);
+        assert_eq!(runtime_ui.live.entity.local_owned_controller_value, None);
         assert_eq!(runtime_ui.live.effect.effect_count, 11);
         assert_eq!(runtime_ui.live.effect.spawn_effect_count, 73);
         assert_eq!(runtime_ui.live.effect.last_effect_id, Some(8));
@@ -14925,6 +15194,30 @@ mod tests {
                 last_seen_entity_snapshot_count: 4,
             },
         );
+        let grandchild_payload = mdt_world::UnitPayloadSnapshot {
+            class_id: 11,
+            revision: 1,
+            body_len: 2,
+            body_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .to_string(),
+            nested_unit_payloads: Vec::new(),
+        };
+        let nested_payload = mdt_world::UnitPayloadSnapshot {
+            class_id: 9,
+            revision: 2,
+            body_len: 4,
+            body_sha256: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+                .to_string(),
+            nested_unit_payloads: vec![grandchild_payload.clone()],
+        };
+        let unit_payload = mdt_world::UnitPayloadSnapshot {
+            class_id: 5,
+            revision: 7,
+            body_len: 12,
+            body_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .to_string(),
+            nested_unit_payloads: vec![nested_payload.clone()],
+        };
         state.entity_semantic_projection.upsert(
             202,
             4,
@@ -14938,7 +15231,7 @@ mod tests {
                     shield_bits: 0,
                     mine_tile_pos: 0,
                     status_count: 0,
-                    payload_count: None,
+                    payload_count: Some(2),
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
@@ -14953,13 +15246,108 @@ mod tests {
                 },
             ),
         );
+        state.apply_entity_snapshot_payload_apply_projection(
+            202,
+            4,
+            2,
+            Some(88),
+            Some(unit_payload.clone()),
+            Some(ResourceUnitItemStack {
+                item_id: Some(6),
+                amount: 4,
+            }),
+        );
         state.refresh_runtime_typed_entity_from_tables(101);
         state.refresh_runtime_typed_entity_from_tables(202);
 
+        let observability = runtime_local_owned_unit_observability(&state)
+            .expect("missing owned unit observability");
+        assert_eq!(observability.entity_id, 202);
+        assert_eq!(observability.payload_count, Some(2));
+        assert_eq!(
+            observability.carried_item_stack,
+            Some(ResourceUnitItemStack {
+                item_id: Some(6),
+                amount: 4,
+            })
+        );
+        assert_eq!(observability.controller_type, 0);
+        assert_eq!(observability.controller_value, Some(101));
+        assert_eq!(observability.runtime_sync.as_ref().map(|sync| sync.ammo_bits), Some(0x3f80_0000));
+        let payload = observability.payload.as_ref().expect("missing payload observability");
+        assert_eq!(payload.class_id, 5);
+        assert_eq!(payload.revision, 7);
+        assert_eq!(payload.body_len, 12);
+        assert_eq!(
+            payload.body_sha256,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        );
+        assert_eq!(payload.nested_descendant_count, 2);
+
+        let summary = runtime_live_entity_summary_observability(&state);
+        assert_eq!(summary.local_owned_unit_entity_id, Some(202));
+        assert_eq!(summary.local_owned_unit_payload_count, Some(2));
+        assert_eq!(summary.local_owned_unit_payload_class_id, Some(5));
+        assert_eq!(summary.local_owned_unit_payload_revision, Some(7));
+        assert_eq!(summary.local_owned_unit_payload_body_len, Some(12));
+        assert_eq!(
+            summary.local_owned_unit_payload_sha256.as_deref(),
+            Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+        );
+        assert_eq!(
+            summary.local_owned_unit_payload_nested_descendant_count,
+            Some(2)
+        );
+        assert_eq!(summary.local_owned_carried_item_id, Some(6));
+        assert_eq!(summary.local_owned_carried_item_amount, Some(4));
+        assert_eq!(summary.local_owned_controller_type, Some(0));
+        assert_eq!(summary.local_owned_controller_value, Some(101));
+
         assert_eq!(
             runtime_local_entity_label(&state),
-            "101:c12:u2:202:h0:ou202@am0x3f800000:el0x40000000:fg0x000000000000002a:br0x40400000"
+            "101:c12:u2:202:h0:ou202@am0x3f800000:el0x40000000:fg0x000000000000002a:br0x40400000:pc2:ct0:cv101:up5@r7:l12:s0123456789ab:nd2:stk6:4"
         );
+    }
+
+    #[test]
+    fn runtime_unit_payload_descendant_count_sums_recursive_nested_payloads() {
+        let payload = mdt_world::UnitPayloadSnapshot {
+            class_id: 1,
+            revision: 0,
+            body_len: 8,
+            body_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                .to_string(),
+            nested_unit_payloads: vec![
+                mdt_world::UnitPayloadSnapshot {
+                    class_id: 2,
+                    revision: 1,
+                    body_len: 4,
+                    body_sha256:
+                        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                            .to_string(),
+                    nested_unit_payloads: vec![mdt_world::UnitPayloadSnapshot {
+                        class_id: 3,
+                        revision: 2,
+                        body_len: 2,
+                        body_sha256:
+                            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                                .to_string(),
+                        nested_unit_payloads: Vec::new(),
+                    }],
+                },
+                mdt_world::UnitPayloadSnapshot {
+                    class_id: 4,
+                    revision: 3,
+                    body_len: 6,
+                    body_sha256:
+                        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                            .to_string(),
+                    nested_unit_payloads: Vec::new(),
+                },
+            ],
+        };
+
+        assert_eq!(runtime_unit_payload_descendant_count(&payload), 3);
     }
 
     #[test]
