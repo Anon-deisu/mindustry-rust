@@ -387,10 +387,7 @@ impl RenderPrimitive {
                 let mut fields = BTreeMap::new();
                 fields.insert("text", RenderPrimitivePayloadValue::Text(text.clone()));
                 Some(RenderPrimitivePayload {
-                    label: kind
-                        .detail_label()
-                        .unwrap_or("render-text")
-                        .to_string(),
+                    label: kind.detail_label().unwrap_or("render-text").to_string(),
                     fields,
                 })
             }
@@ -652,18 +649,16 @@ fn render_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
                     ),
             )
         }
-        ["marker", "runtime-command-selected-unit", value] if value.parse::<i32>().is_ok() => {
-            Some(
-                ParsedRenderIconPayload::new(
-                    RenderIconPrimitiveFamily::RuntimeCommand,
-                    "selected-unit",
-                )
-                .with_field(
-                    "unit_id",
-                    RenderPrimitivePayloadValue::I32(value.parse().ok()?),
-                ),
+        ["marker", "runtime-command-selected-unit", value] if value.parse::<i32>().is_ok() => Some(
+            ParsedRenderIconPayload::new(
+                RenderIconPrimitiveFamily::RuntimeCommand,
+                "selected-unit",
             )
-        }
+            .with_field(
+                "unit_id",
+                RenderPrimitivePayloadValue::I32(value.parse().ok()?),
+            ),
+        ),
         ["marker", "runtime-command-build-target", tile_x, tile_y]
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
         {
@@ -705,15 +700,15 @@ fn render_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
             if kind.parse::<i16>().is_ok() && value.parse::<i32>().is_ok() =>
         {
             Some(
-                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeCommand, "unit-target")
-                    .with_field(
-                        "kind",
-                        RenderPrimitivePayloadValue::I16(kind.parse().ok()?),
-                    )
-                    .with_field(
-                        "value",
-                        RenderPrimitivePayloadValue::I32(value.parse().ok()?),
-                    ),
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimeCommand,
+                    "unit-target",
+                )
+                .with_field("kind", RenderPrimitivePayloadValue::I16(kind.parse().ok()?))
+                .with_field(
+                    "value",
+                    RenderPrimitivePayloadValue::I32(value.parse().ok()?),
+                ),
             )
         }
         ["marker", "runtime-effect-icon", kind, delivery, effect_id, content_type, content_id, x_bits, y_bits]
@@ -761,23 +756,26 @@ fn render_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
                 && content_id.parse::<i16>().is_ok() =>
         {
             Some(
-                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeBuildConfig, *family)
-                    .with_field(
-                        "tile_x",
-                        RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
-                    )
-                    .with_field(
-                        "tile_y",
-                        RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
-                    )
-                    .with_field(
-                        "content_type",
-                        RenderPrimitivePayloadValue::U8(content_type.parse().ok()?),
-                    )
-                    .with_field(
-                        "content_id",
-                        RenderPrimitivePayloadValue::I16(content_id.parse().ok()?),
-                    ),
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimeBuildConfig,
+                    *family,
+                )
+                .with_field(
+                    "tile_x",
+                    RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                )
+                .with_field(
+                    "tile_y",
+                    RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                )
+                .with_field(
+                    "content_type",
+                    RenderPrimitivePayloadValue::U8(content_type.parse().ok()?),
+                )
+                .with_field(
+                    "content_id",
+                    RenderPrimitivePayloadValue::I16(content_id.parse().ok()?),
+                ),
             )
         }
         _ => None,
@@ -906,9 +904,7 @@ fn render_runtime_world_event_icon_payload(id: &str) -> Option<ParsedRenderIconP
             ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeBreak, "break")
                 .with_field(
                     "values",
-                    RenderPrimitivePayloadValue::I32List(
-                        parse_runtime_icon_i32_values(rest, 3)?,
-                    ),
+                    RenderPrimitivePayloadValue::I32List(parse_runtime_icon_i32_values(rest, 3)?),
                 ),
         );
     }
@@ -917,9 +913,7 @@ fn render_runtime_world_event_icon_payload(id: &str) -> Option<ParsedRenderIconP
             ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeBullet, "bullet")
                 .with_field(
                     "values",
-                    RenderPrimitivePayloadValue::I32List(
-                        parse_runtime_icon_i32_values(rest, 3)?,
-                    ),
+                    RenderPrimitivePayloadValue::I32List(parse_runtime_icon_i32_values(rest, 3)?),
                 ),
         );
     }
@@ -928,9 +922,7 @@ fn render_runtime_world_event_icon_payload(id: &str) -> Option<ParsedRenderIconP
             ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeSoundAt, "sound-at")
                 .with_field(
                     "values",
-                    RenderPrimitivePayloadValue::I32List(
-                        parse_runtime_icon_i32_values(rest, 2)?,
-                    ),
+                    RenderPrimitivePayloadValue::I32List(parse_runtime_icon_i32_values(rest, 2)?),
                 ),
         );
     }
@@ -993,15 +985,24 @@ fn render_runtime_tile_action_icon_payload(id: &str) -> Option<ParsedRenderIconP
         ),
     ] {
         if let Some(rest) = id.strip_prefix(prefix) {
-            return Some(
+            let values = parse_runtime_icon_i32_values(rest, field_count)?;
+            let mut payload =
                 ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeTileAction, variant)
-                    .with_field(
-                        "values",
-                        RenderPrimitivePayloadValue::I32List(
-                            parse_runtime_icon_i32_values(rest, field_count)?,
-                        ),
-                    ),
-            );
+                    .with_field("overlay_key", RenderPrimitivePayloadValue::I32(values[0]))
+                    .with_field("tile_x", RenderPrimitivePayloadValue::I32(values[1]))
+                    .with_field("tile_y", RenderPrimitivePayloadValue::I32(values[2]));
+            if let Some(value) = values.get(3).copied() {
+                payload = match variant {
+                    "auto-door-toggle" => {
+                        payload.with_field("open", RenderPrimitivePayloadValue::Bool(value != 0))
+                    }
+                    "unit-tether-block-spawned" | "assembler-drone-spawned" => {
+                        payload.with_field("unit_id", RenderPrimitivePayloadValue::I32(value))
+                    }
+                    _ => payload,
+                };
+            }
+            return Some(payload);
         }
     }
     None
@@ -1152,10 +1153,7 @@ fn render_rect_descriptor(id: &str) -> Option<RectPrimitiveLineDescriptor> {
 fn render_line_payload(id: &str) -> Option<RenderPrimitivePayload> {
     if let Some(descriptor) = render_rect_descriptor(id) {
         let mut fields = BTreeMap::new();
-        fields.insert(
-            "edge",
-            RenderPrimitivePayloadValue::Text(descriptor.edge),
-        );
+        fields.insert("edge", RenderPrimitivePayloadValue::Text(descriptor.edge));
         if let Some(rest) = id.strip_prefix("marker:line:runtime-unit-assembler-area:") {
             let parts = rest.split(':').collect::<Vec<_>>();
             if let [block_name, tile_x, tile_y, _, ..] = parts.as_slice() {
@@ -1987,10 +1985,8 @@ mod tests {
         assert_eq!(
             rect_payload.field("line_ids"),
             Some(&RenderPrimitivePayloadValue::TextList(vec![
-                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top"
-                    .to_string(),
-                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right"
-                    .to_string(),
+                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top".to_string(),
+                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right".to_string(),
             ]))
         );
 
@@ -2054,7 +2050,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_event_icon_payloads_preserve_integer_vectors() {
+    fn runtime_event_icon_payloads_use_named_fields() {
         let payload = RenderPrimitive::Icon {
             id: "marker:runtime-auto-door-toggle:4:3:4:1".to_string(),
             family: RenderIconPrimitiveFamily::RuntimeTileAction,
@@ -2074,9 +2070,74 @@ mod tests {
             ))
         );
         assert_eq!(
-            payload.field("values"),
-            Some(&RenderPrimitivePayloadValue::I32List(vec![4, 3, 4, 1]))
+            payload.field("overlay_key"),
+            Some(&RenderPrimitivePayloadValue::I32(4))
         );
+        assert_eq!(
+            payload.field("tile_x"),
+            Some(&RenderPrimitivePayloadValue::I32(3))
+        );
+        assert_eq!(
+            payload.field("tile_y"),
+            Some(&RenderPrimitivePayloadValue::I32(4))
+        );
+        assert_eq!(
+            payload.field("open"),
+            Some(&RenderPrimitivePayloadValue::Bool(true))
+        );
+
+        let tether_payload = RenderPrimitive::Icon {
+            id: "marker:runtime-unit-tether-block-spawned:5:6:7:44".to_string(),
+            family: RenderIconPrimitiveFamily::RuntimeTileAction,
+            variant: "unit-tether-block-spawned".to_string(),
+            layer: 1,
+            x: 0.0,
+            y: 0.0,
+        }
+        .payload()
+        .expect("runtime tether payload");
+        assert_eq!(
+            tether_payload.field("overlay_key"),
+            Some(&RenderPrimitivePayloadValue::I32(5))
+        );
+        assert_eq!(
+            tether_payload.field("tile_x"),
+            Some(&RenderPrimitivePayloadValue::I32(6))
+        );
+        assert_eq!(
+            tether_payload.field("tile_y"),
+            Some(&RenderPrimitivePayloadValue::I32(7))
+        );
+        assert_eq!(
+            tether_payload.field("unit_id"),
+            Some(&RenderPrimitivePayloadValue::I32(44))
+        );
+        assert_eq!(tether_payload.field("open"), None);
+
+        let block_spawn_payload = RenderPrimitive::Icon {
+            id: "marker:runtime-unit-block-spawn:8:9:10".to_string(),
+            family: RenderIconPrimitiveFamily::RuntimeTileAction,
+            variant: "unit-block-spawn".to_string(),
+            layer: 1,
+            x: 0.0,
+            y: 0.0,
+        }
+        .payload()
+        .expect("runtime block spawn payload");
+        assert_eq!(
+            block_spawn_payload.field("overlay_key"),
+            Some(&RenderPrimitivePayloadValue::I32(8))
+        );
+        assert_eq!(
+            block_spawn_payload.field("tile_x"),
+            Some(&RenderPrimitivePayloadValue::I32(9))
+        );
+        assert_eq!(
+            block_spawn_payload.field("tile_y"),
+            Some(&RenderPrimitivePayloadValue::I32(10))
+        );
+        assert_eq!(block_spawn_payload.field("unit_id"), None);
+        assert_eq!(block_spawn_payload.field("open"), None);
     }
 
     #[test]
