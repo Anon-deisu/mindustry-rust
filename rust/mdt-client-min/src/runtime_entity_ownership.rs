@@ -240,6 +240,7 @@ mod tests {
                 controller_type,
                 controller_value,
             },
+            unit_payload: None,
             carried_item_stack: None,
         })
     }

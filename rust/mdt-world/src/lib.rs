@@ -59447,7 +59447,8 @@ mod tests {
         );
         let expected =
             include_str!("../../../tests/src/test/resources/payload-campaign-compound-goldens.txt")
-                .trim();
+                .replace("\r\n", "\n");
+        let expected = expected.trim();
         assert_eq!(text, expected);
     }
 

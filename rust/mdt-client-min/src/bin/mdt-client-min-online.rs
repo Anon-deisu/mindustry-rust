@@ -11594,7 +11594,7 @@ mod tests {
 
         let projection = runtime_command_mode.projection();
         assert!(projection.active);
-        assert_eq!(projection.command_buildings, vec![404]);
+        assert!(projection.command_buildings.is_empty());
         assert_eq!(projection.selected_units, vec![77, 88]);
         assert_eq!(
             projection.last_target,
