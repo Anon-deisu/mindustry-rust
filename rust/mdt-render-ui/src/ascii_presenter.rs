@@ -20,7 +20,7 @@ use crate::presenter_view::{
 };
 use crate::render_model::{
     RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
-    RenderPrimitive,
+    RenderPrimitive, RenderPrimitivePayload, RenderPrimitivePayloadValue,
 };
 use crate::{HudModel, RenderModel, ScenePresenter};
 use std::collections::{BTreeMap, BTreeSet};
@@ -174,6 +174,9 @@ impl AsciiScenePresenter {
         }
         if let Some(render_icon_text) = compose_render_icon_status_text(scene, window) {
             out.push_str(&format!("RENDER-ICON: {render_icon_text}\n"));
+        }
+        if let Some(render_icon_detail_text) = compose_render_icon_detail_text(scene, window) {
+            out.push_str(&format!("RENDER-ICON-DETAIL: {render_icon_detail_text}\n"));
         }
         if let Some(minimap_text) = compose_minimap_panel_text(scene, hud, window) {
             out.push_str(&format!("MINIMAP: {minimap_text}\n"));
@@ -899,6 +902,111 @@ fn compose_render_icon_status_text(
         ));
     }
     Some(parts.join(" "))
+}
+
+fn compose_render_icon_detail_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let mut icon_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match &primitive {
+            RenderPrimitive::Icon {
+                family,
+                variant,
+                layer,
+                x,
+                y,
+                ..
+            } => {
+                let payload = primitive.payload()?;
+                let (tile_x, tile_y) = finite_world_tile(*x, *y)?;
+                if !render_icon_detail_is_visible(window, tile_x, tile_y) {
+                    return None;
+                }
+
+                Some((
+                    *layer,
+                    family.label(),
+                    variant.clone(),
+                    tile_x,
+                    tile_y,
+                    payload,
+                ))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if icon_primitives.is_empty() {
+        return None;
+    }
+
+    icon_primitives.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(right.1))
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.cmp(&right.3))
+            .then_with(|| left.4.cmp(&right.4))
+    });
+
+    let mut parts = vec![format!("count={}", icon_primitives.len())];
+    for (layer, family_label, variant, tile_x, tile_y, payload) in icon_primitives {
+        parts.push(format!(
+            "{family_label}/{variant}@{layer}:{tile_x}:{tile_y} payload[{}]",
+            render_primitive_payload_fields_text(&payload)
+        ));
+    }
+    Some(parts.join(" | "))
+}
+
+fn render_icon_detail_is_visible(window: PresenterViewWindow, tile_x: i32, tile_y: i32) -> bool {
+    tile_x >= 0
+        && tile_y >= 0
+        && (tile_x as usize) >= window.origin_x
+        && (tile_y as usize) >= window.origin_y
+        && (tile_x as usize) < window.origin_x.saturating_add(window.width)
+        && (tile_y as usize) < window.origin_y.saturating_add(window.height)
+}
+
+fn render_primitive_payload_fields_text(payload: &RenderPrimitivePayload) -> String {
+    payload
+        .fields
+        .iter()
+        .map(|(name, value)| format!("{}={}", *name, render_primitive_payload_value_text(value)))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn render_primitive_payload_value_text(value: &RenderPrimitivePayloadValue) -> String {
+    match value {
+        RenderPrimitivePayloadValue::Bool(value) => bool_flag(*value).to_string(),
+        RenderPrimitivePayloadValue::I16(value) => value.to_string(),
+        RenderPrimitivePayloadValue::I32(value) => value.to_string(),
+        RenderPrimitivePayloadValue::I32List(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        RenderPrimitivePayloadValue::U8(value) => value.to_string(),
+        RenderPrimitivePayloadValue::U8List(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        RenderPrimitivePayloadValue::U32(value) => format!("0x{value:08x}"),
+        RenderPrimitivePayloadValue::Usize(value) => value.to_string(),
+        RenderPrimitivePayloadValue::Text(value) => value.clone(),
+        RenderPrimitivePayloadValue::TextList(values) => format!("[{}]", values.join(",")),
+    }
 }
 
 fn draw_ascii_text(
@@ -5288,6 +5396,9 @@ mod tests {
         assert!(frame.contains(
             "RENDER-ICON: count=2 runtime-effect-icon/content-icon@31:0:0 runtime-build-config-icon/payload-source@32:1:0"
         ));
+        assert!(frame.contains(
+            "RENDER-ICON-DETAIL: count=2 | runtime-effect-icon/content-icon@31:0:0 payload[content_id=9,content_type=6,delivery=normal,effect_id=-1,variant=content-icon,x_bits=0x00000000,y_bits=0x00000000] | runtime-build-config-icon/payload-source@32:1:0 payload[content_id=7,content_type=1,tile_x=1,tile_y=0,variant=payload-source]"
+        ));
         assert_eq!(frame.lines().last(), Some("EC"));
     }
 
@@ -5413,6 +5524,9 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains("RENDER-ICON: count=1 runtime-effect/normal@26:0:0"));
+        assert!(frame.contains(
+            "RENDER-ICON-DETAIL: count=1 | runtime-effect/normal@26:0:0 payload[delivery=normal,effect_id=13,has_data=1,variant=normal,x_bits=0x41000000,y_bits=0x41800000]"
+        ));
         assert_eq!(frame.lines().last(), Some("F"));
     }
 
@@ -5447,6 +5561,9 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains(
             "RENDER-ICON: count=2 runtime-unit-assembler-progress/tank-assembler@16:0:0 runtime-unit-assembler-command/tank-assembler@16:1:0"
+        ));
+        assert!(frame.contains(
+            "RENDER-ICON-DETAIL: count=2 | runtime-unit-assembler-command/tank-assembler@16:1:0 payload[tile_x=30,tile_y=40,variant=tank-assembler,x_bits=0x42200000,y_bits=0x42700000] | runtime-unit-assembler-progress/tank-assembler@16:0:0 payload[block_count=4,pay_rotation_bits=0x40800000,payload_present=0,progress_bits=0x3f400000,sample_id=9,sample_kind=b,sample_present=1,tile_x=30,tile_y=40,unit_count=2,variant=tank-assembler]"
         ));
         assert_eq!(frame.lines().last(), Some("AA"));
     }
@@ -5554,6 +5671,13 @@ mod tests {
         assert!(frame.contains("RENDER-ICON: count=5"));
         assert!(frame.contains("runtime-config/string@30:0:0"));
         assert!(frame.contains("runtime-config-parse-fail/int@31:1:0"));
+        assert!(frame.contains("RENDER-ICON-DETAIL: count=5"));
+        assert!(frame.contains(
+            "runtime-config/string@30:0:0 payload[tile_x=0,tile_y=0,variant=string]"
+        ));
+        assert!(frame.contains(
+            "runtime-config-pending-mismatch/payload@34:4:0 payload[tile_x=4,tile_y=0,variant=payload]"
+        ));
         assert_eq!(frame.lines().last(), Some("CCCCC"));
     }
 
