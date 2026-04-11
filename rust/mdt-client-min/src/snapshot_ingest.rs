@@ -2592,6 +2592,84 @@ mod tests {
     }
 
     #[test]
+    fn hidden_snapshot_clears_active_ids_without_reviving_removed_non_local_unit_until_refresh() {
+        let hidden_payload = [
+            0x00, 0x00, 0x00, 0x01, // count
+            0x00, 0x00, 0x01, 0x2F, // 303
+        ];
+        let empty_payload = [0x00, 0x00, 0x00, 0x00];
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 33,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 303,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            303,
+            EntitySemanticProjectionEntry {
+                class_id: 4,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 3,
+                    health_bits: 4.0f32.to_bits(),
+                    rotation_bits: 5.0f32.to_bits(),
+                    shield_bits: 6.0f32.to_bits(),
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: None,
+                    controller_type: 0,
+                    controller_value: None,
+                }),
+            },
+        );
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &hidden_payload),
+        );
+        assert!(state.hidden_snapshot_ids.contains(&303));
+        assert!(!state
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&303));
+        assert!(!state
+            .runtime_typed_entity_projection()
+            .by_entity_id
+            .contains_key(&303));
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &empty_payload),
+        );
+
+        assert!(state.hidden_snapshot_ids.is_empty());
+        assert!(state
+            .entity_table_projection
+            .by_entity_id
+            .get(&303)
+            .is_none());
+        assert!(!state
+            .runtime_typed_entity_projection()
+            .by_entity_id
+            .contains_key(&303));
+        assert!(state.typed_runtime_entity_at(303).is_none());
+    }
+
+    #[test]
     fn hidden_snapshot_clears_prior_local_hidden_flag_when_id_leaves_hidden_set() {
         let initial_payload = [
             0x00, 0x00, 0x00, 0x01, // count
