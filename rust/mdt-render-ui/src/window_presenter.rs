@@ -4,14 +4,14 @@ use crate::{
     panel_model::{
         build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
-        build_runtime_command_mode_panel, build_runtime_core_binding_panel,
-        build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+        build_runtime_admin_panel, build_runtime_bootstrap_panel, build_runtime_chat_panel,
+        build_runtime_choice_panel, build_runtime_command_mode_panel,
+        build_runtime_core_binding_panel, build_runtime_dialog_panel,
+        build_runtime_dialog_stack_panel, build_runtime_kick_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
-        build_runtime_bootstrap_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
         RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
@@ -1290,6 +1290,23 @@ fn finite_tile_coords(world_x: f32, world_y: f32) -> Option<(i32, i32)> {
     ))
 }
 
+fn finite_rect_tile_coords(
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+) -> Option<(i32, i32, i32, i32)> {
+    if !left.is_finite() || !top.is_finite() || !right.is_finite() || !bottom.is_finite() {
+        return None;
+    }
+    Some((
+        crate::presenter_view::world_to_tile_index_floor(left, TILE_SIZE),
+        crate::presenter_view::world_to_tile_index_floor(top, TILE_SIZE),
+        crate::presenter_view::world_to_tile_index_floor(right, TILE_SIZE),
+        crate::presenter_view::world_to_tile_index_floor(bottom, TILE_SIZE),
+    ))
+}
+
 fn window_world_object_tile(object: &RenderObject) -> Option<(i32, i32)> {
     finite_tile_coords(object.x, object.y)
 }
@@ -1561,6 +1578,9 @@ fn compose_frame_panel_lines(
     }
     if let Some(render_rect_text) = compose_render_rect_status_text(scene, window) {
         lines.push(format!("RENDER-RECT: {render_rect_text}"));
+    }
+    if let Some(render_rect_detail_text) = compose_render_rect_detail_status_text(scene, window) {
+        lines.push(format!("RENDER-RECT-DETAIL: {render_rect_detail_text}"));
     }
     if let Some(render_icon_text) = compose_render_icon_status_text(scene, window) {
         lines.push(format!("RENDER-ICON: {render_icon_text}"));
@@ -1898,14 +1918,12 @@ fn compose_render_rect_status_text(
             _ => None,
         })
         .filter(|(_, _, left, top, right, bottom)| {
-            let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
-            let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
-            let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
-            let bottom_tile = crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
-            !(right_tile < window.origin_x as i32
-                || bottom_tile < window.origin_y as i32
-                || left_tile >= window.origin_x.saturating_add(window.width) as i32
-                || top_tile >= window.origin_y.saturating_add(window.height) as i32)
+            let Some((left_tile, top_tile, right_tile, bottom_tile)) =
+                finite_rect_tile_coords(*left, *top, *right, *bottom)
+            else {
+                return false;
+            };
+            render_rect_detail_is_visible(window, left_tile, top_tile, right_tile, bottom_tile)
         })
         .collect::<Vec<_>>();
 
@@ -1919,6 +1937,108 @@ fn compose_render_rect_status_text(
         parts.push(format!(
             "{family}@{layer}:{}:{}:{}:{}",
             left as i32, top as i32, right as i32, bottom as i32
+        ));
+    }
+    Some(parts.join(" "))
+}
+
+fn compose_render_rect_detail_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let mut rect_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match &primitive {
+            RenderPrimitive::Rect {
+                family,
+                layer,
+                left,
+                top,
+                right,
+                bottom,
+                line_ids,
+                ..
+            } => {
+                let (left_tile, top_tile, right_tile, bottom_tile) =
+                    finite_rect_tile_coords(*left, *top, *right, *bottom)?;
+                if !render_rect_detail_is_visible(
+                    window,
+                    left_tile,
+                    top_tile,
+                    right_tile,
+                    bottom_tile,
+                ) {
+                    return None;
+                }
+                let payload = primitive.payload();
+                let (block_name, tile_x, tile_y) =
+                    render_rect_detail_payload_fields(payload.as_ref());
+                Some((
+                    *layer,
+                    family.clone(),
+                    *left as i32,
+                    *top as i32,
+                    *right as i32,
+                    *bottom as i32,
+                    left_tile,
+                    top_tile,
+                    right_tile,
+                    bottom_tile,
+                    line_ids.len(),
+                    block_name,
+                    tile_x,
+                    tile_y,
+                ))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if rect_primitives.is_empty() {
+        return None;
+    }
+
+    rect_primitives.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.cmp(&right.3))
+            .then_with(|| left.4.cmp(&right.4))
+            .then_with(|| left.5.cmp(&right.5))
+    });
+
+    let mut parts = vec![format!("count={}", rect_primitives.len())];
+    for (
+        layer,
+        family,
+        left,
+        top,
+        right,
+        bottom,
+        left_tile,
+        top_tile,
+        right_tile,
+        bottom_tile,
+        line_count,
+        block_name,
+        tile_x,
+        tile_y,
+    ) in rect_primitives
+    {
+        parts.push(format!(
+            "{family}@{layer}:{left}:{top}:{right}:{bottom} {family}{{{}}}",
+            format_render_rect_detail_fields(
+                left_tile,
+                top_tile,
+                right_tile,
+                bottom_tile,
+                line_count,
+                block_name.as_deref(),
+                tile_x,
+                tile_y
+            )
         ));
     }
     Some(parts.join(" "))
@@ -2044,6 +2164,76 @@ fn format_render_primitive_payload(payload: &RenderPrimitivePayload) -> String {
         ));
     }
     format!("{}{{{}}}", payload.label, parts.join(","))
+}
+
+fn render_rect_detail_is_visible(
+    window: PresenterViewWindow,
+    left_tile: i32,
+    top_tile: i32,
+    right_tile: i32,
+    bottom_tile: i32,
+) -> bool {
+    !(right_tile < window.origin_x as i32
+        || bottom_tile < window.origin_y as i32
+        || left_tile >= window.origin_x.saturating_add(window.width) as i32
+        || top_tile >= window.origin_y.saturating_add(window.height) as i32)
+}
+
+fn render_rect_detail_payload_fields(
+    payload: Option<&RenderPrimitivePayload>,
+) -> (Option<String>, Option<i32>, Option<i32>) {
+    let block_name = payload
+        .and_then(|payload| payload.field("block_name"))
+        .and_then(|value| match value {
+            RenderPrimitivePayloadValue::Text(value) => Some(value.clone()),
+            _ => None,
+        });
+    let tile_x = payload
+        .and_then(|payload| payload.field("tile_x"))
+        .and_then(|value| match value {
+            RenderPrimitivePayloadValue::I32(value) => Some(*value),
+            _ => None,
+        });
+    let tile_y = payload
+        .and_then(|payload| payload.field("tile_y"))
+        .and_then(|value| match value {
+            RenderPrimitivePayloadValue::I32(value) => Some(*value),
+            _ => None,
+        });
+    (block_name, tile_x, tile_y)
+}
+
+fn format_render_rect_detail_fields(
+    left_tile: i32,
+    top_tile: i32,
+    right_tile: i32,
+    bottom_tile: i32,
+    line_count: usize,
+    block_name: Option<&str>,
+    tile_x: Option<i32>,
+    tile_y: Option<i32>,
+) -> String {
+    let width_tiles = (right_tile - left_tile).max(0);
+    let height_tiles = (bottom_tile - top_tile).max(0);
+    let mut parts = vec![
+        format!("left_tile={left_tile}"),
+        format!("top_tile={top_tile}"),
+        format!("right_tile={right_tile}"),
+        format!("bottom_tile={bottom_tile}"),
+        format!("width_tiles={width_tiles}"),
+        format!("height_tiles={height_tiles}"),
+        format!("line_count={line_count}"),
+    ];
+    if let Some(block_name) = block_name {
+        parts.push(format!("block_name={block_name}"));
+    }
+    if let Some(tile_x) = tile_x {
+        parts.push(format!("tile_x={tile_x}"));
+    }
+    if let Some(tile_y) = tile_y {
+        parts.push(format!("tile_y={tile_y}"));
+    }
+    parts.join(",")
 }
 
 fn format_render_primitive_payload_value(
@@ -2835,7 +3025,10 @@ fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {
         "rd={}",
         compose_runtime_resource_delta_panel_status_text(&panel.resource_delta)
     ));
-    segments.push(format!("k={}", compose_runtime_kick_panel_status_text(&panel.kick)));
+    segments.push(format!(
+        "k={}",
+        compose_runtime_kick_panel_status_text(&panel.kick)
+    ));
     segments.push(format!(
         "l={}",
         compose_runtime_loading_panel_status_text(&panel.loading)
@@ -9054,6 +9247,10 @@ mod tests {
             &frame.panel_lines,
             "RENDER-RECT: count=1 runtime-command-target-rect@29:32:40:48:56",
         );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-RECT-DETAIL: count=1 runtime-command-target-rect@29:32:40:48:56 runtime-command-target-rect{left_tile=4,top_tile=5,right_tile=6,bottom_tile=7,width_tiles=2,height_tiles=2,line_count=4}",
+        );
     }
 
     #[test]
@@ -9181,6 +9378,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "RENDER-RECT: count=1 runtime-break-rect@30:16:24:24:32",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-RECT-DETAIL: count=1 runtime-break-rect@30:16:24:24:32 runtime-break-rect{left_tile=2,top_tile=3,right_tile=3,bottom_tile=4,width_tiles=1,height_tiles=1,line_count=4}",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

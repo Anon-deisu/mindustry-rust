@@ -3,16 +3,15 @@ use crate::minimap_user_flow::build_minimap_user_flow_panel;
 use crate::panel_model::{
     build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
     build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
-    build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
-    build_runtime_command_mode_panel, build_runtime_core_binding_panel, build_runtime_dialog_panel,
-    build_runtime_dialog_stack_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
-    build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_marker_panel,
-    build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
-    build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
-    build_runtime_bootstrap_panel,
-    build_runtime_ui_notice_panel, build_runtime_ui_stack_panel, build_runtime_world_label_panel,
-    MinimapPanelModel, PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
-    RuntimeUiNoticePanelModel,
+    build_runtime_admin_panel, build_runtime_bootstrap_panel, build_runtime_chat_panel,
+    build_runtime_choice_panel, build_runtime_command_mode_panel, build_runtime_core_binding_panel,
+    build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+    build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
+    build_runtime_marker_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
+    build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
+    build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
+    build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
+    RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
 };
 use crate::presenter_view::{
     crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
@@ -171,6 +170,9 @@ impl AsciiScenePresenter {
         }
         if let Some(render_rect_text) = compose_render_rect_status_text(scene, window) {
             out.push_str(&format!("RENDER-RECT: {render_rect_text}\n"));
+        }
+        if let Some(render_rect_detail_text) = compose_render_rect_detail_text(scene, window) {
+            out.push_str(&format!("RENDER-RECT-DETAIL: {render_rect_detail_text}\n"));
         }
         if let Some(render_icon_text) = compose_render_icon_status_text(scene, window) {
             out.push_str(&format!("RENDER-ICON: {render_icon_text}\n"));
@@ -814,11 +816,13 @@ fn compose_render_rect_status_text(
                 bottom,
                 (left_tile, top_tile, right_tile, bottom_tile),
             )| {
-                if right_tile < window.origin_x as i32
-                    || bottom_tile < window.origin_y as i32
-                    || left_tile >= window.origin_x.saturating_add(window.width) as i32
-                    || top_tile >= window.origin_y.saturating_add(window.height) as i32
-                {
+                if !render_rect_detail_is_visible(
+                    window,
+                    left_tile,
+                    top_tile,
+                    right_tile,
+                    bottom_tile,
+                ) {
                     None
                 } else {
                     Some((
@@ -852,6 +856,108 @@ fn compose_render_rect_status_text(
         ));
     }
     Some(parts.join(" "))
+}
+
+fn compose_render_rect_detail_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let mut rect_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match &primitive {
+            RenderPrimitive::Rect {
+                family,
+                layer,
+                left,
+                top,
+                right,
+                bottom,
+                line_ids,
+                ..
+            } => {
+                let (left_tile, top_tile, right_tile, bottom_tile) =
+                    finite_world_rect_tiles(*left, *top, *right, *bottom)?;
+                if !render_rect_detail_is_visible(
+                    window,
+                    left_tile,
+                    top_tile,
+                    right_tile,
+                    bottom_tile,
+                ) {
+                    return None;
+                }
+                let payload = primitive.payload();
+                let (block_name, tile_x, tile_y) =
+                    render_rect_detail_payload_fields(payload.as_ref());
+                Some((
+                    *layer,
+                    family.clone(),
+                    *left as i32,
+                    *top as i32,
+                    *right as i32,
+                    *bottom as i32,
+                    left_tile,
+                    top_tile,
+                    right_tile,
+                    bottom_tile,
+                    line_ids.len(),
+                    block_name,
+                    tile_x,
+                    tile_y,
+                ))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if rect_primitives.is_empty() {
+        return None;
+    }
+
+    rect_primitives.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.cmp(&right.3))
+            .then_with(|| left.4.cmp(&right.4))
+            .then_with(|| left.5.cmp(&right.5))
+    });
+
+    let mut parts = vec![format!("count={}", rect_primitives.len())];
+    for (
+        layer,
+        family,
+        left,
+        top,
+        right,
+        bottom,
+        left_tile,
+        top_tile,
+        right_tile,
+        bottom_tile,
+        line_count,
+        block_name,
+        tile_x,
+        tile_y,
+    ) in rect_primitives
+    {
+        parts.push(format!(
+            "{family}@{layer}:{left}:{top}:{right}:{bottom} payload[{}]",
+            render_rect_detail_fields_text(
+                left_tile,
+                top_tile,
+                right_tile,
+                bottom_tile,
+                line_count,
+                block_name.as_deref(),
+                tile_x,
+                tile_y
+            )
+        ));
+    }
+    Some(parts.join(" | "))
 }
 
 fn compose_render_icon_status_text(
@@ -969,6 +1075,76 @@ fn render_icon_detail_is_visible(window: PresenterViewWindow, tile_x: i32, tile_
         && (tile_y as usize) >= window.origin_y
         && (tile_x as usize) < window.origin_x.saturating_add(window.width)
         && (tile_y as usize) < window.origin_y.saturating_add(window.height)
+}
+
+fn render_rect_detail_is_visible(
+    window: PresenterViewWindow,
+    left_tile: i32,
+    top_tile: i32,
+    right_tile: i32,
+    bottom_tile: i32,
+) -> bool {
+    !(right_tile < window.origin_x as i32
+        || bottom_tile < window.origin_y as i32
+        || left_tile >= window.origin_x.saturating_add(window.width) as i32
+        || top_tile >= window.origin_y.saturating_add(window.height) as i32)
+}
+
+fn render_rect_detail_payload_fields(
+    payload: Option<&RenderPrimitivePayload>,
+) -> (Option<String>, Option<i32>, Option<i32>) {
+    let block_name = payload
+        .and_then(|payload| payload.field("block_name"))
+        .and_then(|value| match value {
+            RenderPrimitivePayloadValue::Text(value) => Some(value.clone()),
+            _ => None,
+        });
+    let tile_x = payload
+        .and_then(|payload| payload.field("tile_x"))
+        .and_then(|value| match value {
+            RenderPrimitivePayloadValue::I32(value) => Some(*value),
+            _ => None,
+        });
+    let tile_y = payload
+        .and_then(|payload| payload.field("tile_y"))
+        .and_then(|value| match value {
+            RenderPrimitivePayloadValue::I32(value) => Some(*value),
+            _ => None,
+        });
+    (block_name, tile_x, tile_y)
+}
+
+fn render_rect_detail_fields_text(
+    left_tile: i32,
+    top_tile: i32,
+    right_tile: i32,
+    bottom_tile: i32,
+    line_count: usize,
+    block_name: Option<&str>,
+    tile_x: Option<i32>,
+    tile_y: Option<i32>,
+) -> String {
+    let width_tiles = (right_tile - left_tile).max(0);
+    let height_tiles = (bottom_tile - top_tile).max(0);
+    let mut parts = vec![
+        format!("left_tile={left_tile}"),
+        format!("top_tile={top_tile}"),
+        format!("right_tile={right_tile}"),
+        format!("bottom_tile={bottom_tile}"),
+        format!("width_tiles={width_tiles}"),
+        format!("height_tiles={height_tiles}"),
+        format!("line_count={line_count}"),
+    ];
+    if let Some(block_name) = block_name {
+        parts.push(format!("block_name={block_name}"));
+    }
+    if let Some(tile_x) = tile_x {
+        parts.push(format!("tile_x={tile_x}"));
+    }
+    if let Some(tile_y) = tile_y {
+        parts.push(format!("tile_y={tile_y}"));
+    }
+    parts.join(",")
 }
 
 fn render_primitive_payload_fields_text(payload: &RenderPrimitivePayload) -> String {
@@ -1895,7 +2071,10 @@ fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
         "resource={}",
         compose_runtime_resource_delta_panel_text(&panel.resource_delta)
     ));
-    segments.push(format!("kick={}", compose_runtime_kick_panel_text(&panel.kick)));
+    segments.push(format!(
+        "kick={}",
+        compose_runtime_kick_panel_text(&panel.kick)
+    ));
     segments.push(format!(
         "loading={}",
         compose_runtime_loading_panel_text(&panel.loading)
@@ -5240,9 +5419,11 @@ mod tests {
 
         presenter.present(&scene, &hud);
 
-        assert!(presenter
-            .last_frame()
-            .contains("RENDER-RECT: count=1 runtime-command-rect@29:8:16:24:32"));
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RENDER-RECT: count=1 runtime-command-rect@29:8:16:24:32"));
+        assert!(frame.contains(
+            "RENDER-RECT-DETAIL: count=1 | runtime-command-rect@29:8:16:24:32 payload[left_tile=1,top_tile=2,right_tile=3,bottom_tile=4,width_tiles=2,height_tiles=2,line_count=4]"
+        ));
     }
 
     #[test]
@@ -5358,9 +5539,11 @@ mod tests {
 
         presenter.present(&scene, &hud);
 
-        assert!(presenter
-            .last_frame()
-            .contains("RENDER-RECT: count=1 runtime-break-rect@30:32:40:40:48"));
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RENDER-RECT: count=1 runtime-break-rect@30:32:40:40:48"));
+        assert!(frame.contains(
+            "RENDER-RECT-DETAIL: count=1 | runtime-break-rect@30:32:40:40:48 payload[left_tile=4,top_tile=5,right_tile=5,bottom_tile=6,width_tiles=1,height_tiles=1,line_count=4]"
+        ));
     }
 
     #[test]
@@ -5672,9 +5855,8 @@ mod tests {
         assert!(frame.contains("runtime-config/string@30:0:0"));
         assert!(frame.contains("runtime-config-parse-fail/int@31:1:0"));
         assert!(frame.contains("RENDER-ICON-DETAIL: count=5"));
-        assert!(frame.contains(
-            "runtime-config/string@30:0:0 payload[tile_x=0,tile_y=0,variant=string]"
-        ));
+        assert!(frame
+            .contains("runtime-config/string@30:0:0 payload[tile_x=0,tile_y=0,variant=string]"));
         assert!(frame.contains(
             "runtime-config-pending-mismatch/payload@34:4:0 payload[tile_x=4,tile_y=0,variant=payload]"
         ));
