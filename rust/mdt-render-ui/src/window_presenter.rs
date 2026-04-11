@@ -22,7 +22,7 @@ use crate::{
     },
     render_model::{
         RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
-        RenderPrimitive,
+        RenderPrimitive, RenderPrimitivePayload, RenderPrimitivePayloadValue,
     },
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
     RenderObject, RuntimeUiObservability, ScenePresenter,
@@ -1565,6 +1565,9 @@ fn compose_frame_panel_lines(
     if let Some(render_icon_text) = compose_render_icon_status_text(scene, window) {
         lines.push(format!("RENDER-ICON: {render_icon_text}"));
     }
+    if let Some(render_icon_detail_text) = compose_render_icon_detail_status_text(scene, window) {
+        lines.push(format!("RENDER-ICON-DETAIL: {render_icon_detail_text}"));
+    }
     if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
         lines.push(format!("BUILD-CONFIG: {build_panel_text}"));
     }
@@ -1969,6 +1972,116 @@ fn compose_render_icon_status_text(
         ));
     }
     Some(parts.join(" "))
+}
+
+fn compose_render_icon_detail_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let mut icon_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match &primitive {
+            RenderPrimitive::Icon {
+                family,
+                variant,
+                layer,
+                x,
+                y,
+                ..
+            } => {
+                let Some((tile_x, tile_y)) = finite_tile_coords(*x, *y) else {
+                    return None;
+                };
+                if tile_x < 0
+                    || tile_y < 0
+                    || (tile_x as usize) < window.origin_x
+                    || (tile_y as usize) < window.origin_y
+                    || (tile_x as usize) >= window.origin_x.saturating_add(window.width)
+                    || (tile_y as usize) >= window.origin_y.saturating_add(window.height)
+                {
+                    return None;
+                }
+                let payload = primitive.payload()?;
+                Some((*family, variant.clone(), *layer, tile_x, tile_y, payload))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if icon_primitives.is_empty() {
+        return None;
+    }
+
+    icon_primitives.sort_by_key(|(_, _, layer, _, _, _)| *layer);
+    let mut parts = vec![format!("count={}", icon_primitives.len())];
+    for (family, variant, layer, tile_x, tile_y, payload) in icon_primitives {
+        parts.push(format!(
+            "{}/{}@{layer}:{tile_x}:{tile_y} {}",
+            family.label(),
+            variant,
+            format_render_primitive_payload(&payload)
+        ));
+    }
+    Some(parts.join(" "))
+}
+
+fn format_render_primitive_payload(payload: &RenderPrimitivePayload) -> String {
+    let mut parts = Vec::new();
+    if let Some(variant) = payload.field("variant") {
+        parts.push(format!(
+            "variant={}",
+            format_render_primitive_payload_value("variant", variant)
+        ));
+    }
+    for (field_name, field_value) in &payload.fields {
+        if *field_name == "variant" {
+            continue;
+        }
+        parts.push(format!(
+            "{field_name}={}",
+            format_render_primitive_payload_value(field_name, field_value)
+        ));
+    }
+    format!("{}{{{}}}", payload.label, parts.join(","))
+}
+
+fn format_render_primitive_payload_value(
+    field_name: &str,
+    value: &RenderPrimitivePayloadValue,
+) -> String {
+    match value {
+        RenderPrimitivePayloadValue::Bool(value) => value.to_string(),
+        RenderPrimitivePayloadValue::I16(value) => value.to_string(),
+        RenderPrimitivePayloadValue::I32(value) => value.to_string(),
+        RenderPrimitivePayloadValue::I32List(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        RenderPrimitivePayloadValue::U8(value) => value.to_string(),
+        RenderPrimitivePayloadValue::U8List(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        RenderPrimitivePayloadValue::U32(value) => {
+            if field_name.ends_with("_bits") {
+                format!("0x{value:08x}")
+            } else {
+                value.to_string()
+            }
+        }
+        RenderPrimitivePayloadValue::Usize(value) => value.to_string(),
+        RenderPrimitivePayloadValue::Text(value) => value.clone(),
+        RenderPrimitivePayloadValue::TextList(values) => format!("[{}]", values.join(",")),
+    }
 }
 
 fn compose_hud_summary_status_text(hud: &HudModel) -> Option<String> {
@@ -9117,6 +9230,15 @@ mod tests {
             &frame.panel_lines,
             "RENDER-ICON: count=2 runtime-effect-icon/content-icon@31:0:0 runtime-build-config-icon/payload-source@32:1:0",
         );
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON-DETAIL: count=2");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-effect-icon{variant=content-icon,content_id=9,content_type=6,delivery=normal,effect_id=-1,x_bits=0x00000000,y_bits=0x00000000}",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-build-config-icon{variant=payload-source,content_id=7,content_type=1,tile_x=1,tile_y=0}",
+        );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_EFFECT));
         assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_BUILD_CONFIG));
     }
@@ -9311,6 +9433,11 @@ mod tests {
             &frame.panel_lines,
             "RENDER-ICON: count=1 runtime-effect/normal@26:0:0",
         );
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON-DETAIL: count=1");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-effect{variant=normal,delivery=normal,effect_id=13,has_data=true,x_bits=0x41000000,y_bits=0x41800000}",
+        );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_EFFECT_MARKER));
     }
 
@@ -9350,6 +9477,15 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "RENDER-ICON: count=2 runtime-unit-assembler-progress/tank-assembler@16:0:0 runtime-unit-assembler-command/tank-assembler@16:1:0",
+        );
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON-DETAIL: count=2");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-unit-assembler-progress{variant=tank-assembler,block_count=4,pay_rotation_bits=0x40800000,payload_present=false,progress_bits=0x3f400000,sample_id=9,sample_kind=b,sample_present=true,tile_x=30,tile_y=40,unit_count=2}",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-unit-assembler-command{variant=tank-assembler,tile_x=30,tile_y=40,x_bits=0x42200000,y_bits=0x42700000}",
         );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_UNIT_ASSEMBLER));
         assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_RUNTIME_UNIT_ASSEMBLER));
@@ -9469,6 +9605,27 @@ mod tests {
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON: count=5");
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON-DETAIL: count=5");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-config{variant=string,tile_x=0,tile_y=0}",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-config-parse-fail{variant=int,tile_x=1,tile_y=0}",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-config-noapply{variant=content,tile_x=2,tile_y=0}",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-config-rollback{variant=unit,tile_x=3,tile_y=0}",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-config-pending-mismatch{variant=payload,tile_x=4,tile_y=0}",
+        );
         assert_frame_line_contains(&frame.panel_lines, "runtime-config/string@30:0:0");
         assert_frame_line_contains(&frame.panel_lines, "runtime-config-parse-fail/int@31:1:0");
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_BUILD_CONFIG));
