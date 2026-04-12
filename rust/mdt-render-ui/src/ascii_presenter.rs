@@ -3087,7 +3087,7 @@ fn compose_build_config_entry_lines(hud: &HudModel) -> Vec<String> {
         .enumerate()
         .map(|(index, entry)| {
             format!(
-                "{}/{} {}#{}@{}",
+                "cfgentry:{}/{}:{}#{}@{}",
                 index + 1,
                 panel.tracked_family_count,
                 compact_runtime_ui_text(Some(entry.family.as_str())),
@@ -3100,12 +3100,7 @@ fn compose_build_config_entry_lines(hud: &HudModel) -> Vec<String> {
 
 fn compose_build_config_more_line(hud: &HudModel) -> Option<String> {
     let panel = build_build_config_panel(hud, 3)?;
-    (panel.truncated_family_count > 0).then(|| {
-        format!(
-            "+{} hidden families beyond cap",
-            panel.truncated_family_count
-        )
-    })
+    (panel.truncated_family_count > 0).then(|| format!("cfgmore:+{}", panel.truncated_family_count))
 }
 
 fn compose_build_config_rollback_text(hud: &HudModel) -> Option<String> {
@@ -5718,8 +5713,8 @@ mod tests {
         assert!(frame.contains(
             "BUILD-CONFIG-DETAIL: selected=257 rot=2 building=1 queued=1 inflight=2 pending=3 finished=3 removed=4 orphan=1 head=flight@100:99:place:b301:r1 align=split last=23:45 outcome=applied pm=mismatch source=constructFinish block=power-node families=2 samples=2 shown=2 more=0"
         ));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/2 message#1@18:40:len=5:text=hello"));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/2 power-node#1@23:45:links=24:46|25:47"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:1/2:message#1@18:40:len=5:text=hello"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:2/2:power-node#1@23:45:links=24:46|25:47"));
         assert!(frame.contains(
             "BUILD-ROLLBACK: authoritative=3 rollback=1 last=23:45 src=constructFinish business=1 clear=1 last-rb=1 pending=mismatch outcome=applied block=power-node"
         ));
@@ -6075,10 +6070,10 @@ mod tests {
         assert!(frame.contains(
             "BUILD-CONFIG-DETAIL: selected=301 rot=1 building=1 queued=2 inflight=1 pending=3 finished=4 removed=5 orphan=6 head=queued@10:12:place:b301:r1 align=match last=10:12 outcome=rejected-missing-building pm=match source=tileConfig block=alpha families=4 samples=8 shown=3 more=1"
         ));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/4 gamma#4@four"));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/4 beta#2@two"));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: 3/4 alpha#1@one"));
-        assert!(frame.contains("BUILD-CONFIG-MORE: +1 hidden families beyond cap"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:1/4:gamma#4@four"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:2/4:beta#2@two"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:3/4:alpha#1@one"));
+        assert!(frame.contains("BUILD-CONFIG-MORE: cfgmore:+1"));
         assert!(frame.contains(
             "BUILD-ROLLBACK: authoritative=4 rollback=2 last=10:12 src=tileConfig business=1 clear=0 last-rb=0 pending=match outcome=rejected-missing-building block=alpha"
         ));
