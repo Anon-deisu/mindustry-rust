@@ -19734,6 +19734,96 @@ mod tests {
     }
 
     #[test]
+    fn hidden_snapshot_blocks_local_owned_unit_revival_until_hidden_ids_clear() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let entity_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let entity_packet = encode_packet(
+            entity_packet_id,
+            &sample_snapshot_packet("entitySnapshot.packet"),
+            false,
+        )
+        .unwrap();
+        session.ingest_packet_bytes(&entity_packet).unwrap();
+
+        let local_player_id = session.state().world_player_id.unwrap();
+        let before = session.state().runtime_typed_entity_projection();
+        assert_eq!(before.local_player_owned_unit_entity_id, Some(100));
+        assert_eq!(before.owned_unit_entity_id_for_player(local_player_id), Some(100));
+        assert_eq!(before.owner_player_entity_id_for_unit(100), Some(local_player_id));
+
+        let hidden_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::HiddenSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let mut hidden_payload = Vec::new();
+        hidden_payload.extend_from_slice(&1i32.to_be_bytes());
+        hidden_payload.extend_from_slice(&100i32.to_be_bytes());
+        let hidden_packet = encode_packet(hidden_packet_id, &hidden_payload, false).unwrap();
+
+        session.ingest_packet_bytes(&hidden_packet).unwrap();
+
+        let hidden = session.state().runtime_typed_entity_projection();
+        assert!(hidden.by_entity_id.contains_key(&local_player_id));
+        assert!(!hidden.by_entity_id.contains_key(&100));
+        assert_eq!(hidden.local_player_owned_unit_entity_id, None);
+        assert_eq!(hidden.player_with_owned_unit_count, 0);
+        assert_eq!(hidden.owned_unit_count, 0);
+        assert_eq!(hidden.owned_unit_entity_id_for_player(local_player_id), None);
+        assert_eq!(hidden.owner_player_entity_id_for_unit(100), None);
+        assert!(session.state().hidden_snapshot_ids.contains(&100));
+        assert!(!session
+            .state()
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&100));
+
+        session.ingest_packet_bytes(&entity_packet).unwrap();
+
+        let blocked = session.state().runtime_typed_entity_projection();
+        assert!(blocked.by_entity_id.contains_key(&local_player_id));
+        assert!(!blocked.by_entity_id.contains_key(&100));
+        assert_eq!(blocked.local_player_owned_unit_entity_id, None);
+        assert_eq!(session.state().entity_snapshot_hidden_skip_count, 1);
+        assert_eq!(
+            session.state().last_entity_snapshot_hidden_skipped_ids_sample,
+            vec![100]
+        );
+
+        let clear_hidden_packet =
+            encode_packet(hidden_packet_id, &0i32.to_be_bytes(), false).unwrap();
+        session.ingest_packet_bytes(&clear_hidden_packet).unwrap();
+        assert!(session.state().hidden_snapshot_ids.is_empty());
+
+        session.ingest_packet_bytes(&entity_packet).unwrap();
+
+        let revived = session.state().runtime_typed_entity_projection();
+        assert!(revived.by_entity_id.contains_key(&local_player_id));
+        assert!(revived.by_entity_id.contains_key(&100));
+        assert_eq!(revived.local_player_owned_unit_entity_id, Some(100));
+        assert_eq!(revived.player_with_owned_unit_count, 1);
+        assert_eq!(revived.owned_unit_count, 1);
+        assert_eq!(revived.owned_unit_entity_id_for_player(local_player_id), Some(100));
+        assert_eq!(revived.owner_player_entity_id_for_unit(100), Some(local_player_id));
+    }
+
+    #[test]
     fn alpha_shape_entity_snapshot_prefix_parser_accepts_same_revision_family_class_ids() {
         for class_id in [30u8, 45u8, 24u8, 2u8] {
             let mut payload = sample_snapshot_packet("entitySnapshot.packet");
