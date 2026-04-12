@@ -218,6 +218,9 @@ impl AsciiScenePresenter {
                 "MINIMAP-WINDOW-KINDS: {minimap_window_kinds_text}\n"
             ));
         }
+        if let Some(minimap_window_text) = compose_minimap_window_line(scene, hud) {
+            out.push_str(&format!("MINIMAP-WINDOW: {minimap_window_text}\n"));
+        }
         if let Some(minimap_edge_text) = compose_minimap_edge_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-EDGE: {minimap_edge_text}\n"));
         }
@@ -2624,6 +2627,20 @@ fn compose_minimap_window_kind_line(scene: &RenderModel, hud: &HudModel) -> Opti
     Some(compose_minimap_window_kind_distribution_line(&panel))
 }
 
+fn compose_minimap_window_line(scene: &RenderModel, hud: &HudModel) -> Option<String> {
+    let panel = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    )?;
+    Some(compose_minimap_window_distribution_line(&panel))
+}
+
 fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
     let Some(panel) = build_minimap_panel(
         scene,
@@ -2639,7 +2656,7 @@ fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Stri
     };
 
     let detail_count = panel.detail_counts.len();
-    let mut lines = panel
+    panel
         .detail_counts
         .iter()
         .enumerate()
@@ -2652,9 +2669,7 @@ fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Stri
                 detail.count
             )
         })
-        .collect::<Vec<_>>();
-    lines.push(compose_minimap_window_distribution_line(&panel));
-    lines
+        .collect()
 }
 
 fn compose_minimap_window_distribution_line(panel: &MinimapPanelModel) -> String {
@@ -4469,14 +4484,15 @@ mod tests {
         )));
         assert!(frame.contains("MINIMAP-DETAIL: 1/6 marker-line=1"));
         assert!(frame.contains(
+            "MINIMAP-WINDOW: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"
+        ));
+        assert!(frame.contains(
             "MINIMAP-WINDOW-KINDS: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
         ));
         assert!(!frame.contains(
             "MINIMAP-DETAIL: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
         ));
-        assert!(frame.contains(
-            "MINIMAP-DETAIL: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"
-        ));
+        assert!(!frame.contains("MINIMAP-DETAIL: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"));
     }
 
     #[test]
