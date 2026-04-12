@@ -3307,7 +3307,7 @@ fn compose_build_route_text(
     let blockers = panel.blocker_labels().join(">");
     let route = panel.route.join(">");
     Some(format!(
-        "next={} minimap={} blockers={}@{} route={}@{}",
+        "cfgroute:n={}:m={}:b{}@{}:r{}@{}",
         panel.next_action,
         panel.minimap_next_action,
         panel.blocker_count(),
@@ -6123,7 +6123,7 @@ mod tests {
             "BUILD-FLOW-SUMMARY: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi"
         ));
         assert!(frame.contains(
-            "BUILD-ROUTE: next=resolve minimap=survey blockers=2@resolve>survey route=3@resolve>survey>commit"
+            "BUILD-ROUTE: cfgroute:n=resolve:m=survey:b2@resolve>survey:r3@resolve>survey>commit"
         ));
         assert!(frame.contains(
             "BUILD-ROUTE-DETAIL: next=resolve minimap=survey blockers=resolve+survey route=resolve+survey+commit"
