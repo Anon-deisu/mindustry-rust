@@ -224,7 +224,7 @@ impl AsciiScenePresenter {
                 "MINIMAP-EDGE-DETAIL: {minimap_edge_detail_text}\n"
             ));
         }
-        for minimap_detail_text in compose_minimap_detail_lines(scene, hud) {
+        for minimap_detail_text in compose_minimap_detail_lines(scene, hud, window) {
             out.push_str(&format!("MINIMAP-DETAIL: {minimap_detail_text}\n"));
         }
         if let Some(render_pipeline_text) = compose_render_pipeline_text(scene, window) {
@@ -2803,22 +2803,17 @@ fn compose_minimap_window_line(scene: &RenderModel, hud: &HudModel) -> Option<St
     Some(compose_minimap_window_distribution_line(&panel))
 }
 
-fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
-    let Some(panel) = build_minimap_panel(
-        scene,
-        hud,
-        PresenterViewWindow {
-            origin_x: 0,
-            origin_y: 0,
-            width: 0,
-            height: 0,
-        },
-    ) else {
+fn compose_minimap_detail_lines(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Vec<String> {
+    let Some(panel) = build_minimap_panel(scene, hud, window) else {
         return Vec::new();
     };
 
     let detail_count = panel.detail_counts.len();
-    panel
+    let mut lines = panel
         .detail_counts
         .iter()
         .enumerate()
@@ -2831,7 +2826,21 @@ fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Stri
                 detail.count
             )
         })
-        .collect()
+        .collect::<Vec<_>>();
+    lines.push(compose_minimap_density_visibility_line(&panel));
+    lines
+}
+
+fn compose_minimap_density_visibility_line(panel: &MinimapPanelModel) -> String {
+    format!(
+        "minidv:ov{}:fg{}:cov{}:mapd{}:wind{}:out{}",
+        bool_flag(panel.overlay_visible),
+        bool_flag(panel.fog_enabled),
+        panel.window_coverage_percent,
+        panel.map_object_density_percent(),
+        panel.window_object_density_percent(),
+        panel.outside_object_percent(),
+    )
 }
 
 fn compose_minimap_window_distribution_line(panel: &MinimapPanelModel) -> String {
@@ -4736,6 +4745,22 @@ mod tests {
             .edge_detail_label(),
         )));
         assert!(frame.contains("MINIMAP-DETAIL: 1/6 marker-line=1"));
+        assert!(frame.contains(&format!(
+            "MINIMAP-DETAIL: {}",
+            super::compose_minimap_density_visibility_line(
+                &super::build_minimap_panel(
+                    &scene,
+                    &hud,
+                    PresenterViewWindow {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 2,
+                        height: 2,
+                    },
+                )
+                .expect("minimap panel"),
+            )
+        )));
         assert!(frame.contains(
             "MINIMAP-WINDOW: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"
         ));
@@ -4746,6 +4771,88 @@ mod tests {
             "MINIMAP-DETAIL: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
         ));
         assert!(!frame.contains("MINIMAP-DETAIL: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"));
+    }
+
+    #[test]
+    fn ascii_presenter_uses_projected_window_for_minimap_detail_density_summary() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 80.0,
+                height: 80.0,
+                zoom: 1.0,
+            },
+            view_window: Some(crate::RenderViewWindow {
+                origin_x: 2,
+                origin_y: 3,
+                width: 4,
+                height: 3,
+            }),
+            objects: vec![
+                crate::RenderObject {
+                    id: "player:1".to_string(),
+                    layer: 1,
+                    x: 16.0,
+                    y: 24.0,
+                },
+                crate::RenderObject {
+                    id: "marker:1".to_string(),
+                    layer: 2,
+                    x: 32.0,
+                    y: 32.0,
+                },
+                crate::RenderObject {
+                    id: "plan:1:2:3".to_string(),
+                    layer: 3,
+                    x: 64.0,
+                    y: 64.0,
+                },
+            ],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "router".to_string(),
+                plan_count: 1,
+                marker_count: 1,
+                map_width: 10,
+                map_height: 10,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 25,
+                hidden_tile_count: 15,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((4, 5)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 2,
+                        origin_y: 3,
+                        width: 4,
+                        height: 3,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let expected_panel = super::build_minimap_panel(
+            &scene,
+            &hud,
+            PresenterViewWindow {
+                origin_x: 2,
+                origin_y: 3,
+                width: 4,
+                height: 3,
+            },
+        )
+        .expect("minimap panel");
+
+        assert!(presenter.last_frame().contains(&format!(
+            "MINIMAP-DETAIL: {}",
+            super::compose_minimap_density_visibility_line(&expected_panel)
+        )));
     }
 
     #[test]
