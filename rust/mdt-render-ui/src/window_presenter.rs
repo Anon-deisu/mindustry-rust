@@ -3235,11 +3235,12 @@ fn compose_runtime_live_effect_panel_status_text(hud: &HudModel) -> Option<Strin
 fn compose_runtime_live_effect_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_effect_panel(hud)?;
     Some(format!(
-        "livefxd:hint{}:src{}:pos{}:ttl{}:arel{}:ctr{}:rel{}",
+        "livefxd:hint{}:src{}:pos{}:ttl{}:data{}:arel{}:ctr{}:rel{}",
         panel.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_status_text(panel.display_position_source()),
         world_position_status_text(panel.display_position()),
         live_effect_ttl_status_text(panel.display_overlay_ttl()),
+        live_effect_data_shape_status_text(panel.last_data_len, panel.last_data_type_tag),
         live_effect_reliable_flag_status_text(panel.active_reliable),
         compact_runtime_ui_text(panel.display_contract_name()),
         compact_runtime_ui_text(panel.display_reliable_contract_name()),
@@ -3913,12 +3914,13 @@ fn compose_live_effect_status_text(
     effect: &crate::RuntimeLiveEffectSummaryObservability,
 ) -> String {
     format!(
-        "{}/{}:ov{}@{}:u{}:k{}:c{}/{}:r{}:h{}:p{}@{}:ttl{}",
+        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:r{}:h{}:p{}@{}:ttl{}",
         effect.effect_count,
         effect.spawn_effect_count,
         effect.active_overlay_count,
         optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
+        live_effect_data_shape_status_text(effect.last_data_len, effect.last_data_type_tag),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.display_contract_name()),
         compact_runtime_ui_text(effect.display_reliable_contract_name()),
@@ -3934,12 +3936,13 @@ fn compose_live_effect_panel_status_text(
     effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
 ) -> String {
     format!(
-        "{}/{}:ov{}@{}:u{}:k{}:c{}/{}:r{}:h{}:p{}@{}:ttl{}",
+        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:r{}:h{}:p{}@{}:ttl{}",
         effect.effect_count,
         effect.spawn_effect_count,
         effect.active_overlay_count,
         optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
+        live_effect_data_shape_status_text(effect.last_data_len, effect.last_data_type_tag),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.display_contract_name()),
         compact_runtime_ui_text(effect.display_reliable_contract_name()),
@@ -3955,6 +3958,18 @@ fn live_effect_ttl_status_text(ttl: Option<(u8, u8)>) -> String {
     match ttl {
         Some((remaining, total)) => format!("{remaining}/{total}"),
         None => "none".to_string(),
+    }
+}
+
+fn live_effect_data_shape_status_text(
+    data_len: Option<usize>,
+    data_type_tag: Option<u8>,
+) -> String {
+    match (data_len, data_type_tag) {
+        (Some(data_len), Some(data_type_tag)) => format!("{data_len}/{data_type_tag}"),
+        (Some(data_len), None) => format!("{data_len}/none"),
+        (None, Some(data_type_tag)) => format!("none/{data_type_tag}"),
+        (None, None) => "none".to_string(),
     }
 }
 
@@ -8275,6 +8290,8 @@ mod tests {
                         active_overlay_lifetime_ticks: Some(5),
                         last_effect_id: Some(8),
                         last_spawn_effect_unit_type_id: Some(19),
+                        last_data_len: Some(9),
+                        last_data_type_tag: Some(4),
                         last_kind: Some("Point2".to_string()),
                         last_contract_name: Some("position_target".to_string()),
                         last_reliable_contract_name: Some("unit_parent".to_string()),
@@ -8373,7 +8390,7 @@ mod tests {
             .status_text
             .contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.status_text.contains(
-            "fx=11/73:ov1@13:u19:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
+            "fx=11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
         ));
         assert!(frame
             .status_text
@@ -8576,11 +8593,11 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-LIVE-EFFECT: livefx:11/73:ov1@13:u19:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5",
+            "RUNTIME-LIVE-EFFECT: livefx:11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-LIVE-EFFECT-DETAIL: livefxd:hintpos:point2:3:4@1/0:srcactive:pos28.0:36.0:ttl3/5:arel1:ctrlightning:rellightning",
+            "RUNTIME-LIVE-EFFECT-DETAIL: livefxd:hintpos:point2:3:4@1/0:srcactive:pos28.0:36.0:ttl3/5:data9/4:arel1:ctrlightning:rellightning",
         );
         assert_frame_line_contains(&frame.overlay_lines, "OVERLAY: Plans 1");
         assert_frame_line_contains(

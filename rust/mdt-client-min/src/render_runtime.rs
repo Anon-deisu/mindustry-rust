@@ -3275,6 +3275,8 @@ fn runtime_live_effect_summary_observability(
         active_overlay_lifetime_ticks: active_overlay.map(|overlay| overlay.lifetime_ticks),
         last_effect_id: session_state.last_effect_id,
         last_spawn_effect_unit_type_id: session_state.last_spawn_effect_unit_type_id,
+        last_data_len: session_state.last_effect_data_len,
+        last_data_type_tag: session_state.last_effect_data_type_tag,
         last_kind: session_state.last_effect_data_kind.clone(),
         last_contract_name: session_state.last_effect_contract_name.clone(),
         last_reliable_contract_name: session_state.last_effect_reliable_contract_name.clone(),
@@ -14273,6 +14275,8 @@ mod tests {
         state.last_effect_id = Some(8);
         state.last_effect_x_bits = Some(22.0f32.to_bits());
         state.last_effect_y_bits = Some(30.0f32.to_bits());
+        state.last_effect_data_len = Some(9);
+        state.last_effect_data_type_tag = Some(4);
         state.last_effect_data_kind = Some("Point2".to_string());
         state.last_effect_contract_name = Some("position_target".to_string());
         state.last_effect_reliable_contract_name = Some("unit_parent".to_string());
@@ -15248,6 +15252,8 @@ mod tests {
             runtime_ui.live.effect.last_spawn_effect_unit_type_id,
             Some(19)
         );
+        assert_eq!(runtime_ui.live.effect.last_data_len, Some(9));
+        assert_eq!(runtime_ui.live.effect.last_data_type_tag, Some(4));
         assert_eq!(runtime_ui.live.effect.last_kind.as_deref(), Some("Point2"));
         assert_eq!(
             runtime_ui.live.effect.last_contract_name.as_deref(),
@@ -15393,6 +15399,8 @@ mod tests {
         state.received_spawn_effect_count = 73;
         state.last_effect_id = Some(8);
         state.last_spawn_effect_unit_type_id = Some(19);
+        state.last_effect_data_len = Some(9);
+        state.last_effect_data_type_tag = Some(4);
         state.last_effect_data_kind = Some("Point2".to_string());
         state.last_effect_contract_name = Some("position_target".to_string());
         state.last_effect_reliable_contract_name = Some("unit_parent".to_string());
@@ -15442,6 +15450,8 @@ mod tests {
         assert_eq!(observability.active_overlay_remaining_ticks, Some(3));
         assert_eq!(observability.active_overlay_lifetime_ticks, Some(3));
         assert_eq!(observability.display_overlay_ttl(), Some((3, 3)));
+        assert_eq!(observability.last_data_len, Some(9));
+        assert_eq!(observability.last_data_type_tag, Some(4));
         assert_eq!(
             observability.active_position,
             Some(RuntimeWorldPositionObservability {

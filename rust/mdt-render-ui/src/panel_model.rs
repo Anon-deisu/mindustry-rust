@@ -1498,6 +1498,8 @@ pub struct RuntimeLiveEffectPanelModel {
     pub active_overlay_lifetime_ticks: Option<u8>,
     pub last_effect_id: Option<i16>,
     pub last_spawn_effect_unit_type_id: Option<i16>,
+    pub last_data_len: Option<usize>,
+    pub last_data_type_tag: Option<u8>,
     pub last_kind: Option<String>,
     pub last_contract_name: Option<String>,
     pub last_reliable_contract_name: Option<String>,
@@ -2581,6 +2583,8 @@ pub fn build_runtime_live_effect_panel(hud: &HudModel) -> Option<RuntimeLiveEffe
         active_overlay_lifetime_ticks: effect.active_overlay_lifetime_ticks,
         last_effect_id: effect.last_effect_id,
         last_spawn_effect_unit_type_id: effect.last_spawn_effect_unit_type_id,
+        last_data_len: effect.last_data_len,
+        last_data_type_tag: effect.last_data_type_tag,
         last_kind: effect.last_kind.clone(),
         last_contract_name: effect.last_contract_name.clone(),
         last_reliable_contract_name: effect.last_reliable_contract_name.clone(),
@@ -3981,6 +3985,8 @@ mod tests {
                         active_overlay_lifetime_ticks: Some(5),
                         last_effect_id: Some(8),
                         last_spawn_effect_unit_type_id: Some(19),
+                        last_data_len: Some(9),
+                        last_data_type_tag: Some(4),
                         last_kind: Some("Point2".to_string()),
                         last_contract_name: Some("position_target".to_string()),
                         last_reliable_contract_name: Some("unit_parent".to_string()),
@@ -4019,6 +4025,8 @@ mod tests {
         assert_eq!(panel.display_overlay_ttl(), Some((3, 5)));
         assert_eq!(panel.last_effect_id, Some(8));
         assert_eq!(panel.last_spawn_effect_unit_type_id, Some(19));
+        assert_eq!(panel.last_data_len, Some(9));
+        assert_eq!(panel.last_data_type_tag, Some(4));
         assert_eq!(panel.last_kind.as_deref(), Some("Point2"));
         assert_eq!(panel.last_contract_name.as_deref(), Some("position_target"));
         assert_eq!(

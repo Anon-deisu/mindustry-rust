@@ -1015,6 +1015,8 @@ pub struct RuntimeLiveEffectSummaryObservability {
     pub active_overlay_lifetime_ticks: Option<u8>,
     pub last_effect_id: Option<i16>,
     pub last_spawn_effect_unit_type_id: Option<i16>,
+    pub last_data_len: Option<usize>,
+    pub last_data_type_tag: Option<u8>,
     pub last_kind: Option<String>,
     pub last_contract_name: Option<String>,
     pub last_reliable_contract_name: Option<String>,
