@@ -1612,7 +1612,7 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_ui_notice_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_ui_notice_panel(hud)?;
     Some(format!(
-        "hud={}/{}/{}@{}/{} ann={}@{} info={}@{} toast={}/{}@{}/{} popup={}/{}@{}:{}/{} clip={}@{} uri={}@{}:{} tin={}@{}:{}/{}/{}#{}:n{}:e{}",
+        "notice:hud={}/{}/{}@{}/{}:ann={}@{}:info={}@{}:toast={}/{}@{}/{}:popup={}/{}@{}:{}/{}:clip={}@{}:uri={}@{}:{}:tin={}@{}:{}/{}/{}#{}:n{}:e{}",
         panel.hud_set_count,
         panel.hud_set_reliable_count,
         panel.hud_hide_count,
@@ -1653,7 +1653,7 @@ fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "active=1 hud-events={}/{}/{} hud-len={}/{} announce={} len={} info={} len={} toast-events={}/{} toast-len={}/{} popup={}/{} rel={} id-len={} msg-len={} dur={} box={}:{}/{}/{}/{} clip={} len={} uri={} len={} scheme={} text-input={} id={} title-len={} msg-len={} default-len={} limit={} numeric={} allow-empty={}",
+        "noticed:a1:h{}/{}/{}:l{}/{}:ann{}:a{}:info{}:i{}:t{}/{}:l{}/{}:popup{}/{}:r{}:pid{}:pm{}:pd{}:pb{}:{}:{}:{}:{}:clip{}:{}:uri{}:{}:{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
         panel.hud_set_count,
         panel.hud_set_reliable_count,
         panel.hud_hide_count,
@@ -1688,7 +1688,6 @@ fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
         runtime_ui_text_len(panel.text_input_last_title.as_deref()),
         runtime_ui_text_len(panel.text_input_last_message.as_deref()),
         runtime_ui_text_len(panel.text_input_last_default_text.as_deref()),
-        optional_i32_label(panel.text_input_last_length),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
     ))
@@ -5756,10 +5755,10 @@ mod tests {
         assert!(frame.contains("choice=29/30"));
         assert!(frame.contains("tin=53@404:Digits/Only_numbers"));
         assert!(frame.contains(
-            "RUNTIME-NOTICE: hud=9/10/11@hud_text/hud_rel ann=12@announce info=13@info toast=14/15@toast/warn popup=16/17@1:popup-a/popup_text clip=18@copied uri=19@https_//exam~:https tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
+            "RUNTIME-NOTICE: notice:hud=9/10/11@hud_text/hud_rel:ann=12@announce:info=13@info:toast=14/15@toast/warn:popup=16/17@1:popup-a/popup_text:clip=18@copied:uri=19@https_//exam~:https:tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
         ));
         assert!(frame.contains(
-            "RUNTIME-NOTICE-DETAIL: active=1 hud-events=9/10/11 hud-len=8/7 announce=12 len=8 info=13 len=4 toast-events=14/15 toast-len=5/4 popup=16/17 rel=1 id-len=7 msg-len=10 dur=1075838976 box=1:2/3/4/5 clip=18 len=6 uri=19 len=19 scheme=https text-input=53 id=404 title-len=6 msg-len=12 default-len=5 limit=16 numeric=1 allow-empty=1"
+            "RUNTIME-NOTICE-DETAIL: noticed:a1:h9/10/11:l8/7:ann12:a8:info13:i4:t14/15:l5/4:popup16/17:r1:pid7:pm10:pd1075838976:pb1:2:3:4:5:clip18:6:uri19:19:https:tin53:id404:t6:m12:d5:n1:e1"
         ));
         assert!(frame
             .contains("RUNTIME-MENU: menu=16@40:main/pick#2:3 follow=17@41:follow/next#1:2 hide=18@41 tin=53@404:Digits/12345#16:n1:e1"));
@@ -6268,7 +6267,7 @@ mod tests {
             let frame = presenter.last_frame();
 
             assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
-            assert!(frame.contains("scheme=none"));
+            assert!(frame.contains(&format!(":uri0:{}:none:", uri.chars().count())));
         }
 
         let mut runtime_ui = RuntimeUiObservability::default();
@@ -6278,7 +6277,7 @@ mod tests {
         let frame = presenter.last_frame();
 
         assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
-        assert!(frame.contains("scheme=https"));
+        assert!(frame.contains(":uri0:19:https:"));
     }
 
     #[test]
@@ -6286,14 +6285,15 @@ mod tests {
         let scene = runtime_stack_test_scene();
         let mut presenter = AsciiScenePresenter::default();
         let mut runtime_ui = RuntimeUiObservability::default();
-        runtime_ui.toast.last_open_uri = Some("  https://example.com  ".to_string());
+        let uri = "  https://example.com  ";
+        runtime_ui.toast.last_open_uri = Some(uri.to_string());
 
         presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
         let frame = presenter.last_frame();
 
         assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
-        assert!(frame.contains("scheme=https"));
-        assert!(!frame.contains("scheme=_https"));
+        assert!(frame.contains(&format!(":uri0:{}:https:", uri.chars().count())));
+        assert!(!frame.contains(&format!(":uri0:{}:none:", uri.chars().count())));
     }
 
     #[test]
@@ -6314,7 +6314,7 @@ mod tests {
         let frame = presenter.last_frame();
 
         assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
-        assert!(frame.contains("scheme=https"));
+        assert!(frame.contains(":uri0:19:https:"));
     }
 
     #[test]
@@ -6329,8 +6329,8 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
-        assert!(frame.contains("title-len=3"));
-        assert!(!frame.contains("title-len=7"));
+        assert!(frame.contains(":tin1:idnone:t3:m0:d0:nn:en"));
+        assert!(!frame.contains(":tin1:idnone:t7:m0:d0:nn:en"));
     }
 
     #[test]
