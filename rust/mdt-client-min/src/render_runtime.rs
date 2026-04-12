@@ -30,12 +30,11 @@ use crate::session_state::{
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
-    RuntimeBootstrapObservability, RuntimeChatObservability,
-    RuntimeCoreBindingKindObservability, RuntimeCoreBindingObservability,
-    RuntimeKickObservability, RuntimeLoadingObservability, RuntimeMarkerObservability,
-    RuntimeReconnectObservability, RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
-    RuntimeResourceDeltaObservability, RuntimeSessionObservability, RuntimeSessionResetKind,
-    RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+    RuntimeBootstrapObservability, RuntimeChatObservability, RuntimeCoreBindingKindObservability,
+    RuntimeCoreBindingObservability, RuntimeKickObservability, RuntimeLoadingObservability,
+    RuntimeMarkerObservability, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
+    RuntimeReconnectReasonKind, RuntimeResourceDeltaObservability, RuntimeSessionObservability,
+    RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
 };
 use mdt_render_ui::{
     BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
@@ -2231,7 +2230,9 @@ fn runtime_local_entity_label(session_state: &SessionState) -> String {
             .unwrap_or_else(|| "none".to_string());
         label.push_str(&format!(
             "@am0x{:08x}:el0x{:08x}:fg0x{:016x}:br{}",
-            runtime_sync.ammo_bits, runtime_sync.elevation_bits, runtime_sync.flag_bits,
+            runtime_sync.ammo_bits,
+            runtime_sync.elevation_bits,
+            runtime_sync.flag_bits,
             base_rotation,
         ));
     }
@@ -2960,7 +2961,9 @@ fn runtime_session_observability(
     world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeSessionObservability {
     RuntimeSessionObservability {
-        bootstrap: runtime_bootstrap_observability(session_state.world_bootstrap_projection.as_ref()),
+        bootstrap: runtime_bootstrap_observability(
+            session_state.world_bootstrap_projection.as_ref(),
+        ),
         core_binding: RuntimeCoreBindingObservability {
             kind: session_state
                 .core_inventory_runtime_binding_kind
@@ -3198,7 +3201,8 @@ fn runtime_live_entity_summary_observability(
 ) -> RuntimeLiveEntitySummaryObservability {
     let typed_projection = session_state.runtime_typed_entity_projection();
     let local_entity = typed_projection.local_player().map(|player| &player.base);
-    let local_owned_unit = runtime_local_owned_unit_observability_from_projection(&typed_projection);
+    let local_owned_unit =
+        runtime_local_owned_unit_observability_from_projection(&typed_projection);
     let local_owned_payload = local_owned_unit
         .as_ref()
         .and_then(|owned_unit| owned_unit.payload.as_ref());
@@ -3224,7 +3228,9 @@ fn runtime_live_entity_summary_observability(
             x_bits: entity.x_bits,
             y_bits: entity.y_bits,
         }),
-        local_owned_unit_entity_id: local_owned_unit.as_ref().map(|owned_unit| owned_unit.entity_id),
+        local_owned_unit_entity_id: local_owned_unit
+            .as_ref()
+            .map(|owned_unit| owned_unit.entity_id),
         local_owned_unit_payload_count: local_owned_unit
             .as_ref()
             .and_then(|owned_unit| owned_unit.payload_count),
@@ -6274,6 +6280,9 @@ fn append_runtime_building_markers(
             TypedBuildingRuntimeValue::PayloadSource { command_pos, .. } => {
                 append_runtime_payload_source_objects(scene, building, *command_pos);
             }
+            TypedBuildingRuntimeValue::PayloadRouter { .. } => {
+                append_runtime_payload_router_objects(scene, building);
+            }
             TypedBuildingRuntimeValue::MassDriver {
                 link: Some(target_build_pos),
                 ..
@@ -6337,6 +6346,24 @@ fn append_runtime_payload_source_objects(
         layer: 16,
         x: f32::from_bits(command_x_bits),
         y: f32::from_bits(command_y_bits),
+    });
+}
+
+fn append_runtime_payload_router_objects(
+    scene: &mut RenderModel,
+    building: &TypedBuildingRuntimeModel,
+) {
+    const TILE_SIZE: f32 = 8.0;
+
+    let (tile_x, tile_y) = unpack_runtime_point2(building.build_pos);
+    scene.objects.push(RenderObject {
+        id: format!(
+            "marker:runtime-payload-router:{}:{tile_x}:{tile_y}",
+            building.block_name
+        ),
+        layer: 16,
+        x: tile_x as f32 * TILE_SIZE,
+        y: tile_y as f32 * TILE_SIZE,
     });
 }
 
@@ -9185,6 +9212,72 @@ mod tests {
             .expect("payload-router config icon should be present");
         assert_eq!(payload_router_icon.x, 176.0);
         assert_eq!(payload_router_icon.y, 352.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_payload_router_runtime_marker_in_scene() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(50, 70);
+
+        state
+            .runtime_typed_building_apply_projection
+            .upsert_runtime_building(crate::session_state::TypedBuildingRuntimeModel {
+                build_pos,
+                block_id: Some(1),
+                block_name: "payload-router".to_string(),
+                kind: TypedBuildingRuntimeKind::PayloadRouter,
+                value: TypedBuildingRuntimeValue::PayloadRouter {
+                    sorted_content: None,
+                    progress_bits: None,
+                    item_rotation_bits: None,
+                    payload_present: None,
+                    payload_type: None,
+                    payload_kind: None,
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: None,
+                    payload_unit_revision: None,
+                    payload_serialized_len: None,
+                    payload_serialized_sha256: None,
+                    rec_dir: None,
+                },
+                inventory_item_stacks: vec![],
+                inventory_liquid_stacks: vec![],
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+            });
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker =
+            scene_object_by_id(&scene, "marker:runtime-payload-router:payload-router:50:70")
+                .expect("payload-router runtime marker should be present");
+        assert_eq!(marker.x, 400.0);
+        assert_eq!(marker.y, 560.0);
+        assert_eq!(marker.layer, 16);
     }
 
     #[test]
@@ -13204,8 +13297,7 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_reports_effect_binding_detail_counts_after_mixed_outcomes_in_hud()
-    {
+    fn render_runtime_adapter_reports_effect_binding_detail_counts_after_mixed_outcomes_in_hud() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         ingest_sample_world(&mut session);
@@ -13235,7 +13327,10 @@ mod tests {
         let fallback_event = session.ingest_packet_bytes(&fallback_packet).unwrap();
 
         let mut follow_payload = encode_effect_payload(9, 32.5, 48.0, 90.0, 0x11223344);
-        write_typeio_object(&mut follow_payload, &TypeIoObject::UnitId(local_player_entity_id));
+        write_typeio_object(
+            &mut follow_payload,
+            &TypeIoObject::UnitId(local_player_entity_id),
+        );
         let follow_packet = encode_packet(packet_id, &follow_payload, false).unwrap();
         let follow_event = session.ingest_packet_bytes(&follow_packet).unwrap();
 
@@ -14663,12 +14758,24 @@ mod tests {
         );
         assert_eq!(runtime_ui.live.entity.local_owned_unit_entity_id, None);
         assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_count, None);
-        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_class_id, None);
-        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_revision, None);
-        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_body_len, None);
+        assert_eq!(
+            runtime_ui.live.entity.local_owned_unit_payload_class_id,
+            None
+        );
+        assert_eq!(
+            runtime_ui.live.entity.local_owned_unit_payload_revision,
+            None
+        );
+        assert_eq!(
+            runtime_ui.live.entity.local_owned_unit_payload_body_len,
+            None
+        );
         assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_sha256, None);
         assert_eq!(
-            runtime_ui.live.entity.local_owned_unit_payload_nested_descendant_count,
+            runtime_ui
+                .live
+                .entity
+                .local_owned_unit_payload_nested_descendant_count,
             None
         );
         assert_eq!(runtime_ui.live.entity.local_owned_carried_item_id, None);
@@ -15273,8 +15380,17 @@ mod tests {
         );
         assert_eq!(observability.controller_type, 0);
         assert_eq!(observability.controller_value, Some(101));
-        assert_eq!(observability.runtime_sync.as_ref().map(|sync| sync.ammo_bits), Some(0x3f80_0000));
-        let payload = observability.payload.as_ref().expect("missing payload observability");
+        assert_eq!(
+            observability
+                .runtime_sync
+                .as_ref()
+                .map(|sync| sync.ammo_bits),
+            Some(0x3f80_0000)
+        );
+        let payload = observability
+            .payload
+            .as_ref()
+            .expect("missing payload observability");
         assert_eq!(payload.class_id, 5);
         assert_eq!(payload.revision, 7);
         assert_eq!(payload.body_len, 12);
@@ -15322,9 +15438,8 @@ mod tests {
                     class_id: 2,
                     revision: 1,
                     body_len: 4,
-                    body_sha256:
-                        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-                            .to_string(),
+                    body_sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                        .to_string(),
                     nested_unit_payloads: vec![mdt_world::UnitPayloadSnapshot {
                         class_id: 3,
                         revision: 2,
@@ -15339,9 +15454,8 @@ mod tests {
                     class_id: 4,
                     revision: 3,
                     body_len: 6,
-                    body_sha256:
-                        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-                            .to_string(),
+                    body_sha256: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                        .to_string(),
                     nested_unit_payloads: Vec::new(),
                 },
             ],
