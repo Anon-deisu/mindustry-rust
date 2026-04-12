@@ -2280,26 +2280,26 @@ fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
     if let Some(bootstrap_text) = compose_runtime_bootstrap_row_text(hud) {
         segments.push(format!("bootstrap={bootstrap_text}"));
     }
-    if let Some(core_binding_text) = compose_runtime_core_binding_panel_text(hud) {
-        segments.push(format!("core-binding={core_binding_text}"));
+    if let Some(core_binding_text) = compose_runtime_core_binding_panel_compact_text(hud) {
+        segments.push(format!("cb={core_binding_text}"));
     }
     segments.push(format!(
-        "resource={}",
-        compose_runtime_resource_delta_panel_text(&panel.resource_delta)
+        "rd={}",
+        compose_runtime_resource_delta_panel_compact_text(&panel.resource_delta)
     ));
     segments.push(format!(
-        "kick={}",
+        "k={}",
         compose_runtime_kick_panel_text(&panel.kick)
     ));
     segments.push(format!(
-        "loading={}",
-        compose_runtime_loading_panel_text(&panel.loading)
+        "l={}",
+        compose_runtime_loading_panel_compact_text(&panel.loading)
     ));
     segments.push(format!(
-        "reconnect={}",
-        compose_runtime_reconnect_panel_text(&panel.reconnect)
+        "r={}",
+        compose_runtime_reconnect_panel_compact_text(&panel.reconnect)
     ));
-    Some(segments.join("; "))
+    Some(format!("sess:{}", segments.join(";")))
 }
 
 fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
@@ -2433,6 +2433,46 @@ fn compose_runtime_resource_delta_detail_panel_text(
     )
 }
 
+fn compose_runtime_resource_delta_panel_compact_text(
+    resource_delta: &crate::panel_model::RuntimeResourceDeltaPanelModel,
+) -> String {
+    format!(
+        "resd:tile{}/{}/{}/{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}@{}:{}:{}:{}:{}:{}:proj{}/{}/{}:au{}:d{}/{}/{}:chg{}/{}/{}/{}",
+        resource_delta.remove_tile_count,
+        resource_delta.set_tile_count,
+        resource_delta.set_floor_count,
+        resource_delta.set_overlay_count,
+        resource_delta.set_item_count,
+        resource_delta.set_items_count,
+        resource_delta.set_liquid_count,
+        resource_delta.set_liquids_count,
+        resource_delta.clear_items_count,
+        resource_delta.clear_liquids_count,
+        resource_delta.set_tile_items_count,
+        resource_delta.set_tile_liquids_count,
+        resource_delta.take_items_count,
+        resource_delta.transfer_item_to_count,
+        resource_delta.transfer_item_to_unit_count,
+        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
+        optional_i16_label(resource_delta.last_item_id),
+        optional_i32_label(resource_delta.last_amount),
+        optional_i32_label(resource_delta.last_build_pos),
+        command_unit_ref_text(resource_delta.last_unit),
+        optional_i32_label(resource_delta.last_to_entity_id),
+        resource_delta.build_count,
+        resource_delta.build_stack_count,
+        resource_delta.entity_count,
+        resource_delta.authoritative_build_update_count,
+        resource_delta.delta_apply_count,
+        resource_delta.delta_skip_count,
+        resource_delta.delta_conflict_count,
+        optional_i32_label(resource_delta.last_changed_build_pos),
+        optional_i32_label(resource_delta.last_changed_entity_id),
+        optional_i16_label(resource_delta.last_changed_item_id),
+        optional_i32_label(resource_delta.last_changed_amount),
+    )
+}
+
 fn compose_runtime_resource_delta_detail_compact_text(
     resource_delta: &crate::panel_model::RuntimeResourceDeltaPanelModel,
 ) -> String {
@@ -2510,6 +2550,21 @@ fn compose_runtime_core_binding_detail_text(hud: &HudModel) -> Option<String> {
     }
     Some(format!(
         "kind={} ambiguous-count={} ambiguous-sample={} missing-count={} missing-sample={}",
+        panel.kind_label(),
+        panel.ambiguous_team_count,
+        team_u8_sample_text(&panel.ambiguous_team_sample),
+        panel.missing_team_count,
+        team_u8_sample_text(&panel.missing_team_sample),
+    ))
+}
+
+fn compose_runtime_core_binding_panel_compact_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_core_binding_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "core:{}:a{}@{}:m{}@{}",
         panel.kind_label(),
         panel.ambiguous_team_count,
         team_u8_sample_text(&panel.ambiguous_team_sample),
@@ -3633,11 +3688,56 @@ fn compose_runtime_loading_panel_text(
     )
 }
 
+fn compose_runtime_loading_panel_compact_text(
+    loading: &crate::panel_model::RuntimeLoadingPanelModel,
+) -> String {
+    format!(
+        "defer{}:replay{}:drop{}:qdrop{}:sfail{}:scfail{}:efail{}:rdy{}@{}:to{}:cto{}:rto{}:lt{}@{}:rs{}:rr{}:wr{}:kr{}:lr{}:lwr{}",
+        loading.deferred_inbound_packet_count,
+        loading.replayed_inbound_packet_count,
+        loading.dropped_loading_low_priority_packet_count,
+        loading.dropped_loading_deferred_overflow_count,
+        loading.failed_state_snapshot_parse_count,
+        loading.failed_state_snapshot_core_data_parse_count,
+        loading.failed_entity_snapshot_parse_count,
+        loading.ready_inbound_liveness_anchor_count,
+        optional_u64_label(loading.last_ready_inbound_liveness_anchor_at_ms),
+        loading.timeout_count,
+        loading.connect_or_loading_timeout_count,
+        loading.ready_snapshot_timeout_count,
+        runtime_session_timeout_kind_text(loading.last_timeout_kind),
+        optional_u64_label(loading.last_timeout_idle_ms),
+        loading.reset_count,
+        loading.reconnect_reset_count,
+        loading.world_reload_count,
+        loading.kick_reset_count,
+        runtime_session_reset_kind_text(loading.last_reset_kind),
+        runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
+    )
+}
+
 fn compose_runtime_reconnect_panel_text(
     reconnect: &crate::panel_model::RuntimeReconnectPanelModel,
 ) -> String {
     format!(
         "{}#{} {} redirect={}@{}:{} reason={}#{} hint={}",
+        runtime_reconnect_phase_text(reconnect.phase),
+        reconnect.phase_transition_count,
+        runtime_reconnect_reason_kind_text(reconnect.reason_kind),
+        reconnect.redirect_count,
+        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
+        optional_i32_label(reconnect.last_redirect_port),
+        compact_runtime_ui_text(reconnect.reason_text.as_deref()),
+        optional_i32_label(reconnect.reason_ordinal),
+        compact_runtime_ui_text(reconnect.hint_text.as_deref()),
+    )
+}
+
+fn compose_runtime_reconnect_panel_compact_text(
+    reconnect: &crate::panel_model::RuntimeReconnectPanelModel,
+) -> String {
+    format!(
+        "{}{}:{}@{}/{}:{}:{}@{}:{}",
         runtime_reconnect_phase_text(reconnect.phase),
         reconnect.phase_transition_count,
         runtime_reconnect_reason_kind_text(reconnect.reason_kind),
@@ -5657,7 +5757,7 @@ mod tests {
             "RUNTIME-MARKER-DETAIL: total=280 mutate=165 text=57 texture=58 fail=2 last=808 control-len=9"
         ));
         assert!(frame.contains(
-            "RUNTIME-SESSION: bootstrap=rules=rules-hash-1:tags=tags-hash-2:locales=locales-hash-3:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7; core-binding=kind=first-core-per-team ambiguous=1@1 missing=1@4; resource=tiles=80/81/82/83 set=22/23/24/25 clear=84/85 tile=26/27 flow=1/2/3 last=to_unit@6#none:bpnone:u2:808:eid404 proj=2/3/1 auth=4 delta=5/6/7 chg=999/900/6/1; kick=idInUse@7:IdInUse:wait_for_old~; loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6; reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
+            "RUNTIME-SESSION: sess:bootstrap=rules=rules-hash-1:tags=tags-hash-2:locales=locales-hash-3:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7;cb=core:first-core-per-team:a1@1:m1@4;rd=resd:tile80/81/82/83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3@to_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1;k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
         ));
         assert!(frame.contains(
             "RUNTIME-SESSION-DETAIL: sessd:bootstrap(rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7):cb(cored:first-core-per-team:a1:s1@1:m1:s1@4):rd(resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1):k(kickd:r7:o7:c7:h20):l(loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567)"
