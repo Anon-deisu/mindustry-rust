@@ -3543,16 +3543,17 @@ fn minimap_clamp_status_text(panel: &MinimapPanelModel) -> String {
 
 fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_build_config_panel(hud, 2)?;
-    let (authority_text, pending_match_text, authority_source_text) =
+    let (authority_text, pending_match_text, authority_source_text, authority_block_text) =
         build_build_interaction_panel(hud)
-        .map(|panel| {
-            (
-                build_interaction_authority_status_text(panel.authority_state),
-                build_config_pending_match_status_text(panel.authority_pending_match),
-                build_config_rollback_source_status_text(panel.authority_source),
-            )
-        })
-        .unwrap_or(("none", "none", "none"));
+            .map(|panel| {
+                (
+                    build_interaction_authority_status_text(panel.authority_state),
+                    build_config_pending_match_status_text(panel.authority_pending_match),
+                    build_config_rollback_source_status_text(panel.authority_source),
+                    compact_runtime_ui_text(panel.authority_block_name.as_deref()),
+                )
+            })
+        .unwrap_or(("none", "none", "none", "none".to_string()));
     let entries = panel
         .entries
         .iter()
@@ -3566,7 +3567,7 @@ fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
         .collect::<Vec<_>>()
         .join(",");
     Some(format!(
-        "cfgpanel:sel{}:r{}:m{}:p{}/{}:hist{}/{}:o{}:h={}:align={}:auth={}:pm={}:src={}:fam{}/{}:more{}:t{}@{}",
+        "cfgpanel:sel{}:r{}:m{}:p{}/{}:hist{}/{}:o{}:h={}:align={}:auth={}:pm={}:src={}:b={}:fam{}/{}:more{}:t{}@{}",
         optional_i16_label(panel.selected_block_id),
         panel.selected_rotation,
         if panel.building { 1 } else { 0 },
@@ -3580,6 +3581,7 @@ fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
         authority_text,
         pending_match_text,
         authority_source_text,
+        authority_block_text,
         panel.entries.len(),
         panel.tracked_family_count,
         panel.truncated_family_count,
@@ -8665,7 +8667,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-CONFIG: cfgpanel:sel257:r2:m1:p1/2:hist3/4:o1:h=flight@100:99:place:b301:r1:align=split:auth=rollback:pm=mismatch:src=construct:fam2/2:more0:t2@message#1,power-node#1",
+            "BUILD-CONFIG: cfgpanel:sel257:r2:m1:p1/2:hist3/4:o1:h=flight@100:99:place:b301:r1:align=split:auth=rollback:pm=mismatch:src=construct:b=power-node:fam2/2:more0:t2@message#1,power-node#1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -8960,7 +8962,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-CONFIG: cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:auth=rej-miss-build:pm=match:src=tilecfg:fam2/3:more1:t7@gamma#4,beta#2",
+            "BUILD-CONFIG: cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:auth=rej-miss-build:pm=match:src=tilecfg:b=gamma:fam2/3:more1:t7@gamma#4,beta#2",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
