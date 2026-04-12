@@ -102,6 +102,7 @@ pub enum WindowMinimapRuntimeOverlayKind {
     Break,
     Place,
     Building,
+    Health,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -922,6 +923,7 @@ fn runtime_minimap_overlay_tiles(
         (2, WindowMinimapRuntimeOverlayKind::Break),
         (3, WindowMinimapRuntimeOverlayKind::Place),
         (4, WindowMinimapRuntimeOverlayKind::Building),
+        (5, WindowMinimapRuntimeOverlayKind::Health),
     ] {
         for object in &scene.objects {
             if runtime_minimap_overlay_kind(object.semantic_kind()) != Some(kind) {
@@ -962,6 +964,7 @@ fn runtime_minimap_overlay_kind(
         RenderObjectSemanticKind::RuntimeBuilding => {
             Some(WindowMinimapRuntimeOverlayKind::Building)
         }
+        RenderObjectSemanticKind::RuntimeHealth => Some(WindowMinimapRuntimeOverlayKind::Health),
         _ => None,
     }
 }
@@ -5163,6 +5166,7 @@ fn draw_window_minimap_runtime_overlay(
         WindowMinimapRuntimeOverlayKind::Break => COLOR_ICON_RUNTIME_BREAK,
         WindowMinimapRuntimeOverlayKind::Place => COLOR_PLAN,
         WindowMinimapRuntimeOverlayKind::Building => COLOR_RUNTIME,
+        WindowMinimapRuntimeOverlayKind::Health => COLOR_ICON_RUNTIME_HEALTH,
     };
     fill_window_hud_rect(
         pixels,
@@ -6533,6 +6537,70 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-KINDS: minikind:obj1@pl0:mk0:pn0:bk0:rt1:tr0:uk0 detail=runtime-building:1",
+        );
+    }
+
+    #[test]
+    fn present_once_populates_runtime_health_overlay_tile_in_minimap_inset() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: Some(RenderViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 4,
+                height: 4,
+            }),
+            objects: vec![RenderObject {
+                id: "marker:runtime-health:1:3:3".to_string(),
+                layer: 32,
+                x: 24.0,
+                y: 24.0,
+            }],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 1,
+                hidden_tile_count: 0,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((3, 3)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 4,
+                        height: 4,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        let inset = frame.minimap_inset.as_ref().expect("minimap inset");
+
+        assert_eq!(
+            inset.runtime_overlay_tiles,
+            vec![WindowMinimapRuntimeOverlayTile {
+                tile: (3, 3),
+                kind: WindowMinimapRuntimeOverlayKind::Health,
+            }]
         );
     }
 
