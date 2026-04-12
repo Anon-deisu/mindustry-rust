@@ -238,6 +238,10 @@ impl AsciiScenePresenter {
         if let Some(build_minimap_diag_text) = compose_build_minimap_diag_text(scene, hud, window) {
             out.push_str(&format!("BUILD-MINIMAP-DIAG: {build_minimap_diag_text}\n"));
         }
+        if let Some(build_minimap_flow_text) = compose_build_minimap_flow_text(scene, hud, window)
+        {
+            out.push_str(&format!("BUILD-MINIMAP-FLOW: {build_minimap_flow_text}\n"));
+        }
         if let Some(build_flow_text) = compose_build_flow_text(scene, hud, window) {
             out.push_str(&format!("BUILD-FLOW: {build_flow_text}\n"));
         }
@@ -2707,6 +2711,24 @@ fn compose_build_minimap_diag_text(
     ))
 }
 
+fn compose_build_minimap_flow_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    Some(format!(
+        "next={} select={} queue={} place-ready={} focus={} cover={} rt={}%",
+        panel.next_action_label(),
+        build_interaction_selection_text(panel.selection_state),
+        build_interaction_queue_text(panel.queue_state),
+        if panel.place_ready { 1 } else { 0 },
+        panel.focus_state_label(),
+        panel.window_coverage_label(),
+        panel.runtime_share_percent(),
+    ))
+}
+
 fn window_object_density_percent(tracked_object_count: usize, window_tile_count: usize) -> usize {
     if window_tile_count == 0 {
         0
@@ -5042,6 +5064,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "BUILD-MINIMAP-DIAG: next=resolve pair=match anchor=detached focus=inside cover=offscreen visibility=unseen"
+        ));
+        assert!(frame.contains(
+            "BUILD-MINIMAP-FLOW: next=resolve select=head-aligned queue=mixed place-ready=1 focus=inside cover=offscreen rt=0%"
         ));
         assert!(frame.contains(
             "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building pending=match"
