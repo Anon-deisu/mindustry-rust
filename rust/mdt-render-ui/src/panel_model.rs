@@ -255,6 +255,7 @@ pub struct BuildMinimapAssistPanelModel {
     pub config_sample_count: usize,
     pub top_config_family: Option<String>,
     pub authority_state: BuildInteractionAuthorityState,
+    pub authority_pending_match: Option<bool>,
     pub head_tile: Option<(i32, i32)>,
     pub authority_tile: Option<(i32, i32)>,
     pub authority_source: Option<BuildConfigAuthoritySourceObservability>,
@@ -1887,6 +1888,7 @@ pub fn build_build_minimap_assist_panel(
         config_sample_count: interaction.config_sample_count,
         top_config_family: interaction.top_config_family,
         authority_state: interaction.authority_state,
+        authority_pending_match: interaction.authority_pending_match,
         head_tile: interaction.head.as_ref().map(|head| (head.x, head.y)),
         authority_tile: interaction.authority_tile,
         authority_source: interaction.authority_source,
@@ -3355,6 +3357,7 @@ mod tests {
             panel.authority_state,
             BuildInteractionAuthorityState::RejectedMissingBuilding
         );
+        assert_eq!(panel.authority_pending_match, Some(true));
         assert_eq!(panel.head_tile, Some((10, 12)));
         assert_eq!(panel.authority_tile, Some((10, 12)));
         assert_eq!(
@@ -3388,6 +3391,7 @@ mod tests {
             config_sample_count: 0,
             top_config_family: None,
             authority_state: BuildInteractionAuthorityState::None,
+            authority_pending_match: None,
             head_tile: None,
             authority_tile: None,
             authority_source: None,
