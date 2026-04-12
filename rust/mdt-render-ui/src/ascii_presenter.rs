@@ -3128,7 +3128,7 @@ fn compose_build_config_rollback_detail_text(hud: &HudModel) -> Option<String> {
 fn compose_build_interaction_text(hud: &HudModel) -> Option<String> {
     let panel = build_build_interaction_panel(hud)?;
     Some(format!(
-        "mode={} select={} queue={} pending={} place-ready={} cfg={}/{} top={} head={} auth={} pending={} src={} tile={} block={} orphan={}",
+        "cfgflow:m={}:s={}:q={}:p={}:pr={}:cfg={}/{}:top={}:h={}:auth={}:pm={}:src={}:t={}:b={}:o={}",
         build_interaction_mode_text(panel.mode),
         build_interaction_selection_text(panel.selection_state),
         build_interaction_queue_text(panel.queue_state),
@@ -3138,9 +3138,9 @@ fn compose_build_interaction_text(hud: &HudModel) -> Option<String> {
         panel.config_sample_count,
         compact_runtime_ui_text(panel.top_config_family.as_deref()),
         build_config_head_text(panel.head.as_ref()),
-        build_interaction_authority_text(panel.authority_state),
+        build_interaction_authority_compact_text(panel.authority_state),
         build_config_pending_match_text(panel.authority_pending_match),
-        build_interaction_authority_source_text(panel.authority_source),
+        build_config_rollback_source_compact_text(panel.authority_source),
         build_config_tile_text(panel.authority_tile),
         compact_runtime_ui_text(panel.authority_block_name.as_deref()),
         panel.orphan_authoritative_count,
@@ -3553,16 +3553,6 @@ fn build_interaction_authority_compact_text(
         crate::panel_model::BuildInteractionAuthorityState::RejectedUnsupportedConfigType => {
             "rej-unsupported-cfg"
         }
-    }
-}
-
-fn build_interaction_authority_source_text(
-    value: Option<crate::BuildConfigAuthoritySourceObservability>,
-) -> &'static str {
-    match value {
-        Some(crate::BuildConfigAuthoritySourceObservability::TileConfig) => "tileConfig",
-        Some(crate::BuildConfigAuthoritySourceObservability::ConstructFinish) => "constructFinish",
-        None => "none",
     }
 }
 
@@ -5727,7 +5717,7 @@ mod tests {
             "BUILD-ROLLBACK-DETAIL: authoritative=3 rollback=1 last=23:45 source=constructFinish business=1 clear=1 last-rb=1 pending=mismatch outcome=applied block=power-node"
         ));
         assert!(frame.contains(
-            "BUILD-INTERACTION: mode=place select=head-diverged queue=mixed pending=3 place-ready=1 cfg=2/2 top=message head=flight@100:99:place:b301:r1 auth=rollback pending=mismatch src=constructFinish tile=23:45 block=power-node orphan=1"
+            "BUILD-INTERACTION: cfgflow:m=place:s=head-diverged:q=mixed:p=3:pr=1:cfg=2/2:top=message:h=flight@100:99:place:b301:r1:auth=rollback:pm=mismatch:src=construct:t=23:45:b=power-node:o=1"
         ));
         assert!(frame.contains(
             "BUILD-INTERACTION-DETAIL: selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@100:99:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=1"
@@ -6086,7 +6076,7 @@ mod tests {
             "BUILD-ROLLBACK-DETAIL: authoritative=4 rollback=2 last=10:12 source=tileConfig business=1 clear=0 last-rb=0 pending=match outcome=rejected-missing-building block=alpha"
         ));
         assert!(frame.contains(
-            "BUILD-INTERACTION: mode=place select=head-aligned queue=mixed pending=3 place-ready=1 cfg=4/8 top=gamma head=queued@10:12:place:b301:r1 auth=rejected-missing-building pending=match src=tileConfig tile=10:12 block=alpha orphan=6"
+            "BUILD-INTERACTION: cfgflow:m=place:s=head-aligned:q=mixed:p=3:pr=1:cfg=4/8:top=gamma:h=queued@10:12:place:b301:r1:auth=rej-miss-build:pm=match:src=tilecfg:t=10:12:b=alpha:o=6"
         ));
         assert!(frame.contains(
             "BUILD-INTERACTION-DETAIL: selected=301 rot=1 available=1 families=4 samples=8 top=gamma head=queued@10:12:place:b301:r1 authority=rejected-missing-building pending=match source=tileConfig tile=10:12 block=alpha orphan=6"
