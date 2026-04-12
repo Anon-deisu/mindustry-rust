@@ -67,6 +67,8 @@ const WINDOW_HUD_BAR_PADDING_Y: usize = 2;
 const WINDOW_MINIMAP_INSET_PADDING: usize = 4;
 const WINDOW_MINIMAP_INSET_BORDER_WIDTH: usize = 1;
 const WINDOW_BUILD_CONFIG_ENTRY_CAP: usize = 3;
+const WINDOW_BUILD_CONFIG_ENTRY_SAMPLE_LIMIT: usize = 56;
+const WINDOW_BUILD_INSPECTOR_SAMPLE_LIMIT: usize = 72;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowMinimapInset {
@@ -3662,7 +3664,10 @@ fn compose_build_config_entry_status_lines(hud: &HudModel) -> Vec<String> {
                 panel.tracked_family_count,
                 compact_runtime_ui_text(Some(entry.family.as_str())),
                 entry.tracked_count,
-                compact_build_inspector_text(entry.sample.as_str(), 28),
+                compact_build_inspector_text(
+                    entry.sample.as_str(),
+                    WINDOW_BUILD_CONFIG_ENTRY_SAMPLE_LIMIT,
+                ),
             )
         })
         .collect()
@@ -3889,7 +3894,10 @@ fn compose_build_ui_inspector_status_text(build_ui: &BuildUiObservability) -> St
                 "{}#{}@{}",
                 compact_runtime_ui_text(Some(entry.family.as_str())),
                 entry.tracked_count,
-                compact_build_inspector_text(entry.sample.as_str(), 28),
+                compact_build_inspector_text(
+                    entry.sample.as_str(),
+                    WINDOW_BUILD_INSPECTOR_SAMPLE_LIMIT,
+                ),
             )
         })
         .collect::<Vec<_>>()
@@ -9146,6 +9154,59 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match src=tileConfig block=gamma head=10,12",
+        );
+    }
+
+    #[test]
+    fn build_config_entry_status_lines_keep_extended_samples() {
+        let sample = "abcdefghijklmnopqrstuvwxyz".repeat(3);
+        let expected_sample = format!(
+            "{}~",
+            sample
+                .chars()
+                .take(super::WINDOW_BUILD_CONFIG_ENTRY_SAMPLE_LIMIT)
+                .collect::<String>()
+        );
+        let hud = HudModel {
+            build_ui: Some(BuildUiObservability {
+                inspector_entries: vec![crate::BuildConfigInspectorEntryObservability {
+                    family: "alpha".to_string(),
+                    tracked_count: 1,
+                    sample,
+                }],
+                ..BuildUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+
+        assert_eq!(
+            super::compose_build_config_entry_status_lines(&hud),
+            vec![format!("cfgentry:1/1:alpha#1@{expected_sample}")]
+        );
+    }
+
+    #[test]
+    fn build_ui_inspector_status_text_keeps_extended_samples() {
+        let sample = "abcdefghijklmnopqrstuvwxyz".repeat(3);
+        let expected_sample = format!(
+            "{}~",
+            sample
+                .chars()
+                .take(super::WINDOW_BUILD_INSPECTOR_SAMPLE_LIMIT)
+                .collect::<String>()
+        );
+        let build_ui = BuildUiObservability {
+            inspector_entries: vec![crate::BuildConfigInspectorEntryObservability {
+                family: "alpha".to_string(),
+                tracked_count: 1,
+                sample,
+            }],
+            ..BuildUiObservability::default()
+        };
+
+        assert_eq!(
+            super::compose_build_ui_inspector_status_text(&build_ui),
+            format!("alpha#1@{expected_sample}")
         );
     }
 
