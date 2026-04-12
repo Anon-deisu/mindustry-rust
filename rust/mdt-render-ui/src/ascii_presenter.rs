@@ -2612,13 +2612,13 @@ fn compose_runtime_live_entity_detail_row_text(hud: &HudModel) -> Option<String>
 
 fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_effect_panel(hud)?;
-    Some(compose_live_effect_panel_text(&panel))
+    Some(format!("livefx:{}", compose_live_effect_panel_text(&panel)))
 }
 
 fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_effect_panel(hud)?;
     Some(format!(
-        "hint={} source={} pos={} ttl={} data={} active-rel={} contract={} reliable={}",
+        "livefxd:hint{}:src{}:pos{}:ttl{}:data{}:arel{}:ctr{}:rel{}",
         panel.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(panel.display_position_source()),
         world_position_text(panel.display_position()),
@@ -5870,10 +5870,10 @@ mod tests {
             "RUNTIME-LIVE-ENTITY-DETAIL: liveentd:local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT: 11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
+            "RUNTIME-LIVE-EFFECT: livefx:11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT-DETAIL: hint=pos:point2:3:4@1/0 source=active pos=28.0:36.0 ttl=3/5 data=9/4 active-rel=1 contract=lightning reliable=lightning"
+            "RUNTIME-LIVE-EFFECT-DETAIL: livefxd:hintpos:point2:3:4@1/0:srcactive:pos28.0:36.0:ttl3/5:data9/4:arel1:ctrlightning:rellightning"
         ));
         assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.contains(
