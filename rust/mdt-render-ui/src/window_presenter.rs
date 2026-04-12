@@ -5468,15 +5468,35 @@ fn draw_window_minimap_viewport(
         rect_y,
         rect_width,
         rect_height,
-        window_minimap_viewport_color(inset.window_coverage_percent),
+        window_minimap_viewport_color(
+            inset.window_coverage_percent,
+            inset.map_object_density_percent,
+            inset.window_object_density_percent,
+            inset.outside_object_percent,
+        ),
     );
 }
 
-fn window_minimap_viewport_color(window_coverage_percent: usize) -> u32 {
-    match window_coverage_percent {
-        0..=10 => COLOR_MINIMAP_INSET_VIEWPORT_WARN,
-        11..=50 => COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL,
-        _ => COLOR_MINIMAP_INSET_VIEWPORT,
+fn window_minimap_viewport_color(
+    window_coverage_percent: usize,
+    map_object_density_percent: usize,
+    window_object_density_percent: usize,
+    outside_object_percent: usize,
+) -> u32 {
+    let density_deficit = map_object_density_percent.saturating_sub(window_object_density_percent);
+    if window_coverage_percent <= 10
+        || outside_object_percent >= 60
+        || (map_object_density_percent > 0 && window_object_density_percent == 0)
+        || density_deficit >= 10
+    {
+        COLOR_MINIMAP_INSET_VIEWPORT_WARN
+    } else if window_coverage_percent <= 50
+        || outside_object_percent >= 30
+        || density_deficit >= 4
+    {
+        COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL
+    } else {
+        COLOR_MINIMAP_INSET_VIEWPORT
     }
 }
 
@@ -7020,23 +7040,101 @@ mod tests {
     }
 
     #[test]
-    fn window_minimap_viewport_color_tracks_coverage_bands() {
-        assert_eq!(super::window_minimap_viewport_color(0), COLOR_MINIMAP_INSET_VIEWPORT_WARN);
+    fn scale_frame_pixels_draws_density_aware_minimap_viewport_colors() {
+        let frame = WindowFrame {
+            frame_id: 0,
+            title: "demo".to_string(),
+            wave_text: None,
+            session_banner_text: None,
+            status_text: String::new(),
+            build_strip_text: None,
+            build_strip_detail_text: None,
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 24,
+            height: 18,
+            minimap_inset: Some(WindowMinimapInset {
+                map_width: 80,
+                map_height: 60,
+                window: crate::panel_model::PresenterViewWindow {
+                    origin_x: 16,
+                    origin_y: 12,
+                    width: 24,
+                    height: 18,
+                },
+                window_coverage_percent: 51,
+                map_object_density_percent: 10,
+                window_object_density_percent: 5,
+                outside_object_percent: 10,
+                focus_tile: None,
+                player_tile: None,
+                ping_tile: None,
+                unit_assembler_tiles: Vec::new(),
+                tile_action_tiles: Vec::new(),
+                command_tiles: Vec::new(),
+                command_rects: Vec::new(),
+                runtime_break_rects: Vec::new(),
+                unit_assembler_rects: Vec::new(),
+                world_label_tiles: Vec::new(),
+                runtime_overlay_tiles: Vec::new(),
+            }),
+            pixels: vec![COLOR_EMPTY; 24 * 18],
+        };
+
+        let pixels = scale_frame_pixels(&frame, 4);
+        let surface_width = frame.width * 4;
+        let surface_height = frame.height * 4;
+        let mut top_right_pixels = Vec::new();
+        for y in 0..surface_height / 2 {
+            for x in (surface_width * 3) / 5..surface_width {
+                top_right_pixels.push(pixels[y * surface_width + x]);
+            }
+        }
+
+        assert!(top_right_pixels.contains(&COLOR_TERRAIN));
+        assert!(top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL));
+        assert!(!top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_WARN));
+    }
+
+    #[test]
+    fn window_minimap_viewport_color_tracks_coverage_density_and_visibility_bands() {
         assert_eq!(
-            super::window_minimap_viewport_color(10),
+            super::window_minimap_viewport_color(0, 2, 11, 50),
             COLOR_MINIMAP_INSET_VIEWPORT_WARN
         );
         assert_eq!(
-            super::window_minimap_viewport_color(11),
+            super::window_minimap_viewport_color(10, 2, 11, 50),
+            COLOR_MINIMAP_INSET_VIEWPORT_WARN
+        );
+        assert_eq!(
+            super::window_minimap_viewport_color(11, 2, 2, 29),
             COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL
         );
         assert_eq!(
-            super::window_minimap_viewport_color(50),
+            super::window_minimap_viewport_color(50, 2, 2, 29),
             COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL
         );
-        assert_eq!(super::window_minimap_viewport_color(51), COLOR_MINIMAP_INSET_VIEWPORT);
         assert_eq!(
-            super::window_minimap_viewport_color(100),
+            super::window_minimap_viewport_color(51, 3, 3, 29),
+            COLOR_MINIMAP_INSET_VIEWPORT
+        );
+        assert_eq!(
+            super::window_minimap_viewport_color(100, 6, 0, 10),
+            COLOR_MINIMAP_INSET_VIEWPORT_WARN
+        );
+        assert_eq!(
+            super::window_minimap_viewport_color(100, 10, 5, 10),
+            COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL
+        );
+        assert_eq!(
+            super::window_minimap_viewport_color(100, 10, 10, 60),
+            COLOR_MINIMAP_INSET_VIEWPORT_WARN
+        );
+        assert_eq!(
+            super::window_minimap_viewport_color(100, 10, 10, 10),
             COLOR_MINIMAP_INSET_VIEWPORT
         );
     }
