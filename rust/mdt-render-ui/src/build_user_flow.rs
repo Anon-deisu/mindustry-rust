@@ -270,7 +270,9 @@ fn build_blockers(assist: &BuildMinimapAssistPanelModel) -> Vec<BuildUserFlowBlo
             ) {
                 blockers.push(BuildUserFlowBlocker::Realign);
             }
-            if authority_needs_attention(assist.authority_state) {
+            if authority_needs_attention(assist.authority_state)
+                || authority_pending_match_needs_attention(assist.authority_pending_match)
+            {
                 blockers.push(BuildUserFlowBlocker::Resolve);
             }
             if focus_needs_refocus(assist) {
@@ -289,6 +291,10 @@ fn authority_needs_attention(state: BuildInteractionAuthorityState) -> bool {
         state,
         BuildInteractionAuthorityState::None | BuildInteractionAuthorityState::Applied
     )
+}
+
+fn authority_pending_match_needs_attention(value: Option<bool>) -> bool {
+    value == Some(false)
 }
 
 fn focus_needs_refocus(assist: &BuildMinimapAssistPanelModel) -> bool {
@@ -513,6 +519,87 @@ mod tests {
         assert_eq!(panel.pan_label(), "hold");
         assert_eq!(panel.target_kind, MinimapUserTargetKind::Marker);
         assert_eq!(panel.config_scope, "single");
+    }
+
+    #[test]
+    fn build_user_flow_treats_pending_mismatch_as_resolve_blocker_when_authority_is_applied() {
+        let panel = build_user_flow_from_panels(
+            &BuildMinimapAssistPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadAligned,
+                queue_state: BuildInteractionQueueState::Queued,
+                place_ready: true,
+                config_family_count: 1,
+                config_sample_count: 1,
+                top_config_family: Some("message".to_string()),
+                authority_state: BuildInteractionAuthorityState::Applied,
+                authority_pending_match: Some(false),
+                head_tile: Some((4, 6)),
+                authority_tile: Some((4, 6)),
+                authority_source: None,
+                focus_tile: Some((4, 6)),
+                focus_in_window: Some(true),
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 40,
+                tracked_object_count: 3,
+                runtime_count: 0,
+            },
+            &MinimapUserFlowPanelModel {
+                next_action: "inspect",
+                focus_state: MinimapUserFocusState::Inside,
+                pan_horizontal: MinimapPanAxisDirection::None,
+                pan_vertical: MinimapPanAxisDirection::None,
+                target_kind: MinimapUserTargetKind::Marker,
+                focus_tile: Some((4, 6)),
+                window_clamped_left: false,
+                window_clamped_top: false,
+                window_clamped_right: false,
+                window_clamped_bottom: false,
+                focus_offset_x: Some(0),
+                focus_offset_y: Some(0),
+                overlay_target_count: 1,
+                visible_tile_count: 40,
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 40,
+            },
+            &BuildInteractionPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadAligned,
+                queue_state: BuildInteractionQueueState::Queued,
+                selected_block_id: Some(1),
+                selected_rotation: 0,
+                pending_count: 1,
+                orphan_authoritative_count: 0,
+                place_ready: true,
+                config_available: true,
+                config_family_count: 1,
+                config_sample_count: 1,
+                top_config_family: Some("message".to_string()),
+                head: Some(BuildConfigHeadModel {
+                    x: 4,
+                    y: 6,
+                    breaking: false,
+                    block_id: Some(1),
+                    rotation: Some(0),
+                    stage: crate::BuildQueueHeadStage::Queued,
+                }),
+                authority_state: BuildInteractionAuthorityState::Applied,
+                authority_pending_match: Some(false),
+                authority_source: None,
+                authority_tile: Some((4, 6)),
+                authority_block_name: Some("message".to_string()),
+            },
+        );
+
+        assert_eq!(panel.next_action, "resolve");
+        assert_eq!(panel.blocker_labels(), vec!["resolve"]);
+        assert_eq!(panel.route, vec!["resolve", "commit"]);
+        assert_eq!(
+            panel.detail_label(),
+            "next=resolve minimap=inspect focus=inside pan=hold target=marker scope=single blockers=resolve route=resolve+commit authority=applied head=4,6"
+        );
     }
 
     #[test]

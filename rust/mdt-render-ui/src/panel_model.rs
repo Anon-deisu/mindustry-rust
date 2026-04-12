@@ -354,7 +354,7 @@ impl BuildMinimapAssistPanelModel {
         !matches!(
             self.authority_state,
             BuildInteractionAuthorityState::None | BuildInteractionAuthorityState::Applied
-        )
+        ) || self.authority_pending_match == Some(false)
     }
 }
 
@@ -3419,6 +3419,10 @@ mod tests {
         assert_eq!(panel.next_action_label(), "resolve");
 
         panel.authority_state = BuildInteractionAuthorityState::Applied;
+        panel.authority_pending_match = Some(false);
+        assert_eq!(panel.next_action_label(), "resolve");
+
+        panel.authority_pending_match = None;
         panel.focus_in_window = Some(false);
         assert_eq!(panel.next_action_label(), "refocus");
 
