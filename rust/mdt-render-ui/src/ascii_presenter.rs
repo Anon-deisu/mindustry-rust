@@ -2602,12 +2602,12 @@ fn compose_runtime_reconnect_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_live_entity_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_entity_panel(hud)?;
-    Some(compose_live_entity_panel_text(&panel))
+    Some(format!("liveent:{}", compose_live_entity_panel_text(&panel)))
 }
 
 fn compose_runtime_live_entity_detail_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_entity_panel(hud)?;
-    Some(panel.detail_label())
+    Some(format!("liveentd:{}", panel.detail_label()))
 }
 
 fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
@@ -5864,10 +5864,10 @@ mod tests {
             "RUNTIME-RECONNECT-DETAIL: phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
+            "RUNTIME-LIVE-ENTITY: liveent:1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-ENTITY-DETAIL: local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
+            "RUNTIME-LIVE-ENTITY-DETAIL: liveentd:local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
         ));
         assert!(frame.contains(
             "RUNTIME-LIVE-EFFECT: 11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
