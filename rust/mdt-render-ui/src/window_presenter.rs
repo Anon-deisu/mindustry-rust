@@ -1606,6 +1606,13 @@ fn compose_frame_panel_lines(
     if let Some(render_pipeline_text) = compose_render_pipeline_status_text(scene, window) {
         lines.push(format!("RENDER-PIPELINE: {render_pipeline_text}"));
     }
+    if let Some(render_pipeline_detail_text) =
+        compose_render_pipeline_detail_status_text(scene, window)
+    {
+        lines.push(format!(
+            "RENDER-PIPELINE-DETAIL: {render_pipeline_detail_text}"
+        ));
+    }
     for render_layer_text in compose_render_layer_status_lines(scene, window) {
         lines.push(format!("RENDER-LAYER: {render_layer_text}"));
     }
@@ -4568,8 +4575,16 @@ fn compose_render_pipeline_status_text(
         window.origin_y,
         window.width,
         window.height,
-        summary.visible_semantics.family_and_detail_text(),
+        summary.visible_semantics.family_text(),
     ))
+}
+
+fn compose_render_pipeline_detail_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let summary = render_pipeline_summary(scene, window)?;
+    summary.visible_semantics.detail_text()
 }
 
 fn compose_render_layer_status_lines(
@@ -8277,7 +8292,11 @@ mod tests {
         let frame = backend.frames.last().unwrap();
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RENDER-PIPELINE: pipe:tot5:vis3:clip2:ly3:span0..40:f1,1:w0,0+2x2:players=1 markers=1 plans=0 blocks=0 runtime=0 terrain=1 unknown=0 detail=marker-line:1",
+            "RENDER-PIPELINE: pipe:tot5:vis3:clip2:ly3:span0..40:f1,1:w0,0+2x2:players=1 markers=1 plans=0 blocks=0 runtime=0 terrain=1 unknown=0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-PIPELINE-DETAIL: marker-line:1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

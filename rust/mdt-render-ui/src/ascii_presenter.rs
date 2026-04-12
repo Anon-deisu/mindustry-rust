@@ -228,6 +228,12 @@ impl AsciiScenePresenter {
         if let Some(render_pipeline_text) = compose_render_pipeline_text(scene, window) {
             out.push_str(&format!("RENDER-PIPELINE: {render_pipeline_text}\n"));
         }
+        if let Some(render_pipeline_detail_text) = compose_render_pipeline_detail_text(scene, window)
+        {
+            out.push_str(&format!(
+                "RENDER-PIPELINE-DETAIL: {render_pipeline_detail_text}\n"
+            ));
+        }
         for render_layer_text in compose_render_layer_lines(scene, window) {
             out.push_str(&format!("RENDER-LAYER: {render_layer_text}\n"));
         }
@@ -3544,7 +3550,7 @@ fn compose_render_pipeline_text(
         window.origin_y,
         window.width,
         window.height,
-        summary.visible_semantics.family_and_detail_text(),
+        summary.visible_semantics.family_text(),
     ))
 }
 
@@ -3599,6 +3605,14 @@ fn render_pipeline_summary(
             height: window.height,
         },
     ))
+}
+
+fn compose_render_pipeline_detail_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let summary = render_pipeline_summary(scene, window)?;
+    summary.visible_semantics.detail_text()
 }
 
 fn semantic_detail_text(
@@ -4463,7 +4477,10 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains(
-            "RENDER-PIPELINE: total=5 visible=3 clipped=2 layers=3 span=0..40 focus=1:1 window=0:0+2x2 kinds=players=1 markers=1 plans=0 blocks=0 runtime=0 terrain=1 unknown=0 detail=marker-line:1"
+            "RENDER-PIPELINE: total=5 visible=3 clipped=2 layers=3 span=0..40 focus=1:1 window=0:0+2x2 kinds=players=1 markers=1 plans=0 blocks=0 runtime=0 terrain=1 unknown=0"
+        ));
+        assert!(frame.contains(
+            "RENDER-PIPELINE-DETAIL: marker-line:1"
         ));
         assert!(frame.contains(
             "RENDER-LAYER: 1/3 layer=0 objects=1 player=0 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=0"
