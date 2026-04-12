@@ -21199,6 +21199,197 @@ mod tests {
     }
 
     #[test]
+    fn entity_snapshot_packet_applies_nested_payload_family_rows_to_runtime_projection_and_stack() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let sample_body_len = u16::from_be_bytes([sample_payload[2], sample_payload[3]]) as usize;
+        let sample_body = &sample_payload[4..4 + sample_body_len];
+        let player_rows = try_parse_player_sync_rows_from_entity_snapshot(&sample_payload);
+        let alpha_rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&sample_payload);
+        assert_eq!(player_rows.len(), 1);
+        assert_eq!(alpha_rows.len(), 1);
+        let player_row = sample_body[player_rows[0].start..player_rows[0].end].to_vec();
+        let alpha_row = sample_body[alpha_rows[0].start..alpha_rows[0].end].to_vec();
+
+        let payload_unit_body =
+            synthetic_quad_revision_six_unit_payload_body_with_nested_unit_payload();
+        let tether_unit_body =
+            synthetic_building_tether_revision_one_unit_payload_body_with_nested_unit_payload();
+        let payload = build_entity_snapshot_payload(&[
+            player_row,
+            alpha_row,
+            build_entity_snapshot_row(
+                777,
+                5,
+                &synthetic_payload_sync_bytes_with_unit_payload(23, &payload_unit_body),
+            ),
+            build_entity_snapshot_row(
+                888,
+                36,
+                &synthetic_building_tether_payload_sync_bytes_with_unit_payload(
+                    36,
+                    &tether_unit_body,
+                ),
+            ),
+        ]);
+
+        let world_bundle = parse_world_bundle(&compressed_world_stream).unwrap();
+        let content_header = Some(world_bundle.content_header.as_slice());
+        let payload_row = try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+            &payload,
+            content_header,
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+        let tether_row =
+            try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            )
+            .into_iter()
+            .next()
+            .unwrap();
+        let expected_payload_unit = expected_unit_payload_snapshot(23, &payload_unit_body);
+        let expected_tether_unit = expected_unit_payload_snapshot(36, &tether_unit_body);
+        let expected_payload_stack = ClientSession::entity_snapshot_unit_item_stack_projection(
+            payload_row.sync.stack_item_id,
+            payload_row.sync.stack_amount,
+        );
+        let expected_tether_stack = ClientSession::entity_snapshot_unit_item_stack_projection(
+            tether_row.sync.stack_item_id,
+            tether_row.sync.stack_amount,
+        );
+
+        assert_eq!(payload_row.unit_payload, Some(expected_payload_unit.clone()));
+        assert_eq!(tether_row.unit_payload, Some(expected_tether_unit.clone()));
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
+        );
+        assert_eq!(session.state().received_entity_snapshot_count, 1);
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&777),
+            Some(&crate::session_state::EntityProjection {
+                class_id: 5,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 777,
+                x_bits: payload_row.sync.x_bits,
+                y_bits: payload_row.sync.y_bits,
+                last_seen_entity_snapshot_count: 1,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&888),
+            Some(&crate::session_state::EntityProjection {
+                class_id: 36,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 888,
+                x_bits: tether_row.sync.x_bits,
+                y_bits: tether_row.sync.y_bits,
+                last_seen_entity_snapshot_count: 1,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_snapshot_payload_apply_projection
+                .by_entity_id
+                .get(&777),
+            Some(&crate::session_state::EntitySnapshotPayloadApplyEntry {
+                class_id: 5,
+                last_seen_entity_snapshot_count: 1,
+                payload_count: payload_row.sync.payload_count,
+                building_pos: None,
+                unit_payload: Some(expected_payload_unit.clone()),
+                carried_item_stack: expected_payload_stack.clone(),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_snapshot_payload_apply_projection
+                .by_entity_id
+                .get(&888),
+            Some(&crate::session_state::EntitySnapshotPayloadApplyEntry {
+                class_id: 36,
+                last_seen_entity_snapshot_count: 1,
+                payload_count: tether_row.sync.payload_count,
+                building_pos: Some(tether_row.sync.building_pos),
+                unit_payload: Some(expected_tether_unit.clone()),
+                carried_item_stack: expected_tether_stack.clone(),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .entity_item_stack_by_entity_id
+                .get(&777)
+                .cloned(),
+            expected_payload_stack.clone()
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .entity_item_stack_by_entity_id
+                .get(&888)
+                .cloned(),
+            expected_tether_stack.clone()
+        );
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().entity_at(777),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count == Some(payload_row.sync.payload_count)
+                    && unit.semantic.building_pos.is_none()
+                    && unit.unit_payload == Some(expected_payload_unit)
+                    && unit.carried_item_stack == expected_payload_stack
+        ));
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().entity_at(888),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count == Some(tether_row.sync.payload_count)
+                    && unit.semantic.building_pos == Some(tether_row.sync.building_pos)
+                    && unit.unit_payload == Some(expected_tether_unit)
+                    && unit.carried_item_stack == expected_tether_stack
+        ));
+    }
+
+    #[test]
     fn building_tether_payload_shape_entity_snapshot_prefix_parser_accepts_class_id_36() {
         let payload = build_entity_snapshot_payload(&[build_entity_snapshot_row(
             888,
