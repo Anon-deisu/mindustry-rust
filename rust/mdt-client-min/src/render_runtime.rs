@@ -6291,6 +6291,9 @@ fn append_runtime_building_markers(
             TypedBuildingRuntimeValue::Separator { .. } => {
                 append_runtime_separator_objects(scene, building);
             }
+            TypedBuildingRuntimeValue::BuildTower { .. } => {
+                append_runtime_build_tower_objects(scene, building);
+            }
             TypedBuildingRuntimeValue::ItemBridge { link: Some(target_build_pos), .. }
                 if building.kind == TypedBuildingRuntimeKind::ItemBridge =>
             {
@@ -6425,6 +6428,24 @@ fn append_runtime_separator_objects(
     scene.objects.push(RenderObject {
         id: format!(
             "marker:runtime-separator:{}:{tile_x}:{tile_y}",
+            building.block_name
+        ),
+        layer: 16,
+        x: tile_x as f32 * TILE_SIZE,
+        y: tile_y as f32 * TILE_SIZE,
+    });
+}
+
+fn append_runtime_build_tower_objects(
+    scene: &mut RenderModel,
+    building: &TypedBuildingRuntimeModel,
+) {
+    const TILE_SIZE: f32 = 8.0;
+
+    let (tile_x, tile_y) = unpack_runtime_point2(building.build_pos);
+    scene.objects.push(RenderObject {
+        id: format!(
+            "marker:runtime-build-tower:{}:{tile_x}:{tile_y}",
             building.block_name
         ),
         layer: 16,
@@ -9460,6 +9481,61 @@ mod tests {
             .expect("separator runtime marker should be present");
         assert_eq!(marker.x, 336.0);
         assert_eq!(marker.y, 512.0);
+        assert_eq!(marker.layer, 16);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_build_tower_runtime_marker_in_scene() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(28, 50);
+
+        state
+            .runtime_typed_building_apply_projection
+            .upsert_runtime_building(crate::session_state::TypedBuildingRuntimeModel {
+                build_pos,
+                block_id: Some(1),
+                block_name: "build-tower".to_string(),
+                kind: TypedBuildingRuntimeKind::BuildTower,
+                value: TypedBuildingRuntimeValue::BuildTower {
+                    rotation_bits: Some(0x4210_0000),
+                    plans_present: Some(true),
+                    plan_count: Some(5),
+                },
+                inventory_item_stacks: vec![],
+                inventory_liquid_stacks: vec![],
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: Some(0x4210_0000),
+                build_turret_plans_present: Some(true),
+                build_turret_plan_count: Some(5),
+                last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+            });
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = scene_object_by_id(&scene, "marker:runtime-build-tower:build-tower:28:50")
+            .expect("build-tower runtime marker should be present");
+        assert_eq!(marker.x, 224.0);
+        assert_eq!(marker.y, 400.0);
         assert_eq!(marker.layer, 16);
     }
 
