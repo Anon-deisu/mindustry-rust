@@ -2486,8 +2486,9 @@ fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {
 
 fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_build_config_panel(hud, 3)?;
+    let interaction = build_build_interaction_panel(hud);
     Some(format!(
-        "sel={} rot={} mode={} pending={}/{} hist={}/{} orphan={} head={} align={} families={}/{} tracked={}",
+        "sel={} rot={} mode={} pending={}/{} hist={}/{} orphan={} head={} align={} {} families={}/{} tracked={}",
         optional_i16_label(panel.selected_block_id),
         panel.selected_rotation,
         if panel.building { "build" } else { "idle" },
@@ -2498,10 +2499,24 @@ fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
         panel.orphan_authoritative_count,
         build_config_head_text(panel.head.as_ref()),
         build_config_alignment_text(panel.selected_matches_head),
+        compose_build_config_authority_summary_text(interaction.as_ref()),
         panel.entries.len(),
         panel.tracked_family_count,
         panel.tracked_sample_count,
     ))
+}
+
+fn compose_build_config_authority_summary_text(
+    interaction: Option<&crate::panel_model::BuildInteractionPanelModel>,
+) -> String {
+    let (authority_state, authority_pending_match) = interaction
+        .map(|panel| (panel.authority_state, panel.authority_pending_match))
+        .unwrap_or((crate::panel_model::BuildInteractionAuthorityState::None, None));
+    format!(
+        "auth={} pending={}",
+        build_interaction_authority_text(authority_state),
+        build_config_pending_match_text(authority_pending_match),
+    )
 }
 
 fn compose_build_config_entry_lines(hud: &HudModel) -> Vec<String> {
@@ -4630,7 +4645,7 @@ mod tests {
             "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
         ));
         assert!(frame.contains(
-            "BUILD-CONFIG: sel=257 rot=2 mode=build pending=1/2 hist=3/4 orphan=1 head=flight@100:99:place:b301:r1 align=split families=2/2 tracked=2"
+            "BUILD-CONFIG: sel=257 rot=2 mode=build pending=1/2 hist=3/4 orphan=1 head=flight@100:99:place:b301:r1 align=split auth=rollback pending=mismatch families=2/2 tracked=2"
         ));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/2 message#1@18:40:len=5:text=hello"));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/2 power-node#1@23:45:links=24:46|25:47"));
@@ -4772,6 +4787,14 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_build_config_authority_summary_falls_back_to_none_without_interaction() {
+        assert_eq!(
+            super::compose_build_config_authority_summary_text(None),
+            "auth=none pending=none"
+        );
+    }
+
+    #[test]
     fn ascii_presenter_surfaces_minimap_and_build_config_overflow_context() {
         let scene = RenderModel {
             viewport: Viewport {
@@ -4901,7 +4924,7 @@ mod tests {
             "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
         ));
         assert!(frame.contains(
-            "BUILD-CONFIG: sel=301 rot=1 mode=build pending=2/1 hist=4/5 orphan=6 head=queued@10:12:place:b301:r1 align=match families=3/4 tracked=8"
+            "BUILD-CONFIG: sel=301 rot=1 mode=build pending=2/1 hist=4/5 orphan=6 head=queued@10:12:place:b301:r1 align=match auth=rejected-missing-building pending=match families=3/4 tracked=8"
         ));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/4 gamma#4@four"));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/4 beta#2@two"));
