@@ -1648,6 +1648,9 @@ fn compose_frame_panel_lines(
     if let Some(build_queue_text) = compose_build_ui_queue_status_text(hud) {
         lines.push(format!("BUILD-QUEUE: {build_queue_text}"));
     }
+    if let Some(build_queue_detail_text) = compose_build_ui_queue_detail_status_text(hud) {
+        lines.push(format!("BUILD-QUEUE-DETAIL: {build_queue_detail_text}"));
+    }
     if let Some(build_minimap_aux_text) = compose_build_minimap_aux_status_text(scene, hud, window)
     {
         lines.push(format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}"));
@@ -3761,6 +3764,19 @@ fn compose_build_ui_queue_status_text(hud: &HudModel) -> Option<String> {
     let build_ui = hud.build_ui.as_ref()?;
     Some(format!(
         "bqueue:q{}:i{}:f{}:r{}:o{}:h={}",
+        build_ui.queued_count,
+        build_ui.inflight_count,
+        build_ui.finished_count,
+        build_ui.removed_count,
+        build_ui.orphan_authoritative_count,
+        build_queue_head_status_text(build_ui.head.as_ref()),
+    ))
+}
+
+fn compose_build_ui_queue_detail_status_text(hud: &HudModel) -> Option<String> {
+    let build_ui = hud.build_ui.as_ref()?;
+    Some(format!(
+        "q={} i={} f={} r={} o={} h={}",
         build_ui.queued_count,
         build_ui.inflight_count,
         build_ui.finished_count,
@@ -8894,6 +8910,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "BUILD-QUEUE-DETAIL: q=1 i=2 f=3 r=4 o=1 h=flight@100:99:place:b301:r1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-NOTICE: notice:hud=9/10/11@hud_text/hud_rel:ann=12@announce:info=13@info:toast=14/15@toast/warn:popup=16/17@1:popup-a/popup_text:clip=18@copied:uri=19@https_//exam~:https:tin=53@404:Digits/Only_numbers/12345#16:n1:e1",
         );
         assert_frame_line_contains(
@@ -9206,6 +9226,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-QUEUE: bqueue:q2:i1:f4:r5:o6:h=queued@10:12:place:b301:r1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-QUEUE-DETAIL: q=2 i=1 f=4 r=5 o=6 h=queued@10:12:place:b301:r1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

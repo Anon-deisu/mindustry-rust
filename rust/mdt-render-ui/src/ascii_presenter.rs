@@ -289,6 +289,11 @@ impl AsciiScenePresenter {
         if let Some(build_queue_text) = compose_build_ui_queue_text(hud) {
             out.push_str(&format!("BUILD-QUEUE: {build_queue_text}\n"));
         }
+        if let Some(build_queue_detail_text) = compose_build_ui_queue_detail_text(hud) {
+            out.push_str(&format!(
+                "BUILD-QUEUE-DETAIL: {build_queue_detail_text}\n"
+            ));
+        }
         for inspector_line in compose_build_ui_inspector_lines(hud) {
             out.push_str(&format!("BUILD-INSPECTOR: {inspector_line}\n"));
         }
@@ -2326,6 +2331,19 @@ fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
 fn compose_build_ui_queue_text(hud: &HudModel) -> Option<String> {
     let build_ui = hud.build_ui.as_ref()?;
     Some(compose_build_ui_queue_summary_text(build_ui))
+}
+
+fn compose_build_ui_queue_detail_text(hud: &HudModel) -> Option<String> {
+    let build_ui = hud.build_ui.as_ref()?;
+    Some(format!(
+        "head={} q={} i={} f={} r={} o={}",
+        build_queue_head_text(build_ui.head.as_ref()),
+        build_ui.queued_count,
+        build_ui.inflight_count,
+        build_ui.finished_count,
+        build_ui.removed_count,
+        build_ui.orphan_authoritative_count,
+    ))
 }
 
 fn compose_minimap_panel_text(
@@ -4891,6 +4909,8 @@ mod tests {
         assert!(frame.contains("BUILD: sel=257 rot=2 building=1 cfg=2"));
         assert!(frame.contains("BUILD-QUEUE: queue=1/2/3/4/1 head=flight@100:99:place:b301:r1"));
         assert!(frame
+            .contains("BUILD-QUEUE-DETAIL: head=flight@100:99:place:b301:r1 q=1 i=2 f=3 r=4 o=1"));
+        assert!(frame
             .contains("BUILD-INSPECTOR: family=message tracked=1 sample=18:40:len=5:text=hello"));
         assert!(frame.contains(
             "BUILD-INSPECTOR: family=power-node tracked=1 sample=23:45:links=24:46|25:47"
@@ -5205,6 +5225,8 @@ mod tests {
         assert!(frame.contains(
             "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match src=tileConfig block=alpha head=10,12"
         ));
+        assert!(frame
+            .contains("BUILD-QUEUE-DETAIL: head=queued@10:12:place:b301:r1 q=2 i=1 f=4 r=5 o=6"));
     }
 
     #[test]
