@@ -6289,6 +6289,18 @@ fn append_runtime_building_markers(
             TypedBuildingRuntimeValue::Separator { .. } => {
                 append_runtime_separator_objects(scene, building);
             }
+            TypedBuildingRuntimeValue::Links(targets)
+                if building.kind == TypedBuildingRuntimeKind::PowerNode =>
+            {
+                for target_build_pos in targets {
+                    append_runtime_driver_link_objects(
+                        scene,
+                        building.block_name.as_str(),
+                        building.build_pos,
+                        *target_build_pos,
+                    );
+                }
+            }
             TypedBuildingRuntimeValue::MassDriver {
                 link: Some(target_build_pos),
                 ..
@@ -10957,6 +10969,94 @@ mod tests {
             entry.family == "payload-mass-driver"
                 && entry.sample
                     == "28:30:large-payload-mass-driver:link=32:34:rot=0x41500000:state=4:reload=0x3f600000:charge=0x3f700000:loaded=0:charging=1:payload=0"
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_power_node_link_markers() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(23, 45);
+
+        state
+            .configured_block_projection
+            .power_node_links_by_build_pos
+            .insert(
+                build_pos,
+                BTreeSet::from([pack_runtime_point2(24, 46), pack_runtime_point2(25, 47)]),
+            );
+        state.building_table_projection.by_build_pos.insert(
+            build_pos,
+            crate::session_state::BuildingProjection {
+                block_id: Some(1),
+                block_name: Some("power-node".to_string()),
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                config: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+            },
+        );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:line:runtime-driver-link:power-node:23:45:24:46"
+                && object.x == 184.0
+                && object.y == 360.0
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:line:runtime-driver-link:power-node:23:45:24:46:line-end"
+                && object.x == 192.0
+                && object.y == 368.0
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:line:runtime-driver-link:power-node:23:45:25:47"
+                && object.x == 184.0
+                && object.y == 360.0
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:line:runtime-driver-link:power-node:23:45:25:47:line-end"
+                && object.x == 200.0
+                && object.y == 376.0
+        }));
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Line {
+                    id,
+                    layer,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                } if id == "marker:line:runtime-driver-link:power-node:23:45:24:46"
+                    && *layer == 15
+                    && *x0 == 184.0
+                    && *y0 == 360.0
+                    && *x1 == 192.0
+                    && *y1 == 368.0
+            )
         }));
     }
 
