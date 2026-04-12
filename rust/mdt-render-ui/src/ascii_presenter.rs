@@ -2144,6 +2144,9 @@ fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
     if let Some(bootstrap_text) = compose_runtime_bootstrap_detail_text(hud) {
         segments.push(format!("bootstrap=[{bootstrap_text}]"));
     }
+    if let Some(core_binding_text) = compose_runtime_core_binding_detail_text(hud) {
+        segments.push(format!("core-binding=[{core_binding_text}]"));
+    }
     segments.push(format!(
         "resource=[{}]",
         compose_runtime_resource_delta_detail_panel_text(&panel.resource_delta)
@@ -5013,7 +5016,7 @@ mod tests {
             "RUNTIME-SESSION: bootstrap=rules=rules-hash-1:tags=tags-hash-2:locales=locales-hash-3:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7; resource=tiles=80/81/82/83 set=22/23/24/25 clear=84/85 tile=26/27 flow=1/2/3 last=to_unit@6#none:bpnone:u2:808:eid404 proj=2/3/1 auth=4 delta=5/6/7 chg=999/900/6/1; kick=idInUse@7:IdInUse:wait_for_old~; loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6; reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
         ));
         assert!(frame.contains(
-            "RUNTIME-SESSION-DETAIL: bootstrap=[rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7] resource=[tile-rm=80 tile-set=81 floor-set=82 overlay-set=83 item-set=22/23 liquid-set=24/25 clear=84/85 tile-apply=26/27 flow=1/2/3 last-kind=to_unit item=6 amount=none build=none unit=2:808 to-entity=404 projection=2/3/1 authoritative=4 delta=5/6/7 changed=999/900/6/1] kick=[reason-len=7 ordinal=7 category-len=7 hint-len=20] loading=[ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6] reconnect=[phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567]"
+            "RUNTIME-SESSION-DETAIL: bootstrap=[rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7] core-binding=[kind=first-core-per-team ambiguous-count=1 ambiguous-sample=1 missing-count=1 missing-sample=4] resource=[tile-rm=80 tile-set=81 floor-set=82 overlay-set=83 item-set=22/23 liquid-set=24/25 clear=84/85 tile-apply=26/27 flow=1/2/3 last-kind=to_unit item=6 amount=none build=none unit=2:808 to-entity=404 projection=2/3/1 authoritative=4 delta=5/6/7 changed=999/900/6/1] kick=[reason-len=7 ordinal=7 category-len=7 hint-len=20] loading=[ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6] reconnect=[phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567]"
         ));
         assert!(frame.contains("RUNTIME-KICK: idInUse@7:IdInUse:wait_for_old~"));
         assert!(frame

@@ -1330,6 +1330,7 @@ pub struct RuntimeSessionPanelModel {
 impl RuntimeSessionPanelModel {
     pub fn is_empty(&self) -> bool {
         self.bootstrap.is_empty()
+            && self.core_binding.is_empty()
             && self.resource_delta.is_empty()
             && self.kick.is_empty()
             && self.loading.is_empty()
@@ -5140,7 +5141,15 @@ mod tests {
                 markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
                     bootstrap: RuntimeBootstrapObservability::default(),
-                    core_binding: RuntimeCoreBindingObservability::default(),
+                    core_binding: RuntimeCoreBindingObservability {
+                        kind: Some(
+                            RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation,
+                        ),
+                        ambiguous_team_count: 1,
+                        ambiguous_team_sample: vec![1],
+                        missing_team_count: 1,
+                        missing_team_sample: vec![4],
+                    },
                     resource_delta: RuntimeResourceDeltaObservability {
                         take_items_count: 1,
                         transfer_item_to_count: 2,
@@ -5220,6 +5229,7 @@ mod tests {
         let active_panel =
             build_runtime_session_panel(&active_hud).expect("expected runtime session panel");
         assert!(!active_panel.is_empty());
+        assert!(!active_panel.core_binding.is_empty());
         assert!(!active_panel.resource_delta.is_empty());
         assert!(!active_panel.kick.is_empty());
         assert!(!active_panel.loading.is_empty());
