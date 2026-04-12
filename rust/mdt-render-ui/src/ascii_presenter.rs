@@ -248,6 +248,13 @@ impl AsciiScenePresenter {
         {
             out.push_str(&format!("BUILD-MINIMAP-FLOW: {build_minimap_flow_text}\n"));
         }
+        if let Some(build_minimap_detail_text) =
+            compose_build_minimap_detail_text(scene, hud, window)
+        {
+            out.push_str(&format!(
+                "BUILD-MINIMAP-DETAIL: {build_minimap_detail_text}\n"
+            ));
+        }
         if let Some(build_flow_text) = compose_build_flow_text(scene, hud, window) {
             out.push_str(&format!("BUILD-FLOW: {build_flow_text}\n"));
         }
@@ -2744,6 +2751,28 @@ fn compose_build_minimap_flow_text(
     ))
 }
 
+fn compose_build_minimap_detail_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    let window_tile_count = window.width.saturating_mul(window.height);
+    Some(format!(
+        "next={} pair={} anchor={} focus={} vis={} cover={} rt={}% od={}% ",
+        panel.next_action_label(),
+        panel.head_authority_pair_label(),
+        panel.focus_anchor_label(),
+        panel.focus_state_label(),
+        panel.map_visibility_label(),
+        panel.window_coverage_label(),
+        panel.runtime_share_percent(),
+        panel.window_object_density_percent(window_tile_count),
+    )
+    .trim_end()
+    .to_string())
+}
+
 fn window_object_density_percent(tracked_object_count: usize, window_tile_count: usize) -> usize {
     if window_tile_count == 0 {
         0
@@ -5085,6 +5114,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "BUILD-MINIMAP-FLOW: next=resolve select=head-aligned queue=mixed place-ready=1 focus=inside cover=offscreen rt=0%"
+        ));
+        assert!(frame.contains(
+            "BUILD-MINIMAP-DETAIL: next=resolve pair=match anchor=detached focus=inside vis=unseen cover=offscreen rt=0% od=75%"
         ));
         assert!(frame.contains(
             "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building pending=match"
