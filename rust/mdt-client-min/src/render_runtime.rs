@@ -6291,6 +6291,16 @@ fn append_runtime_building_markers(
             TypedBuildingRuntimeValue::Separator { .. } => {
                 append_runtime_separator_objects(scene, building);
             }
+            TypedBuildingRuntimeValue::ItemBridge { link: Some(target_build_pos), .. }
+                if building.kind == TypedBuildingRuntimeKind::ItemBridge =>
+            {
+                append_runtime_driver_link_objects(
+                    scene,
+                    building.block_name.as_str(),
+                    building.build_pos,
+                    *target_build_pos,
+                );
+            }
             TypedBuildingRuntimeValue::Links(targets)
                 if building.kind == TypedBuildingRuntimeKind::PowerNode =>
             {
@@ -10856,12 +10866,32 @@ mod tests {
                     payload_present: false,
                 },
             );
+        state
+            .configured_block_projection
+            .item_bridge_link_by_build_pos
+            .insert(
+                pack_runtime_point2(33, 55),
+                Some(pack_runtime_point2(60, 61)),
+            );
+        state
+            .configured_block_projection
+            .item_bridge_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(33, 55),
+                crate::session_state::ItemBridgeRuntimeProjection {
+                    warmup_bits: 0x3f00_0000,
+                    incoming_count: 2,
+                    moved: true,
+                    buffer: None,
+                },
+            );
 
         for (build_pos, block_name) in [
             (pack_runtime_point2(30, 40), "tank-assembler"),
             (pack_runtime_point2(12, 14), "mass-driver"),
             (pack_runtime_point2(16, 18), "payload-mass-driver"),
             (pack_runtime_point2(28, 30), "large-payload-mass-driver"),
+            (pack_runtime_point2(33, 55), "bridge-conduit"),
         ] {
             state.building_table_projection.by_build_pos.insert(
                 build_pos,
@@ -10941,6 +10971,16 @@ mod tests {
         assert!(scene.objects.iter().any(|object| {
             object.id == "marker:line:runtime-driver-link:large-payload-mass-driver:28:30:32:34"
         }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:line:runtime-driver-link:bridge-conduit:33:55:60:61"
+                && object.x == 264.0
+                && object.y == 440.0
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:line:runtime-driver-link:bridge-conduit:33:55:60:61:line-end"
+                && object.x == 480.0
+                && object.y == 488.0
+        }));
         assert!(scene.primitives().iter().any(|primitive| {
             matches!(
                 primitive,
@@ -10957,6 +10997,24 @@ mod tests {
                     && *y0 == 112.0
                     && *x1 == 160.0
                     && *y1 == 176.0
+            )
+        }));
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Line {
+                    id,
+                    layer,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                } if id == "marker:line:runtime-driver-link:bridge-conduit:33:55:60:61"
+                    && *layer == 15
+                    && *x0 == 264.0
+                    && *y0 == 440.0
+                    && *x1 == 480.0
+                    && *y1 == 488.0
             )
         }));
         let build_ui = hud
