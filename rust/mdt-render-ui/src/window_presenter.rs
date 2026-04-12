@@ -1563,6 +1563,13 @@ fn compose_frame_panel_lines(
     {
         lines.push(format!("VIS-MINIMAP: {visibility_minimap_text}"));
     }
+    if let Some(minimap_visibility_detail_text) =
+        compose_minimap_visibility_detail_status_text(scene, hud, window)
+    {
+        lines.push(format!(
+            "MINIMAP-VIS-DETAIL: {minimap_visibility_detail_text}"
+        ));
+    }
     if let Some(minimap_flow_text) = compose_minimap_flow_status_text(scene, hud, window) {
         lines.push(format!("MINIMAP-FLOW: {minimap_flow_text}"));
     }
@@ -3392,6 +3399,23 @@ fn compose_minimap_flow_status_text(
         panel.coverage_label(),
         panel.target_kind.label(),
         panel.overlay_target_count,
+    ))
+}
+
+fn compose_minimap_visibility_detail_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let visibility = build_minimap_user_flow_panel(scene, hud, window)?;
+    let minimap = build_minimap_panel(scene, hud, window)?;
+    Some(format!(
+        "minivisd:v={}:c={}:md{}:wd{}:od{}",
+        visibility.visibility_label(),
+        visibility.coverage_label(),
+        minimap.map_object_density_percent(),
+        minimap.window_object_density_percent(),
+        minimap.outside_object_percent(),
     ))
 }
 
@@ -8682,6 +8706,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "MINIMAP-VIS-DETAIL: minivisd:v=mixed:c=offscreen:md0:wd400:od0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "MINIMAP-KINDS: minikind:obj4@pl1:mk1:pn1:bk1:rt0:tr0:uk0",
         );
         assert_frame_line_contains(
@@ -8982,6 +9010,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-KINDS: minikind:obj3@pl1:mk0:pn0:bk0:rt0:tr1:uk1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-VIS-DETAIL: minivisd:v=unseen:c=offscreen:md0:wd75:od0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
