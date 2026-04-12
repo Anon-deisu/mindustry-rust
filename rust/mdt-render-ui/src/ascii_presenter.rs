@@ -202,6 +202,9 @@ impl AsciiScenePresenter {
         if let Some(minimap_kinds_text) = compose_minimap_kind_line(scene, hud) {
             out.push_str(&format!("MINIMAP-KINDS: {minimap_kinds_text}\n"));
         }
+        if let Some(minimap_edge_text) = compose_minimap_edge_line(scene, hud, window) {
+            out.push_str(&format!("MINIMAP-EDGE: {minimap_edge_text}\n"));
+        }
         for minimap_detail_text in compose_minimap_detail_lines(scene, hud) {
             out.push_str(&format!("MINIMAP-DETAIL: {minimap_detail_text}\n"));
         }
@@ -2386,6 +2389,51 @@ fn compose_minimap_visibility_detail_text(
     ))
 }
 
+fn compose_minimap_edge_line(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_panel(scene, hud, window)?;
+    Some(compose_minimap_edge_summary_text(&panel))
+}
+
+fn compose_minimap_edge_summary_text(panel: &MinimapPanelModel) -> String {
+    format!(
+        "focus={} in-window={} drift={}:{} clamp={} outside={}/{} window={}/{}",
+        optional_focus_tile_text(panel.focus_tile),
+        optional_bool_label(panel.focus_in_window),
+        optional_signed_tile_text(panel.focus_offset_x),
+        optional_signed_tile_text(panel.focus_offset_y),
+        minimap_clamp_text(panel),
+        panel.outside_window_count,
+        panel.tracked_object_count,
+        panel.window_tracked_object_count,
+        panel.tracked_object_count,
+    )
+}
+
+fn minimap_clamp_text(panel: &MinimapPanelModel) -> String {
+    let mut clamps = Vec::new();
+    if panel.window_clamped_left {
+        clamps.push("left");
+    }
+    if panel.window_clamped_top {
+        clamps.push("top");
+    }
+    if panel.window_clamped_right {
+        clamps.push("right");
+    }
+    if panel.window_clamped_bottom {
+        clamps.push("bottom");
+    }
+    if clamps.is_empty() {
+        "none".to_string()
+    } else {
+        clamps.join("+")
+    }
+}
+
 fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<String> {
     let panel = build_minimap_panel(
         scene,
@@ -4093,6 +4141,22 @@ mod tests {
         assert!(frame.contains(
             "MINIMAP-KINDS: tracked=7 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
         ));
+        assert!(frame.contains(&format!(
+            "MINIMAP-EDGE: {}",
+            super::compose_minimap_edge_summary_text(
+                &super::build_minimap_panel(
+                    &scene,
+                    &hud,
+                    PresenterViewWindow {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 2,
+                        height: 2,
+                    },
+                )
+                .expect("minimap panel"),
+            )
+        )));
         assert!(frame.contains("MINIMAP-DETAIL: 1/6 marker-line=1"));
         assert!(frame.contains(
             "MINIMAP-DETAIL: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"

@@ -1572,6 +1572,9 @@ fn compose_frame_panel_lines(
     if let Some(minimap_legend_text) = compose_minimap_legend_status_text(hud) {
         lines.push(format!("MINIMAP-LEGEND: {minimap_legend_text}"));
     }
+    if let Some(minimap_edge_text) = compose_minimap_edge_status_text(scene, hud, window) {
+        lines.push(format!("MINIMAP-EDGE: {minimap_edge_text}"));
+    }
     for minimap_detail_text in compose_minimap_detail_status_lines(scene, hud, window) {
         lines.push(format!("MINIMAP-DETAIL: {minimap_detail_text}"));
     }
@@ -3486,6 +3489,51 @@ fn compose_minimap_window_kind_distribution_status_text(panel: &MinimapPanelMode
         panel.window_terrain_count,
         panel.window_unknown_count,
     )
+}
+
+fn compose_minimap_edge_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_panel(scene, hud, window)?;
+    Some(compose_minimap_edge_summary_status_text(&panel))
+}
+
+fn compose_minimap_edge_summary_status_text(panel: &MinimapPanelModel) -> String {
+    format!(
+        "miniedge:f={}@{}:dr={},{}:cl={}:out={}/{}:win={}/{}",
+        optional_focus_tile_status_text(panel.focus_tile),
+        optional_bool_label(panel.focus_in_window),
+        optional_signed_tile_status_text(panel.focus_offset_x),
+        optional_signed_tile_status_text(panel.focus_offset_y),
+        minimap_clamp_status_text(panel),
+        panel.outside_window_count,
+        panel.tracked_object_count,
+        panel.window_tracked_object_count,
+        panel.tracked_object_count,
+    )
+}
+
+fn minimap_clamp_status_text(panel: &MinimapPanelModel) -> String {
+    let mut clamp = String::new();
+    if panel.window_clamped_left {
+        clamp.push('l');
+    }
+    if panel.window_clamped_top {
+        clamp.push('t');
+    }
+    if panel.window_clamped_right {
+        clamp.push('r');
+    }
+    if panel.window_clamped_bottom {
+        clamp.push('b');
+    }
+    if clamp.is_empty() {
+        "-".to_string()
+    } else {
+        clamp
+    }
 }
 
 fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -7832,6 +7880,13 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-KINDS: minikind:obj7@pl1:mk2:pn0:bk0:rt4:tr0:uk0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            &format!(
+                "MINIMAP-EDGE: {}",
+                super::compose_minimap_edge_summary_status_text(&panel)
+            ),
         );
         assert_frame_line_contains(
             &frame.panel_lines,
