@@ -700,7 +700,67 @@ fn item_transfer_geometry(
     ))
 }
 
+fn effect_overlay_delta_bits(value_bits: u32, base_bits: u32) -> u32 {
+    let value = f32::from_bits(value_bits);
+    let base = f32::from_bits(base_bits);
+    if value.is_finite() && base.is_finite() {
+        (value - base).to_bits()
+    } else {
+        0.0f32.to_bits()
+    }
+}
+
+fn effect_overlay_binding_seed(binding: Option<&RuntimeEffectBinding>) -> u32 {
+    match binding {
+        Some(RuntimeEffectBinding::ParentBuilding { build_pos, .. }) => {
+            0x4b1d_0001 ^ (*build_pos as u32).rotate_left(7)
+        }
+        Some(RuntimeEffectBinding::ParentUnit { unit_id, .. }) => {
+            0x7f4a_7c15 ^ (*unit_id as u32).rotate_left(11)
+        }
+        Some(RuntimeEffectBinding::WorldPosition { .. }) => 0x6d2b_79f5,
+        None => 0,
+    }
+}
+
+fn mix_effect_overlay_seed(mut hash: u32) -> u32 {
+    hash ^= hash >> 16;
+    hash = hash.wrapping_mul(0x7feb_352d);
+    hash ^= hash >> 15;
+    hash = hash.wrapping_mul(0x846c_a68b);
+    hash ^= hash >> 16;
+    hash
+}
+
+fn item_transfer_overlay_seed(overlay: &RuntimeEffectOverlay) -> u32 {
+    let delta_x_bits = effect_overlay_delta_bits(overlay.x_bits, overlay.source_x_bits);
+    let delta_y_bits = effect_overlay_delta_bits(overlay.y_bits, overlay.source_y_bits);
+    let mut hash = overlay
+        .effect_id
+        .map(|effect_id| effect_id as u16 as u32)
+        .unwrap_or_default()
+        ^ delta_x_bits.rotate_left(19)
+        ^ delta_y_bits.rotate_left(23)
+        ^ overlay.rotation_bits.rotate_left(3)
+        ^ overlay.color_rgba.rotate_left(11)
+        ^ u32::from(overlay.lifetime_ticks).rotate_left(27)
+        ^ u32::from(overlay.reliable).rotate_left(29)
+        ^ u32::from(overlay.has_data).rotate_left(31)
+        ^ u32::try_from(overlay.polyline_points.len())
+            .unwrap_or(u32::MAX)
+            .rotate_left(17)
+        ^ effect_overlay_binding_seed(overlay.source_binding.as_ref()).rotate_left(5)
+        ^ effect_overlay_binding_seed(overlay.binding.as_ref()).rotate_left(9);
+    if let Some((content_type, content_id)) = overlay.content_ref {
+        hash ^= u32::from(content_type).rotate_left(9) ^ (content_id as u16 as u32).rotate_left(15);
+    }
+    mix_effect_overlay_seed(hash)
+}
+
 fn effect_overlay_instance_seed(overlay: &RuntimeEffectOverlay) -> u32 {
+    if overlay.effect_id == Some(ITEM_TRANSFER_EFFECT_ID) {
+        return item_transfer_overlay_seed(overlay);
+    }
     let mut hash = overlay
         .effect_id
         .map(|effect_id| effect_id as u16 as u32)
@@ -720,12 +780,7 @@ fn effect_overlay_instance_seed(overlay: &RuntimeEffectOverlay) -> u32 {
     if let Some((content_type, content_id)) = overlay.content_ref {
         hash ^= u32::from(content_type).rotate_left(9) ^ (content_id as u16 as u32).rotate_left(15);
     }
-    hash ^= hash >> 16;
-    hash = hash.wrapping_mul(0x7feb_352d);
-    hash ^= hash >> 15;
-    hash = hash.wrapping_mul(0x846c_a68b);
-    hash ^= hash >> 16;
-    hash
+    mix_effect_overlay_seed(hash)
 }
 
 fn effect_overlay_signed_seed(overlay: &RuntimeEffectOverlay, min_abs: f32) -> f32 {
@@ -2721,6 +2776,70 @@ mod tests {
                     < 0.01
             );
         }
+    }
+
+    #[test]
+    fn item_transfer_seed_ignores_overlay_absolute_translation() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(ITEM_TRANSFER_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 15.0f32.to_bits(),
+            color_rgba: 0x55667788,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 20,
+            remaining_ticks: 10,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+        let shifted_overlay = RuntimeEffectOverlay {
+            source_x_bits: 28.0f32.to_bits(),
+            source_y_bits: 44.0f32.to_bits(),
+            x_bits: 96.0f32.to_bits(),
+            y_bits: 184.0f32.to_bits(),
+            ..overlay.clone()
+        };
+
+        assert_eq!(
+            effect_overlay_instance_seed(&overlay),
+            effect_overlay_instance_seed(&shifted_overlay)
+        );
+        assert_eq!(
+            effect_overlay_signed_seed(&overlay, 0.0),
+            effect_overlay_signed_seed(&shifted_overlay, 0.0)
+        );
+
+        let first_geometry = item_transfer_geometry(
+            &overlay,
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            overlay.x_bits,
+            overlay.y_bits,
+            overlay.remaining_ticks,
+            overlay.lifetime_ticks,
+        )
+        .expect("first geometry");
+        let shifted_geometry = item_transfer_geometry(
+            &shifted_overlay,
+            shifted_overlay.source_x_bits,
+            shifted_overlay.source_y_bits,
+            shifted_overlay.x_bits,
+            shifted_overlay.y_bits,
+            shifted_overlay.remaining_ticks,
+            shifted_overlay.lifetime_ticks,
+        )
+        .expect("shifted geometry");
+
+        assert!(((shifted_geometry.0 - first_geometry.0) - 16.0).abs() < 0.01);
+        assert!(((shifted_geometry.1 - first_geometry.1) - 24.0).abs() < 0.01);
+        assert!((shifted_geometry.2 - first_geometry.2).abs() < 0.01);
+        assert!((shifted_geometry.3 - first_geometry.3).abs() < 0.01);
     }
 
     #[test]
