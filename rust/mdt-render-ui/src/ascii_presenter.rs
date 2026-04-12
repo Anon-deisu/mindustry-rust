@@ -183,6 +183,9 @@ impl AsciiScenePresenter {
         if let Some(render_text_text) = compose_render_text_status_text(scene, window) {
             out.push_str(&format!("RENDER-TEXT: {render_text_text}\n"));
         }
+        if let Some(render_text_detail_text) = compose_render_text_detail_text(scene, window) {
+            out.push_str(&format!("RENDER-TEXT-DETAIL: {render_text_detail_text}\n"));
+        }
         if let Some(minimap_text) = compose_minimap_panel_text(scene, hud, window) {
             out.push_str(&format!("MINIMAP: {minimap_text}\n"));
         }
@@ -1204,6 +1207,50 @@ fn compose_render_text_status_text(
         ));
     }
     Some(parts.join(" "))
+}
+
+fn compose_render_text_detail_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let mut text_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match &primitive {
+            RenderPrimitive::Text { kind, layer, x, y, .. } => {
+                let Some((tile_x, tile_y)) = finite_world_tile(*x, *y) else {
+                    return None;
+                };
+                if !render_icon_detail_is_visible(window, tile_x, tile_y) {
+                    return None;
+                }
+                let payload = primitive.payload()?;
+                Some((kind.detail_label().unwrap_or("text"), *layer, *x as i32, *y as i32, payload))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if text_primitives.is_empty() {
+        return None;
+    }
+
+    text_primitives.sort_by(|left, right| {
+        left.1
+            .cmp(&right.1)
+            .then_with(|| left.0.cmp(right.0))
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.cmp(&right.3))
+    });
+
+    let mut parts = vec![format!("count={}", text_primitives.len())];
+    for (kind_label, layer, x, y, payload) in text_primitives {
+        parts.push(format!(
+            "{kind_label}@{layer}:{x}:{y} payload[{}]",
+            render_primitive_payload_fields_text(&payload)
+        ));
+    }
+    Some(parts.join(" | "))
 }
 
 fn render_icon_detail_is_visible(window: PresenterViewWindow, tile_x: i32, tile_y: i32) -> bool {
@@ -5761,6 +5808,34 @@ mod tests {
         assert!(frame.contains("RENDER-TEXT: count=2"));
         assert!(frame.contains("marker-text@30:8:0=Marker"));
         assert!(frame.contains("runtime-world-label@39:0:0=Hello"));
+        assert!(frame.contains("RENDER-TEXT-DETAIL: count=2"));
+        assert!(frame.contains("marker-text@30:8:0 payload[text=Marker]"));
+        assert!(frame.contains("runtime-world-label@39:0:0 payload[text=Hello]"));
+    }
+
+    #[test]
+    fn ascii_presenter_omits_non_finite_text_primitive_summary_and_detail() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "world-label:9:text:48656c6c6f".to_string(),
+                layer: 39,
+                x: f32::NAN,
+                y: 0.0,
+            }],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(!frame.contains("RENDER-TEXT:"));
+        assert!(!frame.contains("RENDER-TEXT-DETAIL:"));
     }
 
     #[test]
