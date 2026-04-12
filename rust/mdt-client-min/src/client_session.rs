@@ -38641,6 +38641,179 @@ mod tests {
     }
 
     #[test]
+    fn tile_config_packet_rejected_unsupported_config_type_then_authoritative_packet_consumes_followup_pending_local_request(
+    ) {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let build_pos = pack_point2(38, 63);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+        let seed_authoritative_value = TypeIoObject::String(Some("hello".to_string()));
+        let first_value = TypeIoObject::String(Some("pending-one".to_string()));
+        let second_value = TypeIoObject::String(Some("pending-two".to_string()));
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &seed_authoritative_value,
+        );
+        session
+            .queue_tile_config(Some(build_pos), first_value.clone())
+            .unwrap();
+        session
+            .queue_tile_config(Some(build_pos), second_value.clone())
+            .unwrap();
+
+        let rejected_payload = encode_tile_config_payload(Some(build_pos), &TypeIoObject::Null);
+        let rejected_packet = encode_packet(packet_id, &rejected_payload, false).unwrap();
+        let rejected_event = session.ingest_packet_bytes(&rejected_packet).unwrap();
+
+        assert!(matches!(
+            rejected_event,
+            ClientSessionEvent::TileConfig {
+                build_pos: Some(value),
+                config_kind: Some(0),
+                config_kind_name: Some(config_kind_name),
+                parse_failed: false,
+                business_applied: true,
+                cleared_pending_local: true,
+                was_rollback: true,
+                pending_local_match: Some(false),
+                configured_block_outcome:
+                    Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType),
+                configured_block_name: Some(configured_block_name),
+            } if value == build_pos
+                && config_kind_name == "null"
+                && configured_block_name == BLOCK_NAME_MESSAGE
+        ));
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&build_pos),
+            Some(&second_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_request_queue_by_build_pos
+                .get(&build_pos)
+                .map(|queue| queue.iter().cloned().collect::<Vec<_>>()),
+            Some(vec![second_value.clone()])
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
+            Some(first_value)
+        );
+
+        let authoritative_payload = encode_tile_config_payload(Some(build_pos), &second_value);
+        let authoritative_packet = encode_packet(packet_id, &authoritative_payload, false).unwrap();
+        let authoritative_event = session.ingest_packet_bytes(&authoritative_packet).unwrap();
+
+        assert!(matches!(
+            authoritative_event,
+            ClientSessionEvent::TileConfig {
+                build_pos: Some(value),
+                config_kind: Some(4),
+                config_kind_name: Some(config_kind_name),
+                parse_failed: false,
+                business_applied: true,
+                cleared_pending_local: true,
+                was_rollback: false,
+                pending_local_match: Some(true),
+                configured_block_outcome:
+                    Some(crate::session_state::ConfiguredBlockOutcome::Applied),
+                configured_block_name: Some(configured_block_name),
+            } if value == build_pos
+                && config_kind_name == "string"
+                && configured_block_name == BLOCK_NAME_MESSAGE
+        ));
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&build_pos),
+            None
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_request_queue_by_build_pos
+                .get(&build_pos)
+                .map(|queue| queue.iter().cloned().collect::<Vec<_>>()),
+            None
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&second_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .canonical_authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&second_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&build_pos)
+                .and_then(|building| building.config.as_ref()),
+            Some(&second_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .message_text_by_build_pos
+                .get(&build_pos),
+            Some(&"pending-two".to_string())
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
+            Some(second_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_name
+                .as_deref(),
+            Some(BLOCK_NAME_MESSAGE)
+        );
+    }
+
+    #[test]
     fn tile_config_packet_with_unsupported_type_keeps_kind_and_parse_fail_observability() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
