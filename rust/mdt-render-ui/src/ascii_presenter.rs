@@ -2567,13 +2567,13 @@ fn compose_build_ui_queue_text(hud: &HudModel) -> Option<String> {
 fn compose_build_ui_queue_detail_text(hud: &HudModel) -> Option<String> {
     let build_ui = hud.build_ui.as_ref()?;
     Some(format!(
-        "head={} q={} i={} f={} r={} o={}",
-        build_queue_head_text(build_ui.head.as_ref()),
+        "q={} i={} f={} r={} o={} h={}",
         build_ui.queued_count,
         build_ui.inflight_count,
         build_ui.finished_count,
         build_ui.removed_count,
         build_ui.orphan_authoritative_count,
+        build_queue_head_text(build_ui.head.as_ref()),
     ))
 }
 
@@ -3263,7 +3263,7 @@ fn build_strip_queue_stage_text(stage: crate::BuildQueueHeadStage, pending_count
 
 fn compose_build_ui_queue_summary_text(build_ui: &crate::BuildUiObservability) -> String {
     format!(
-        "queue={}/{}/{}/{}/{} head={}",
+        "bqueue:q{}:i{}:f{}:r{}:o{}:h={}",
         build_ui.queued_count,
         build_ui.inflight_count,
         build_ui.finished_count,
@@ -5464,9 +5464,9 @@ mod tests {
         assert!(frame.contains(
             "BUILD-STRIP-DETAIL: selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@100:99:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=1"
         ));
-        assert!(frame.contains("BUILD-QUEUE: queue=1/2/3/4/1 head=flight@100:99:place:b301:r1"));
+        assert!(frame.contains("BUILD-QUEUE: bqueue:q1:i2:f3:r4:o1:h=flight@100:99:place:b301:r1"));
         assert!(frame
-            .contains("BUILD-QUEUE-DETAIL: head=flight@100:99:place:b301:r1 q=1 i=2 f=3 r=4 o=1"));
+            .contains("BUILD-QUEUE-DETAIL: q=1 i=2 f=3 r=4 o=1 h=flight@100:99:place:b301:r1"));
         assert!(frame
             .contains("BUILD-INSPECTOR: family=message tracked=1 sample=18:40:len=5:text=hello"));
         assert!(frame.contains(
@@ -5828,7 +5828,7 @@ mod tests {
         let build_queue_pos = frame
             .lines()
             .position(|line| {
-                line == "BUILD-QUEUE: queue=2/1/4/5/6 head=queued@10:12:place:b301:r1"
+                line == "BUILD-QUEUE: bqueue:q2:i1:f4:r5:o6:h=queued@10:12:place:b301:r1"
             })
             .expect("build queue line");
         let build_minimap_aux_pos = frame
@@ -5870,7 +5870,7 @@ mod tests {
             "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match src=tileConfig block=alpha head=10,12"
         ));
         assert!(frame
-            .contains("BUILD-QUEUE-DETAIL: head=queued@10:12:place:b301:r1 q=2 i=1 f=4 r=5 o=6"));
+            .contains("BUILD-QUEUE-DETAIL: q=2 i=1 f=4 r=5 o=6 h=queued@10:12:place:b301:r1"));
     }
 
     #[test]
