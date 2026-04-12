@@ -237,6 +237,11 @@ impl AsciiScenePresenter {
         for render_layer_text in compose_render_layer_lines(scene, window) {
             out.push_str(&format!("RENDER-LAYER: {render_layer_text}\n"));
         }
+        for render_layer_detail_text in compose_render_layer_detail_lines(scene, window) {
+            out.push_str(&format!(
+                "RENDER-LAYER-DETAIL: {render_layer_detail_text}\n"
+            ));
+        }
         if let Some(minimap_legend_text) = compose_minimap_legend_line(hud) {
             out.push_str(&format!("MINIMAP-LEGEND: {minimap_legend_text}\n"));
         }
@@ -3565,7 +3570,7 @@ fn compose_render_layer_lines(scene: &RenderModel, window: PresenterViewWindow) 
         .iter()
         .enumerate()
         .map(|(index, layer)| {
-            let mut text = format!(
+            format!(
                 "{}/{} layer={} objects={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
                 index + 1,
                 layer_count,
@@ -3578,12 +3583,33 @@ fn compose_render_layer_lines(scene: &RenderModel, window: PresenterViewWindow) 
                 layer.runtime_count,
                 layer.terrain_count,
                 layer.unknown_count,
-            );
-            if let Some(detail_text) = layer.detail_text() {
-                text.push_str(" detail=");
-                text.push_str(&detail_text);
-            }
-            text
+            )
+        })
+        .collect()
+}
+
+fn compose_render_layer_detail_lines(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Vec<String> {
+    let Some(summary) = render_pipeline_summary(scene, window) else {
+        return Vec::new();
+    };
+
+    let layer_count = summary.layers.len();
+    summary
+        .layers
+        .iter()
+        .enumerate()
+        .filter_map(|(index, layer)| {
+            let detail_text = layer.detail_text()?;
+            Some(format!(
+                "{}/{} layer={} detail={}",
+                index + 1,
+                layer_count,
+                layer.layer,
+                detail_text,
+            ))
         })
         .collect()
 }
@@ -4486,7 +4512,10 @@ mod tests {
             "RENDER-LAYER: 1/3 layer=0 objects=1 player=0 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=0"
         ));
         assert!(frame.contains(
-            "RENDER-LAYER: 2/3 layer=30 objects=1 player=0 marker=1 plan=0 block=0 runtime=0 terrain=0 unknown=0 detail=marker-line:1"
+            "RENDER-LAYER: 2/3 layer=30 objects=1 player=0 marker=1 plan=0 block=0 runtime=0 terrain=0 unknown=0"
+        ));
+        assert!(frame.contains(
+            "RENDER-LAYER-DETAIL: 2/3 layer=30 detail=marker-line:1"
         ));
         assert!(frame.contains(
             "RENDER-LAYER: 3/3 layer=40 objects=1 player=1 marker=0 plan=0 block=0 runtime=0 terrain=0 unknown=0"

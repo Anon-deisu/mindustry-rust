@@ -1616,6 +1616,9 @@ fn compose_frame_panel_lines(
     for render_layer_text in compose_render_layer_status_lines(scene, window) {
         lines.push(format!("RENDER-LAYER: {render_layer_text}"));
     }
+    for render_layer_detail_text in compose_render_layer_detail_status_lines(scene, window) {
+        lines.push(format!("RENDER-LAYER-DETAIL: {render_layer_detail_text}"));
+    }
     if let Some(render_text_text) = compose_render_text_status_text(scene, window) {
         lines.push(format!("RENDER-TEXT: {render_text_text}"));
     }
@@ -4601,7 +4604,7 @@ fn compose_render_layer_status_lines(
         .iter()
         .enumerate()
         .map(|(index, layer)| {
-            let mut text = format!(
+            format!(
                 "lay:{}/{}:l{}:o{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
                 index + 1,
                 layer_count,
@@ -4614,12 +4617,33 @@ fn compose_render_layer_status_lines(
                 layer.runtime_count,
                 layer.terrain_count,
                 layer.unknown_count,
-            );
-            if let Some(detail_text) = layer.detail_text() {
-                text.push_str(":detail=");
-                text.push_str(&detail_text);
-            }
-            text
+            )
+        })
+        .collect()
+}
+
+fn compose_render_layer_detail_status_lines(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Vec<String> {
+    let Some(summary) = render_pipeline_summary(scene, window) else {
+        return Vec::new();
+    };
+
+    let layer_count = summary.layers.len();
+    summary
+        .layers
+        .iter()
+        .enumerate()
+        .filter_map(|(index, layer)| {
+            let detail_text = layer.detail_text()?;
+            Some(format!(
+                "layd:{}/{}:l{}:detail={}",
+                index + 1,
+                layer_count,
+                layer.layer,
+                detail_text,
+            ))
         })
         .collect()
 }
@@ -8304,7 +8328,11 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RENDER-LAYER: lay:2/3:l30:o1@pl0:mk1:pn0:bk0:rt0:tr0:uk0:detail=marker-line:1",
+            "RENDER-LAYER: lay:2/3:l30:o1@pl0:mk1:pn0:bk0:rt0:tr0:uk0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-LAYER-DETAIL: layd:2/3:l30:detail=marker-line:1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
