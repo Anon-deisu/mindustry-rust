@@ -2597,6 +2597,32 @@ mod tests {
     }
 
     #[test]
+    fn render_model_derives_text_primitives_from_marker_shape_text_objects() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "marker:shape-text:42:text:48656c6c6f".to_string(),
+                layer: 30,
+                x: 24.0,
+                y: 32.0,
+            }],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Text {
+                id: "marker:shape-text:42:text:48656c6c6f".to_string(),
+                kind: RenderObjectSemanticKind::MarkerShapeText,
+                layer: 30,
+                x: 24.0,
+                y: 32.0,
+                text: "Hello".to_string(),
+            }]
+        );
+    }
+
+    #[test]
     fn render_model_derives_icon_primitives_from_runtime_icon_markers() {
         let scene = RenderModel {
             viewport: Viewport::default(),
