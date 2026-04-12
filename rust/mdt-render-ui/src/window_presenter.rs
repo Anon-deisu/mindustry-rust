@@ -3812,13 +3812,23 @@ fn compose_build_minimap_detail_status_text(
     let panel = build_build_minimap_assist_panel(scene, hud, window)?;
     let window_tile_count = window.width.saturating_mul(window.height);
     Some(format!(
-        "bmdetail:n={}:pair={}:a={}:f={}:v={}:c={}:rt{}:od{}",
+        "bmdetail:n={}:pair={}:a={}:f={}:v={}:c={}:scope={}:m={}:s={}:q={}:r{}:auth={}:pm={}:src={}:h={}:b={}:rt{}:od{}",
         panel.next_action_label(),
         panel.head_authority_pair_label(),
         panel.focus_anchor_label(),
         panel.focus_state_label(),
         panel.map_visibility_label(),
         panel.window_coverage_label(),
+        panel.config_scope_label(),
+        build_interaction_mode_status_text(panel.mode),
+        build_interaction_selection_status_text(panel.selection_state),
+        build_interaction_queue_status_text(panel.queue_state),
+        if panel.place_ready { 1 } else { 0 },
+        build_interaction_authority_status_text(panel.authority_state),
+        build_config_pending_match_status_text(panel.authority_pending_match),
+        build_config_rollback_source_status_text(panel.authority_source),
+        optional_build_tile_status_text(panel.head_tile),
+        compact_runtime_ui_text(panel.authority_block_name.as_deref()),
         panel.runtime_share_percent(),
         panel.window_object_density_percent(window_tile_count),
     ))
@@ -9129,7 +9139,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-MINIMAP-DETAIL: bmdetail:n=resolve:pair=match:a=detached:f=inside:v=unseen:c=offscreen:rt0:od75",
+            "BUILD-MINIMAP-DETAIL: bmdetail:n=resolve:pair=match:a=detached:f=inside:v=unseen:c=offscreen:scope=multi:m=place:s=head-aligned:q=mixed:r1:auth=rej-miss-build:pm=match:src=tilecfg:h=10:12:b=gamma:rt0:od75",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

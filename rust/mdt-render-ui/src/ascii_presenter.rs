@@ -2759,13 +2759,23 @@ fn compose_build_minimap_detail_text(
     let panel = build_build_minimap_assist_panel(scene, hud, window)?;
     let window_tile_count = window.width.saturating_mul(window.height);
     Some(format!(
-        "next={} pair={} anchor={} focus={} vis={} cover={} rt={}% od={}% ",
+        "next={} pair={} anchor={} focus={} vis={} cover={} scope={} mode={} select={} queue={} ready={} auth={} pending={} src={} head={} block={} rt={}% od={}% ",
         panel.next_action_label(),
         panel.head_authority_pair_label(),
         panel.focus_anchor_label(),
         panel.focus_state_label(),
         panel.map_visibility_label(),
         panel.window_coverage_label(),
+        panel.config_scope_label(),
+        build_interaction_mode_text(panel.mode),
+        build_interaction_selection_text(panel.selection_state),
+        build_interaction_queue_text(panel.queue_state),
+        if panel.place_ready { 1 } else { 0 },
+        build_interaction_authority_text(panel.authority_state),
+        build_config_pending_match_text(panel.authority_pending_match),
+        build_config_rollback_source_text(panel.authority_source),
+        build_flow_head_tile_text(panel.head_tile),
+        compact_runtime_ui_text(panel.authority_block_name.as_deref()),
         panel.runtime_share_percent(),
         panel.window_object_density_percent(window_tile_count),
     )
@@ -5116,7 +5126,7 @@ mod tests {
             "BUILD-MINIMAP-FLOW: next=resolve select=head-aligned queue=mixed place-ready=1 focus=inside cover=offscreen rt=0%"
         ));
         assert!(frame.contains(
-            "BUILD-MINIMAP-DETAIL: next=resolve pair=match anchor=detached focus=inside vis=unseen cover=offscreen rt=0% od=75%"
+            "BUILD-MINIMAP-DETAIL: next=resolve pair=match anchor=detached focus=inside vis=unseen cover=offscreen scope=multi mode=place select=head-aligned queue=mixed ready=1 auth=rejected-missing-building pending=match src=tileConfig head=10:12 block=alpha rt=0% od=75%"
         ));
         assert!(frame.contains(
             "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building pending=match"
