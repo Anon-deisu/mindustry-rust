@@ -5053,7 +5053,7 @@ mod tests {
             "BUILD-ROUTE: next=resolve minimap=survey blockers=2@resolve>survey route=3@resolve>survey>commit"
         ));
         assert!(frame.contains(
-            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match head=10,12"
+            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match src=tileConfig block=alpha head=10,12"
         ));
     }
 
