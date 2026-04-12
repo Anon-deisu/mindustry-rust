@@ -58,6 +58,8 @@ const COLOR_WINDOW_HUD_BAR: u32 = 0x091018;
 const COLOR_WINDOW_HUD_TEXT: u32 = 0xE8EEF2;
 const COLOR_MINIMAP_INSET_BORDER: u32 = 0x90A4AE;
 const COLOR_MINIMAP_INSET_VIEWPORT: u32 = 0xECEFF1;
+const COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL: u32 = 0xFFF59D;
+const COLOR_MINIMAP_INSET_VIEWPORT_WARN: u32 = 0xFFAB91;
 const WINDOW_TARGET_FPS: usize = 60;
 const WINDOW_HUD_FONT_WIDTH: usize = 3;
 const WINDOW_HUD_FONT_HEIGHT: usize = 5;
@@ -5188,8 +5190,16 @@ fn draw_window_minimap_viewport(
         rect_y,
         rect_width,
         rect_height,
-        COLOR_MINIMAP_INSET_VIEWPORT,
+        window_minimap_viewport_color(inset.window_coverage_percent),
     );
+}
+
+fn window_minimap_viewport_color(window_coverage_percent: usize) -> u32 {
+    match window_coverage_percent {
+        0..=10 => COLOR_MINIMAP_INSET_VIEWPORT_WARN,
+        11..=50 => COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL,
+        _ => COLOR_MINIMAP_INSET_VIEWPORT,
+    }
 }
 
 fn draw_window_minimap_player(
@@ -6004,9 +6014,10 @@ mod tests {
         COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_EFFECT_MARKER,
         COLOR_ICON_RUNTIME_HEALTH, COLOR_ICON_RUNTIME_LOGIC_EXPLOSION, COLOR_ICON_RUNTIME_SOUND_AT,
         COLOR_ICON_RUNTIME_TILE_ACTION, COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER,
-        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
-        COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
-        WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
+        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL,
+        COLOR_MINIMAP_INSET_VIEWPORT_WARN, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME,
+        COLOR_TERRAIN, COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT,
+        WINDOW_HUD_BAR_PADDING_X, WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
         hud_model::{
@@ -6666,7 +6677,7 @@ mod tests {
         }
 
         assert!(top_right_pixels.contains(&COLOR_TERRAIN));
-        assert!(top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT));
+        assert!(top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_WARN));
         assert!(top_right_pixels.contains(&COLOR_PLAYER));
         assert!(top_right_pixels.contains(&COLOR_MARKER));
         assert!(top_right_pixels.contains(&COLOR_RUNTIME));
@@ -6679,6 +6690,28 @@ mod tests {
         assert!(top_right_pixels.contains(&COLOR_PLAN));
         assert!(top_right_pixels.contains(&COLOR_RUNTIME));
         assert!(lower_left_pixels.iter().all(|&pixel| pixel == COLOR_EMPTY));
+    }
+
+    #[test]
+    fn window_minimap_viewport_color_tracks_coverage_bands() {
+        assert_eq!(super::window_minimap_viewport_color(0), COLOR_MINIMAP_INSET_VIEWPORT_WARN);
+        assert_eq!(
+            super::window_minimap_viewport_color(10),
+            COLOR_MINIMAP_INSET_VIEWPORT_WARN
+        );
+        assert_eq!(
+            super::window_minimap_viewport_color(11),
+            COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL
+        );
+        assert_eq!(
+            super::window_minimap_viewport_color(50),
+            COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL
+        );
+        assert_eq!(super::window_minimap_viewport_color(51), COLOR_MINIMAP_INSET_VIEWPORT);
+        assert_eq!(
+            super::window_minimap_viewport_color(100),
+            COLOR_MINIMAP_INSET_VIEWPORT
+        );
     }
 
     #[test]
