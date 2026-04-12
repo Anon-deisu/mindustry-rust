@@ -1629,6 +1629,9 @@ fn compose_frame_panel_lines(
     if let Some(render_text_text) = compose_render_text_status_text(scene, window) {
         lines.push(format!("RENDER-TEXT: {render_text_text}"));
     }
+    if let Some(render_text_detail_text) = compose_render_text_detail_status_text(scene, window) {
+        lines.push(format!("RENDER-TEXT-DETAIL: {render_text_detail_text}"));
+    }
     if let Some(render_rect_text) = compose_render_rect_status_text(scene, window) {
         lines.push(format!("RENDER-RECT: {render_rect_text}"));
     }
@@ -2001,6 +2004,68 @@ fn compose_render_text_status_text(
         ));
     }
 
+    Some(parts.join(" "))
+}
+
+fn compose_render_text_detail_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let mut text_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match &primitive {
+            RenderPrimitive::Text {
+                kind,
+                layer,
+                x,
+                y,
+                ..
+            } => {
+                let Some((tile_x, tile_y)) = finite_tile_coords(*x, *y) else {
+                    return None;
+                };
+                if tile_x < 0
+                    || tile_y < 0
+                    || (tile_x as usize) < window.origin_x
+                    || (tile_y as usize) < window.origin_y
+                    || (tile_x as usize) >= window.origin_x.saturating_add(window.width)
+                    || (tile_y as usize) >= window.origin_y.saturating_add(window.height)
+                {
+                    return None;
+                }
+                let payload = primitive.payload()?;
+                Some((
+                    kind.detail_label().unwrap_or("text"),
+                    *layer,
+                    *x as i32,
+                    *y as i32,
+                    payload,
+                ))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if text_primitives.is_empty() {
+        return None;
+    }
+
+    text_primitives.sort_by(|left, right| {
+        left.1
+            .cmp(&right.1)
+            .then_with(|| left.0.cmp(right.0))
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.cmp(&right.3))
+    });
+
+    let mut parts = vec![format!("count={}", text_primitives.len())];
+    for (kind_label, layer, tile_x, tile_y, payload) in text_primitives {
+        parts.push(format!(
+            "{kind_label}@{layer}:{tile_x}:{tile_y} {}",
+            format_render_primitive_payload(&payload)
+        ));
+    }
     Some(parts.join(" "))
 }
 
@@ -9879,6 +9944,15 @@ mod tests {
         assert_frame_line_contains(&frame.panel_lines, "RENDER-TEXT: count=2");
         assert_frame_line_contains(&frame.panel_lines, "runtime-world-label@39:0:0=Hello");
         assert_frame_line_contains(&frame.panel_lines, "marker-text@30:8:0=Marker");
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-TEXT-DETAIL: count=2");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "marker-text@30:8:0 marker-text{text=Marker}",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-world-label@39:0:0 runtime-world-label{text=Hello}",
+        );
     }
 
     #[test]
@@ -9910,6 +9984,10 @@ mod tests {
             .panel_lines
             .iter()
             .any(|line| line.starts_with("RENDER-TEXT:")));
+        assert!(!frame
+            .panel_lines
+            .iter()
+            .any(|line| line.starts_with("RENDER-TEXT-DETAIL:")));
     }
 
     #[test]
