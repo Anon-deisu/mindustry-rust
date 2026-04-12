@@ -313,6 +313,37 @@ impl BuildMinimapAssistPanelModel {
         }
     }
 
+    pub fn head_authority_pair_label(&self) -> &'static str {
+        match (self.head_tile, self.authority_tile) {
+            (Some(head_tile), Some(authority_tile)) if head_tile == authority_tile => "match",
+            (Some(_), Some(_)) => "split",
+            (Some(_), None) => "head-only",
+            (None, Some(_)) => "auth-only",
+            (None, None) => "none",
+        }
+    }
+
+    pub fn focus_anchor_label(&self) -> &'static str {
+        let Some(_) = self.focus_tile else {
+            return "none";
+        };
+
+        let matches_head = build_tile_matches_focus_tile(self.head_tile, self.focus_tile);
+        let matches_authority = build_tile_matches_focus_tile(self.authority_tile, self.focus_tile);
+
+        match (
+            matches_head,
+            matches_authority,
+            self.head_tile.is_some() || self.authority_tile.is_some(),
+        ) {
+            (true, true, _) => "head+auth",
+            (true, false, _) => "head",
+            (false, true, _) => "auth",
+            (false, false, false) => "focus-only",
+            (false, false, true) => "detached",
+        }
+    }
+
     pub fn runtime_share_percent(&self) -> usize {
         percent_of(self.runtime_count, self.tracked_object_count)
     }
@@ -356,6 +387,20 @@ impl BuildMinimapAssistPanelModel {
             BuildInteractionAuthorityState::None | BuildInteractionAuthorityState::Applied
         ) || self.authority_pending_match == Some(false)
     }
+}
+
+fn build_tile_matches_focus_tile(
+    build_tile: Option<(i32, i32)>,
+    focus_tile: Option<(usize, usize)>,
+) -> bool {
+    let (Some((build_x, build_y)), Some((focus_x, focus_y))) = (build_tile, focus_tile) else {
+        return false;
+    };
+    let (Ok(build_x), Ok(build_y)) = (usize::try_from(build_x), usize::try_from(build_y)) else {
+        return false;
+    };
+
+    build_x == focus_x && build_y == focus_y
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3376,6 +3421,8 @@ mod tests {
         assert_eq!(panel.window_coverage_label(), "offscreen");
         assert_eq!(panel.window_object_density_percent(4), 75);
         assert_eq!(panel.config_scope_label(), "multi");
+        assert_eq!(panel.head_authority_pair_label(), "match");
+        assert_eq!(panel.focus_anchor_label(), "detached");
         assert_eq!(panel.runtime_share_percent(), 0);
         assert_eq!(panel.next_action_label(), "resolve");
     }
@@ -3443,6 +3490,56 @@ mod tests {
 
         panel.mode = BuildInteractionMode::Idle;
         assert_eq!(panel.next_action_label(), "idle");
+    }
+
+    #[test]
+    fn build_minimap_assist_relation_labels_track_head_authority_and_focus_alignment() {
+        let mut panel = BuildMinimapAssistPanelModel {
+            mode: BuildInteractionMode::Place,
+            selection_state: BuildInteractionSelectionState::HeadAligned,
+            queue_state: BuildInteractionQueueState::Queued,
+            place_ready: true,
+            config_family_count: 1,
+            config_sample_count: 1,
+            top_config_family: Some("duo".to_string()),
+            authority_state: BuildInteractionAuthorityState::Applied,
+            authority_pending_match: Some(true),
+            head_tile: Some((4, 6)),
+            authority_tile: Some((4, 6)),
+            authority_source: None,
+            focus_tile: Some((4, 6)),
+            focus_in_window: Some(true),
+            visible_map_percent: 100,
+            unknown_tile_percent: 0,
+            window_coverage_percent: 100,
+            tracked_object_count: 2,
+            runtime_count: 1,
+        };
+
+        assert_eq!(panel.head_authority_pair_label(), "match");
+        assert_eq!(panel.focus_anchor_label(), "head+auth");
+
+        panel.authority_tile = Some((8, 9));
+        assert_eq!(panel.head_authority_pair_label(), "split");
+        assert_eq!(panel.focus_anchor_label(), "head");
+
+        panel.focus_tile = Some((8, 9));
+        assert_eq!(panel.focus_anchor_label(), "auth");
+
+        panel.focus_tile = Some((1, 1));
+        assert_eq!(panel.focus_anchor_label(), "detached");
+
+        panel.head_tile = None;
+        assert_eq!(panel.head_authority_pair_label(), "auth-only");
+        panel.focus_tile = Some((8, 9));
+        assert_eq!(panel.focus_anchor_label(), "auth");
+
+        panel.authority_tile = None;
+        assert_eq!(panel.head_authority_pair_label(), "none");
+        assert_eq!(panel.focus_anchor_label(), "focus-only");
+
+        panel.focus_tile = None;
+        assert_eq!(panel.focus_anchor_label(), "none");
     }
 
     #[test]

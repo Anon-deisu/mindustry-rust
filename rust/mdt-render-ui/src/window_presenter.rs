@@ -1618,6 +1618,11 @@ fn compose_frame_panel_lines(
     {
         lines.push(format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}"));
     }
+    if let Some(build_minimap_diag_text) =
+        compose_build_minimap_diag_status_text(scene, hud, window)
+    {
+        lines.push(format!("BUILD-MINIMAP-DIAG: {build_minimap_diag_text}"));
+    }
     if let Some(build_flow_text) = compose_build_flow_status_text(scene, hud, window) {
         lines.push(format!("BUILD-FLOW: {build_flow_text}"));
     }
@@ -3685,6 +3690,23 @@ fn compose_build_minimap_aux_status_text(
         panel.tracked_object_count,
         panel.runtime_count,
         panel.runtime_share_percent(),
+    ))
+}
+
+fn compose_build_minimap_diag_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    Some(format!(
+        "bmdiag:n={}:p={}:a={}:f={}:c={}:v={}",
+        panel.next_action_label(),
+        panel.head_authority_pair_label(),
+        panel.focus_anchor_label(),
+        panel.focus_state_label(),
+        panel.window_coverage_label(),
+        panel.map_visibility_label(),
     ))
 }
 
@@ -8959,6 +8981,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=3/7@gamma:auth=rej-miss-build:pm=match:head=10:12:tile=10:12:src=tilecfg:f=0:0@1:v0:u100:w0:d75:obj3:rt0:rs0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-MINIMAP-DIAG: bmdiag:n=resolve:p=match:a=detached:f=inside:c=offscreen:v=unseen",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

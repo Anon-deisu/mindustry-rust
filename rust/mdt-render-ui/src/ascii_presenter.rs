@@ -235,6 +235,9 @@ impl AsciiScenePresenter {
         if let Some(build_minimap_aux_text) = compose_build_minimap_aux_text(scene, hud, window) {
             out.push_str(&format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}\n"));
         }
+        if let Some(build_minimap_diag_text) = compose_build_minimap_diag_text(scene, hud, window) {
+            out.push_str(&format!("BUILD-MINIMAP-DIAG: {build_minimap_diag_text}\n"));
+        }
         if let Some(build_flow_text) = compose_build_flow_text(scene, hud, window) {
             out.push_str(&format!("BUILD-FLOW: {build_flow_text}\n"));
         }
@@ -2671,6 +2674,23 @@ fn compose_build_minimap_aux_text(
     ))
 }
 
+fn compose_build_minimap_diag_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    Some(format!(
+        "next={} pair={} anchor={} focus={} cover={} visibility={}",
+        panel.next_action_label(),
+        panel.head_authority_pair_label(),
+        panel.focus_anchor_label(),
+        panel.focus_state_label(),
+        panel.window_coverage_label(),
+        panel.map_visibility_label(),
+    ))
+}
+
 fn window_object_density_percent(tracked_object_count: usize, window_tile_count: usize) -> usize {
     if window_tile_count == 0 {
         0
@@ -5002,6 +5022,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "BUILD-MINIMAP-AUX: mode=place select=head-aligned queue=mixed place-ready=1 cfg=4/8 top=gamma auth=rejected-missing-building pending=match head=10:12 auth-tile=10:12 src=tileConfig focus=1:1 in-window=1 visible-map=0 unknown-map=100 window=0 d75 tracked=3 runtime=0 runtime-share=0%"
+        ));
+        assert!(frame.contains(
+            "BUILD-MINIMAP-DIAG: next=resolve pair=match anchor=detached focus=inside cover=offscreen visibility=unseen"
         ));
         assert!(frame.contains(
             "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building"
