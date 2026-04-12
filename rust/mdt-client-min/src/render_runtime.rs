@@ -3271,6 +3271,8 @@ fn runtime_live_effect_summary_observability(
             x_bits: overlay.x_bits,
             y_bits: overlay.y_bits,
         }),
+        active_overlay_remaining_ticks: active_overlay.map(|overlay| overlay.remaining_ticks),
+        active_overlay_lifetime_ticks: active_overlay.map(|overlay| overlay.lifetime_ticks),
         last_effect_id: session_state.last_effect_id,
         last_spawn_effect_unit_type_id: session_state.last_spawn_effect_unit_type_id,
         last_kind: session_state.last_effect_data_kind.clone(),
@@ -15303,6 +15305,9 @@ mod tests {
             Some("lightning")
         );
         assert_eq!(observability.active_reliable, Some(true));
+        assert_eq!(observability.active_overlay_remaining_ticks, Some(3));
+        assert_eq!(observability.active_overlay_lifetime_ticks, Some(3));
+        assert_eq!(observability.display_overlay_ttl(), Some((3, 3)));
         assert_eq!(
             observability.active_position,
             Some(RuntimeWorldPositionObservability {

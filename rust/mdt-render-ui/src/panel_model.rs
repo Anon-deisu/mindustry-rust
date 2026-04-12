@@ -1494,6 +1494,8 @@ pub struct RuntimeLiveEffectPanelModel {
     pub active_contract_name: Option<String>,
     pub active_reliable: Option<bool>,
     pub active_position: Option<crate::RuntimeWorldPositionObservability>,
+    pub active_overlay_remaining_ticks: Option<u8>,
+    pub active_overlay_lifetime_ticks: Option<u8>,
     pub last_effect_id: Option<i16>,
     pub last_spawn_effect_unit_type_id: Option<i16>,
     pub last_kind: Option<String>,
@@ -1535,6 +1537,16 @@ impl RuntimeLiveEffectPanelModel {
         self.active_position
             .as_ref()
             .or(self.last_position_hint.as_ref())
+    }
+
+    pub fn display_overlay_ttl(&self) -> Option<(u8, u8)> {
+        match (
+            self.active_overlay_remaining_ticks,
+            self.active_overlay_lifetime_ticks,
+        ) {
+            (Some(remaining), Some(total)) => Some((remaining, total)),
+            _ => None,
+        }
     }
 }
 
@@ -2565,6 +2577,8 @@ pub fn build_runtime_live_effect_panel(hud: &HudModel) -> Option<RuntimeLiveEffe
         active_contract_name: effect.active_contract_name.clone(),
         active_reliable: effect.active_reliable,
         active_position: effect.active_position,
+        active_overlay_remaining_ticks: effect.active_overlay_remaining_ticks,
+        active_overlay_lifetime_ticks: effect.active_overlay_lifetime_ticks,
         last_effect_id: effect.last_effect_id,
         last_spawn_effect_unit_type_id: effect.last_spawn_effect_unit_type_id,
         last_kind: effect.last_kind.clone(),
@@ -3963,6 +3977,8 @@ mod tests {
                             x_bits: 28.0f32.to_bits(),
                             y_bits: 36.0f32.to_bits(),
                         }),
+                        active_overlay_remaining_ticks: Some(3),
+                        active_overlay_lifetime_ticks: Some(5),
                         last_effect_id: Some(8),
                         last_spawn_effect_unit_type_id: Some(19),
                         last_kind: Some("Point2".to_string()),
@@ -3998,6 +4014,9 @@ mod tests {
                 y_bits: 36.0f32.to_bits(),
             })
         );
+        assert_eq!(panel.active_overlay_remaining_ticks, Some(3));
+        assert_eq!(panel.active_overlay_lifetime_ticks, Some(5));
+        assert_eq!(panel.display_overlay_ttl(), Some((3, 5)));
         assert_eq!(panel.last_effect_id, Some(8));
         assert_eq!(panel.last_spawn_effect_unit_type_id, Some(19));
         assert_eq!(panel.last_kind.as_deref(), Some("Point2"));

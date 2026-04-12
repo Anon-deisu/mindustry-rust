@@ -1011,6 +1011,8 @@ pub struct RuntimeLiveEffectSummaryObservability {
     pub active_contract_name: Option<String>,
     pub active_reliable: Option<bool>,
     pub active_position: Option<RuntimeWorldPositionObservability>,
+    pub active_overlay_remaining_ticks: Option<u8>,
+    pub active_overlay_lifetime_ticks: Option<u8>,
     pub last_effect_id: Option<i16>,
     pub last_spawn_effect_unit_type_id: Option<i16>,
     pub last_kind: Option<String>,
@@ -1060,6 +1062,16 @@ impl RuntimeLiveEffectSummaryObservability {
         self.active_position
             .as_ref()
             .or(self.last_position_hint.as_ref())
+    }
+
+    pub fn display_overlay_ttl(&self) -> Option<(u8, u8)> {
+        match (
+            self.active_overlay_remaining_ticks,
+            self.active_overlay_lifetime_ticks,
+        ) {
+            (Some(remaining), Some(total)) => Some((remaining, total)),
+            _ => None,
+        }
     }
 }
 

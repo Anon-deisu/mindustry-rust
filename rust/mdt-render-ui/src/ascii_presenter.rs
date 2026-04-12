@@ -2267,10 +2267,11 @@ fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_effect_panel(hud)?;
     Some(format!(
-        "hint={} source={} pos={} contract={} reliable={}",
+        "hint={} source={} pos={} ttl={} contract={} reliable={}",
         panel.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(panel.display_position_source()),
         world_position_text(panel.display_position()),
+        live_effect_ttl_text(panel.display_overlay_ttl()),
         compact_runtime_ui_text(panel.display_contract_name()),
         compact_runtime_ui_text(panel.display_reliable_contract_name()),
     ))
@@ -2933,7 +2934,7 @@ fn compose_live_entity_panel_text(
 
 fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservability) -> String {
     format!(
-        "{}/{}:ov{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
+        "{}/{}:ov{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}:ttl{}",
         effect.effect_count,
         effect.spawn_effect_count,
         effect.active_overlay_count,
@@ -2945,6 +2946,7 @@ fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservabilit
         effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(effect.display_position_source()),
         world_position_text(effect.display_position()),
+        live_effect_ttl_text(effect.display_overlay_ttl()),
     )
 }
 
@@ -2952,7 +2954,7 @@ fn compose_live_effect_panel_text(
     effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
 ) -> String {
     format!(
-        "{}/{}:ov{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
+        "{}/{}:ov{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}:ttl{}",
         effect.effect_count,
         effect.spawn_effect_count,
         effect.active_overlay_count,
@@ -2964,7 +2966,15 @@ fn compose_live_effect_panel_text(
         effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(effect.display_position_source()),
         world_position_text(effect.display_position()),
+        live_effect_ttl_text(effect.display_overlay_ttl()),
     )
+}
+
+fn live_effect_ttl_text(ttl: Option<(u8, u8)>) -> String {
+    match ttl {
+        Some((remaining, total)) => format!("{remaining}/{total}"),
+        None => "none".to_string(),
+    }
 }
 
 fn compose_runtime_kick_panel_text(kick: &crate::panel_model::RuntimeKickPanelModel) -> String {
@@ -4502,6 +4512,8 @@ mod tests {
                             x_bits: 28.0f32.to_bits(),
                             y_bits: 36.0f32.to_bits(),
                         }),
+                        active_overlay_remaining_ticks: Some(3),
+                        active_overlay_lifetime_ticks: Some(5),
                         last_effect_id: Some(8),
                         last_spawn_effect_unit_type_id: Some(19),
                         last_kind: Some("Point2".to_string()),
@@ -4722,14 +4734,14 @@ mod tests {
             "RUNTIME-LIVE-ENTITY-DETAIL: local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT: 11/73:ov1@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
+            "RUNTIME-LIVE-EFFECT: 11/73:ov1@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT-DETAIL: hint=pos:point2:3:4@1/0 source=active pos=28.0:36.0 contract=lightning reliable=lightning"
+            "RUNTIME-LIVE-EFFECT-DETAIL: hint=pos:point2:3:4@1/0 source=active pos=28.0:36.0 ttl=3/5 contract=lightning reliable=lightning"
         ));
         assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.contains(
-            "fx=11/73:ov1@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
+            "fx=11/73:ov1@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
         ));
     }
 
