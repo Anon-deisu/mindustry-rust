@@ -1619,6 +1619,9 @@ fn compose_frame_panel_lines(
     if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
         lines.push(format!("BUILD-CONFIG: {build_panel_text}"));
     }
+    if let Some(build_config_detail_text) = compose_build_config_detail_status_text(hud) {
+        lines.push(format!("BUILD-CONFIG-DETAIL: {build_config_detail_text}"));
+    }
     for build_entry_text in compose_build_config_entry_status_lines(hud) {
         lines.push(format!("BUILD-CONFIG-ENTRY: {build_entry_text}"));
     }
@@ -3654,6 +3657,11 @@ fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
             entries
         },
     ))
+}
+
+fn compose_build_config_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP)?;
+    Some(panel.detail_label())
 }
 
 fn compose_build_config_entry_status_lines(hud: &HudModel) -> Vec<String> {
@@ -8840,6 +8848,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "BUILD-CONFIG-DETAIL: selected=257 rot=2 building=1 queued=1 inflight=2 pending=3 finished=3 removed=4 orphan=1 head=flight@100:99:place:b301:r1 align=split last=23:45 outcome=applied pm=mismatch source=constructFinish block=power-node families=2 samples=2 shown=2 more=0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "BUILD-CONFIG-ENTRY: cfgentry:1/2:message#1@18:40:len=5:text=hello",
         );
         assert_frame_line_contains(
@@ -9144,6 +9156,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-CONFIG: cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:auth=rej-miss-build:pm=match:src=tilecfg:b=gamma:fam3/3:more0:t7@gamma#4,beta#2,alpha#1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-CONFIG-DETAIL: selected=301 rot=1 building=1 queued=2 inflight=1 pending=3 finished=4 removed=5 orphan=6 head=queued@10:12:place:b301:r1 align=match last=10:12 outcome=rejected-missing-building pm=match source=tileConfig block=gamma families=3 samples=7 shown=3 more=0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

@@ -156,6 +156,35 @@ pub struct BuildConfigPanelModel {
     pub entries: Vec<BuildConfigPanelEntryModel>,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+impl BuildConfigPanelModel {
+    pub fn detail_label(&self) -> String {
+        format!(
+            "selected={} rot={} building={} queued={} inflight={} pending={} finished={} removed={} orphan={} head={} align={} last={} outcome={} pm={} source={} block={} families={} samples={} shown={} more={}",
+            optional_i16_label(self.selected_block_id),
+            self.selected_rotation,
+            if self.building { 1 } else { 0 },
+            self.queued_count,
+            self.inflight_count,
+            self.pending_count,
+            self.finished_count,
+            self.removed_count,
+            self.orphan_authoritative_count,
+            build_config_head_label(self.head.as_ref()),
+            build_config_alignment_label(self.selected_matches_head),
+            build_config_tile_label(self.rollback_strip.last_build_tile),
+            build_config_outcome_label(self.rollback_strip.last_configured_outcome),
+            build_config_pending_match_label(self.rollback_strip.last_pending_local_match),
+            build_config_authority_source_label(self.rollback_strip.last_source),
+            compact_panel_text(self.rollback_strip.last_configured_block_name.as_deref()),
+            self.tracked_family_count,
+            self.tracked_sample_count,
+            self.entries.len(),
+            self.truncated_family_count,
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildConfigHeadModel {
     pub x: i32,
@@ -2006,12 +2035,39 @@ fn build_config_pending_match_label(value: Option<bool>) -> &'static str {
     }
 }
 
+fn build_config_alignment_label(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "match",
+        Some(false) => "split",
+        None => "none",
+    }
+}
+
 fn build_config_authority_source_label(
     value: Option<BuildConfigAuthoritySourceObservability>,
 ) -> &'static str {
     match value {
         Some(BuildConfigAuthoritySourceObservability::TileConfig) => "tileConfig",
         Some(BuildConfigAuthoritySourceObservability::ConstructFinish) => "constructFinish",
+        None => "none",
+    }
+}
+
+fn build_config_outcome_label(value: Option<BuildConfigOutcomeObservability>) -> &'static str {
+    match value {
+        Some(BuildConfigOutcomeObservability::Applied) => "applied",
+        Some(BuildConfigOutcomeObservability::RejectedMissingBuilding) => {
+            "rejected-missing-building"
+        }
+        Some(BuildConfigOutcomeObservability::RejectedMissingBlockMetadata) => {
+            "rejected-missing-block-metadata"
+        }
+        Some(BuildConfigOutcomeObservability::RejectedUnsupportedBlock) => {
+            "rejected-unsupported-block"
+        }
+        Some(BuildConfigOutcomeObservability::RejectedUnsupportedConfigType) => {
+            "rejected-unsupported-config-type"
+        }
         None => "none",
     }
 }
@@ -3259,6 +3315,10 @@ mod tests {
         assert_eq!(panel.entries.len(), 2);
         assert_eq!(panel.entries[0].family, "power-node");
         assert_eq!(panel.entries[1].family, "battery");
+        assert_eq!(
+            panel.detail_label(),
+            "selected=257 rot=2 building=1 queued=1 inflight=2 pending=3 finished=3 removed=4 orphan=5 head=flight@10:11:place:b301:r1 align=split last=23:45 outcome=applied pm=mismatch source=constructFinish block=power-node families=3 samples=5 shown=2 more=1"
+        );
     }
 
     #[test]

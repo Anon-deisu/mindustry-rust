@@ -226,6 +226,11 @@ impl AsciiScenePresenter {
         if let Some(build_config_text) = compose_build_config_panel_text(hud) {
             out.push_str(&format!("BUILD-CONFIG: {build_config_text}\n"));
         }
+        if let Some(build_config_detail_text) = compose_build_config_detail_text(hud) {
+            out.push_str(&format!(
+                "BUILD-CONFIG-DETAIL: {build_config_detail_text}\n"
+            ));
+        }
         for entry_line in compose_build_config_entry_lines(hud) {
             out.push_str(&format!("BUILD-CONFIG-ENTRY: {entry_line}\n"));
         }
@@ -2588,6 +2593,11 @@ fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_build_config_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_config_panel(hud, 3)?;
+    Some(panel.detail_label())
+}
+
 fn compose_build_config_authority_summary_text(
     interaction: Option<&crate::panel_model::BuildInteractionPanelModel>,
 ) -> String {
@@ -4834,6 +4844,9 @@ mod tests {
         assert!(frame.contains(
             "BUILD-CONFIG: sel=257 rot=2 mode=build pending=1/2 hist=3/4 orphan=1 head=flight@100:99:place:b301:r1 align=split auth=rollback pending=mismatch src=constructFinish block=power-node families=2/2 tracked=2"
         ));
+        assert!(frame.contains(
+            "BUILD-CONFIG-DETAIL: selected=257 rot=2 building=1 queued=1 inflight=2 pending=3 finished=3 removed=4 orphan=1 head=flight@100:99:place:b301:r1 align=split last=23:45 outcome=applied pm=mismatch source=constructFinish block=power-node families=2 samples=2 shown=2 more=0"
+        ));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/2 message#1@18:40:len=5:text=hello"));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/2 power-node#1@23:45:links=24:46|25:47"));
         assert!(frame.contains(
@@ -5118,6 +5131,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "BUILD-CONFIG: sel=301 rot=1 mode=build pending=2/1 hist=4/5 orphan=6 head=queued@10:12:place:b301:r1 align=match auth=rejected-missing-building pending=match src=tileConfig block=alpha families=3/4 tracked=8"
+        ));
+        assert!(frame.contains(
+            "BUILD-CONFIG-DETAIL: selected=301 rot=1 building=1 queued=2 inflight=1 pending=3 finished=4 removed=5 orphan=6 head=queued@10:12:place:b301:r1 align=match last=10:12 outcome=rejected-missing-building pm=match source=tileConfig block=alpha families=4 samples=8 shown=3 more=1"
         ));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/4 gamma#4@four"));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/4 beta#2@two"));
