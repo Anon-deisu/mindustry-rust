@@ -158,6 +158,9 @@ impl AsciiScenePresenter {
         if let Some(wave_text) = hud.wave_text.as_deref().filter(|text| !text.is_empty()) {
             out.push_str(&format!("WAVE: {wave_text}\n"));
         }
+        if let Some(session_banner_text) = compose_runtime_session_banner_text(hud) {
+            out.push_str(&format!("SESSION-BANNER: {session_banner_text}\n"));
+        }
         out.push_str(&format!("STATUS: {}\n", hud.status_text));
         if let Some(summary_text) = compose_hud_summary_text(hud) {
             out.push_str(&format!("SUMMARY: {summary_text}\n"));
@@ -2299,6 +2302,26 @@ fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
     Some(segments.join("; "))
 }
 
+fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    if !panel.kick.is_empty() {
+        return Some(format!("KICK {}", compose_runtime_kick_panel_text(&panel.kick)));
+    }
+    if !panel.loading.is_empty() {
+        return Some(format!(
+            "LOADING {}",
+            compose_runtime_loading_panel_text(&panel.loading)
+        ));
+    }
+    if !panel.reconnect.is_empty() {
+        return Some(format!(
+            "RECONNECT {}",
+            compose_runtime_reconnect_panel_text(&panel.reconnect)
+        ));
+    }
+    None
+}
+
 fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_session_panel(hud)?;
     if panel.is_empty() {
@@ -4211,6 +4234,72 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_uses_loading_banner_when_kick_is_empty() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let mut runtime_ui = crate::RuntimeUiObservability::default();
+        runtime_ui.session.loading = crate::RuntimeLoadingObservability {
+            deferred_inbound_packet_count: 5,
+            replayed_inbound_packet_count: 6,
+            dropped_loading_low_priority_packet_count: 7,
+            dropped_loading_deferred_overflow_count: 8,
+            ready_inbound_liveness_anchor_count: 12,
+            last_ready_inbound_liveness_anchor_at_ms: Some(1300),
+            timeout_count: 2,
+            connect_or_loading_timeout_count: 1,
+            ready_snapshot_timeout_count: 1,
+            last_timeout_kind: Some(crate::RuntimeSessionTimeoutKind::ReadySnapshotStall),
+            last_timeout_idle_ms: Some(20000),
+            reset_count: 3,
+            reconnect_reset_count: 1,
+            world_reload_count: 1,
+            kick_reset_count: 1,
+            last_reset_kind: Some(crate::RuntimeSessionResetKind::WorldReload),
+            last_world_reload: Some(crate::RuntimeWorldReloadObservability {
+                had_loaded_world: true,
+                had_client_loaded: false,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 4,
+                cleared_deferred_inbound_packets: 5,
+                cleared_replayed_loading_events: 6,
+            }),
+            ..crate::RuntimeLoadingObservability::default()
+        };
+        runtime_ui.session.reconnect = crate::RuntimeReconnectObservability {
+            phase: crate::RuntimeReconnectPhaseObservability::Attempting,
+            phase_transition_count: 3,
+            reason_kind: Some(crate::RuntimeReconnectReasonKind::ConnectRedirect),
+            reason_text: Some("connectRedirect".to_string()),
+            hint_text: Some("server requested redirect".to_string()),
+            redirect_count: 1,
+            last_redirect_ip: Some("127.0.0.1".to_string()),
+            last_redirect_port: Some(6567),
+            ..crate::RuntimeReconnectObservability::default()
+        };
+        let hud = HudModel {
+            title: "demo".to_string(),
+            wave_text: Some("Wave 7".to_string()),
+            runtime_ui: Some(runtime_ui),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        assert!(presenter.last_frame().contains(
+            "SESSION-BANNER: LOADING defer5 replay6 drop7 qdrop8 sfail0 scfail0 efail0 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+        ));
+    }
+
+    #[test]
     fn ascii_presenter_can_crop_around_player_focus() {
         let bundle = parse_world_bundle(&decode_hex(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
@@ -5187,6 +5276,7 @@ mod tests {
         presenter.present(&scene, &hud);
 
         let frame = presenter.last_frame();
+        assert!(frame.contains("SESSION-BANNER: KICK idInUse@7:IdInUse:wait_for_old~"));
         assert!(frame.contains("SUMMARY: player=operator team=2 selected=payload-rout~"));
         assert!(frame.contains("plans=3 markers=4 map=80x60"));
         assert!(frame.contains(
