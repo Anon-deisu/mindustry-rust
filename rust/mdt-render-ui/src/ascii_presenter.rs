@@ -230,6 +230,9 @@ impl AsciiScenePresenter {
         if let Some(minimap_window_text) = compose_minimap_window_line(scene, hud) {
             out.push_str(&format!("MINIMAP-WINDOW: {minimap_window_text}\n"));
         }
+        if let Some(minimap_legend_text) = compose_minimap_legend_line(hud) {
+            out.push_str(&format!("MINIMAP-LEGEND: {minimap_legend_text}\n"));
+        }
         if let Some(minimap_edge_text) = compose_minimap_edge_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-EDGE: {minimap_edge_text}\n"));
         }
@@ -258,9 +261,6 @@ impl AsciiScenePresenter {
             out.push_str(&format!(
                 "RENDER-LAYER-DETAIL: {render_layer_detail_text}\n"
             ));
-        }
-        if let Some(minimap_legend_text) = compose_minimap_legend_line(hud) {
-            out.push_str(&format!("MINIMAP-LEGEND: {minimap_legend_text}\n"));
         }
         if let Some(build_config_text) = compose_build_config_panel_text(hud) {
             out.push_str(&format!("BUILD-CONFIG: {build_config_text}\n"));
@@ -5297,6 +5297,39 @@ mod tests {
         assert!(frame.contains(
             "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
         ));
+        let minimap_kinds_pos = frame
+            .lines()
+            .position(|line| line == "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0")
+            .expect("minimap kinds line");
+        let minimap_legend_pos = frame
+            .lines()
+            .position(|line| {
+                line == "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
+            })
+            .expect("minimap legend line");
+        let minimap_edge_pos = frame
+            .lines()
+            .position(|line| {
+                line == &format!(
+                    "MINIMAP-EDGE: {}",
+                    super::compose_minimap_edge_summary_text(
+                        &super::build_minimap_panel(
+                            &scene,
+                            &hud,
+                            PresenterViewWindow {
+                                origin_x: 0,
+                                origin_y: 0,
+                                width: 2,
+                                height: 2,
+                            },
+                        )
+                        .expect("minimap panel"),
+                    )
+                )
+            })
+            .expect("minimap edge line");
+        assert!(minimap_kinds_pos < minimap_legend_pos);
+        assert!(minimap_legend_pos < minimap_edge_pos);
         assert!(frame.contains(
             "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
         ));
@@ -5711,6 +5744,115 @@ mod tests {
         ));
         assert!(frame
             .contains("BUILD-QUEUE-DETAIL: head=queued@10:12:place:b301:r1 q=2 i=1 f=4 r=5 o=6"));
+    }
+
+    #[test]
+    fn ascii_presenter_matches_window_minimap_legend_order() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: Some(crate::RenderViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 2,
+                height: 2,
+            }),
+            objects: vec![
+                crate::RenderObject {
+                    id: "player:1".to_string(),
+                    layer: 1,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "marker:1".to_string(),
+                    layer: 2,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "plan:1:2:3".to_string(),
+                    layer: 3,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "block:9:4".to_string(),
+                    layer: 4,
+                    x: 0.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "router".to_string(),
+                plan_count: 1,
+                marker_count: 1,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 4,
+                hidden_tile_count: 0,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((0, 0)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 2,
+                        height: 2,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        let kinds_pos = frame
+            .lines()
+            .position(|line| {
+                line == "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
+            })
+            .expect("minimap kinds line");
+        let legend_pos = frame
+            .lines()
+            .position(|line| {
+                line == "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
+            })
+            .expect("minimap legend line");
+        let edge_pos = frame
+            .lines()
+            .position(|line| {
+                line == &format!(
+                    "MINIMAP-EDGE: {}",
+                    super::compose_minimap_edge_summary_text(
+                        &super::build_minimap_panel(
+                            &scene,
+                            &hud,
+                            PresenterViewWindow {
+                                origin_x: 0,
+                                origin_y: 0,
+                                width: 2,
+                                height: 2,
+                            },
+                        )
+                        .expect("minimap panel"),
+                    )
+                )
+            })
+            .expect("minimap edge line");
+
+        assert!(kinds_pos < legend_pos);
+        assert!(legend_pos < edge_pos);
     }
 
     #[test]
