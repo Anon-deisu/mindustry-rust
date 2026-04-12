@@ -199,6 +199,12 @@ impl AsciiScenePresenter {
         if let Some(minimap_flow_text) = compose_minimap_flow_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-FLOW: {minimap_flow_text}\n"));
         }
+        if let Some(minimap_flow_detail_text) = compose_minimap_flow_detail_line(scene, hud, window)
+        {
+            out.push_str(&format!(
+                "MINIMAP-FLOW-DETAIL: {minimap_flow_detail_text}\n"
+            ));
+        }
         if let Some(minimap_kinds_text) = compose_minimap_kind_line(scene, hud) {
             out.push_str(&format!("MINIMAP-KINDS: {minimap_kinds_text}\n"));
         }
@@ -2377,6 +2383,15 @@ fn compose_minimap_flow_line(
         panel.target_kind.label(),
         panel.overlay_target_count,
     ))
+}
+
+fn compose_minimap_flow_detail_line(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_user_flow_panel(scene, hud, window)?;
+    Some(panel.detail_label())
 }
 
 fn compose_minimap_visibility_detail_text(
@@ -5039,6 +5054,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "MINIMAP-FLOW: next=survey focus=inside pan=hold vis=unseen cover=offscreen target=player overlay-targets=0"
+        ));
+        assert!(frame.contains(
+            "MINIMAP-FLOW-DETAIL: next=survey focus=inside vis=unseen cover=offscreen pan=hold target=player"
         ));
         assert!(frame.contains(
             "MINIMAP-KINDS: tracked=3 player=1 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=1"

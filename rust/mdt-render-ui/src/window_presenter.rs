@@ -1574,6 +1574,11 @@ fn compose_frame_panel_lines(
     if let Some(minimap_flow_text) = compose_minimap_flow_status_text(scene, hud, window) {
         lines.push(format!("MINIMAP-FLOW: {minimap_flow_text}"));
     }
+    if let Some(minimap_flow_detail_text) =
+        compose_minimap_flow_detail_status_text(scene, hud, window)
+    {
+        lines.push(format!("MINIMAP-FLOW-DETAIL: {minimap_flow_detail_text}"));
+    }
     if let Some(minimap_kind_text) = compose_minimap_kind_status_text(scene, hud) {
         lines.push(format!("MINIMAP-KINDS: {minimap_kind_text}"));
     }
@@ -3404,6 +3409,15 @@ fn compose_minimap_flow_status_text(
         panel.target_kind.label(),
         panel.overlay_target_count,
     ))
+}
+
+fn compose_minimap_flow_detail_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_user_flow_panel(scene, hud, window)?;
+    Some(panel.detail_label())
 }
 
 fn compose_minimap_visibility_detail_status_text(
@@ -9083,6 +9097,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-FLOW: miniflow:n=survey:f=inside:p=hold:v=unseen:c=offscreen:t=player:o0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-FLOW-DETAIL: next=survey focus=inside vis=unseen cover=offscreen pan=hold target=player",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
