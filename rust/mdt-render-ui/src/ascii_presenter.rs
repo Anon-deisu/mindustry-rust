@@ -213,6 +213,11 @@ impl AsciiScenePresenter {
                 "MINIMAP-KINDS-DETAIL: {minimap_kinds_detail_text}\n"
             ));
         }
+        if let Some(minimap_window_kinds_text) = compose_minimap_window_kind_line(scene, hud) {
+            out.push_str(&format!(
+                "MINIMAP-WINDOW-KINDS: {minimap_window_kinds_text}\n"
+            ));
+        }
         if let Some(minimap_edge_text) = compose_minimap_edge_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-EDGE: {minimap_edge_text}\n"));
         }
@@ -2605,6 +2610,20 @@ fn compose_minimap_kind_detail_line(scene: &RenderModel, hud: &HudModel) -> Opti
     semantic_detail_text(&panel.detail_counts)
 }
 
+fn compose_minimap_window_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<String> {
+    let panel = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    )?;
+    Some(compose_minimap_window_kind_distribution_line(&panel))
+}
+
 fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
     let Some(panel) = build_minimap_panel(
         scene,
@@ -2635,7 +2654,6 @@ fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Stri
         })
         .collect::<Vec<_>>();
     lines.push(compose_minimap_window_distribution_line(&panel));
-    lines.push(compose_minimap_window_kind_distribution_line(&panel));
     lines
 }
 
@@ -4451,7 +4469,13 @@ mod tests {
         )));
         assert!(frame.contains("MINIMAP-DETAIL: 1/6 marker-line=1"));
         assert!(frame.contains(
+            "MINIMAP-WINDOW-KINDS: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
+        ));
+        assert!(!frame.contains(
             "MINIMAP-DETAIL: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
+        ));
+        assert!(frame.contains(
+            "MINIMAP-DETAIL: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"
         ));
     }
 

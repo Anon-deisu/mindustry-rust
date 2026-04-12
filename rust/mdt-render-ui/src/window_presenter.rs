@@ -1589,6 +1589,9 @@ fn compose_frame_panel_lines(
     if let Some(minimap_kind_detail_text) = compose_minimap_kind_detail_status_text(scene, hud) {
         lines.push(format!("MINIMAP-KINDS-DETAIL: {minimap_kind_detail_text}"));
     }
+    if let Some(minimap_window_kinds_text) = compose_minimap_window_kind_status_text(scene, hud) {
+        lines.push(format!("MINIMAP-WINDOW-KINDS: {minimap_window_kinds_text}"));
+    }
     if let Some(minimap_legend_text) = compose_minimap_legend_status_text(hud) {
         lines.push(format!("MINIMAP-LEGEND: {minimap_legend_text}"));
     }
@@ -3564,6 +3567,20 @@ fn compose_minimap_kind_detail_status_text(scene: &RenderModel, hud: &HudModel) 
     semantic_detail_text(&panel.detail_counts)
 }
 
+fn compose_minimap_window_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Option<String> {
+    let panel = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    )?;
+    Some(compose_minimap_window_kind_distribution_status_text(&panel))
+}
+
 fn compose_minimap_legend_status_text(hud: &HudModel) -> Option<String> {
     hud.summary.as_ref()?;
     Some("legend:pl@/mkM/pnP/bk#/rtR/tr./uk?".to_string())
@@ -3595,7 +3612,6 @@ fn compose_minimap_detail_status_lines(
         .collect::<Vec<_>>();
     lines.push(compose_minimap_density_visibility_status_text(&panel));
     lines.push(compose_minimap_window_distribution_status_text(&panel));
-    lines.push(compose_minimap_window_kind_distribution_status_text(&panel));
     lines
 }
 
@@ -8259,7 +8275,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-DETAIL: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0",
+            "MINIMAP-WINDOW-KINDS: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0",
         );
     }
 
