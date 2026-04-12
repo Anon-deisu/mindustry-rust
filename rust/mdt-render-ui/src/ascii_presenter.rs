@@ -293,6 +293,14 @@ impl AsciiScenePresenter {
                 "BUILD-INTERACTION-DETAIL: {build_interaction_detail_text}\n"
             ));
         }
+        if let Some(build_queue_text) = compose_build_ui_queue_text(hud) {
+            out.push_str(&format!("BUILD-QUEUE: {build_queue_text}\n"));
+        }
+        if let Some(build_queue_detail_text) = compose_build_ui_queue_detail_text(hud) {
+            out.push_str(&format!(
+                "BUILD-QUEUE-DETAIL: {build_queue_detail_text}\n"
+            ));
+        }
         if let Some(build_minimap_aux_text) = compose_build_minimap_aux_text(scene, hud, window) {
             out.push_str(&format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}\n"));
         }
@@ -330,14 +338,6 @@ impl AsciiScenePresenter {
         }
         if let Some(build_strip_detail_text) = compose_build_strip_detail_text(hud) {
             out.push_str(&format!("BUILD-STRIP-DETAIL: {build_strip_detail_text}\n"));
-        }
-        if let Some(build_queue_text) = compose_build_ui_queue_text(hud) {
-            out.push_str(&format!("BUILD-QUEUE: {build_queue_text}\n"));
-        }
-        if let Some(build_queue_detail_text) = compose_build_ui_queue_detail_text(hud) {
-            out.push_str(&format!(
-                "BUILD-QUEUE-DETAIL: {build_queue_detail_text}\n"
-            ));
         }
         for inspector_line in compose_build_ui_inspector_lines(hud) {
             out.push_str(&format!("BUILD-INSPECTOR: {inspector_line}\n"));
@@ -5712,6 +5712,26 @@ mod tests {
         assert!(frame.contains(
             "BUILD-INTERACTION-DETAIL: selected=301 rot=1 available=1 families=4 samples=8 top=gamma head=queued@10:12:place:b301:r1 authority=rejected-missing-building pending=match source=tileConfig tile=10:12 block=alpha orphan=6"
         ));
+        let build_interaction_detail_pos = frame
+            .lines()
+            .position(|line| {
+                line == "BUILD-INTERACTION-DETAIL: selected=301 rot=1 available=1 families=4 samples=8 top=gamma head=queued@10:12:place:b301:r1 authority=rejected-missing-building pending=match source=tileConfig tile=10:12 block=alpha orphan=6"
+            })
+            .expect("build interaction detail line");
+        let build_queue_pos = frame
+            .lines()
+            .position(|line| {
+                line == "BUILD-QUEUE: queue=2/1/4/5/6 head=queued@10:12:place:b301:r1"
+            })
+            .expect("build queue line");
+        let build_minimap_aux_pos = frame
+            .lines()
+            .position(|line| {
+                line == "BUILD-MINIMAP-AUX: mode=place select=head-aligned queue=mixed place-ready=1 cfg=4/8 top=gamma auth=rejected-missing-building pending=match head=10:12 auth-tile=10:12 src=tileConfig block=alpha focus=1:1 in-window=1 visible-map=0 unknown-map=100 window=0 d75 tracked=3 runtime=0 runtime-share=0%"
+            })
+            .expect("build minimap aux line");
+        assert!(build_interaction_detail_pos < build_queue_pos);
+        assert!(build_queue_pos < build_minimap_aux_pos);
         assert!(frame.contains(
             "BUILD-STRIP-DETAIL: selected=301 rot=1 available=1 families=4 samples=8 top=gamma head=queued@10:12:place:b301:r1 authority=rejected-missing-building pending=match source=tileConfig tile=10:12 block=alpha orphan=6"
         ));
