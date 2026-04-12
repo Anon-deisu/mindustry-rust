@@ -216,6 +216,24 @@ pub struct BuildConfigRollbackStripModel {
     pub last_configured_block_name: Option<String>,
 }
 
+impl BuildConfigRollbackStripModel {
+    pub fn detail_label(&self) -> String {
+        format!(
+            "authoritative={} rollback={} last={} source={} business={} clear={} last-rb={} pending={} outcome={} block={}",
+            self.applied_authoritative_count,
+            self.rollback_count,
+            build_config_tile_label(self.last_build_tile),
+            build_config_authority_source_label(self.last_source),
+            if self.last_business_applied { 1 } else { 0 },
+            if self.last_cleared_pending_local { 1 } else { 0 },
+            if self.last_was_rollback { 1 } else { 0 },
+            build_config_pending_match_label(self.last_pending_local_match),
+            build_config_outcome_label(self.last_configured_outcome),
+            compact_panel_text(self.last_configured_block_name.as_deref()),
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildInteractionMode {
     Idle,

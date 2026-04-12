@@ -276,6 +276,12 @@ impl AsciiScenePresenter {
         if let Some(build_config_rollback_text) = compose_build_config_rollback_text(hud) {
             out.push_str(&format!("BUILD-ROLLBACK: {build_config_rollback_text}\n"));
         }
+        if let Some(build_config_rollback_detail_text) = compose_build_config_rollback_detail_text(hud)
+        {
+            out.push_str(&format!(
+                "BUILD-ROLLBACK-DETAIL: {build_config_rollback_detail_text}\n"
+            ));
+        }
         if let Some(build_interaction_text) = compose_build_interaction_text(hud) {
             out.push_str(&format!("BUILD-INTERACTION: {build_interaction_text}\n"));
         }
@@ -2913,6 +2919,11 @@ fn compose_build_config_rollback_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_build_config_rollback_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_config_panel(hud, 3)?;
+    Some(panel.rollback_strip.detail_label())
+}
+
 fn compose_build_interaction_text(hud: &HudModel) -> Option<String> {
     let panel = build_build_interaction_panel(hud)?;
     Some(format!(
@@ -5160,6 +5171,9 @@ mod tests {
             "BUILD-ROLLBACK: authoritative=3 rollback=1 last=23:45 src=constructFinish business=1 clear=1 last-rb=1 pending=mismatch outcome=applied block=power-node"
         ));
         assert!(frame.contains(
+            "BUILD-ROLLBACK-DETAIL: authoritative=3 rollback=1 last=23:45 source=constructFinish business=1 clear=1 last-rb=1 pending=mismatch outcome=applied block=power-node"
+        ));
+        assert!(frame.contains(
             "BUILD-INTERACTION: mode=place select=head-diverged queue=mixed pending=3 place-ready=1 cfg=2/2 top=message head=flight@100:99:place:b301:r1 auth=rollback pending=mismatch src=constructFinish tile=23:45 block=power-node orphan=1"
         ));
         assert!(frame.contains(
@@ -5468,6 +5482,9 @@ mod tests {
         assert!(frame.contains("BUILD-CONFIG-MORE: +1 hidden families beyond cap"));
         assert!(frame.contains(
             "BUILD-ROLLBACK: authoritative=4 rollback=2 last=10:12 src=tileConfig business=1 clear=0 last-rb=0 pending=match outcome=rejected-missing-building block=alpha"
+        ));
+        assert!(frame.contains(
+            "BUILD-ROLLBACK-DETAIL: authoritative=4 rollback=2 last=10:12 source=tileConfig business=1 clear=0 last-rb=0 pending=match outcome=rejected-missing-building block=alpha"
         ));
         assert!(frame.contains(
             "BUILD-INTERACTION: mode=place select=head-aligned queue=mixed pending=3 place-ready=1 cfg=4/8 top=gamma head=queued@10:12:place:b301:r1 auth=rejected-missing-building pending=match src=tileConfig tile=10:12 block=alpha orphan=6"

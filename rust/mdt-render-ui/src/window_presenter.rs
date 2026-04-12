@@ -1661,6 +1661,12 @@ fn compose_frame_panel_lines(
     if let Some(build_rollback_text) = compose_build_config_rollback_status_text(hud) {
         lines.push(format!("BUILD-ROLLBACK: {build_rollback_text}"));
     }
+    if let Some(build_rollback_detail_text) = compose_build_config_rollback_detail_status_text(hud)
+    {
+        lines.push(format!(
+            "BUILD-ROLLBACK-DETAIL: {build_rollback_detail_text}"
+        ));
+    }
     if let Some(build_interaction_text) = compose_build_interaction_status_text(hud) {
         lines.push(format!("BUILD-INTERACTION: {build_interaction_text}"));
     }
@@ -3911,6 +3917,11 @@ fn compose_build_config_rollback_status_text(hud: &HudModel) -> Option<String> {
         build_config_outcome_status_text(strip.last_configured_outcome),
         compact_runtime_ui_text(strip.last_configured_block_name.as_deref()),
     ))
+}
+
+fn compose_build_config_rollback_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP)?;
+    Some(panel.rollback_strip.detail_label())
 }
 
 fn compose_build_interaction_status_text(hud: &HudModel) -> Option<String> {
@@ -9187,6 +9198,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "BUILD-ROLLBACK-DETAIL: authoritative=3 rollback=1 last=23:45 source=constructFinish business=1 clear=1 last-rb=1 pending=mismatch outcome=applied block=power-node",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "BUILD-INTERACTION: cfgflow:m=place:s=head-diverged:q=mixed:p=3:pr=1:cfg=2/2:top=message:h=flight@100:99:place:b301:r1:auth=rollback:pm=mismatch:src=construct:t=23:45:b=power-node:o=1",
         );
         assert_frame_line_contains(
@@ -9525,6 +9540,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-ROLLBACK: cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=gamma",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-ROLLBACK-DETAIL: authoritative=4 rollback=2 last=10:12 source=tileConfig business=1 clear=0 last-rb=0 pending=match outcome=rejected-missing-building block=gamma",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
