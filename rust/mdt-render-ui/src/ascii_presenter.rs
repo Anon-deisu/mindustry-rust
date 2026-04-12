@@ -2496,8 +2496,39 @@ fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String>
 }
 
 fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
-    let build_ui = hud.build_ui.as_ref()?;
-    Some(compose_build_ui_summary_text(build_ui))
+    let interaction_panel = build_build_interaction_panel(hud);
+    let build_ui = hud.build_ui.as_ref();
+
+    if interaction_panel.is_none() && build_ui.is_none() {
+        return None;
+    }
+
+    let selected_block_id = interaction_panel
+        .as_ref()
+        .and_then(|panel| panel.selected_block_id)
+        .or_else(|| build_ui.and_then(|panel| panel.selected_block_id));
+    let rotation = interaction_panel
+        .as_ref()
+        .map(|panel| panel.selected_rotation)
+        .or_else(|| build_ui.map(|panel| panel.selected_rotation))
+        .unwrap_or_default();
+    let queue_text = interaction_panel
+        .as_ref()
+        .map(compose_build_strip_queue_text)
+        .or_else(|| build_ui.map(compose_build_strip_queue_fallback_text))
+        .unwrap_or_else(|| "none".to_string());
+    let authority_text = interaction_panel
+        .as_ref()
+        .map(|panel| build_interaction_authority_text(panel.authority_state).to_string())
+        .unwrap_or_else(|| "none".to_string());
+
+    Some(format!(
+        "sel={} r{} q={} auth={}",
+        optional_i16_label(selected_block_id),
+        rotation,
+        queue_text,
+        authority_text,
+    ))
 }
 
 fn compose_build_strip_detail_text(hud: &HudModel) -> Option<String> {
@@ -3168,14 +3199,34 @@ fn compact_build_inspector_text(value: &str, limit: usize) -> String {
     }
 }
 
-fn compose_build_ui_summary_text(build_ui: &crate::BuildUiObservability) -> String {
-    format!(
-        "sel={} rot={} building={} cfg={}",
-        optional_i16_label(build_ui.selected_block_id),
-        build_ui.selected_rotation,
-        if build_ui.building { 1 } else { 0 },
-        build_ui.inspector_entries.len(),
-    )
+fn compose_build_strip_queue_text(panel: &crate::panel_model::BuildInteractionPanelModel) -> String {
+    if let Some(head) = panel.head.as_ref() {
+        build_strip_queue_stage_text(head.stage, panel.pending_count)
+    } else {
+        format!(
+            "{}/p{}",
+            build_interaction_queue_text(panel.queue_state),
+            panel.pending_count,
+        )
+    }
+}
+
+fn compose_build_strip_queue_fallback_text(build_ui: &crate::BuildUiObservability) -> String {
+    if let Some(head) = build_ui.head.as_ref() {
+        build_strip_queue_stage_text(head.stage, build_ui.queued_count)
+    } else {
+        format!("queued/p{}", build_ui.queued_count)
+    }
+}
+
+fn build_strip_queue_stage_text(stage: crate::BuildQueueHeadStage, pending_count: usize) -> String {
+    let stage_text = match stage {
+        crate::BuildQueueHeadStage::Queued => "queued",
+        crate::BuildQueueHeadStage::InFlight => "flight",
+        crate::BuildQueueHeadStage::Finished => "finish",
+        crate::BuildQueueHeadStage::Removed => "remove",
+    };
+    format!("{stage_text}/p{pending_count}")
 }
 
 fn compose_build_ui_queue_summary_text(build_ui: &crate::BuildUiObservability) -> String {
@@ -5179,7 +5230,7 @@ mod tests {
         assert!(frame.contains(
             "BUILD-INTERACTION-DETAIL: selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@100:99:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=1"
         ));
-        assert!(frame.contains("BUILD: sel=257 rot=2 building=1 cfg=2"));
+        assert!(frame.contains("BUILD: sel=257 r2 q=flight/p3 auth=rollback"));
         assert!(frame.contains(
             "BUILD-STRIP-DETAIL: selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@100:99:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=1"
         ));
@@ -5333,6 +5384,52 @@ mod tests {
             super::compose_build_config_authority_summary_text(None),
             "auth=none pending=none src=none block=none"
         );
+    }
+
+    #[test]
+    fn ascii_presenter_emits_build_strip_summary_when_build_ui_present() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let hud = HudModel {
+            build_ui: Some(crate::BuildUiObservability {
+                selected_block_id: Some(257),
+                selected_rotation: 2,
+                building: true,
+                queued_count: 1,
+                inflight_count: 2,
+                finished_count: 0,
+                removed_count: 0,
+                orphan_authoritative_count: 0,
+                head: Some(crate::BuildQueueHeadObservability {
+                    x: 10,
+                    y: 11,
+                    breaking: false,
+                    block_id: Some(301),
+                    rotation: Some(1),
+                    stage: crate::BuildQueueHeadStage::InFlight,
+                }),
+                rollback_strip: crate::BuildConfigRollbackStripObservability {
+                    last_was_rollback: true,
+                    ..Default::default()
+                },
+                inspector_entries: Vec::new(),
+            }),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        assert!(presenter
+            .last_frame()
+            .contains("BUILD: sel=257 r2 q=flight/p3 auth=rollback"));
     }
 
     #[test]
