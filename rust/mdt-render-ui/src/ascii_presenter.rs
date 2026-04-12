@@ -171,6 +171,12 @@ impl AsciiScenePresenter {
         if let Some(detail_text) = compose_hud_detail_text(hud) {
             out.push_str(&format!("HUD-DETAIL: {detail_text}\n"));
         }
+        if let Some(render_text_text) = compose_render_text_status_text(scene, window) {
+            out.push_str(&format!("RENDER-TEXT: {render_text_text}\n"));
+        }
+        if let Some(render_text_detail_text) = compose_render_text_detail_text(scene, window) {
+            out.push_str(&format!("RENDER-TEXT-DETAIL: {render_text_detail_text}\n"));
+        }
         if let Some(render_rect_text) = compose_render_rect_status_text(scene, window) {
             out.push_str(&format!("RENDER-RECT: {render_rect_text}\n"));
         }
@@ -182,12 +188,6 @@ impl AsciiScenePresenter {
         }
         if let Some(render_icon_detail_text) = compose_render_icon_detail_text(scene, window) {
             out.push_str(&format!("RENDER-ICON-DETAIL: {render_icon_detail_text}\n"));
-        }
-        if let Some(render_text_text) = compose_render_text_status_text(scene, window) {
-            out.push_str(&format!("RENDER-TEXT: {render_text_text}\n"));
-        }
-        if let Some(render_text_detail_text) = compose_render_text_detail_text(scene, window) {
-            out.push_str(&format!("RENDER-TEXT-DETAIL: {render_text_detail_text}\n"));
         }
         if let Some(minimap_text) = compose_minimap_panel_text(scene, hud, window) {
             out.push_str(&format!("MINIMAP: {minimap_text}\n"));
@@ -6173,6 +6173,147 @@ mod tests {
         assert!(frame.contains("runtime-world-label@39:0:0 payload[text=Hello]"));
     }
 
+    #[test]
+    fn ascii_presenter_matches_window_render_text_order() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "world-label:7:text:48656c6c6f".to_string(),
+                    layer: 39,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-health:0:0".to_string(),
+                    layer: 32,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}:line-end",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}:line-end",
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}:line-end",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:left:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:left:{}:{}:{}:{}:line-end",
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 16.0,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        let render_text_pos = frame
+            .lines()
+            .position(|line| line.starts_with("RENDER-TEXT: count=1 runtime-world-label@39:0:0=Hello"))
+            .expect("render text line");
+        let render_rect_pos = frame
+            .lines()
+            .position(|line| line.starts_with("RENDER-RECT: count=1 runtime-command-rect@29:8:16:24:32"))
+            .expect("render rect line");
+        let render_icon_pos = frame
+            .lines()
+            .position(|line| line.starts_with("RENDER-ICON: count=1 runtime-health/health@32:1:0"))
+            .expect("render icon line");
+
+        assert!(render_text_pos < render_rect_pos);
+        assert!(render_rect_pos < render_icon_pos);
+    }
     #[test]
     fn ascii_presenter_omits_non_finite_text_primitive_summary_and_detail() {
         let scene = RenderModel {
