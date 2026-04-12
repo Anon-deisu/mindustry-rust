@@ -149,6 +149,7 @@ pub struct WindowFrame {
     pub session_banner_text: Option<String>,
     pub status_text: String,
     pub build_strip_text: Option<String>,
+    pub build_strip_detail_text: Option<String>,
     pub panel_lines: Vec<String>,
     pub overlay_lines: Vec<String>,
     pub overlay_summary_text: Option<String>,
@@ -513,6 +514,7 @@ fn compose_frame(
         session_banner_text: compose_frame_session_banner_text(hud),
         status_text: compose_frame_status_text(scene, hud, window),
         build_strip_text: compose_frame_build_strip_text(hud),
+        build_strip_detail_text: compose_frame_build_strip_detail_text(hud),
         panel_lines: compose_frame_panel_lines(scene, hud, window),
         overlay_lines: compose_frame_overlay_lines(scene, hud),
         overlay_summary_text: hud.overlay_summary_text.clone(),
@@ -1936,6 +1938,11 @@ fn compose_frame_build_strip_text(hud: &HudModel) -> Option<String> {
         queue_text,
         authority_text,
     ))
+}
+
+fn compose_frame_build_strip_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_interaction_panel(hud)?;
+    Some(format!("BUILD-STRIP-DETAIL: {}", panel.detail_label()))
 }
 
 fn compose_frame_overlay_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
@@ -6021,6 +6028,13 @@ fn overlay_window_hud(
     {
         bottom_lines.push(text);
     }
+    if let Some(text) = frame
+        .build_strip_detail_text
+        .as_deref()
+        .filter(|text| !text.is_empty())
+    {
+        bottom_lines.push(text);
+    }
     if bottom_lines.is_empty() {
         return;
     }
@@ -6509,6 +6523,7 @@ mod tests {
             session_banner_text: None,
             status_text: String::new(),
             build_strip_text: None,
+            build_strip_detail_text: None,
             panel_lines: Vec::new(),
             overlay_lines: Vec::new(),
             overlay_summary_text: None,
@@ -6576,6 +6591,7 @@ mod tests {
             session_banner_text: None,
             status_text: String::new(),
             build_strip_text: None,
+            build_strip_detail_text: None,
             panel_lines: Vec::new(),
             overlay_lines: Vec::new(),
             overlay_summary_text: None,
@@ -6604,6 +6620,7 @@ mod tests {
             session_banner_text: None,
             status_text: String::new(),
             build_strip_text: None,
+            build_strip_detail_text: None,
             panel_lines: Vec::new(),
             overlay_lines: Vec::new(),
             overlay_summary_text: None,
@@ -6629,6 +6646,7 @@ mod tests {
             session_banner_text: None,
             status_text: String::new(),
             build_strip_text: None,
+            build_strip_detail_text: None,
             panel_lines: vec!["B".to_string()],
             overlay_lines: vec!["C".to_string()],
             overlay_summary_text: None,
@@ -6673,6 +6691,7 @@ mod tests {
             session_banner_text: None,
             status_text: String::new(),
             build_strip_text: Some("D".to_string()),
+            build_strip_detail_text: None,
             panel_lines: vec!["B".to_string()],
             overlay_lines: vec!["C".to_string()],
             overlay_summary_text: None,
@@ -6698,6 +6717,40 @@ mod tests {
     }
 
     #[test]
+    fn scale_frame_pixels_blits_build_strip_detail_as_fourth_bottom_line() {
+        let frame = WindowFrame {
+            frame_id: 0,
+            title: "demo".to_string(),
+            wave_text: None,
+            session_banner_text: None,
+            status_text: String::new(),
+            build_strip_text: Some("D".to_string()),
+            build_strip_detail_text: Some("E".to_string()),
+            panel_lines: vec!["B".to_string()],
+            overlay_lines: vec!["C".to_string()],
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 12,
+            height: 8,
+            minimap_inset: None,
+            pixels: vec![COLOR_EMPTY; 12 * 8],
+        };
+
+        let pixels = scale_frame_pixels(&frame, 4);
+        let surface_width = frame.width * 4;
+        let surface_height = frame.height * 4;
+        let bottom_bar_y = surface_height.saturating_sub(window_hud_bar_height(4));
+        let fourth_bottom_line_y =
+            bottom_bar_y + WINDOW_HUD_BAR_PADDING_Y + (WINDOW_HUD_FONT_HEIGHT + 1) * 3;
+
+        assert_eq!(
+            pixels[fourth_bottom_line_y * surface_width + WINDOW_HUD_BAR_PADDING_X + 1],
+            COLOR_WINDOW_HUD_TEXT
+        );
+    }
+
+    #[test]
     fn window_hud_top_line_prefers_session_banner_and_falls_back_to_wave() {
         let mut frame = WindowFrame {
             frame_id: 0,
@@ -6706,6 +6759,7 @@ mod tests {
             session_banner_text: Some("KICK idInUse@7:IdInUse:wait_for_old~".to_string()),
             status_text: String::new(),
             build_strip_text: None,
+            build_strip_detail_text: None,
             panel_lines: Vec::new(),
             overlay_lines: Vec::new(),
             overlay_summary_text: None,
@@ -6735,6 +6789,7 @@ mod tests {
             session_banner_text: Some(String::new()),
             status_text: String::new(),
             build_strip_text: None,
+            build_strip_detail_text: None,
             panel_lines: Vec::new(),
             overlay_lines: Vec::new(),
             overlay_summary_text: None,
@@ -6843,6 +6898,7 @@ mod tests {
             session_banner_text: None,
             status_text: String::new(),
             build_strip_text: None,
+            build_strip_detail_text: None,
             panel_lines: Vec::new(),
             overlay_lines: Vec::new(),
             overlay_summary_text: None,
@@ -9042,6 +9098,12 @@ mod tests {
             frame.build_strip_text.as_deref(),
             Some("BUILD: sel=257 r2 q=flight/p3 auth=rollback")
         );
+        assert_eq!(
+            frame.build_strip_detail_text.as_deref(),
+            Some(
+                "BUILD-STRIP-DETAIL: selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@100:99:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=1"
+            )
+        );
         assert!(frame.status_text.starts_with("base "));
         assert!(frame
             .status_text
@@ -9421,6 +9483,12 @@ mod tests {
         assert_eq!(
             frame.build_strip_text.as_deref(),
             Some("BUILD: sel=301 r1 q=queued/p3 auth=rej-miss-build")
+        );
+        assert_eq!(
+            frame.build_strip_detail_text.as_deref(),
+            Some(
+                "BUILD-STRIP-DETAIL: selected=301 rot=1 available=1 families=3 samples=7 top=gamma head=queued@10:12:place:b301:r1 authority=rejected-missing-building pending=match source=tileConfig tile=10:12 block=gamma orphan=6"
+            )
         );
         assert_frame_line_contains(
             &frame.panel_lines,
