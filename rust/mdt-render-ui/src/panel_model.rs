@@ -259,6 +259,7 @@ pub struct BuildMinimapAssistPanelModel {
     pub head_tile: Option<(i32, i32)>,
     pub authority_tile: Option<(i32, i32)>,
     pub authority_source: Option<BuildConfigAuthoritySourceObservability>,
+    pub authority_block_name: Option<String>,
     pub focus_tile: Option<(usize, usize)>,
     pub focus_in_window: Option<bool>,
     pub visible_map_percent: usize,
@@ -1937,6 +1938,7 @@ pub fn build_build_minimap_assist_panel(
         head_tile: interaction.head.as_ref().map(|head| (head.x, head.y)),
         authority_tile: interaction.authority_tile,
         authority_source: interaction.authority_source,
+        authority_block_name: interaction.authority_block_name,
         focus_tile: minimap.focus_tile,
         focus_in_window: minimap.focus_in_window,
         visible_map_percent: minimap.visible_map_percent(),
@@ -3409,6 +3411,7 @@ mod tests {
             panel.authority_source,
             Some(BuildConfigAuthoritySourceObservability::TileConfig)
         );
+        assert_eq!(panel.authority_block_name.as_deref(), Some("gamma"));
         assert_eq!(panel.focus_tile, Some((0, 0)));
         assert_eq!(panel.focus_in_window, Some(true));
         assert_eq!(panel.visible_map_percent, 0);
@@ -3442,6 +3445,7 @@ mod tests {
             head_tile: None,
             authority_tile: None,
             authority_source: None,
+            authority_block_name: None,
             focus_tile: Some((4, 6)),
             focus_in_window: Some(true),
             visible_map_percent: 100,
@@ -3507,6 +3511,7 @@ mod tests {
             head_tile: Some((4, 6)),
             authority_tile: Some((4, 6)),
             authority_source: None,
+            authority_block_name: Some("duo".to_string()),
             focus_tile: Some((4, 6)),
             focus_in_window: Some(true),
             visible_map_percent: 100,
