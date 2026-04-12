@@ -6286,6 +6286,9 @@ fn append_runtime_building_markers(
             TypedBuildingRuntimeValue::PayloadRouter { .. } => {
                 append_runtime_payload_router_objects(scene, building);
             }
+            TypedBuildingRuntimeValue::Separator { .. } => {
+                append_runtime_separator_objects(scene, building);
+            }
             TypedBuildingRuntimeValue::MassDriver {
                 link: Some(target_build_pos),
                 ..
@@ -6380,6 +6383,24 @@ fn append_runtime_payload_router_objects(
     scene.objects.push(RenderObject {
         id: format!(
             "marker:runtime-payload-router:{}:{tile_x}:{tile_y}",
+            building.block_name
+        ),
+        layer: 16,
+        x: tile_x as f32 * TILE_SIZE,
+        y: tile_y as f32 * TILE_SIZE,
+    });
+}
+
+fn append_runtime_separator_objects(
+    scene: &mut RenderModel,
+    building: &TypedBuildingRuntimeModel,
+) {
+    const TILE_SIZE: f32 = 8.0;
+
+    let (tile_x, tile_y) = unpack_runtime_point2(building.build_pos);
+    scene.objects.push(RenderObject {
+        id: format!(
+            "marker:runtime-separator:{}:{tile_x}:{tile_y}",
             building.block_name
         ),
         layer: 16,
@@ -9360,6 +9381,61 @@ mod tests {
                 .expect("payload-loader runtime marker should be present");
         assert_eq!(marker.x, 416.0);
         assert_eq!(marker.y, 576.0);
+        assert_eq!(marker.layer, 16);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_separator_runtime_marker_in_scene() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(42, 64);
+
+        state
+            .runtime_typed_building_apply_projection
+            .upsert_runtime_building(crate::session_state::TypedBuildingRuntimeModel {
+                build_pos,
+                block_id: Some(1),
+                block_name: "separator".to_string(),
+                kind: TypedBuildingRuntimeKind::Separator,
+                value: TypedBuildingRuntimeValue::Separator {
+                    progress_bits: Some(0x3f80_0000),
+                    warmup_bits: Some(0x4000_0000),
+                    seed: Some(-7),
+                },
+                inventory_item_stacks: vec![],
+                inventory_liquid_stacks: vec![],
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+            });
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = scene_object_by_id(&scene, "marker:runtime-separator:separator:42:64")
+            .expect("separator runtime marker should be present");
+        assert_eq!(marker.x, 336.0);
+        assert_eq!(marker.y, 512.0);
         assert_eq!(marker.layer, 16);
     }
 
