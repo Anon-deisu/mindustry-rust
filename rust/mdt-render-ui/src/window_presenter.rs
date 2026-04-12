@@ -1586,6 +1586,9 @@ fn compose_frame_panel_lines(
     if let Some(minimap_kind_text) = compose_minimap_kind_status_text(scene, hud) {
         lines.push(format!("MINIMAP-KINDS: {minimap_kind_text}"));
     }
+    if let Some(minimap_kind_detail_text) = compose_minimap_kind_detail_status_text(scene, hud) {
+        lines.push(format!("MINIMAP-KINDS-DETAIL: {minimap_kind_detail_text}"));
+    }
     if let Some(minimap_legend_text) = compose_minimap_legend_status_text(hud) {
         lines.push(format!("MINIMAP-LEGEND: {minimap_legend_text}"));
     }
@@ -3474,7 +3477,7 @@ fn compose_minimap_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Opti
             height: 0,
         },
     )?;
-    let mut text = format!(
+    let text = format!(
         "minikind:obj{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
         panel.tracked_object_count,
         panel.player_count,
@@ -3485,11 +3488,21 @@ fn compose_minimap_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Opti
         panel.terrain_count,
         panel.unknown_count,
     );
-    if let Some(detail_text) = semantic_detail_text(&panel.detail_counts) {
-        text.push_str(" detail=");
-        text.push_str(&detail_text);
-    }
     Some(text)
+}
+
+fn compose_minimap_kind_detail_status_text(scene: &RenderModel, hud: &HudModel) -> Option<String> {
+    let panel = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    )?;
+    semantic_detail_text(&panel.detail_counts)
 }
 
 fn compose_minimap_legend_status_text(hud: &HudModel) -> Option<String> {
@@ -6827,7 +6840,11 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-KINDS: minikind:obj1@pl0:mk0:pn0:bk0:rt1:tr0:uk0 detail=runtime-building:1",
+            "MINIMAP-KINDS: minikind:obj1@pl0:mk0:pn0:bk0:rt1:tr0:uk0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-KINDS-DETAIL: runtime-building:1",
         );
     }
 
@@ -8111,7 +8128,11 @@ mod tests {
             super::build_minimap_panel(&scene, &hud, inset.window).expect("expected minimap panel");
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-KINDS: minikind:obj7@pl1:mk2:pn0:bk0:rt4:tr0:uk0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1",
+            "MINIMAP-KINDS: minikind:obj7@pl1:mk2:pn0:bk0:rt4:tr0:uk0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-KINDS-DETAIL: marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

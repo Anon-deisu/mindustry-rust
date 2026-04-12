@@ -208,6 +208,11 @@ impl AsciiScenePresenter {
         if let Some(minimap_kinds_text) = compose_minimap_kind_line(scene, hud) {
             out.push_str(&format!("MINIMAP-KINDS: {minimap_kinds_text}\n"));
         }
+        if let Some(minimap_kinds_detail_text) = compose_minimap_kind_detail_line(scene, hud) {
+            out.push_str(&format!(
+                "MINIMAP-KINDS-DETAIL: {minimap_kinds_detail_text}\n"
+            ));
+        }
         if let Some(minimap_edge_text) = compose_minimap_edge_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-EDGE: {minimap_edge_text}\n"));
         }
@@ -2517,7 +2522,7 @@ fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<Stri
             height: 0,
         },
     )?;
-    let mut text = format!(
+    Some(format!(
         "tracked={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
         panel.tracked_object_count,
         panel.player_count,
@@ -2527,12 +2532,21 @@ fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<Stri
         panel.runtime_count,
         panel.terrain_count,
         panel.unknown_count,
-    );
-    if let Some(detail_text) = semantic_detail_text(&panel.detail_counts) {
-        text.push_str(" detail=");
-        text.push_str(&detail_text);
-    }
-    Some(text)
+    ))
+}
+
+fn compose_minimap_kind_detail_line(scene: &RenderModel, hud: &HudModel) -> Option<String> {
+    let panel = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    )?;
+    semantic_detail_text(&panel.detail_counts)
 }
 
 fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
@@ -4305,7 +4319,10 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains(
-            "MINIMAP-KINDS: tracked=7 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
+            "MINIMAP-KINDS: tracked=7 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
+        ));
+        assert!(frame.contains(
+            "MINIMAP-KINDS-DETAIL: marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
         ));
         assert!(frame.contains(&format!(
             "MINIMAP-EDGE: {}",
