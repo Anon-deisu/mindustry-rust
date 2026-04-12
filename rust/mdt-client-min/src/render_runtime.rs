@@ -13708,6 +13708,70 @@ mod tests {
     }
 
     #[test]
+    fn runtime_effect_binding_label_and_detail_label_handle_source_only_session_state() {
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.last_effect_runtime_source_binding_state =
+            Some(EffectRuntimeBindingState::ParentFollow);
+        state.received_effect_binding_source_follow_count = 1;
+
+        let mut world_overlay = RuntimeWorldOverlay::default();
+        world_overlay.effect_overlays.push(RuntimeEffectOverlay {
+            effect_id: Some(9),
+            source_x_bits: 1.0f32.to_bits(),
+            source_y_bits: 2.0f32.to_bits(),
+            source_binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 1.0f32.to_bits(),
+                spawn_y_bits: 2.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            x_bits: 3.0f32.to_bits(),
+            y_bits: 4.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 405,
+                spawn_x_bits: 3.0f32.to_bits(),
+                spawn_y_bits: 4.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            content_ref: None,
+            polyline_points: Vec::new(),
+        });
+
+        assert_eq!(
+            runtime_effect_binding_label(&input, &state, &world_overlay),
+            "none/follow"
+        );
+        assert_eq!(
+            runtime_effect_binding_detail_label(&input, &state, &world_overlay),
+            "source=session session=none/follow overlay=fallback/fallback active=1 target_counts=0/0/0 source_counts=1/0/0"
+        );
+    }
+
+    #[test]
     fn runtime_effect_binding_detail_label_reports_selected_source_and_overlay_pair() {
         let input = ClientSnapshotInputState::default();
 
