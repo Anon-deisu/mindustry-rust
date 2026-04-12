@@ -66,6 +66,7 @@ const WINDOW_HUD_BAR_PADDING_X: usize = 2;
 const WINDOW_HUD_BAR_PADDING_Y: usize = 2;
 const WINDOW_MINIMAP_INSET_PADDING: usize = 4;
 const WINDOW_MINIMAP_INSET_BORDER_WIDTH: usize = 1;
+const WINDOW_BUILD_CONFIG_ENTRY_CAP: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowMinimapInset {
@@ -3574,7 +3575,7 @@ fn minimap_clamp_status_text(panel: &MinimapPanelModel) -> String {
 }
 
 fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_config_panel(hud, 2)?;
+    let panel = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP)?;
     let (authority_text, pending_match_text, authority_source_text, authority_block_text) =
         build_build_interaction_panel(hud)
             .map(|panel| {
@@ -3627,7 +3628,7 @@ fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_build_config_entry_status_lines(hud: &HudModel) -> Vec<String> {
-    let Some(panel) = build_build_config_panel(hud, 2) else {
+    let Some(panel) = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP) else {
         return Vec::new();
     };
 
@@ -3649,12 +3650,12 @@ fn compose_build_config_entry_status_lines(hud: &HudModel) -> Vec<String> {
 }
 
 fn compose_build_config_more_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_config_panel(hud, 2)?;
+    let panel = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP)?;
     (panel.truncated_family_count > 0).then(|| format!("cfgmore:+{}", panel.truncated_family_count))
 }
 
 fn compose_build_config_rollback_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_config_panel(hud, 2)?;
+    let panel = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP)?;
     let strip = &panel.rollback_strip;
     Some(format!(
         "cfgstrip:a{}:rb{}:last={}:src={}:b{}:cl{}:lr{}:pm={}:out={}:block={}",
@@ -9037,7 +9038,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-CONFIG: cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:auth=rej-miss-build:pm=match:src=tilecfg:b=gamma:fam2/3:more1:t7@gamma#4,beta#2",
+            "BUILD-CONFIG: cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:auth=rej-miss-build:pm=match:src=tilecfg:b=gamma:fam3/3:more0:t7@gamma#4,beta#2,alpha#1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -9047,7 +9048,10 @@ mod tests {
             &frame.panel_lines,
             "BUILD-CONFIG-ENTRY: cfgentry:2/3:beta#2@two",
         );
-        assert_frame_line_contains(&frame.panel_lines, "BUILD-CONFIG-MORE: cfgmore:+1");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-CONFIG-ENTRY: cfgentry:3/3:alpha#1@one",
+        );
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-ROLLBACK: cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=gamma",
