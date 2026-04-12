@@ -1292,6 +1292,29 @@ impl MinimapPanelModel {
     pub fn outside_object_percent(&self) -> usize {
         percent_of(self.outside_window_count, self.tracked_object_count)
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn edge_detail_label(&self) -> String {
+        format!(
+            "origin={}:{} last={}:{} size={}x{} cover={}% focus={} in-window={} drift={}:{} clamp={} outside={}/{} window={}/{}",
+            self.window.origin_x,
+            self.window.origin_y,
+            self.window_last_x,
+            self.window_last_y,
+            self.window.width,
+            self.window.height,
+            self.window_coverage_percent,
+            minimap_focus_tile_label(self.focus_tile),
+            optional_bool_label(self.focus_in_window),
+            optional_isize_label(self.focus_offset_x),
+            optional_isize_label(self.focus_offset_y),
+            minimap_clamp_label(self),
+            self.outside_window_count,
+            self.tracked_object_count,
+            self.window_tracked_object_count,
+            self.tracked_object_count,
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2765,6 +2788,40 @@ fn optional_bool_label(value: Option<bool>) -> &'static str {
     }
 }
 
+fn optional_isize_label(value: Option<isize>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn minimap_focus_tile_label(value: Option<(usize, usize)>) -> String {
+    match value {
+        Some((x, y)) => format!("{x}:{y}"),
+        None => "none".to_string(),
+    }
+}
+
+fn minimap_clamp_label(panel: &MinimapPanelModel) -> String {
+    let mut clamps = Vec::new();
+    if panel.window_clamped_left {
+        clamps.push("left");
+    }
+    if panel.window_clamped_top {
+        clamps.push("top");
+    }
+    if panel.window_clamped_right {
+        clamps.push("right");
+    }
+    if panel.window_clamped_bottom {
+        clamps.push("bottom");
+    }
+    if clamps.is_empty() {
+        "none".to_string()
+    } else {
+        clamps.join("+")
+    }
+}
+
 fn world_position_text(value: Option<&crate::RuntimeWorldPositionObservability>) -> String {
     value
         .map(|value| {
@@ -3093,6 +3150,10 @@ mod tests {
         assert_eq!(panel.window_tracked_object_count, 3);
         assert_eq!(panel.outside_window_count, 2);
         assert_eq!(panel.marker_count, 1);
+        assert_eq!(
+            panel.edge_detail_label(),
+            "origin=2:1 last=9:7 size=8x7 cover=1% focus=5:3 in-window=1 drift=0:-1 clamp=none outside=2/5 window=3/5"
+        );
         assert_eq!(panel.window_marker_count, 0);
         assert_eq!(panel.plan_count, 1);
         assert_eq!(panel.window_plan_count, 0);

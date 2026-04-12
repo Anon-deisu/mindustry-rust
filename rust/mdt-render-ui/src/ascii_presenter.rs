@@ -211,6 +211,12 @@ impl AsciiScenePresenter {
         if let Some(minimap_edge_text) = compose_minimap_edge_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-EDGE: {minimap_edge_text}\n"));
         }
+        if let Some(minimap_edge_detail_text) = compose_minimap_edge_detail_line(scene, hud, window)
+        {
+            out.push_str(&format!(
+                "MINIMAP-EDGE-DETAIL: {minimap_edge_detail_text}\n"
+            ));
+        }
         for minimap_detail_text in compose_minimap_detail_lines(scene, hud) {
             out.push_str(&format!("MINIMAP-DETAIL: {minimap_detail_text}\n"));
         }
@@ -2437,6 +2443,15 @@ fn compose_minimap_edge_line(
     Some(compose_minimap_edge_summary_text(&panel))
 }
 
+fn compose_minimap_edge_detail_line(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_panel(scene, hud, window)?;
+    Some(panel.edge_detail_label())
+}
+
 fn compose_minimap_edge_summary_text(panel: &MinimapPanelModel) -> String {
     format!(
         "focus={} in-window={} drift={}:{} clamp={} outside={}/{} window={}/{}",
@@ -4290,6 +4305,21 @@ mod tests {
                 .expect("minimap panel"),
             )
         )));
+        assert!(frame.contains(&format!(
+            "MINIMAP-EDGE-DETAIL: {}",
+            super::build_minimap_panel(
+                &scene,
+                &hud,
+                PresenterViewWindow {
+                    origin_x: 0,
+                    origin_y: 0,
+                    width: 2,
+                    height: 2,
+                },
+            )
+            .expect("minimap panel")
+            .edge_detail_label(),
+        )));
         assert!(frame.contains("MINIMAP-DETAIL: 1/6 marker-line=1"));
         assert!(frame.contains(
             "MINIMAP-DETAIL: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
@@ -5119,6 +5149,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "MINIMAP-FLOW: next=survey focus=inside pan=hold vis=unseen cover=offscreen target=player overlay-targets=0"
+        ));
+        assert!(frame.contains(
+            "MINIMAP-EDGE-DETAIL: origin=0:0 last=1:1 size=2x2 cover=0% focus=1:1 in-window=1 drift=1:1 clamp=left+top outside=0/3 window=3/3"
         ));
         assert!(frame.contains(
             "MINIMAP-FLOW-DETAIL: next=survey focus=inside vis=unseen cover=offscreen pan=hold target=player"

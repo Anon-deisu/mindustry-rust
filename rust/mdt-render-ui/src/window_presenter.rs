@@ -1592,6 +1592,11 @@ fn compose_frame_panel_lines(
     if let Some(minimap_edge_text) = compose_minimap_edge_status_text(scene, hud, window) {
         lines.push(format!("MINIMAP-EDGE: {minimap_edge_text}"));
     }
+    if let Some(minimap_edge_detail_text) =
+        compose_minimap_edge_detail_status_text(scene, hud, window)
+    {
+        lines.push(format!("MINIMAP-EDGE-DETAIL: {minimap_edge_detail_text}"));
+    }
     for minimap_detail_text in compose_minimap_detail_status_lines(scene, hud, window) {
         lines.push(format!("MINIMAP-DETAIL: {minimap_detail_text}"));
     }
@@ -3568,6 +3573,15 @@ fn compose_minimap_edge_status_text(
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(compose_minimap_edge_summary_status_text(&panel))
+}
+
+fn compose_minimap_edge_detail_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_panel(scene, hud, window)?;
+    Some(panel.edge_detail_label())
 }
 
 fn compose_minimap_edge_summary_status_text(panel: &MinimapPanelModel) -> String {
@@ -8089,6 +8103,10 @@ mod tests {
                 "MINIMAP-EDGE: {}",
                 super::compose_minimap_edge_summary_status_text(&panel)
             ),
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            &format!("MINIMAP-EDGE-DETAIL: {}", panel.edge_detail_label()),
         );
         assert_frame_line_contains(
             &frame.panel_lines,
