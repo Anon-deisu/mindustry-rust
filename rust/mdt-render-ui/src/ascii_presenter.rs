@@ -1733,7 +1733,7 @@ fn compose_runtime_rules_detail_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_menu_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_menu_panel(hud)?;
     Some(format!(
-        "menu={}@{}:{}/{}#{}:{} follow={}@{}:{}/{}#{}:{} hide={}@{} tin={}@{}:{}/{}#{}:n{}:e{}",
+        "menu:m{}@{}:{}/{}#{}:{}:fm{}@{}:{}/{}#{}:{}:h{}@{}:tin{}@{}:{}/{}#{}:n{}:e{}",
         panel.menu_open_count,
         optional_i32_label(panel.last_menu_open_id),
         compact_runtime_ui_text(panel.last_menu_open_title.as_deref()),
@@ -1764,7 +1764,7 @@ fn compose_runtime_menu_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "active={} outstanding-follow-up={} menu={} title-len={} message-len={} rows={}/{} follow={} title-len={} message-len={} rows={}/{} hide-id={} text-input={} id={} title={} default-len={} numeric={} allow-empty={}",
+        "menud:a{}:fo{}:m{}:{}:{}:{}:{}:fm{}:{}:{}:{}:{}:hid{}:tin{}:id{}:t{}:d{}:n{}:e{}",
         if panel.text_input_open_count > 0
             || panel.menu_open_count > 0
             || panel.outstanding_follow_up_count() > 0
@@ -5761,9 +5761,9 @@ mod tests {
             "RUNTIME-NOTICE-DETAIL: noticed:a1:h9/10/11:l8/7:ann12:a8:info13:i4:t14/15:l5/4:popup16/17:r1:pid7:pm10:pd1075838976:pb1:2:3:4:5:clip18:6:uri19:19:https:tin53:id404:t6:m12:d5:n1:e1"
         ));
         assert!(frame
-            .contains("RUNTIME-MENU: menu=16@40:main/pick#2:3 follow=17@41:follow/next#1:2 hide=18@41 tin=53@404:Digits/12345#16:n1:e1"));
+            .contains("RUNTIME-MENU: menu:m16@40:main/pick#2:3:fm17@41:follow/next#1:2:h18@41:tin53@404:Digits/12345#16:n1:e1"));
         assert!(frame.contains(
-            "RUNTIME-MENU-DETAIL: active=1 outstanding-follow-up=0 menu=40 title-len=4 message-len=4 rows=2/3 follow=41 title-len=6 message-len=4 rows=1/2 hide-id=41 text-input=53 id=404 title=Digits default-len=5 numeric=1 allow-empty=1"
+            "RUNTIME-MENU-DETAIL: menud:a1:fo0:m40:4:4:2:3:fm41:6:4:1:2:hid41:tin53:id404:tDigits:d5:n1:e1"
         ));
         assert!(frame.contains("RUNTIME-CHOICE: menu-choose=29@404/2 tin-result=30@405/ok123"));
         assert!(frame.contains(
