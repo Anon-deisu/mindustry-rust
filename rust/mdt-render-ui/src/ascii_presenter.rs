@@ -2992,12 +2992,34 @@ fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {
 
 fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_build_config_panel(hud, 3)?;
-    let interaction = build_build_interaction_panel(hud);
+    let (authority_text, pending_match_text, authority_source_text, authority_block_text) =
+        build_build_interaction_panel(hud)
+            .map(|panel| {
+                (
+                    build_interaction_authority_compact_text(panel.authority_state),
+                    build_config_pending_match_text(panel.authority_pending_match),
+                    build_config_rollback_source_compact_text(panel.authority_source),
+                    compact_runtime_ui_text(panel.authority_block_name.as_deref()),
+                )
+            })
+            .unwrap_or(("none", "none", "none", "none".to_string()));
+    let entries = panel
+        .entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "{}#{}",
+                compact_runtime_ui_text(Some(entry.family.as_str())),
+                entry.tracked_count
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     Some(format!(
-        "sel={} rot={} mode={} pending={}/{} hist={}/{} orphan={} head={} align={} {} families={}/{} tracked={}",
+        "cfgpanel:sel{}:r{}:m{}:p{}/{}:hist{}/{}:o{}:h={}:align={}:auth={}:pm={}:src={}:b={}:fam{}/{}:more{}:t{}@{}",
         optional_i16_label(panel.selected_block_id),
         panel.selected_rotation,
-        if panel.building { "build" } else { "idle" },
+        if panel.building { 1 } else { 0 },
         panel.queued_count,
         panel.inflight_count,
         panel.finished_count,
@@ -3005,10 +3027,19 @@ fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
         panel.orphan_authoritative_count,
         build_config_head_text(panel.head.as_ref()),
         build_config_alignment_text(panel.selected_matches_head),
-        compose_build_config_authority_summary_text(interaction.as_ref()),
+        authority_text,
+        pending_match_text,
+        authority_source_text,
+        authority_block_text,
         panel.entries.len(),
         panel.tracked_family_count,
+        panel.truncated_family_count,
         panel.tracked_sample_count,
+        if entries.is_empty() {
+            "-".to_string()
+        } else {
+            entries
+        },
     ))
 }
 
@@ -3017,6 +3048,7 @@ fn compose_build_config_detail_text(hud: &HudModel) -> Option<String> {
     Some(panel.detail_label())
 }
 
+#[cfg(test)]
 fn compose_build_config_authority_summary_text(
     interaction: Option<&crate::panel_model::BuildInteractionPanelModel>,
 ) -> String {
@@ -3429,6 +3461,16 @@ fn build_config_rollback_source_text(
     }
 }
 
+fn build_config_rollback_source_compact_text(
+    value: Option<crate::BuildConfigAuthoritySourceObservability>,
+) -> &'static str {
+    match value {
+        Some(crate::BuildConfigAuthoritySourceObservability::TileConfig) => "tilecfg",
+        Some(crate::BuildConfigAuthoritySourceObservability::ConstructFinish) => "construct",
+        None => "none",
+    }
+}
+
 fn build_config_pending_match_text(value: Option<bool>) -> &'static str {
     match value {
         Some(true) => "match",
@@ -3487,6 +3529,29 @@ fn build_interaction_authority_text(
         }
         crate::panel_model::BuildInteractionAuthorityState::RejectedUnsupportedConfigType => {
             "rejected-unsupported-config"
+        }
+    }
+}
+
+fn build_interaction_authority_compact_text(
+    value: crate::panel_model::BuildInteractionAuthorityState,
+) -> &'static str {
+    match value {
+        crate::panel_model::BuildInteractionAuthorityState::None => "none",
+        crate::panel_model::BuildInteractionAuthorityState::Applied => "applied",
+        crate::panel_model::BuildInteractionAuthorityState::Cleared => "cleared",
+        crate::panel_model::BuildInteractionAuthorityState::Rollback => "rollback",
+        crate::panel_model::BuildInteractionAuthorityState::RejectedMissingBuilding => {
+            "rej-miss-build"
+        }
+        crate::panel_model::BuildInteractionAuthorityState::RejectedMissingBlockMetadata => {
+            "rej-miss-meta"
+        }
+        crate::panel_model::BuildInteractionAuthorityState::RejectedUnsupportedBlock => {
+            "rej-unsupported-block"
+        }
+        crate::panel_model::BuildInteractionAuthorityState::RejectedUnsupportedConfigType => {
+            "rej-unsupported-cfg"
         }
     }
 }
@@ -5648,7 +5713,7 @@ mod tests {
             "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
         ));
         assert!(frame.contains(
-            "BUILD-CONFIG: sel=257 rot=2 mode=build pending=1/2 hist=3/4 orphan=1 head=flight@100:99:place:b301:r1 align=split auth=rollback pending=mismatch src=constructFinish block=power-node families=2/2 tracked=2"
+            "BUILD-CONFIG: cfgpanel:sel257:r2:m1:p1/2:hist3/4:o1:h=flight@100:99:place:b301:r1:align=split:auth=rollback:pm=mismatch:src=construct:b=power-node:fam2/2:more0:t2@message#1,power-node#1"
         ));
         assert!(frame.contains(
             "BUILD-CONFIG-DETAIL: selected=257 rot=2 building=1 queued=1 inflight=2 pending=3 finished=3 removed=4 orphan=1 head=flight@100:99:place:b301:r1 align=split last=23:45 outcome=applied pm=mismatch source=constructFinish block=power-node families=2 samples=2 shown=2 more=0"
@@ -6005,7 +6070,7 @@ mod tests {
             "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
         ));
         assert!(frame.contains(
-            "BUILD-CONFIG: sel=301 rot=1 mode=build pending=2/1 hist=4/5 orphan=6 head=queued@10:12:place:b301:r1 align=match auth=rejected-missing-building pending=match src=tileConfig block=alpha families=3/4 tracked=8"
+            "BUILD-CONFIG: cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:auth=rej-miss-build:pm=match:src=tilecfg:b=alpha:fam3/4:more1:t8@gamma#4,beta#2,alpha#1"
         ));
         assert!(frame.contains(
             "BUILD-CONFIG-DETAIL: selected=301 rot=1 building=1 queued=2 inflight=1 pending=3 finished=4 removed=5 orphan=6 head=queued@10:12:place:b301:r1 align=match last=10:12 outcome=rejected-missing-building pm=match source=tileConfig block=alpha families=4 samples=8 shown=3 more=1"
