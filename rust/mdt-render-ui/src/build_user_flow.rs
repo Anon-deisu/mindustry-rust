@@ -132,6 +132,25 @@ impl BuildUserFlowPanelModel {
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn route_detail_label(&self) -> String {
+        let blockers = if self.blockers.is_empty() {
+            "none".to_string()
+        } else {
+            self.blocker_labels().join("+")
+        };
+        let route = if self.route.is_empty() {
+            "none".to_string()
+        } else {
+            self.route.join("+")
+        };
+
+        format!(
+            "next={} minimap={} blockers={} route={}",
+            self.next_action, self.minimap_next_action, blockers, route
+        )
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
     fn authority_state_label(&self) -> &'static str {
         match self.authority_state {
             BuildInteractionAuthorityState::None => "none",
@@ -466,6 +485,10 @@ mod tests {
             panel.detail_label(),
             "next=realign minimap=pan focus=outside pan=right+down target=plan scope=multi blockers=realign+resolve+refocus+survey route=realign+resolve+refocus+survey+commit authority=rollback pending=mismatch src=none block=power-node head=12,18"
         );
+        assert_eq!(
+            panel.route_detail_label(),
+            "next=realign minimap=pan blockers=realign+resolve+refocus+survey route=realign+resolve+refocus+survey+commit"
+        );
         assert_eq!(panel.minimap_next_action, "pan");
         assert_eq!(panel.focus_state, MinimapUserFocusState::Outside);
         assert_eq!(panel.pan_label(), "right+down");
@@ -638,6 +661,10 @@ mod tests {
         assert_eq!(
             panel.detail_label(),
             "next=resolve minimap=inspect focus=inside pan=hold target=marker scope=single blockers=resolve route=resolve+commit authority=applied pending=mismatch src=none block=message head=4,6"
+        );
+        assert_eq!(
+            panel.route_detail_label(),
+            "next=resolve minimap=inspect blockers=resolve route=resolve+commit"
         );
     }
 
@@ -1058,6 +1085,10 @@ mod tests {
         assert_eq!(
             panel.detail_label(),
             "next=missing minimap=missing focus=missing pan=hold target=none scope=single blockers=missing route=missing authority=applied pending=match src=none block=none head=none"
+        );
+        assert_eq!(
+            panel.route_detail_label(),
+            "next=missing minimap=missing blockers=missing route=missing"
         );
         assert_eq!(panel.minimap_next_action, "missing");
     }

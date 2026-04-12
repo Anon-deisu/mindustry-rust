@@ -1684,6 +1684,10 @@ fn compose_frame_panel_lines(
     if let Some(build_route_text) = compose_build_route_status_text(scene, hud, window) {
         lines.push(format!("BUILD-ROUTE: {build_route_text}"));
     }
+    if let Some(build_route_detail_text) = compose_build_route_detail_status_text(scene, hud, window)
+    {
+        lines.push(format!("BUILD-ROUTE-DETAIL: {build_route_detail_text}"));
+    }
     if let Some(build_flow_detail_text) = compose_build_flow_detail_status_text(scene, hud, window)
     {
         lines.push(format!("BUILD-FLOW-DETAIL: {build_flow_detail_text}"));
@@ -3999,6 +4003,15 @@ fn compose_build_route_status_text(
         panel.route_count(),
         route.as_str(),
     ))
+}
+
+fn compose_build_route_detail_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_user_flow_panel(scene, hud, window)?;
+    Some(panel.route_detail_label())
 }
 
 fn compose_build_ui_inspector_status_text(build_ui: &BuildUiObservability) -> String {
@@ -9341,6 +9354,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-ROUTE: cfgroute:n=resolve:m=survey:b2@resolve>survey:r3@resolve>survey>commit",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-ROUTE-DETAIL: next=resolve minimap=survey blockers=resolve+survey route=resolve+survey+commit",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

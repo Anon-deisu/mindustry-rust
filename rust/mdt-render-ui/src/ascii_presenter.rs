@@ -285,6 +285,9 @@ impl AsciiScenePresenter {
         if let Some(build_route_text) = compose_build_route_text(scene, hud, window) {
             out.push_str(&format!("BUILD-ROUTE: {build_route_text}\n"));
         }
+        if let Some(build_route_detail_text) = compose_build_route_detail_text(scene, hud, window) {
+            out.push_str(&format!("BUILD-ROUTE-DETAIL: {build_route_detail_text}\n"));
+        }
         if let Some(build_flow_detail_text) = compose_build_flow_detail_text(scene, hud, window) {
             out.push_str(&format!("BUILD-FLOW-DETAIL: {build_flow_detail_text}\n"));
         }
@@ -2958,6 +2961,15 @@ fn compose_build_route_text(
     ))
 }
 
+fn compose_build_route_detail_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_user_flow_panel(scene, hud, window)?;
+    Some(panel.route_detail_label())
+}
+
 fn compose_build_ui_inspector_lines(hud: &HudModel) -> Vec<String> {
     let Some(build_ui) = hud.build_ui.as_ref() else {
         return Vec::new();
@@ -5289,6 +5301,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "BUILD-ROUTE: next=resolve minimap=survey blockers=2@resolve>survey route=3@resolve>survey>commit"
+        ));
+        assert!(frame.contains(
+            "BUILD-ROUTE-DETAIL: next=resolve minimap=survey blockers=resolve+survey route=resolve+survey+commit"
         ));
         assert!(frame.contains(
             "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match src=tileConfig block=alpha head=10,12"
