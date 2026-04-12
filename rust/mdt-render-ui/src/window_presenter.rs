@@ -3718,7 +3718,7 @@ fn compose_build_flow_status_text(
 ) -> Option<String> {
     let panel = build_build_user_flow_panel(scene, hud, window)?;
     Some(format!(
-        "cfgflow:n={}:m={}:f={}:p={}:t={}:scope={}:h={}:a={}",
+        "cfgflow:n={}:m={}:f={}:p={}:t={}:scope={}:h={}:a={}:pm={}",
         panel.next_action,
         panel.minimap_next_action,
         panel.focus_state.label(),
@@ -3727,6 +3727,7 @@ fn compose_build_flow_status_text(
         panel.config_scope,
         optional_build_tile_status_text(panel.head_tile),
         build_interaction_authority_status_text(panel.authority_state),
+        build_config_pending_match_status_text(panel.authority_pending_match),
     ))
 }
 
@@ -8997,7 +8998,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-FLOW: cfgflow:n=resolve:m=survey:f=inside:p=hold:t=player:scope=multi:h=10:12:a=rej-miss-build",
+            "BUILD-FLOW: cfgflow:n=resolve:m=survey:f=inside:p=hold:t=player:scope=multi:h=10:12:a=rej-miss-build:pm=match",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -9005,7 +9006,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building head=10,12",
+            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match head=10,12",
         );
     }
 

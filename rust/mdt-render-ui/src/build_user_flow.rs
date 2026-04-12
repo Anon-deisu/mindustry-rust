@@ -44,6 +44,7 @@ pub(crate) struct BuildUserFlowPanelModel {
     pub target_kind: MinimapUserTargetKind,
     pub config_scope: &'static str,
     pub authority_state: BuildInteractionAuthorityState,
+    pub authority_pending_match: Option<bool>,
     pub head_tile: Option<(i32, i32)>,
 }
 
@@ -109,7 +110,7 @@ impl BuildUserFlowPanelModel {
             .map_or_else(|| "none".to_string(), |(x, y)| format!("{x},{y}"));
 
         format!(
-            "next={} minimap={} focus={} pan={} target={} scope={} blockers={} route={} authority={} head={}",
+            "next={} minimap={} focus={} pan={} target={} scope={} blockers={} route={} authority={} pending={} head={}",
             self.next_action,
             self.minimap_next_action,
             self.focus_state.label(),
@@ -119,6 +120,7 @@ impl BuildUserFlowPanelModel {
             blockers,
             route,
             self.authority_state_label(),
+            self.authority_pending_match_label(),
             head,
         )
     }
@@ -140,6 +142,15 @@ impl BuildUserFlowPanelModel {
             BuildInteractionAuthorityState::RejectedUnsupportedConfigType => {
                 "rejected-unsupported-config-type"
             }
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn authority_pending_match_label(&self) -> &'static str {
+        match self.authority_pending_match {
+            Some(true) => "match",
+            Some(false) => "mismatch",
+            None => "none",
         }
     }
 }
@@ -233,6 +244,7 @@ fn build_user_flow_from_panel_options(
         authority_state: interaction.map_or(BuildInteractionAuthorityState::None, |interaction| {
             interaction.authority_state
         }),
+        authority_pending_match: interaction.and_then(|interaction| interaction.authority_pending_match),
         head_tile: interaction
             .as_ref()
             .and_then(|interaction| interaction.head.as_ref().map(|head| (head.x, head.y))),
@@ -433,7 +445,7 @@ mod tests {
         );
         assert_eq!(
             panel.detail_label(),
-            "next=realign minimap=pan focus=outside pan=right+down target=plan scope=multi blockers=realign+resolve+refocus+survey route=realign+resolve+refocus+survey+commit authority=rollback head=12,18"
+            "next=realign minimap=pan focus=outside pan=right+down target=plan scope=multi blockers=realign+resolve+refocus+survey route=realign+resolve+refocus+survey+commit authority=rollback pending=mismatch head=12,18"
         );
         assert_eq!(panel.minimap_next_action, "pan");
         assert_eq!(panel.focus_state, MinimapUserFocusState::Outside);
@@ -516,6 +528,7 @@ mod tests {
         assert_eq!(panel.next_action, "seed");
         assert!(panel.blockers.is_empty());
         assert_eq!(panel.route, vec!["seed", "commit"]);
+        assert_eq!(panel.authority_pending_match, Some(true));
         assert_eq!(panel.minimap_next_action, "inspect");
         assert_eq!(panel.focus_state, MinimapUserFocusState::Inside);
         assert_eq!(panel.pan_label(), "hold");
@@ -599,9 +612,10 @@ mod tests {
         assert_eq!(panel.next_action, "resolve");
         assert_eq!(panel.blocker_labels(), vec!["resolve"]);
         assert_eq!(panel.route, vec!["resolve", "commit"]);
+        assert_eq!(panel.authority_pending_match, Some(false));
         assert_eq!(
             panel.detail_label(),
-            "next=resolve minimap=inspect focus=inside pan=hold target=marker scope=single blockers=resolve route=resolve+commit authority=applied head=4,6"
+            "next=resolve minimap=inspect focus=inside pan=hold target=marker scope=single blockers=resolve route=resolve+commit authority=applied pending=mismatch head=4,6"
         );
     }
 
@@ -901,6 +915,7 @@ mod tests {
                 target_kind: MinimapUserTargetKind::None,
                 config_scope: "none",
                 authority_state: BuildInteractionAuthorityState::None,
+                authority_pending_match: None,
                 head_tile: None,
             }
         );
@@ -1018,7 +1033,7 @@ mod tests {
         );
         assert_eq!(
             panel.detail_label(),
-            "next=missing minimap=missing focus=missing pan=hold target=none scope=single blockers=missing route=missing authority=applied head=none"
+            "next=missing minimap=missing focus=missing pan=hold target=none scope=single blockers=missing route=missing authority=applied pending=match head=none"
         );
         assert_eq!(panel.minimap_next_action, "missing");
     }

@@ -2707,7 +2707,7 @@ fn compose_build_flow_text(
 ) -> Option<String> {
     let panel = build_build_user_flow_panel(scene, hud, window)?;
     Some(format!(
-        "next={} minimap={} focus={} pan={} target={} scope={} head={} auth={}",
+        "next={} minimap={} focus={} pan={} target={} scope={} head={} auth={} pending={}",
         panel.next_action,
         panel.minimap_next_action,
         panel.focus_state.label(),
@@ -2716,6 +2716,7 @@ fn compose_build_flow_text(
         panel.config_scope,
         build_flow_head_tile_text(panel.head_tile),
         build_interaction_authority_text(panel.authority_state),
+        build_config_pending_match_text(panel.authority_pending_match),
     ))
 }
 
@@ -5028,7 +5029,7 @@ mod tests {
             "BUILD-MINIMAP-DIAG: next=resolve pair=match anchor=detached focus=inside cover=offscreen visibility=unseen"
         ));
         assert!(frame.contains(
-            "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building"
+            "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building pending=match"
         ));
         assert!(frame.contains(
             "BUILD-FLOW-SUMMARY: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi"
@@ -5037,7 +5038,7 @@ mod tests {
             "BUILD-ROUTE: next=resolve minimap=survey blockers=2@resolve>survey route=3@resolve>survey>commit"
         ));
         assert!(frame.contains(
-            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building head=10,12"
+            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match head=10,12"
         ));
     }
 
