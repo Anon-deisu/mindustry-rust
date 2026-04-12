@@ -245,6 +245,28 @@ pub struct BuildInteractionPanelModel {
     pub authority_block_name: Option<String>,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+impl BuildInteractionPanelModel {
+    pub fn detail_label(&self) -> String {
+        format!(
+            "selected={} rot={} available={} families={} samples={} top={} head={} authority={} pending={} source={} tile={} block={} orphan={}",
+            optional_i16_label(self.selected_block_id),
+            self.selected_rotation,
+            if self.config_available { 1 } else { 0 },
+            self.config_family_count,
+            self.config_sample_count,
+            compact_panel_text(self.top_config_family.as_deref()),
+            build_config_head_label(self.head.as_ref()),
+            build_interaction_authority_label(self.authority_state),
+            build_config_pending_match_label(self.authority_pending_match),
+            build_config_authority_source_label(self.authority_source),
+            build_config_tile_label(self.authority_tile),
+            compact_panel_text(self.authority_block_name.as_deref()),
+            self.orphan_authoritative_count,
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildMinimapAssistPanelModel {
     pub mode: BuildInteractionMode,
@@ -1949,6 +1971,94 @@ pub fn build_build_minimap_assist_panel(
     })
 }
 
+fn build_config_head_label(head: Option<&BuildConfigHeadModel>) -> String {
+    let Some(head) = head else {
+        return "none".to_string();
+    };
+    let stage = match head.stage {
+        BuildQueueHeadStage::Queued => "queued",
+        BuildQueueHeadStage::InFlight => "flight",
+        BuildQueueHeadStage::Finished => "finish",
+        BuildQueueHeadStage::Removed => "remove",
+    };
+    let mode = if head.breaking { "break" } else { "place" };
+    format!(
+        "{stage}@{}:{}:{mode}:b{}:r{}",
+        head.x,
+        head.y,
+        optional_i16_label(head.block_id),
+        optional_u8_label(head.rotation),
+    )
+}
+
+fn build_config_tile_label(value: Option<(i32, i32)>) -> String {
+    match value {
+        Some((x, y)) => format!("{x}:{y}"),
+        None => "none".to_string(),
+    }
+}
+
+fn build_config_pending_match_label(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "match",
+        Some(false) => "mismatch",
+        None => "none",
+    }
+}
+
+fn build_config_authority_source_label(
+    value: Option<BuildConfigAuthoritySourceObservability>,
+) -> &'static str {
+    match value {
+        Some(BuildConfigAuthoritySourceObservability::TileConfig) => "tileConfig",
+        Some(BuildConfigAuthoritySourceObservability::ConstructFinish) => "constructFinish",
+        None => "none",
+    }
+}
+
+fn build_interaction_authority_label(value: BuildInteractionAuthorityState) -> &'static str {
+    match value {
+        BuildInteractionAuthorityState::None => "none",
+        BuildInteractionAuthorityState::Applied => "applied",
+        BuildInteractionAuthorityState::Cleared => "cleared",
+        BuildInteractionAuthorityState::Rollback => "rollback",
+        BuildInteractionAuthorityState::RejectedMissingBuilding => "rejected-missing-building",
+        BuildInteractionAuthorityState::RejectedMissingBlockMetadata => {
+            "rejected-missing-metadata"
+        }
+        BuildInteractionAuthorityState::RejectedUnsupportedBlock => {
+            "rejected-unsupported-block"
+        }
+        BuildInteractionAuthorityState::RejectedUnsupportedConfigType => {
+            "rejected-unsupported-config"
+        }
+    }
+}
+
+fn compact_panel_text(value: Option<&str>) -> String {
+    match value {
+        Some(value) => {
+            let mut compact = String::new();
+            for (index, ch) in value.chars().enumerate() {
+                if index == 12 {
+                    compact.push('~');
+                    break;
+                }
+                compact.push(match ch {
+                    ':' | ' ' | '\t' | '\r' | '\n' => '_',
+                    _ => ch,
+                });
+            }
+            if compact.is_empty() {
+                "-".to_string()
+            } else {
+                compact
+            }
+        }
+        None => "none".to_string(),
+    }
+}
+
 fn build_interaction_mode(
     build_ui: &crate::BuildUiObservability,
     head: Option<&BuildConfigHeadModel>,
@@ -3231,6 +3341,10 @@ mod tests {
         );
         assert_eq!(panel.authority_tile, Some((23, 45)));
         assert_eq!(panel.authority_block_name.as_deref(), Some("power-node"));
+        assert_eq!(
+            panel.detail_label(),
+            "selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@10:11:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=5"
+        );
     }
 
     #[test]
@@ -3271,6 +3385,10 @@ mod tests {
         assert!(!panel.config_available);
         assert_eq!(panel.config_family_count, 0);
         assert_eq!(panel.authority_state, BuildInteractionAuthorityState::None);
+        assert_eq!(
+            panel.detail_label(),
+            "selected=none rot=0 available=0 families=0 samples=0 top=none head=queued@7:8:break:bnone:rnone authority=none pending=none source=none tile=none block=none orphan=0"
+        );
     }
 
     #[test]

@@ -238,6 +238,11 @@ impl AsciiScenePresenter {
         if let Some(build_interaction_text) = compose_build_interaction_text(hud) {
             out.push_str(&format!("BUILD-INTERACTION: {build_interaction_text}\n"));
         }
+        if let Some(build_interaction_detail_text) = compose_build_interaction_detail_text(hud) {
+            out.push_str(&format!(
+                "BUILD-INTERACTION-DETAIL: {build_interaction_detail_text}\n"
+            ));
+        }
         if let Some(build_minimap_aux_text) = compose_build_minimap_aux_text(scene, hud, window) {
             out.push_str(&format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}\n"));
         }
@@ -2682,6 +2687,11 @@ fn compose_build_interaction_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_build_interaction_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_interaction_panel(hud)?;
+    Some(panel.detail_label())
+}
+
 fn compose_build_minimap_aux_text(
     scene: &RenderModel,
     hud: &HudModel,
@@ -4832,6 +4842,9 @@ mod tests {
         assert!(frame.contains(
             "BUILD-INTERACTION: mode=place select=head-diverged queue=mixed pending=3 place-ready=1 cfg=2/2 top=message head=flight@100:99:place:b301:r1 auth=rollback pending=mismatch src=constructFinish tile=23:45 block=power-node orphan=1"
         ));
+        assert!(frame.contains(
+            "BUILD-INTERACTION-DETAIL: selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@100:99:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=1"
+        ));
         assert!(frame.contains("BUILD: sel=257 rot=2 building=1 cfg=2"));
         assert!(frame.contains("BUILD-QUEUE: queue=1/2/3/4/1 head=flight@100:99:place:b301:r1"));
         assert!(frame
@@ -5115,6 +5128,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "BUILD-INTERACTION: mode=place select=head-aligned queue=mixed pending=3 place-ready=1 cfg=4/8 top=gamma head=queued@10:12:place:b301:r1 auth=rejected-missing-building pending=match src=tileConfig tile=10:12 block=alpha orphan=6"
+        ));
+        assert!(frame.contains(
+            "BUILD-INTERACTION-DETAIL: selected=301 rot=1 available=1 families=4 samples=8 top=gamma head=queued@10:12:place:b301:r1 authority=rejected-missing-building pending=match source=tileConfig tile=10:12 block=alpha orphan=6"
         ));
         assert!(frame.contains(
             "BUILD-MINIMAP-AUX: mode=place select=head-aligned queue=mixed place-ready=1 cfg=4/8 top=gamma auth=rejected-missing-building pending=match head=10:12 auth-tile=10:12 src=tileConfig block=alpha focus=1:1 in-window=1 visible-map=0 unknown-map=100 window=0 d75 tracked=3 runtime=0 runtime-share=0%"

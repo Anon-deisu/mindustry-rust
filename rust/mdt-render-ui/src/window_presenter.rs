@@ -1631,6 +1631,12 @@ fn compose_frame_panel_lines(
     if let Some(build_interaction_text) = compose_build_interaction_status_text(hud) {
         lines.push(format!("BUILD-INTERACTION: {build_interaction_text}"));
     }
+    if let Some(build_interaction_detail_text) = compose_build_interaction_detail_status_text(hud)
+    {
+        lines.push(format!(
+            "BUILD-INTERACTION-DETAIL: {build_interaction_detail_text}"
+        ));
+    }
     if let Some(build_queue_text) = compose_build_ui_queue_status_text(hud) {
         lines.push(format!("BUILD-QUEUE: {build_queue_text}"));
     }
@@ -3722,6 +3728,11 @@ fn compose_build_interaction_status_text(hud: &HudModel) -> Option<String> {
         compact_runtime_ui_text(panel.authority_block_name.as_deref()),
         panel.orphan_authoritative_count,
     ))
+}
+
+fn compose_build_interaction_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_interaction_panel(hud)?;
+    Some(panel.detail_label())
 }
 
 fn compose_build_ui_queue_status_text(hud: &HudModel) -> Option<String> {
@@ -8845,6 +8856,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "BUILD-INTERACTION-DETAIL: selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@100:99:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "BUILD-QUEUE: bqueue:q1:i2:f3:r4:o1:h=flight@100:99:place:b301:r1",
         );
         assert_frame_line_contains(
@@ -9149,6 +9164,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-INTERACTION: cfgflow:m=place:s=head-aligned:q=mixed:p=3:pr=1:cfg=3/7:top=gamma:h=queued@10:12:place:b301:r1:auth=rej-miss-build:pm=match:src=tilecfg:t=10:12:b=gamma:o=6",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-INTERACTION-DETAIL: selected=301 rot=1 available=1 families=3 samples=7 top=gamma head=queued@10:12:place:b301:r1 authority=rejected-missing-building pending=match source=tileConfig tile=10:12 block=gamma orphan=6",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
