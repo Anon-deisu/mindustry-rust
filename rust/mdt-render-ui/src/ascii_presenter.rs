@@ -3267,15 +3267,15 @@ fn compose_build_flow_text(
 ) -> Option<String> {
     let panel = build_build_user_flow_panel(scene, hud, window)?;
     Some(format!(
-        "next={} minimap={} focus={} pan={} target={} scope={} head={} auth={} pending={}",
+        "cfgflow:n={}:m={}:f={}:p={}:t={}:scope={}:h={}:a={}:pm={}",
         panel.next_action,
         panel.minimap_next_action,
         panel.focus_state.label(),
         panel.pan_label(),
         panel.target_kind.label(),
         panel.config_scope,
-        build_flow_head_tile_text(panel.head_tile),
-        build_interaction_authority_text(panel.authority_state),
+        optional_build_tile_text(panel.head_tile),
+        build_interaction_authority_compact_text(panel.authority_state),
         build_config_pending_match_text(panel.authority_pending_match),
     ))
 }
@@ -6117,7 +6117,7 @@ mod tests {
             "BUILD-MINIMAP-DETAIL: bmdetail:n=resolve:pair=match:a=detached:f=inside:v=unseen:c=offscreen:scope=multi:m=place:s=head-aligned:q=mixed:r1:auth=rej-miss-build:pm=match:src=tilecfg:h=10:12:b=alpha:rt0:od75"
         ));
         assert!(frame.contains(
-            "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building pending=match"
+            "BUILD-FLOW: cfgflow:n=resolve:m=survey:f=inside:p=hold:t=player:scope=multi:h=10:12:a=rej-miss-build:pm=match"
         ));
         assert!(frame.contains(
             "BUILD-FLOW-SUMMARY: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi"
