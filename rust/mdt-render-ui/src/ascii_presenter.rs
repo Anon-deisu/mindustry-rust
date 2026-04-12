@@ -436,6 +436,18 @@ impl AsciiScenePresenter {
                 "RUNTIME-BOOTSTRAP-DETAIL: {runtime_bootstrap_detail_text}\n"
             ));
         }
+        if let Some(runtime_resource_delta_text) = compose_runtime_resource_delta_row_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-RESOURCE-DELTA: {runtime_resource_delta_text}\n"
+            ));
+        }
+        if let Some(runtime_resource_delta_detail_text) =
+            compose_runtime_resource_delta_detail_text(hud)
+        {
+            out.push_str(&format!(
+                "RUNTIME-RESOURCE-DELTA-DETAIL: {runtime_resource_delta_detail_text}\n"
+            ));
+        }
         if let Some(runtime_kick_text) = compose_runtime_kick_row_text(hud) {
             out.push_str(&format!("RUNTIME-KICK: {runtime_kick_text}\n"));
         }
@@ -2113,6 +2125,22 @@ fn compose_runtime_bootstrap_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(panel.detail_label())
+}
+
+fn compose_runtime_resource_delta_row_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    if panel.resource_delta.is_empty() {
+        return None;
+    }
+    Some(compose_runtime_resource_delta_panel_text(&panel.resource_delta))
+}
+
+fn compose_runtime_resource_delta_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    if panel.resource_delta.is_empty() {
+        return None;
+    }
+    Some(compose_runtime_resource_delta_detail_panel_text(&panel.resource_delta))
 }
 
 fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
@@ -5031,6 +5059,12 @@ mod tests {
         ));
         assert!(frame.contains(
             "RUNTIME-BOOTSTRAP-DETAIL: rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-RESOURCE-DELTA: tiles=80/81/82/83 set=22/23/24/25 clear=84/85 tile=26/27 flow=1/2/3 last=to_unit@6#none:bpnone:u2:808:eid404 proj=2/3/1 auth=4 delta=5/6/7 chg=999/900/6/1"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-RESOURCE-DELTA-DETAIL: tile-rm=80 tile-set=81 floor-set=82 overlay-set=83 item-set=22/23 liquid-set=24/25 clear=84/85 tile-apply=26/27 flow=1/2/3 last-kind=to_unit item=6 amount=none build=none unit=2:808 to-entity=404 projection=2/3/1 authoritative=4 delta=5/6/7 changed=999/900/6/1"
         ));
         assert!(frame.contains("RUNTIME-KICK: idInUse@7:IdInUse:wait_for_old~"));
         assert!(frame

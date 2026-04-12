@@ -1806,6 +1806,16 @@ fn compose_frame_panel_lines(
             "RUNTIME-BOOTSTRAP-DETAIL: {runtime_bootstrap_detail_text}"
         ));
     }
+    if let Some(runtime_resource_delta_text) = compose_runtime_resource_delta_status_text(hud) {
+        lines.push(format!("RUNTIME-RESOURCE-DELTA: {runtime_resource_delta_text}"));
+    }
+    if let Some(runtime_resource_delta_detail_text) =
+        compose_runtime_resource_delta_detail_status_text(hud)
+    {
+        lines.push(format!(
+            "RUNTIME-RESOURCE-DELTA-DETAIL: {runtime_resource_delta_detail_text}"
+        ));
+    }
     if let Some(runtime_kick_text) = compose_runtime_kick_status_text(hud) {
         lines.push(format!("RUNTIME-KICK: {runtime_kick_text}"));
     }
@@ -3084,6 +3094,26 @@ fn compose_runtime_bootstrap_detail_status_text(hud: &HudModel) -> Option<String
         return None;
     }
     Some(panel.detail_label())
+}
+
+fn compose_runtime_resource_delta_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    if panel.resource_delta.is_empty() {
+        return None;
+    }
+    Some(compose_runtime_resource_delta_panel_status_text(
+        &panel.resource_delta,
+    ))
+}
+
+fn compose_runtime_resource_delta_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    if panel.resource_delta.is_empty() {
+        return None;
+    }
+    Some(compose_runtime_resource_delta_detail_panel_status_text(
+        &panel.resource_delta,
+    ))
 }
 
 fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {
@@ -9056,6 +9086,14 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "RUNTIME-BOOTSTRAP-DETAIL: rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-RESOURCE-DELTA: resd:tile80/81/82/83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3@to_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-RESOURCE-DELTA-DETAIL: resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
