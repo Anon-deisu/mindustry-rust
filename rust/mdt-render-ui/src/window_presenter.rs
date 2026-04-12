@@ -101,6 +101,7 @@ pub enum WindowMinimapRuntimeOverlayKind {
     ConfigAlert,
     Break,
     Place,
+    Building,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -920,6 +921,7 @@ fn runtime_minimap_overlay_tiles(
         (1, WindowMinimapRuntimeOverlayKind::Config),
         (2, WindowMinimapRuntimeOverlayKind::Break),
         (3, WindowMinimapRuntimeOverlayKind::Place),
+        (4, WindowMinimapRuntimeOverlayKind::Building),
     ] {
         for object in &scene.objects {
             if runtime_minimap_overlay_kind(object.semantic_kind()) != Some(kind) {
@@ -957,6 +959,9 @@ fn runtime_minimap_overlay_kind(
             Some(WindowMinimapRuntimeOverlayKind::Break)
         }
         RenderObjectSemanticKind::RuntimePlace => Some(WindowMinimapRuntimeOverlayKind::Place),
+        RenderObjectSemanticKind::RuntimeBuilding => {
+            Some(WindowMinimapRuntimeOverlayKind::Building)
+        }
         _ => None,
     }
 }
@@ -5157,6 +5162,7 @@ fn draw_window_minimap_runtime_overlay(
         WindowMinimapRuntimeOverlayKind::ConfigAlert => COLOR_UNKNOWN,
         WindowMinimapRuntimeOverlayKind::Break => COLOR_ICON_RUNTIME_BREAK,
         WindowMinimapRuntimeOverlayKind::Place => COLOR_PLAN,
+        WindowMinimapRuntimeOverlayKind::Building => COLOR_RUNTIME,
     };
     fill_window_hud_rect(
         pixels,
@@ -6421,6 +6427,10 @@ mod tests {
                         tile: (40, 28),
                         kind: WindowMinimapRuntimeOverlayKind::Place,
                     },
+                    WindowMinimapRuntimeOverlayTile {
+                        tile: (24, 20),
+                        kind: WindowMinimapRuntimeOverlayKind::Building,
+                    },
                 ],
             }),
             pixels: vec![COLOR_EMPTY; 24 * 18],
@@ -6454,7 +6464,76 @@ mod tests {
         assert!(top_right_pixels.contains(&COLOR_UNKNOWN));
         assert!(top_right_pixels.contains(&COLOR_ICON_RUNTIME_BREAK));
         assert!(top_right_pixels.contains(&COLOR_PLAN));
+        assert!(top_right_pixels.contains(&COLOR_RUNTIME));
         assert!(lower_left_pixels.iter().all(|&pixel| pixel == COLOR_EMPTY));
+    }
+
+    #[test]
+    fn present_once_populates_runtime_building_overlay_tile_in_minimap_inset() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: Some(RenderViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 4,
+                height: 4,
+            }),
+            objects: vec![RenderObject {
+                id: "block:runtime-building:1:3:3".to_string(),
+                layer: 35,
+                x: 24.0,
+                y: 24.0,
+            }],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 1,
+                hidden_tile_count: 0,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((3, 3)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 4,
+                        height: 4,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        let inset = frame.minimap_inset.as_ref().expect("minimap inset");
+
+        assert_eq!(
+            inset.runtime_overlay_tiles,
+            vec![WindowMinimapRuntimeOverlayTile {
+                tile: (3, 3),
+                kind: WindowMinimapRuntimeOverlayKind::Building,
+            }]
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-KINDS: minikind:obj1@pl0:mk0:pn0:bk0:rt1:tr0:uk0 detail=runtime-building:1",
+        );
     }
 
     #[test]

@@ -2481,7 +2481,7 @@ fn compose_minimap_window_kind_distribution_line(panel: &MinimapPanelModel) -> S
 
 fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {
     hud.summary.as_ref()?;
-    Some("@=player M=marker P=plan #=block R=runtime .=terrain ?=unknown".to_string())
+    Some("@=player M=marker P=plan #=block R=runtime(building overlay) .=terrain ?=unknown".to_string())
 }
 
 fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
@@ -4626,7 +4626,7 @@ mod tests {
             "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
         ));
         assert!(frame.contains(
-            "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime .=terrain ?=unknown"
+            "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime(building overlay) .=terrain ?=unknown"
         ));
         assert!(frame.contains(
             "BUILD-CONFIG: sel=257 rot=2 mode=build pending=1/2 hist=3/4 orphan=1 head=flight@100:99:place:b301:r1 align=split families=2/2 tracked=2"
@@ -4897,7 +4897,7 @@ mod tests {
             "MINIMAP-KINDS: tracked=3 player=1 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=1"
         ));
         assert!(frame.contains(
-            "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime .=terrain ?=unknown"
+            "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime(building overlay) .=terrain ?=unknown"
         ));
         assert!(frame.contains(
             "BUILD-CONFIG: sel=301 rot=1 mode=build pending=2/1 hist=4/5 orphan=6 head=queued@10:12:place:b301:r1 align=match families=3/4 tracked=8"
