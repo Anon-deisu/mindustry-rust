@@ -6,13 +6,14 @@ use crate::{
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
         RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeMarkerPanelModel,
         RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
-        RuntimeResourceDeltaPanelModel,
+        RuntimeReconnectPanelModel, RuntimeResourceDeltaPanelModel,
         RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
         RuntimeWorldReloadPanelModel,
     },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     BuildQueueHeadStage, RenderModel, RenderObject,
     RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
+    RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
     RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
     RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
     RuntimeWorldPositionObservability,
@@ -1009,6 +1010,40 @@ pub(crate) fn format_runtime_resource_delta_detail_text(
     )
 }
 
+pub(crate) fn format_runtime_reconnect_panel_text(
+    reconnect: &RuntimeReconnectPanelModel,
+) -> String {
+    format!(
+        "{}{}:{}@{}/{}:{}:{}@{}:{}",
+        format_runtime_reconnect_phase_text(reconnect.phase),
+        reconnect.phase_transition_count,
+        format_runtime_reconnect_reason_kind_text(reconnect.reason_kind),
+        reconnect.redirect_count,
+        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
+        format_optional_i32_text(reconnect.last_redirect_port),
+        compact_runtime_ui_text(reconnect.reason_text.as_deref()),
+        format_optional_i32_text(reconnect.reason_ordinal),
+        compact_runtime_ui_text(reconnect.hint_text.as_deref()),
+    )
+}
+
+pub(crate) fn format_runtime_reconnect_detail_text(
+    reconnect: &RuntimeReconnectPanelModel,
+) -> String {
+    format!(
+        "reconnectd:{}#{}:{}:r{}@{}:h{}:rd{}@{}:{}",
+        format_runtime_reconnect_phase_text(reconnect.phase),
+        reconnect.phase_transition_count,
+        format_runtime_reconnect_reason_kind_text(reconnect.reason_kind),
+        runtime_ui_text_len(reconnect.reason_text.as_deref()),
+        format_optional_i32_text(reconnect.reason_ordinal),
+        runtime_ui_text_len(reconnect.hint_text.as_deref()),
+        reconnect.redirect_count,
+        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
+        format_optional_i32_text(reconnect.last_redirect_port),
+    )
+}
+
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
     format!(
         "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
@@ -1222,6 +1257,28 @@ fn format_optional_i16_text(value: Option<i16>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn format_runtime_reconnect_phase_text(phase: RuntimeReconnectPhaseObservability) -> &'static str {
+    match phase {
+        RuntimeReconnectPhaseObservability::Idle => "idle",
+        RuntimeReconnectPhaseObservability::Scheduled => "sched",
+        RuntimeReconnectPhaseObservability::Attempting => "attempt",
+        RuntimeReconnectPhaseObservability::Succeeded => "ok",
+        RuntimeReconnectPhaseObservability::Aborted => "abort",
+    }
+}
+
+fn format_runtime_reconnect_reason_kind_text(
+    kind: Option<RuntimeReconnectReasonKind>,
+) -> &'static str {
+    match kind {
+        Some(RuntimeReconnectReasonKind::ConnectRedirect) => "redirect",
+        Some(RuntimeReconnectReasonKind::Kick) => "kick",
+        Some(RuntimeReconnectReasonKind::Timeout) => "timeout",
+        Some(RuntimeReconnectReasonKind::ManualConnect) => "manual",
+        None => "none",
+    }
+}
+
 fn format_optional_bool_flag(value: Option<bool>) -> char {
     match value {
         Some(true) => '1',
@@ -1367,6 +1424,7 @@ mod tests {
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
         format_runtime_kick_detail_text, format_runtime_kick_panel_text,
         format_runtime_marker_detail_text, format_runtime_marker_panel_text,
+        format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
         format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
@@ -1397,6 +1455,7 @@ mod tests {
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
             RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeMarkerPanelModel,
             RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
+            RuntimeReconnectPanelModel,
             RuntimeResourceDeltaPanelModel,
             RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
             RuntimeWorldReloadPanelModel,
@@ -1404,6 +1463,7 @@ mod tests {
         render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
         BuildQueueHeadStage, RenderModel, RenderObject,
         RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
+        RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
         RuntimeCommandSelectionObservability,
         RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
         RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
@@ -1785,6 +1845,46 @@ mod tests {
         assert_eq!(
             format_runtime_resource_delta_detail_text(&panel),
             "resdd:rm1:st2:sf3:so4:set5/6/7/8:clr9/10:tile11/12:flow13/14/15:lastto_unit:16:17:18:2:19:20:proj21/22/23:au24:d25/26/27:chg28/29/30/31"
+        );
+    }
+
+    #[test]
+    fn format_runtime_reconnect_panel_text_preserves_field_order() {
+        let panel = RuntimeReconnectPanelModel {
+            phase: RuntimeReconnectPhaseObservability::Attempting,
+            phase_transition_count: 3,
+            reason_kind: Some(RuntimeReconnectReasonKind::ManualConnect),
+            reason_text: Some("manual".to_string()),
+            reason_ordinal: Some(7),
+            hint_text: Some("retry".to_string()),
+            redirect_count: 4,
+            last_redirect_ip: Some("1.2.3.4".to_string()),
+            last_redirect_port: Some(6567),
+        };
+
+        assert_eq!(
+            format_runtime_reconnect_panel_text(&panel),
+            "attempt3:manual@4/1.2.3.4:6567:manual@7:retry"
+        );
+    }
+
+    #[test]
+    fn format_runtime_reconnect_detail_text_preserves_field_order() {
+        let panel = RuntimeReconnectPanelModel {
+            phase: RuntimeReconnectPhaseObservability::Attempting,
+            phase_transition_count: 3,
+            reason_kind: Some(RuntimeReconnectReasonKind::ManualConnect),
+            reason_text: Some("manual".to_string()),
+            reason_ordinal: Some(7),
+            hint_text: Some("retry".to_string()),
+            redirect_count: 4,
+            last_redirect_ip: Some("1.2.3.4".to_string()),
+            last_redirect_port: Some(6567),
+        };
+
+        assert_eq!(
+            format_runtime_reconnect_detail_text(&panel),
+            "reconnectd:attempt#3:manual:r6@7:h5:rd4@1.2.3.4:6567"
         );
     }
 

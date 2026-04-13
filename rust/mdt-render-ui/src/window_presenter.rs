@@ -31,6 +31,7 @@ use crate::{
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_kick_detail_text, format_runtime_kick_panel_text,
         format_runtime_marker_detail_text, format_runtime_marker_panel_text,
+        format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
         format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
@@ -1540,7 +1541,7 @@ fn compose_frame_session_banner_text(hud: &HudModel) -> Option<String> {
     if !panel.reconnect.is_empty() {
         segments.push(format!(
             "RECONNECT {}",
-            compose_runtime_reconnect_panel_status_text(&panel.reconnect)
+            format_runtime_reconnect_panel_text(&panel.reconnect)
         ));
     }
     if !panel.loading.is_empty() {
@@ -3078,7 +3079,7 @@ fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {
     ));
     segments.push(format!(
         "r={}",
-        compose_runtime_reconnect_panel_status_text(&panel.reconnect)
+        format_runtime_reconnect_panel_text(&panel.reconnect)
     ));
     Some(format!("sess:{}", segments.join(";")))
 }
@@ -3109,7 +3110,7 @@ fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> 
     ));
     segments.push(format!(
         "r({})",
-        compose_runtime_reconnect_detail_panel_status_text(&panel.reconnect)
+        format_runtime_reconnect_detail_text(&panel.reconnect)
     ));
     Some(format!("sessd:{}", segments.join(":")))
 }
@@ -3170,15 +3171,12 @@ fn compose_runtime_core_binding_detail_status_text(hud: &HudModel) -> Option<Str
 
 fn compose_runtime_reconnect_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_reconnect_panel(hud)?;
-    Some(format!(
-        "reconnect:{}",
-        compose_runtime_reconnect_panel_status_text(&panel)
-    ))
+    Some(format!("reconnect:{}", format_runtime_reconnect_panel_text(&panel)))
 }
 
 fn compose_runtime_reconnect_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_reconnect_panel(hud)?;
-    (!panel.is_empty()).then(|| compose_runtime_reconnect_detail_panel_status_text(&panel))
+    (!panel.is_empty()).then(|| format_runtime_reconnect_detail_text(&panel))
 }
 
 fn compose_runtime_live_entity_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -4185,23 +4183,6 @@ fn compose_runtime_loading_panel_status_text(
     )
 }
 
-fn compose_runtime_reconnect_panel_status_text(
-    reconnect: &crate::panel_model::RuntimeReconnectPanelModel,
-) -> String {
-    format!(
-        "{}{}:{}@{}/{}:{}:{}@{}:{}",
-        runtime_reconnect_phase_status_text(reconnect.phase),
-        reconnect.phase_transition_count,
-        runtime_reconnect_reason_kind_status_text(reconnect.reason_kind),
-        reconnect.redirect_count,
-        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
-        optional_i32_label(reconnect.last_redirect_port),
-        compact_runtime_ui_text(reconnect.reason_text.as_deref()),
-        optional_i32_label(reconnect.reason_ordinal),
-        compact_runtime_ui_text(reconnect.hint_text.as_deref()),
-    )
-}
-
 fn compose_runtime_loading_detail_panel_status_text(
     loading: &crate::panel_model::RuntimeLoadingPanelModel,
 ) -> String {
@@ -4220,23 +4201,6 @@ fn compose_runtime_loading_detail_panel_status_text(
         loading.kick_reset_count,
         runtime_session_reset_kind_status_text(loading.last_reset_kind),
         format_runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
-    )
-}
-
-fn compose_runtime_reconnect_detail_panel_status_text(
-    reconnect: &crate::panel_model::RuntimeReconnectPanelModel,
-) -> String {
-    format!(
-        "reconnectd:{}#{}:{}:r{}@{}:h{}:rd{}@{}:{}",
-        runtime_reconnect_phase_status_text(reconnect.phase),
-        reconnect.phase_transition_count,
-        runtime_reconnect_reason_kind_status_text(reconnect.reason_kind),
-        runtime_ui_text_len(reconnect.reason_text.as_deref()),
-        optional_i32_label(reconnect.reason_ordinal),
-        runtime_ui_text_len(reconnect.hint_text.as_deref()),
-        reconnect.redirect_count,
-        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
-        optional_i32_label(reconnect.last_redirect_port),
     )
 }
 
@@ -4265,30 +4229,6 @@ fn compose_runtime_world_reload_detail_status_text(hud: &HudModel) -> Option<Str
     let loading = build_runtime_loading_panel(hud)?;
     let world_reload = loading.last_world_reload.as_ref()?;
     Some(format_runtime_world_reload_detail_text(world_reload))
-}
-
-fn runtime_reconnect_phase_status_text(
-    phase: crate::hud_model::RuntimeReconnectPhaseObservability,
-) -> &'static str {
-    match phase {
-        crate::hud_model::RuntimeReconnectPhaseObservability::Idle => "idle",
-        crate::hud_model::RuntimeReconnectPhaseObservability::Scheduled => "sched",
-        crate::hud_model::RuntimeReconnectPhaseObservability::Attempting => "attempt",
-        crate::hud_model::RuntimeReconnectPhaseObservability::Succeeded => "ok",
-        crate::hud_model::RuntimeReconnectPhaseObservability::Aborted => "abort",
-    }
-}
-
-fn runtime_reconnect_reason_kind_status_text(
-    kind: Option<crate::hud_model::RuntimeReconnectReasonKind>,
-) -> &'static str {
-    match kind {
-        Some(crate::hud_model::RuntimeReconnectReasonKind::ConnectRedirect) => "redirect",
-        Some(crate::hud_model::RuntimeReconnectReasonKind::Kick) => "kick",
-        Some(crate::hud_model::RuntimeReconnectReasonKind::Timeout) => "timeout",
-        Some(crate::hud_model::RuntimeReconnectReasonKind::ManualConnect) => "manual",
-        None => "none",
-    }
 }
 
 fn compose_overlay_semantics_status_text(scene: &RenderModel) -> Option<String> {
