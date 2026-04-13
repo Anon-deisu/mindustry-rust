@@ -14,12 +14,13 @@ use crate::{
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
-        RuntimeUiNoticePanelModel,
     },
     presenter_view::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
+        compact_runtime_ui_text, runtime_ui_notice_panel_is_empty, runtime_ui_text_len,
+        runtime_ui_uri_scheme,
         format_counted_detail_text, format_counted_preview_text,
         format_runtime_command_control_group_operation_text,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
@@ -4961,85 +4962,6 @@ fn compose_build_strip_queue_fallback_text(build_ui: &BuildUiObservability) -> S
         build_ui.queued_count,
         None,
     )
-}
-
-fn compact_runtime_ui_text(value: Option<&str>) -> String {
-    match value {
-        Some(value) => {
-            let mut compact = String::new();
-            for (index, ch) in value.chars().enumerate() {
-                if index == 12 {
-                    compact.push('~');
-                    break;
-                }
-                compact.push(match ch {
-                    ':' | ' ' | '\t' | '\r' | '\n' => '_',
-                    _ => ch,
-                });
-            }
-            if compact.is_empty() {
-                "-".to_string()
-            } else {
-                compact
-            }
-        }
-        None => "none".to_string(),
-    }
-}
-
-fn runtime_ui_text_len(value: Option<&str>) -> usize {
-    value
-        .map(str::chars)
-        .map(Iterator::count)
-        .unwrap_or_default()
-}
-
-fn runtime_ui_uri_scheme(value: Option<&str>) -> String {
-    value
-        .map(str::trim)
-        .and_then(|uri| uri.split_once(':').map(|(scheme, _)| scheme.trim()))
-        .filter(|scheme| !scheme.is_empty())
-        .map(|scheme| compact_runtime_ui_text(Some(scheme)))
-        .unwrap_or_else(|| "none".to_string())
-}
-
-fn runtime_ui_notice_panel_is_empty(panel: &RuntimeUiNoticePanelModel) -> bool {
-    panel.hud_set_count == 0
-        && panel.hud_set_reliable_count == 0
-        && panel.hud_hide_count == 0
-        && panel.hud_last_message.is_none()
-        && panel.hud_last_reliable_message.is_none()
-        && panel.announce_count == 0
-        && panel.last_announce_message.is_none()
-        && panel.info_message_count == 0
-        && panel.last_info_message.is_none()
-        && panel.toast_info_count == 0
-        && panel.toast_warning_count == 0
-        && panel.toast_last_info_message.is_none()
-        && panel.toast_last_warning_text.is_none()
-        && panel.info_popup_count == 0
-        && panel.info_popup_reliable_count == 0
-        && panel.last_info_popup_reliable.is_none()
-        && panel.last_info_popup_id.is_none()
-        && panel.last_info_popup_message.is_none()
-        && panel.last_info_popup_duration_bits.is_none()
-        && panel.last_info_popup_align.is_none()
-        && panel.last_info_popup_top.is_none()
-        && panel.last_info_popup_left.is_none()
-        && panel.last_info_popup_bottom.is_none()
-        && panel.last_info_popup_right.is_none()
-        && panel.clipboard_count == 0
-        && panel.last_clipboard_text.is_none()
-        && panel.open_uri_count == 0
-        && panel.last_open_uri.is_none()
-        && panel.text_input_open_count == 0
-        && panel.text_input_last_id.is_none()
-        && panel.text_input_last_title.is_none()
-        && panel.text_input_last_message.is_none()
-        && panel.text_input_last_default_text.is_none()
-        && panel.text_input_last_length.is_none()
-        && panel.text_input_last_numeric.is_none()
-        && panel.text_input_last_allow_empty.is_none()
 }
 
 fn optional_i32_label(value: Option<i32>) -> String {

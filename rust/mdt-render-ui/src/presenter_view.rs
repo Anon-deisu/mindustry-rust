@@ -1,7 +1,7 @@
 use crate::{
     panel_model::{
         MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
-        RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
     },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     BuildQueueHeadStage, RenderModel, RenderObject,
@@ -440,6 +440,85 @@ pub(crate) fn format_world_position_status_text(
     } else {
         format!("0x{:08x}:0x{:08x}", value.x_bits, value.y_bits)
     }
+}
+
+pub(crate) fn compact_runtime_ui_text(value: Option<&str>) -> String {
+    match value {
+        Some(value) => {
+            let mut compact = String::new();
+            for (index, ch) in value.chars().enumerate() {
+                if index == 12 {
+                    compact.push('~');
+                    break;
+                }
+                compact.push(match ch {
+                    ':' | ' ' | '\t' | '\r' | '\n' => '_',
+                    _ => ch,
+                });
+            }
+            if compact.is_empty() {
+                "-".to_string()
+            } else {
+                compact
+            }
+        }
+        None => "none".to_string(),
+    }
+}
+
+pub(crate) fn runtime_ui_text_len(value: Option<&str>) -> usize {
+    value
+        .map(str::chars)
+        .map(Iterator::count)
+        .unwrap_or_default()
+}
+
+pub(crate) fn runtime_ui_uri_scheme(value: Option<&str>) -> String {
+    value
+        .map(str::trim)
+        .and_then(|uri| uri.split_once(':').map(|(scheme, _)| scheme.trim()))
+        .filter(|scheme| !scheme.is_empty())
+        .map(|scheme| compact_runtime_ui_text(Some(scheme)))
+        .unwrap_or_else(|| "none".to_string())
+}
+
+pub(crate) fn runtime_ui_notice_panel_is_empty(panel: &RuntimeUiNoticePanelModel) -> bool {
+    panel.hud_set_count == 0
+        && panel.hud_set_reliable_count == 0
+        && panel.hud_hide_count == 0
+        && panel.hud_last_message.is_none()
+        && panel.hud_last_reliable_message.is_none()
+        && panel.announce_count == 0
+        && panel.last_announce_message.is_none()
+        && panel.info_message_count == 0
+        && panel.last_info_message.is_none()
+        && panel.toast_info_count == 0
+        && panel.toast_warning_count == 0
+        && panel.toast_last_info_message.is_none()
+        && panel.toast_last_warning_text.is_none()
+        && panel.info_popup_count == 0
+        && panel.info_popup_reliable_count == 0
+        && panel.last_info_popup_reliable.is_none()
+        && panel.last_info_popup_id.is_none()
+        && panel.last_info_popup_message.is_none()
+        && panel.last_info_popup_duration_bits.is_none()
+        && panel.last_info_popup_align.is_none()
+        && panel.last_info_popup_top.is_none()
+        && panel.last_info_popup_left.is_none()
+        && panel.last_info_popup_bottom.is_none()
+        && panel.last_info_popup_right.is_none()
+        && panel.clipboard_count == 0
+        && panel.last_clipboard_text.is_none()
+        && panel.open_uri_count == 0
+        && panel.last_open_uri.is_none()
+        && panel.text_input_open_count == 0
+        && panel.text_input_last_id.is_none()
+        && panel.text_input_last_title.is_none()
+        && panel.text_input_last_message.is_none()
+        && panel.text_input_last_default_text.is_none()
+        && panel.text_input_last_length.is_none()
+        && panel.text_input_last_numeric.is_none()
+        && panel.text_input_last_allow_empty.is_none()
 }
 
 pub(crate) fn format_runtime_dialog_prompt_text(
