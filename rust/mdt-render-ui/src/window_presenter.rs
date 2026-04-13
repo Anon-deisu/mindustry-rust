@@ -1621,7 +1621,7 @@ fn compose_frame_panel_lines(
     if let Some(minimap_window_text) =
         compose_minimap_window_distribution_line_status_text(scene, hud)
     {
-        lines.push(format!("MINIMAP-WINDOW: {minimap_window_text}"));
+        lines.push(format!("MINIWIN: {minimap_window_text}"));
     }
     if let Some(minimap_legend_text) = compose_minimap_legend_status_text(hud) {
         lines.push(format!("MINIMAP-LEGEND: {minimap_legend_text}"));
@@ -9143,7 +9143,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-WINDOW: miniwin:tracked=7:outside=0:player=1:marker=2:plan=0:block=0:runtime=4:terrain=0:unknown=0",
+            "MINIWIN: miniwin:tracked=7:outside=0:player=1:marker=2:plan=0:block=0:runtime=4:terrain=0:unknown=0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

@@ -214,7 +214,7 @@ impl AsciiScenePresenter {
             ));
         }
         if let Some(minimap_window_text) = compose_minimap_window_line(scene, hud) {
-            out.push_str(&format!("MINIMAP-WINDOW: {minimap_window_text}\n"));
+            out.push_str(&format!("MINIWIN: {minimap_window_text}\n"));
         }
         if let Some(minimap_legend_text) = compose_minimap_legend_line(hud) {
             out.push_str(&format!("MINIMAP-LEGEND: {minimap_legend_text}\n"));
@@ -5277,7 +5277,7 @@ mod tests {
             )
         )));
         assert!(frame.contains(
-            "MINIMAP-WINDOW: miniwin:tracked=7:outside=0:player=1:marker=2:plan=0:block=0:runtime=4:terrain=0:unknown=0"
+            "MINIWIN: miniwin:tracked=7:outside=0:player=1:marker=2:plan=0:block=0:runtime=4:terrain=0:unknown=0"
         ));
         assert!(frame.contains(
             "MINIWIN-KINDS: miniwin-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
