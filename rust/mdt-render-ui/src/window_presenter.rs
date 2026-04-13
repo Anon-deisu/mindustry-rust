@@ -3968,8 +3968,13 @@ fn compose_minimap_window_distribution_line_status_text(
 }
 
 fn compose_minimap_legend_status_text(hud: &HudModel) -> Option<String> {
-    hud.summary.as_ref()?;
-    Some("legend:pl@/mkM/pnP/bk#/rtR/tr./uk?".to_string())
+    let summary = hud.summary.as_ref()?;
+    Some(format!(
+        "legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis={}:ov{}:fg{}",
+        summary.visibility_label(),
+        bool_flag(summary.overlay_visible),
+        bool_flag(summary.fog_enabled),
+    ))
 }
 
 fn compose_minimap_detail_status_lines(
@@ -9103,6 +9108,10 @@ mod tests {
             &frame.panel_lines,
             "MINIMAP-WINDOW-KINDS: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0",
         );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-LEGEND: legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis=clear:ov1:fg0",
+        );
     }
 
     #[test]
@@ -9854,7 +9863,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-LEGEND: legend:pl@/mkM/pnP/bk#/rtR/tr./uk?",
+            "MINIMAP-LEGEND: legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis=mixed:ov1:fg1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
