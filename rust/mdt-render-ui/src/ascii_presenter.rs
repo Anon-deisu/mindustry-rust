@@ -2582,9 +2582,10 @@ fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
             compose_runtime_kick_panel_text(&panel.kick)
         ));
     }
-    if !panel.loading.is_empty() {
+    if !panel.reconnect.is_empty() && !panel.loading.is_empty() {
         return Some(format!(
-            "LOADING {}",
+            "RECONNECT {} | LOADING {}",
+            compose_runtime_reconnect_panel_text(&panel.reconnect),
             compose_runtime_loading_panel_text(&panel.loading)
         ));
     }
@@ -2592,6 +2593,12 @@ fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
         return Some(format!(
             "RECONNECT {}",
             compose_runtime_reconnect_panel_text(&panel.reconnect)
+        ));
+    }
+    if !panel.loading.is_empty() {
+        return Some(format!(
+            "LOADING {}",
+            compose_runtime_loading_panel_text(&panel.loading)
         ));
     }
     None
@@ -4648,7 +4655,7 @@ mod tests {
     }
 
     #[test]
-    fn ascii_presenter_uses_loading_banner_when_kick_is_empty() {
+    fn ascii_presenter_keeps_reconnect_visible_when_loading_is_active() {
         let scene = RenderModel {
             viewport: Viewport {
                 width: 8.0,
@@ -4709,7 +4716,7 @@ mod tests {
         presenter.present(&scene, &hud);
 
         assert!(presenter.last_frame().contains(
-            "SESSION-BANNER: LOADING defer5:replay6:drop7:qdrop8:sfail0:scfail0:efail0:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+            "SESSION-BANNER: RECONNECT attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~ | LOADING defer5:replay6:drop7:qdrop8:sfail0:scfail0:efail0:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
         ));
     }
 

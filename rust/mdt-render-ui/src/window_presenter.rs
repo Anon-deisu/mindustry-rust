@@ -1529,9 +1529,10 @@ fn compose_frame_session_banner_text(hud: &HudModel) -> Option<String> {
             compose_runtime_kick_panel_status_text(&panel.kick)
         ));
     }
-    if !panel.loading.is_empty() {
+    if !panel.reconnect.is_empty() && !panel.loading.is_empty() {
         return Some(format!(
-            "LOADING {}",
+            "RECONNECT {} | LOADING {}",
+            compose_runtime_reconnect_panel_status_text(&panel.reconnect),
             compose_runtime_loading_panel_status_text(&panel.loading)
         ));
     }
@@ -1539,6 +1540,12 @@ fn compose_frame_session_banner_text(hud: &HudModel) -> Option<String> {
         return Some(format!(
             "RECONNECT {}",
             compose_runtime_reconnect_panel_status_text(&panel.reconnect)
+        ));
+    }
+    if !panel.loading.is_empty() {
+        return Some(format!(
+            "LOADING {}",
+            compose_runtime_loading_panel_status_text(&panel.loading)
         ));
     }
     None
@@ -10381,7 +10388,7 @@ mod tests {
     }
 
     #[test]
-    fn present_once_uses_loading_banner_when_kick_is_empty() {
+    fn present_once_keeps_reconnect_visible_when_loading_is_active() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);
         let scene = RenderModel {
@@ -10432,6 +10439,71 @@ mod tests {
             last_redirect_ip: Some("127.0.0.1".to_string()),
             last_redirect_port: Some(6567),
             ..RuntimeReconnectObservability::default()
+        };
+        let hud = HudModel {
+            title: "demo".to_string(),
+            wave_text: Some("Wave 7".to_string()),
+            runtime_ui: Some(runtime_ui),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_eq!(
+            frame.session_banner_text.as_deref(),
+            Some(
+                "RECONNECT attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~ | LOADING defer5:replay6:drop7:qdrop8:sfail0:scfail0:efail0:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+            )
+        );
+        assert_eq!(
+            window_hud_top_line(frame),
+            frame.session_banner_text.as_deref()
+        );
+    }
+
+    #[test]
+    fn present_once_uses_loading_banner_when_reconnect_is_empty() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.session.loading = crate::RuntimeLoadingObservability {
+            deferred_inbound_packet_count: 5,
+            replayed_inbound_packet_count: 6,
+            dropped_loading_low_priority_packet_count: 7,
+            dropped_loading_deferred_overflow_count: 8,
+            ready_inbound_liveness_anchor_count: 12,
+            last_ready_inbound_liveness_anchor_at_ms: Some(1300),
+            timeout_count: 2,
+            connect_or_loading_timeout_count: 1,
+            ready_snapshot_timeout_count: 1,
+            last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+            last_timeout_idle_ms: Some(20000),
+            reset_count: 3,
+            reconnect_reset_count: 1,
+            world_reload_count: 1,
+            kick_reset_count: 1,
+            last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+            last_world_reload: Some(RuntimeWorldReloadObservability {
+                had_loaded_world: true,
+                had_client_loaded: false,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 4,
+                cleared_deferred_inbound_packets: 5,
+                cleared_replayed_loading_events: 6,
+            }),
+            ..crate::RuntimeLoadingObservability::default()
         };
         let hud = HudModel {
             title: "demo".to_string(),
