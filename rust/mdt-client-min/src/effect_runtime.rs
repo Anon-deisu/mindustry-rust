@@ -2032,6 +2032,23 @@ mod tests {
     }
 
     #[test]
+    fn effect_runtime_observe_runtime_effect_source_binding_state_returns_none_for_disabled_source_binding_even_with_resolved_unit_parent()
+    {
+        let object = TypeIoObject::UnitId(404);
+        let followed = session_state_with_unit_entity(404, 32.0, 48.0);
+
+        assert_eq!(
+            observe_runtime_effect_source_binding_state(
+                Some(67),
+                Some(&object),
+                &followed,
+                &EffectRuntimeInputView::default(),
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn effect_runtime_observe_runtime_effect_source_binding_state_rejects_buildings_and_leaves_unreachable_parent_kinds_empty(
     ) {
         let building_object = TypeIoObject::BuildingPos(pack_point2(3, 5));

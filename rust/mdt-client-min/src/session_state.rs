@@ -8113,6 +8113,22 @@ mod tests {
     }
 
     #[test]
+    fn record_effect_runtime_source_binding_state_clears_last_state_without_changing_counters_on_none()
+    {
+        let mut state = SessionState::default();
+
+        state.record_effect_runtime_source_binding_state(Some(
+            EffectRuntimeBindingState::ParentFollow,
+        ));
+        state.record_effect_runtime_source_binding_state(None);
+
+        assert_eq!(state.last_effect_runtime_source_binding_state, None);
+        assert_eq!(state.received_effect_binding_source_follow_count, 1);
+        assert_eq!(state.received_effect_binding_source_reject_count, 0);
+        assert_eq!(state.received_effect_binding_source_fallback_count, 0);
+    }
+
+    #[test]
     fn reconnect_projection_counts_only_distinct_phase_transitions() {
         let mut state = SessionState::default();
 

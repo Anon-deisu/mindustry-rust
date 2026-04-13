@@ -50309,6 +50309,56 @@ mod tests {
     }
 
     #[test]
+    fn effect_packet_with_disabled_source_binding_contract_leaves_source_state_none_and_keeps_counters_stable()
+    {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+
+        session.state.entity_table_projection.by_entity_id.insert(
+            4321,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 96.0f32.to_bits(),
+                y_bits: 104.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        let mut follow_payload = encode_effect_payload(9, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut follow_payload, &TypeIoObject::UnitId(4321));
+        let follow_packet = encode_packet(packet_id, &follow_payload, false).unwrap();
+        session.ingest_packet_bytes(&follow_packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_runtime_source_binding_state,
+            Some(crate::session_state::EffectRuntimeBindingState::ParentFollow)
+        );
+        assert_eq!(session.state().received_effect_binding_source_follow_count, 1);
+        assert_eq!(session.state().received_effect_binding_source_reject_count, 0);
+        assert_eq!(session.state().received_effect_binding_source_fallback_count, 0);
+
+        let mut disabled_payload = encode_effect_payload(67, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut disabled_payload, &TypeIoObject::UnitId(4321));
+        let disabled_packet = encode_packet(packet_id, &disabled_payload, false).unwrap();
+        session.ingest_packet_bytes(&disabled_packet).unwrap();
+
+        assert_eq!(session.state().last_effect_runtime_source_binding_state, None);
+        assert_eq!(session.state().received_effect_binding_source_follow_count, 1);
+        assert_eq!(session.state().received_effect_binding_source_reject_count, 0);
+        assert_eq!(session.state().received_effect_binding_source_fallback_count, 0);
+    }
+
+    #[test]
     fn effect_packet_with_local_unit_id_data_payload_projects_runtime_apply_state() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
