@@ -5128,11 +5128,7 @@ fn runtime_effect_binding_label(
 ) -> String {
     let (_, _, _, _, target, source) =
         runtime_effect_binding_states(snapshot_input, session_state, world_overlay);
-    format!(
-        "{}/{}",
-        runtime_optional_effect_binding_state_label(target),
-        runtime_optional_effect_binding_state_label(source)
-    )
+    runtime_effect_binding_pair_label(target, source)
 }
 
 fn runtime_effect_binding_detail_label(
@@ -5150,12 +5146,10 @@ fn runtime_effect_binding_detail_label(
         "none"
     };
     format!(
-        "source={} session={}/{} overlay={}/{} active={} target_counts={} source_counts={}",
+        "source={} session={} overlay={} active={} target_counts={} source_counts={}",
         selected_source,
-        runtime_optional_effect_binding_state_label(session_target),
-        runtime_optional_effect_binding_state_label(session_source),
-        runtime_optional_effect_binding_state_label(overlay_target),
-        runtime_optional_effect_binding_state_label(overlay_source),
+        runtime_effect_binding_pair_label(session_target, session_source),
+        runtime_effect_binding_pair_label(overlay_target, overlay_source),
         world_overlay.effect_overlays.len(),
         runtime_effect_binding_count_triplet_label(
             session_state.received_effect_binding_target_follow_count,
@@ -5167,6 +5161,17 @@ fn runtime_effect_binding_detail_label(
             session_state.received_effect_binding_source_reject_count,
             session_state.received_effect_binding_source_fallback_count,
         ),
+    )
+}
+
+fn runtime_effect_binding_pair_label(
+    target: Option<EffectRuntimeBindingState>,
+    source: Option<EffectRuntimeBindingState>,
+) -> String {
+    format!(
+        "target:{}/source:{}",
+        runtime_optional_effect_binding_state_label(target),
+        runtime_optional_effect_binding_state_label(source)
     )
 }
 
@@ -5214,7 +5219,12 @@ fn runtime_effect_binding_states(
 fn runtime_optional_effect_binding_state_label(
     state: Option<EffectRuntimeBindingState>,
 ) -> &'static str {
-    state.map_or("none", EffectRuntimeBindingState::as_str)
+    match state {
+        Some(EffectRuntimeBindingState::ParentFollow) => "parent-follow",
+        Some(EffectRuntimeBindingState::BindingRejected) => "binding-rejected",
+        Some(EffectRuntimeBindingState::UnresolvedFallback) => "unresolved-fallback",
+        None => "none",
+    }
 }
 
 fn runtime_effect_binding_count_triplet_label(
@@ -13700,9 +13710,9 @@ mod tests {
 
         assert!(hud
             .status_text
-            .contains("runtime_effect_binding=follow/follow"));
+            .contains("runtime_effect_binding=target:parent-follow/source:parent-follow"));
         assert!(hud.status_text.contains(
-            "runtime_effect_binding_detail=source=session session=follow/follow overlay=follow/follow active=1 target_counts=1/0/0 source_counts=1/0/0"
+            "runtime_effect_binding_detail=source=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0"
         ));
         let live_effect = &hud
             .runtime_ui
@@ -13766,9 +13776,9 @@ mod tests {
 
         assert!(hud
             .status_text
-            .contains("runtime_effect_binding=follow/follow"));
+            .contains("runtime_effect_binding=target:parent-follow/source:parent-follow"));
         assert!(hud.status_text.contains(
-            "runtime_effect_binding_detail=source=session session=follow/follow overlay=follow/follow active=3 target_counts=1/1/1 source_counts=1/1/1"
+            "runtime_effect_binding_detail=source=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=3 target_counts=1/1/1 source_counts=1/1/1"
         ));
         let live_effect = &hud
             .runtime_ui
@@ -13792,7 +13802,7 @@ mod tests {
             Some(EffectRuntimeBindingState::BindingRejected);
         assert_eq!(
             runtime_effect_binding_label(&input, &reject_state, &RuntimeWorldOverlay::default()),
-            "reject/none"
+            "target:binding-rejected/source:none"
         );
 
         let mut world_overlay = RuntimeWorldOverlay::default();
@@ -13829,7 +13839,7 @@ mod tests {
         });
         assert_eq!(
             runtime_effect_binding_label(&input, &SessionState::default(), &world_overlay),
-            "fallback/none"
+            "target:unresolved-fallback/source:none"
         );
     }
 
@@ -13889,7 +13899,7 @@ mod tests {
 
         assert_eq!(
             runtime_effect_binding_label(&input, &state, &world_overlay),
-            "reject/follow"
+            "target:binding-rejected/source:parent-follow"
         );
     }
 
@@ -13934,7 +13944,7 @@ mod tests {
 
         assert_eq!(
             runtime_effect_binding_label(&input, &state, &world_overlay),
-            "reject/none"
+            "target:binding-rejected/source:none"
         );
     }
 
@@ -13946,17 +13956,17 @@ mod tests {
             (
                 EffectRuntimeBindingState::ParentFollow,
                 EffectRuntimeBindingState::ParentFollow,
-                "follow/follow",
+                "target:parent-follow/source:parent-follow",
             ),
             (
                 EffectRuntimeBindingState::UnresolvedFallback,
                 EffectRuntimeBindingState::UnresolvedFallback,
-                "fallback/fallback",
+                "target:unresolved-fallback/source:unresolved-fallback",
             ),
             (
                 EffectRuntimeBindingState::ParentFollow,
                 EffectRuntimeBindingState::BindingRejected,
-                "follow/reject",
+                "target:parent-follow/source:binding-rejected",
             ),
         ] {
             let mut state = SessionState::default();
@@ -14026,11 +14036,11 @@ mod tests {
 
         assert_eq!(
             runtime_effect_binding_label(&input, &state, &world_overlay),
-            "none/follow"
+            "target:none/source:parent-follow"
         );
         assert_eq!(
             runtime_effect_binding_detail_label(&input, &state, &world_overlay),
-            "source=session session=none/follow overlay=fallback/fallback active=1 target_counts=0/0/0 source_counts=1/0/0"
+            "source=session session=target:none/source:parent-follow overlay=target:unresolved-fallback/source:unresolved-fallback active=1 target_counts=0/0/0 source_counts=1/0/0"
         );
     }
 
@@ -14091,11 +14101,11 @@ mod tests {
 
         assert_eq!(
             runtime_effect_binding_label(&input, &state, &world_overlay),
-            "none/fallback"
+            "target:none/source:unresolved-fallback"
         );
         assert_eq!(
             runtime_effect_binding_detail_label(&input, &state, &world_overlay),
-            "source=session session=none/fallback overlay=fallback/fallback active=1 target_counts=0/0/0 source_counts=0/0/2"
+            "source=session session=target:none/source:unresolved-fallback overlay=target:unresolved-fallback/source:unresolved-fallback active=1 target_counts=0/0/0 source_counts=0/0/2"
         );
     }
 
@@ -14151,7 +14161,7 @@ mod tests {
 
         assert_eq!(
             runtime_effect_binding_detail_label(&input, &SessionState::default(), &world_overlay),
-            "source=overlay session=none/none overlay=fallback/fallback active=1 target_counts=0/0/0 source_counts=0/0/0"
+            "source=overlay session=target:none/source:none overlay=target:unresolved-fallback/source:unresolved-fallback active=1 target_counts=0/0/0 source_counts=0/0/0"
         );
 
         let mut state = SessionState::default();
@@ -14162,7 +14172,7 @@ mod tests {
         state.received_effect_binding_source_follow_count = 2;
         assert_eq!(
             runtime_effect_binding_detail_label(&input, &state, &world_overlay),
-            "source=session session=reject/follow overlay=fallback/fallback active=1 target_counts=0/3/0 source_counts=2/0/0"
+            "source=session session=target:binding-rejected/source:parent-follow overlay=target:unresolved-fallback/source:unresolved-fallback active=1 target_counts=0/3/0 source_counts=2/0/0"
         );
     }
 
@@ -14953,7 +14963,7 @@ mod tests {
         assert!(hud.status_text.contains("runtime_effect_path=1/0"));
         assert!(hud
             .status_text
-            .contains("runtime_effect_binding=follow/reject"));
+            .contains("runtime_effect_binding=target:parent-follow/source:binding-rejected"));
         assert!(hud.status_text.contains("runtime_effect_data_fail=2@trail"));
         assert!(hud.status_text.contains("bootstrap_rules=01234567"));
         assert!(hud.status_text.contains("bootstrap_tags=00112233"));
