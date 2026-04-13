@@ -3168,7 +3168,7 @@ fn compose_minimap_detail_lines(
         .enumerate()
         .map(|(index, detail)| {
             format!(
-                "{}/{} {}={}",
+                "minid:{}/{}:{}={}",
                 index + 1,
                 detail_count,
                 detail.label,
@@ -5265,7 +5265,7 @@ mod tests {
             .expect("minimap panel")
             .edge_detail_label(),
         )));
-        assert!(frame.contains("MINIMAP-DETAIL: 1/6 marker-line=1"));
+        assert!(frame.contains("MINIMAP-DETAIL: minid:1/6:marker-line=1"));
         assert!(frame.contains(&format!(
             "MINIMAP-DETAIL: {}",
             super::compose_minimap_density_visibility_line(
