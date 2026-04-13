@@ -3211,8 +3211,13 @@ fn compose_minimap_window_kind_distribution_line(panel: &MinimapPanelModel) -> S
 }
 
 fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {
-    hud.summary.as_ref()?;
-    Some("@=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown".to_string())
+    let summary = hud.summary.as_ref()?;
+    Some(format!(
+        "legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis={}:ov{}:fg{}",
+        summary.visibility_label(),
+        bool_flag(summary.overlay_visible),
+        bool_flag(summary.fog_enabled),
+    ))
 }
 
 fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
@@ -6034,7 +6039,8 @@ mod tests {
         let minimap_legend_pos = frame
             .lines()
             .position(|line| {
-                line == "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
+                line
+                    == "MINIMAP-LEGEND: legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis=mixed:ov1:fg1"
             })
             .expect("minimap legend line");
         let minimap_edge_pos = frame
@@ -6061,7 +6067,7 @@ mod tests {
         assert!(minimap_kinds_pos < minimap_legend_pos);
         assert!(minimap_legend_pos < minimap_edge_pos);
         assert!(frame.contains(
-            "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
+            "MINIMAP-LEGEND: legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis=mixed:ov1:fg1"
         ));
         assert!(frame.contains(
             "BUILD-CONFIG: cfgpanel:sel257:r2:m1:p1/2:hist3/4:o1:h=flight@100:99:place:b301:r1:align=split:auth=rollback:pm=mismatch:src=construct:b=power-node:fam2/2:more0:t2@message#1,power-node#1"
@@ -6405,7 +6411,7 @@ mod tests {
             "MINIMAP-KINDS: tracked=3 player=1 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=1"
         ));
         assert!(frame.contains(
-            "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
+            "MINIMAP-LEGEND: legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis=unseen:ov0:fg0"
         ));
         assert!(frame.contains(
             "BUILD-CONFIG: cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:auth=rej-miss-build:pm=match:src=tilecfg:b=alpha:fam3/4:more1:t8@gamma#4,beta#2,alpha#1"
@@ -6615,7 +6621,8 @@ mod tests {
         let legend_pos = frame
             .lines()
             .position(|line| {
-                line == "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime overlay .=terrain ?=unknown"
+                line
+                    == "MINIMAP-LEGEND: legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis=mixed:ov1:fg0"
             })
             .expect("minimap legend line");
         let edge_pos = frame
