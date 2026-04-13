@@ -1630,6 +1630,12 @@ fn compose_frame_panel_lines(
     for render_layer_detail_text in compose_render_layer_detail_status_lines(scene, window) {
         lines.push(format!("RENDER-LAYER-DETAIL: {render_layer_detail_text}"));
     }
+    if let Some(render_line_text) = compose_render_line_status_text(scene, window) {
+        lines.push(format!("RENDER-LINE: {render_line_text}"));
+    }
+    if let Some(render_line_detail_text) = compose_render_line_detail_status_text(scene, window) {
+        lines.push(format!("RENDER-LINE-DETAIL: {render_line_detail_text}"));
+    }
     if let Some(render_text_text) = compose_render_text_status_text(scene, window) {
         lines.push(format!("RENDER-TEXT: {render_text_text}"));
     }
@@ -1969,6 +1975,154 @@ fn compose_frame_overlay_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Strin
         lines.push(format!("OVERLAY-DETAIL: {overlay_detail_text}"));
     }
     lines
+}
+
+fn compose_render_line_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let mut line_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match &primitive {
+            RenderPrimitive::Line {
+                layer,
+                x0,
+                y0,
+                x1,
+                y1,
+                ..
+            } => {
+                let (start_tile_x, start_tile_y) = finite_tile_coords(*x0, *y0)?;
+                let (end_tile_x, end_tile_y) = finite_tile_coords(*x1, *y1)?;
+                if !render_line_is_visible(
+                    window,
+                    start_tile_x,
+                    start_tile_y,
+                    end_tile_x,
+                    end_tile_y,
+                ) {
+                    return None;
+                }
+                let label = primitive
+                    .payload()
+                    .map(|payload| payload.label)
+                    .unwrap_or_else(|| "line".to_string());
+                Some((
+                    *layer,
+                    label,
+                    start_tile_x,
+                    start_tile_y,
+                    end_tile_x,
+                    end_tile_y,
+                ))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if line_primitives.is_empty() {
+        return None;
+    }
+
+    let total = line_primitives.len();
+    line_primitives.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.cmp(&right.3))
+            .then_with(|| left.4.cmp(&right.4))
+            .then_with(|| left.5.cmp(&right.5))
+    });
+
+    let mut parts = vec![format!("count={total}")];
+    for (layer, label, start_tile_x, start_tile_y, end_tile_x, end_tile_y) in
+        line_primitives.into_iter().take(2)
+    {
+        parts.push(format!(
+            "{label}@{layer}:{start_tile_x}:{start_tile_y}->{end_tile_x}:{end_tile_y}"
+        ));
+    }
+    if total > 2 {
+        parts.push(format!("more={}", total - 2));
+    }
+    Some(parts.join(" "))
+}
+
+fn compose_render_line_detail_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let mut line_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match &primitive {
+            RenderPrimitive::Line {
+                layer,
+                x0,
+                y0,
+                x1,
+                y1,
+                ..
+            } => {
+                let (start_tile_x, start_tile_y) = finite_tile_coords(*x0, *y0)?;
+                let (end_tile_x, end_tile_y) = finite_tile_coords(*x1, *y1)?;
+                if !render_line_is_visible(
+                    window,
+                    start_tile_x,
+                    start_tile_y,
+                    end_tile_x,
+                    end_tile_y,
+                ) {
+                    return None;
+                }
+                let payload = primitive.payload()?;
+                Some((
+                    *layer,
+                    payload.label.clone(),
+                    start_tile_x,
+                    start_tile_y,
+                    end_tile_x,
+                    end_tile_y,
+                    payload,
+                ))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if line_primitives.is_empty() {
+        return None;
+    }
+
+    line_primitives.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.cmp(&right.3))
+            .then_with(|| left.4.cmp(&right.4))
+            .then_with(|| left.5.cmp(&right.5))
+    });
+
+    let mut parts = vec![format!("count={}", line_primitives.len())];
+    for (
+        layer,
+        label,
+        start_tile_x,
+        start_tile_y,
+        end_tile_x,
+        end_tile_y,
+        payload,
+    ) in line_primitives
+    {
+        parts.push(format!(
+            "{label}@{layer}:{start_tile_x}:{start_tile_y}->{end_tile_x}:{end_tile_y} {}",
+            format_render_primitive_payload(&payload)
+        ));
+    }
+    Some(parts.join(" "))
 }
 
 fn compose_render_text_status_text(
@@ -2362,6 +2516,20 @@ fn format_render_primitive_payload(payload: &RenderPrimitivePayload) -> String {
         ));
     }
     format!("{}{{{}}}", payload.label, parts.join(","))
+}
+
+fn render_line_is_visible(
+    window: PresenterViewWindow,
+    start_tile_x: i32,
+    start_tile_y: i32,
+    end_tile_x: i32,
+    end_tile_y: i32,
+) -> bool {
+    let left_tile = start_tile_x.min(end_tile_x);
+    let top_tile = start_tile_y.min(end_tile_y);
+    let right_tile = start_tile_x.max(end_tile_x);
+    let bottom_tile = start_tile_y.max(end_tile_y);
+    render_rect_detail_is_visible(window, left_tile, top_tile, right_tile, bottom_tile)
 }
 
 fn render_rect_detail_is_visible(
@@ -10386,6 +10554,74 @@ mod tests {
             .panel_lines
             .iter()
             .any(|line| line.starts_with("RENDER-TEXT-DETAIL:")));
+    }
+
+    #[test]
+    fn present_once_reports_render_line_overflow_count() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 24.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:line:demo-a".to_string(),
+                    layer: 30,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:line:demo-a:line-end".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:line:demo-b".to_string(),
+                    layer: 31,
+                    x: 0.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "marker:line:demo-b:line-end".to_string(),
+                    layer: 31,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "marker:line:demo-c".to_string(),
+                    layer: 32,
+                    x: 0.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:line:demo-c:line-end".to_string(),
+                    layer: 32,
+                    x: 8.0,
+                    y: 16.0,
+                },
+            ],
+        };
+
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-LINE: count=3");
+        assert_frame_line_contains(&frame.panel_lines, "marker-line@30:0:0->1:0");
+        assert_frame_line_contains(&frame.panel_lines, "marker-line@31:0:1->1:1");
+        assert_frame_line_contains(&frame.panel_lines, "more=1");
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-LINE-DETAIL: count=3");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "marker-line@32:0:2->1:2 marker-line{marker_id=demo-c}",
+        );
     }
 
     #[test]
