@@ -1559,6 +1559,38 @@ struct HiddenSnapshotTypedRuntimeTransition {
     refresh_ids: BTreeSet<i32>,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct HiddenSnapshotRuntimeRollback {
+    entity_rows: BTreeMap<i32, EntityProjection>,
+    semantic_rows: BTreeMap<i32, EntitySemanticProjectionEntry>,
+    payload_apply_rows: BTreeMap<i32, EntitySnapshotPayloadApplyEntry>,
+    player_semantic_rows: BTreeMap<i32, EntityPlayerSemanticProjection>,
+    resource_item_stacks: BTreeMap<i32, ResourceUnitItemStack>,
+}
+
+impl HiddenSnapshotRuntimeRollback {
+    fn retain_ids(&mut self, entity_ids: &BTreeSet<i32>) {
+        self.entity_rows
+            .retain(|entity_id, _| entity_ids.contains(entity_id));
+        self.semantic_rows
+            .retain(|entity_id, _| entity_ids.contains(entity_id));
+        self.payload_apply_rows
+            .retain(|entity_id, _| entity_ids.contains(entity_id));
+        self.player_semantic_rows
+            .retain(|entity_id, _| entity_ids.contains(entity_id));
+        self.resource_item_stacks
+            .retain(|entity_id, _| entity_ids.contains(entity_id));
+    }
+
+    fn extend(&mut self, other: Self) {
+        self.entity_rows.extend(other.entity_rows);
+        self.semantic_rows.extend(other.semantic_rows);
+        self.payload_apply_rows.extend(other.payload_apply_rows);
+        self.player_semantic_rows.extend(other.player_semantic_rows);
+        self.resource_item_stacks.extend(other.resource_item_stacks);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadDroppedProjection {
     pub unit: Option<UnitRefProjection>,
@@ -6731,6 +6763,7 @@ pub struct SessionState {
     pub last_hidden_snapshot: Option<AppliedHiddenSnapshotIds>,
     pub hidden_snapshot_ids: BTreeSet<i32>,
     pub hidden_snapshot_delta_projection: Option<HiddenSnapshotDeltaProjection>,
+    pub(crate) hidden_snapshot_runtime_rollback: HiddenSnapshotRuntimeRollback,
     pub hidden_lifecycle_remove_count: u64,
     pub last_hidden_lifecycle_removed_ids_sample: Vec<i32>,
     pub failed_hidden_snapshot_parse_count: u64,
@@ -7381,11 +7414,15 @@ impl SessionState {
 
         self.applied_hidden_snapshot_count = self.applied_hidden_snapshot_count.saturating_add(1);
         self.last_hidden_snapshot = Some(applied);
+        self.hidden_snapshot_runtime_rollback
+            .retain_ids(&trigger_hidden_ids);
         self.entity_table_projection
             .apply_hidden_ids(&trigger_hidden_ids);
         let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
         let runtime_transition =
             self.hidden_snapshot_runtime_transition(&trigger_hidden_ids, local_player_entity_id);
+        self.hidden_snapshot_runtime_rollback
+            .extend(self.capture_hidden_snapshot_runtime_rollback(&runtime_transition));
         let hidden_removed_ids = self
             .apply_hidden_snapshot_runtime_transition(&runtime_transition, local_player_entity_id);
         self.hidden_lifecycle_remove_count = self
@@ -7425,6 +7462,7 @@ impl SessionState {
         });
         self.last_hidden_lifecycle_removed_ids_sample.clear();
         if previous_hidden_ids.is_empty() {
+            self.hidden_snapshot_runtime_rollback = HiddenSnapshotRuntimeRollback::default();
             return;
         }
 
@@ -7436,6 +7474,7 @@ impl SessionState {
         };
         self.entity_table_projection
             .apply_hidden_ids(&cleared_hidden_ids);
+        self.restore_hidden_snapshot_runtime_rollback_for_ids(&previous_hidden_ids);
         let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
         let runtime_transition =
             self.hidden_snapshot_runtime_transition(&cleared_hidden_ids, local_player_entity_id);
@@ -7443,6 +7482,126 @@ impl SessionState {
             .apply_hidden_snapshot_runtime_transition(&runtime_transition, local_player_entity_id);
         self.hidden_snapshot_ids = cleared_hidden_ids;
         self.apply_hidden_snapshot_typed_runtime_transition(&typed_runtime_transition);
+    }
+
+    fn capture_hidden_snapshot_runtime_rollback(
+        &self,
+        transition: &HiddenSnapshotRuntimeTransition,
+    ) -> HiddenSnapshotRuntimeRollback {
+        let lifecycle_remove_ids = transition.lifecycle_remove_ids();
+        let mut rollback = HiddenSnapshotRuntimeRollback::default();
+        for entity_id in &lifecycle_remove_ids {
+            if let Some(mut entity) = self
+                .entity_table_projection
+                .by_entity_id
+                .get(entity_id)
+                .cloned()
+            {
+                entity.hidden = false;
+                rollback.entity_rows.insert(*entity_id, entity);
+            }
+            if let Some(semantic) = self
+                .entity_semantic_projection
+                .by_entity_id
+                .get(entity_id)
+                .cloned()
+            {
+                rollback.semantic_rows.insert(*entity_id, semantic);
+            }
+            if let Some(payload_apply) = self
+                .entity_snapshot_payload_apply_projection
+                .by_entity_id
+                .get(entity_id)
+                .cloned()
+            {
+                rollback
+                    .payload_apply_rows
+                    .insert(*entity_id, payload_apply);
+            }
+            if let Some(player_semantic) = self
+                .player_semantic_projection
+                .by_entity_id
+                .get(entity_id)
+                .cloned()
+            {
+                rollback
+                    .player_semantic_rows
+                    .insert(*entity_id, player_semantic);
+            }
+        }
+
+        for entity_id in &transition.auxiliary_cleanup_ids {
+            if let Some(item_stack) = self
+                .resource_delta_projection
+                .entity_item_stack_by_entity_id
+                .get(entity_id)
+                .cloned()
+            {
+                rollback.resource_item_stacks.insert(*entity_id, item_stack);
+            }
+        }
+        rollback
+    }
+
+    fn restore_hidden_snapshot_runtime_rollback_for_ids(&mut self, entity_ids: &BTreeSet<i32>) {
+        if entity_ids.is_empty() {
+            return;
+        }
+
+        let mut restored_entity_row = false;
+        for entity_id in entity_ids {
+            if let Some(mut entity) = self
+                .hidden_snapshot_runtime_rollback
+                .entity_rows
+                .remove(entity_id)
+            {
+                entity.hidden = false;
+                self.entity_table_projection
+                    .by_entity_id
+                    .insert(*entity_id, entity);
+                restored_entity_row = true;
+            }
+            if let Some(semantic) = self
+                .hidden_snapshot_runtime_rollback
+                .semantic_rows
+                .remove(entity_id)
+            {
+                self.entity_semantic_projection
+                    .by_entity_id
+                    .insert(*entity_id, semantic);
+            }
+            if let Some(payload_apply) = self
+                .hidden_snapshot_runtime_rollback
+                .payload_apply_rows
+                .remove(entity_id)
+            {
+                self.entity_snapshot_payload_apply_projection
+                    .by_entity_id
+                    .insert(*entity_id, payload_apply);
+            }
+            if let Some(player_semantic) = self
+                .hidden_snapshot_runtime_rollback
+                .player_semantic_rows
+                .remove(entity_id)
+            {
+                self.player_semantic_projection
+                    .by_entity_id
+                    .insert(*entity_id, player_semantic);
+            }
+            if let Some(item_stack) = self
+                .hidden_snapshot_runtime_rollback
+                .resource_item_stacks
+                .remove(entity_id)
+            {
+                self.resource_delta_projection
+                    .entity_item_stack_by_entity_id
+                    .insert(*entity_id, item_stack);
+            }
+        }
+
+        if restored_entity_row {
+            self.entity_table_projection.recount_hidden();
+        }
     }
 
     fn hidden_snapshot_runtime_transition(
@@ -14317,6 +14476,172 @@ mod tests {
     }
 
     #[test]
+    fn clear_hidden_snapshot_after_parse_failure_restores_payload_bearing_runtime_unit_semantics() {
+        let mut state = SessionState::default();
+        state.received_entity_snapshot_count = 11;
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            EntityProjection {
+                class_id: 5,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 3.5f32.to_bits(),
+                y_bits: 4.5f32.to_bits(),
+                last_seen_entity_snapshot_count: 11,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            5,
+            11,
+            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                team_id: 2,
+                unit_type_id: 55,
+                health_bits: 0x3f80_0000,
+                rotation_bits: 0x4000_0000,
+                shield_bits: 0x4040_0000,
+                mine_tile_pos: 77,
+                status_count: 3,
+                payload_count: None,
+                building_pos: None,
+                lifetime_bits: None,
+                time_bits: None,
+                runtime_sync: None,
+                controller_type: 0,
+                controller_value: None,
+            }),
+        );
+        let nested_unit_payload = test_unit_payload_snapshot(
+            9,
+            2,
+            4,
+            "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+            Vec::new(),
+        );
+        let unit_payload = test_unit_payload_snapshot(
+            5,
+            7,
+            12,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            vec![nested_unit_payload.clone()],
+        );
+        let carried_item_stack = ResourceUnitItemStack {
+            item_id: Some(6),
+            amount: 4,
+        };
+        state.apply_entity_snapshot_payload_apply_projection(
+            202,
+            5,
+            2,
+            Some(88),
+            Some(unit_payload.clone()),
+            Some(carried_item_stack.clone()),
+        );
+        state.rebuild_runtime_typed_entity_projection_from_tables();
+
+        assert!(matches!(
+            state.runtime_typed_entity_projection().entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count == Some(2)
+                    && unit.semantic.building_pos == Some(88)
+                    && unit.unit_payload == Some(unit_payload.clone())
+                    && unit.carried_item_stack == Some(carried_item_stack.clone())
+        ));
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(202),
+                sample_ids: vec![202],
+            },
+            BTreeSet::from([202]),
+        );
+
+        assert!(state.hidden_snapshot_ids.contains(&202));
+        assert!(!state.entity_table_projection.by_entity_id.contains_key(&202));
+        assert!(!state.entity_semantic_projection.by_entity_id.contains_key(&202));
+        assert!(!state
+            .entity_snapshot_payload_apply_projection
+            .by_entity_id
+            .contains_key(&202));
+        assert!(!state
+            .runtime_typed_entity_projection()
+            .by_entity_id
+            .contains_key(&202));
+
+        state.clear_hidden_snapshot_after_parse_failure();
+
+        assert!(state.hidden_snapshot_ids.is_empty());
+        assert_eq!(state.last_hidden_snapshot, None);
+        assert_eq!(
+            state.hidden_snapshot_delta_projection,
+            Some(HiddenSnapshotDeltaProjection {
+                active_count: 0,
+                added_count: 0,
+                removed_count: 1,
+                added_sample_ids: Vec::new(),
+                removed_sample_ids: vec![202],
+            })
+        );
+        assert_eq!(
+            state
+                .entity_table_projection
+                .by_entity_id
+                .get(&202)
+                .map(|entity| entity.hidden),
+            Some(false)
+        );
+        assert_eq!(
+            state.entity_semantic_projection.by_entity_id.get(&202),
+            Some(&EntitySemanticProjectionEntry {
+                class_id: 5,
+                last_seen_entity_snapshot_count: 11,
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 55,
+                    health_bits: 0x3f80_0000,
+                    rotation_bits: 0x4000_0000,
+                    shield_bits: 0x4040_0000,
+                    mine_tile_pos: 77,
+                    status_count: 3,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: None,
+                    controller_type: 0,
+                    controller_value: None,
+                }),
+            })
+        );
+        assert_eq!(
+            state
+                .entity_snapshot_payload_apply_projection
+                .by_entity_id
+                .get(&202),
+            Some(&EntitySnapshotPayloadApplyEntry {
+                class_id: 5,
+                last_seen_entity_snapshot_count: 11,
+                payload_count: 2,
+                building_pos: Some(88),
+                unit_payload: Some(unit_payload.clone()),
+                carried_item_stack: Some(carried_item_stack.clone()),
+            })
+        );
+        assert!(matches!(
+            state.runtime_typed_entity_projection().entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(unit))
+                if !unit.base.hidden
+                    && unit.semantic.payload_count == Some(2)
+                    && unit.semantic.building_pos == Some(88)
+                    && unit.unit_payload == Some(unit_payload.clone())
+                    && unit.carried_item_stack == Some(carried_item_stack.clone())
+        ));
+    }
+
+    #[test]
     fn hidden_snapshot_records_lifecycle_remove_count_and_sample_for_removed_ids() {
         let mut state = SessionState::default();
         state.entity_table_projection.by_entity_id.insert(
@@ -15825,8 +16150,14 @@ mod tests {
         assert_eq!(after.owned_unit_entity_id_for_player(101), None);
         assert_eq!(after.owner_player_entity_id_for_unit(202), None);
         assert!(state.hidden_snapshot_ids.contains(&202));
-        assert!(!state.entity_table_projection.by_entity_id.contains_key(&202));
-        assert!(!state.entity_semantic_projection.by_entity_id.contains_key(&202));
+        assert!(!state
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&202));
+        assert!(!state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&202));
     }
 
     #[test]
