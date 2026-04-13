@@ -3193,7 +3193,7 @@ fn compose_build_minimap_diag_text(
 ) -> Option<String> {
     let panel = build_build_minimap_assist_panel(scene, hud, window)?;
     Some(format!(
-        "next={} pair={} anchor={} focus={} cover={} visibility={}",
+        "bmdiag:n={}:p={}:a={}:f={}:c={}:v={}",
         panel.next_action_label(),
         panel.head_authority_pair_label(),
         panel.focus_anchor_label(),
@@ -6101,7 +6101,7 @@ mod tests {
             "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=4/8@gamma:auth=rej-miss-build:pm=match:head=10:12:tile=10:12:src=tilecfg:b=alpha:f=1:1@1:v0:u100:w0:d75:obj3:rt0:rs0"
         ));
         assert!(frame.contains(
-            "BUILD-MINIMAP-DIAG: next=resolve pair=match anchor=detached focus=inside cover=offscreen visibility=unseen"
+            "BUILD-MINIMAP-DIAG: bmdiag:n=resolve:p=match:a=detached:f=inside:c=offscreen:v=unseen"
         ));
         assert!(frame.contains(
             "BUILD-MINIMAP-FLOW: next=resolve select=head-aligned queue=mixed place-ready=1 focus=inside cover=offscreen rt=0%"
