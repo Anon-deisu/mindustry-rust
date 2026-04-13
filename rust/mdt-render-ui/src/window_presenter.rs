@@ -1740,6 +1740,13 @@ fn compose_frame_panel_lines(
     if let Some(runtime_notice_state_text) = compose_runtime_notice_state_panel_status_text(hud) {
         lines.push(format!("RUNTIME-NOTICE-STATE: {runtime_notice_state_text}"));
     }
+    if let Some(runtime_notice_state_detail_text) =
+        compose_runtime_notice_state_detail_status_text(hud)
+    {
+        lines.push(format!(
+            "RUNTIME-NOTICE-STATE-DETAIL: {runtime_notice_state_detail_text}"
+        ));
+    }
     if let Some(runtime_ui_notice_detail_text) = compose_runtime_ui_notice_detail_status_text(hud) {
         lines.push(format!(
             "RUNTIME-NOTICE-DETAIL: {runtime_ui_notice_detail_text}"
@@ -2839,6 +2846,28 @@ fn compose_runtime_notice_state_panel_status_text(hud: &HudModel) -> Option<Stri
         if panel.reliable_hud_active { 1 } else { 0 },
         if panel.toast_info_active { 1 } else { 0 },
         if panel.toast_warning_active { 1 } else { 0 },
+    ))
+}
+
+fn compose_runtime_notice_state_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_notice_state_panel(hud)?;
+    let notice_text = format!(
+        "{}@{}",
+        runtime_dialog_notice_status_text(panel.kind),
+        compact_runtime_ui_text(panel.text.as_deref())
+    );
+    let layers = panel.layer_labels().join(">");
+    Some(format!(
+        "notice-stated:n={}:c{}:d{}:l{}:layers={}",
+        notice_text,
+        panel.count,
+        panel.depth(),
+        panel.text_len(),
+        if layers.is_empty() {
+            "none"
+        } else {
+            layers.as_str()
+        },
     ))
 }
 
@@ -10224,6 +10253,33 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "RUNTIME-NOTICE-STATE: notice-state:n=warn@warn:c4:h1:r1:i1:w1",
+        );
+    }
+
+    #[test]
+    fn present_once_reports_runtime_notice_state_detail() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = runtime_stack_test_scene();
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.hud_text.set_count = 1;
+        runtime_ui.hud_text.last_message = Some("hud".to_string());
+        runtime_ui.hud_text.set_reliable_count = 1;
+        runtime_ui.hud_text.last_reliable_message = Some("hud rel".to_string());
+        runtime_ui.toast.info_count = 1;
+        runtime_ui.toast.last_info_message = Some("info".to_string());
+        runtime_ui.toast.warning_count = 1;
+        runtime_ui.toast.last_warning_text = Some("warn".to_string());
+
+        presenter
+            .present_once(&scene, &runtime_stack_test_hud(runtime_ui))
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-NOTICE-STATE-DETAIL: notice-stated:n=warn@warn:c4:d4:l4:layers=hud>reliable>info>warn",
         );
     }
 
