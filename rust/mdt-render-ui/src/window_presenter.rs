@@ -4075,7 +4075,7 @@ fn compose_minimap_window_distribution_status_text(panel: &MinimapPanelModel) ->
 
 fn compose_minimap_window_kind_distribution_status_text(panel: &MinimapPanelModel) -> String {
     format!(
-        "window-kinds: tracked={} outside={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
+        "miniwin-kinds: tracked={} outside={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
         panel.window_tracked_object_count,
         panel.outside_window_count,
         panel.window_player_count,
@@ -9147,7 +9147,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-WINDOW-KINDS: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0",
+            "MINIMAP-WINDOW-KINDS: miniwin-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
