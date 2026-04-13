@@ -27,6 +27,8 @@ use crate::presenter_view::{
     format_runtime_dialog_stack_summary_text,
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
     format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
+    format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
+    format_runtime_live_entity_summary_text,
     format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
     format_runtime_kick_detail_text, format_runtime_kick_panel_text,
     format_runtime_loading_detail_text, format_runtime_loading_panel_text,
@@ -1738,7 +1740,7 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
         text_input.last_length.unwrap_or_default(),
         optional_bool_label(text_input.last_numeric),
         optional_bool_label(text_input.last_allow_empty),
-        compose_live_entity_text(&live.entity),
+        format_runtime_live_entity_summary_text(&live.entity),
         compose_live_effect_text(&live.effect),
     ))
 }
@@ -2142,15 +2144,12 @@ fn compose_runtime_reconnect_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_live_entity_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_entity_panel(hud)?;
-    Some(format!(
-        "liveent:{}",
-        compose_live_entity_panel_text(&panel)
-    ))
+    Some(format_runtime_live_entity_panel_text(&panel))
 }
 
 fn compose_runtime_live_entity_detail_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_entity_panel(hud)?;
-    Some(format!("liveentd:{}", panel.detail_label()))
+    Some(format_runtime_live_entity_detail_text(&panel))
 }
 
 fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
@@ -3107,46 +3106,6 @@ fn build_config_alignment_text(value: Option<bool>) -> &'static str {
     }
 }
 
-fn compose_live_entity_text(entity: &crate::RuntimeLiveEntitySummaryObservability) -> String {
-    format!(
-        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:last{}/{}/{}",
-        entity.entity_count,
-        entity.hidden_count,
-        optional_i32_label(entity.local_entity_id),
-        optional_u8_label(entity.local_unit_kind),
-        optional_u32_label(entity.local_unit_value),
-        world_position_text(entity.local_position.as_ref()),
-        optional_bool_label(entity.local_hidden),
-        optional_u64_label(entity.local_last_seen_entity_snapshot_count),
-        entity.player_count,
-        entity.unit_count,
-        optional_i32_label(entity.last_entity_id),
-        optional_i32_label(entity.last_player_entity_id),
-        optional_i32_label(entity.last_unit_entity_id),
-    )
-}
-
-fn compose_live_entity_panel_text(
-    entity: &crate::panel_model::RuntimeLiveEntityPanelModel,
-) -> String {
-    format!(
-        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:last{}/{}/{}",
-        entity.entity_count,
-        entity.hidden_count,
-        optional_i32_label(entity.local_entity_id),
-        optional_u8_label(entity.local_unit_kind),
-        optional_u32_label(entity.local_unit_value),
-        world_position_text(entity.local_position.as_ref()),
-        optional_bool_label(entity.local_hidden),
-        optional_u64_label(entity.local_last_seen_entity_snapshot_count),
-        entity.player_count,
-        entity.unit_count,
-        optional_i32_label(entity.last_entity_id),
-        optional_i32_label(entity.last_player_entity_id),
-        optional_i32_label(entity.last_unit_entity_id),
-    )
-}
-
 fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservability) -> String {
     format!(
         "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:bind{}:r{}:h{}:p{}@{}:ttl{}",
@@ -3374,18 +3333,6 @@ fn optional_i16_label(value: Option<i16>) -> String {
 }
 
 fn optional_u8_label(value: Option<u8>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
-}
-
-fn optional_u32_label(value: Option<u32>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
-}
-
-fn optional_u64_label(value: Option<u64>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())

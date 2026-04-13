@@ -6,6 +6,7 @@ use crate::{
         RuntimeCoreBindingPanelModel,
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
         RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeLoadingPanelModel,
+        RuntimeLiveEntityPanelModel,
         RuntimeMarkerPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
         RuntimeReconnectPanelModel, RuntimeResourceDeltaPanelModel,
         RuntimeSessionPanelModel,
@@ -19,6 +20,7 @@ use crate::{
     RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
     RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
     RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
+    RuntimeLiveEntitySummaryObservability,
     RuntimeWorldPositionObservability,
 };
 
@@ -842,6 +844,88 @@ pub(crate) fn format_runtime_stack_detail_text(panel: &RuntimeDialogStackPanelMo
         panel.chat.server_message_count,
         panel.chat.chat_message_count,
         format_optional_i32_text(panel.chat.last_chat_sender_entity_id),
+    )
+}
+
+pub(crate) fn format_runtime_live_entity_summary_text(
+    entity: &RuntimeLiveEntitySummaryObservability,
+) -> String {
+    format_runtime_live_entity_body_text(
+        entity.entity_count,
+        entity.hidden_count,
+        entity.local_entity_id,
+        entity.local_unit_kind,
+        entity.local_unit_value,
+        entity.local_position.as_ref(),
+        entity.local_hidden,
+        entity.local_last_seen_entity_snapshot_count,
+        entity.player_count,
+        entity.unit_count,
+        entity.last_entity_id,
+        entity.last_player_entity_id,
+        entity.last_unit_entity_id,
+    )
+}
+
+pub(crate) fn format_runtime_live_entity_panel_text(
+    entity: &RuntimeLiveEntityPanelModel,
+) -> String {
+    format!(
+        "liveent:{}",
+        format_runtime_live_entity_body_text(
+            entity.entity_count,
+            entity.hidden_count,
+            entity.local_entity_id,
+            entity.local_unit_kind,
+            entity.local_unit_value,
+            entity.local_position.as_ref(),
+            entity.local_hidden,
+            entity.local_last_seen_entity_snapshot_count,
+            entity.player_count,
+            entity.unit_count,
+            entity.last_entity_id,
+            entity.last_player_entity_id,
+            entity.last_unit_entity_id,
+        )
+    )
+}
+
+pub(crate) fn format_runtime_live_entity_detail_text(
+    entity: &RuntimeLiveEntityPanelModel,
+) -> String {
+    format!("liveentd:{}", entity.detail_label())
+}
+
+fn format_runtime_live_entity_body_text(
+    entity_count: usize,
+    hidden_count: usize,
+    local_entity_id: Option<i32>,
+    local_unit_kind: Option<u8>,
+    local_unit_value: Option<u32>,
+    local_position: Option<&RuntimeWorldPositionObservability>,
+    local_hidden: Option<bool>,
+    local_last_seen_entity_snapshot_count: Option<u64>,
+    player_count: usize,
+    unit_count: usize,
+    last_entity_id: Option<i32>,
+    last_player_entity_id: Option<i32>,
+    last_unit_entity_id: Option<i32>,
+) -> String {
+    format!(
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:last{}/{}/{}",
+        entity_count,
+        hidden_count,
+        format_optional_i32_text(local_entity_id),
+        format_optional_u8_text(local_unit_kind),
+        format_optional_u32_text(local_unit_value),
+        format_world_position_status_text(local_position),
+        format_optional_bool_flag(local_hidden),
+        format_optional_u64_text(local_last_seen_entity_snapshot_count),
+        player_count,
+        unit_count,
+        format_optional_i32_text(last_entity_id),
+        format_optional_i32_text(last_player_entity_id),
+        format_optional_i32_text(last_unit_entity_id),
     )
 }
 
@@ -1709,6 +1793,8 @@ mod tests {
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
         format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
+        format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
+        format_runtime_live_entity_summary_text,
         format_runtime_loading_detail_text, format_runtime_loading_panel_text,
         format_runtime_kick_detail_text, format_runtime_kick_panel_text,
         format_runtime_marker_detail_text, format_runtime_marker_panel_text,
@@ -1745,6 +1831,7 @@ mod tests {
             RuntimeCoreBindingPanelModel,
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
             RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeLoadingPanelModel,
+            RuntimeLiveEntityPanelModel,
             RuntimeMarkerPanelModel,
             RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
             RuntimeReconnectPanelModel,
@@ -1762,6 +1849,7 @@ mod tests {
         RuntimeCommandSelectionObservability,
         RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
         RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
+        RuntimeLiveEntitySummaryObservability,
         RuntimeWorldPositionObservability, Viewport,
     };
     use std::collections::BTreeMap;
@@ -1806,6 +1894,38 @@ mod tests {
             text_input_last_length: Some(23),
             text_input_last_numeric: Some(false),
             text_input_last_allow_empty: Some(true),
+        }
+    }
+
+    fn sample_runtime_live_entity_panel() -> RuntimeLiveEntityPanelModel {
+        RuntimeLiveEntityPanelModel {
+            entity_count: 1,
+            hidden_count: 0,
+            player_count: 1,
+            unit_count: 0,
+            last_entity_id: Some(404),
+            last_player_entity_id: Some(404),
+            last_unit_entity_id: None,
+            local_entity_id: Some(404),
+            local_unit_kind: Some(2),
+            local_unit_value: Some(999),
+            local_hidden: Some(false),
+            local_last_seen_entity_snapshot_count: Some(3),
+            local_position: Some(RuntimeWorldPositionObservability {
+                x_bits: 20.0f32.to_bits(),
+                y_bits: 33.0f32.to_bits(),
+            }),
+            local_owned_unit_entity_id: Some(202),
+            local_owned_unit_payload_count: Some(2),
+            local_owned_unit_payload_class_id: Some(5),
+            local_owned_unit_payload_revision: Some(7),
+            local_owned_unit_payload_body_len: Some(12),
+            local_owned_unit_payload_sha256: Some("0123456789abcdef".to_string()),
+            local_owned_unit_payload_nested_descendant_count: Some(2),
+            local_owned_carried_item_id: Some(6),
+            local_owned_carried_item_amount: Some(4),
+            local_owned_controller_type: Some(4),
+            local_owned_controller_value: Some(101),
         }
     }
 
@@ -2983,6 +3103,64 @@ mod tests {
         assert_eq!(
             format_runtime_prompt_detail_text(&panel),
             "pd:ma1:fm17:fh18:fo0:tin53:id404:t6:m12:d5:n1:e1"
+        );
+    }
+
+    #[test]
+    fn format_runtime_live_entity_summary_text_preserves_field_order() {
+        let summary = RuntimeLiveEntitySummaryObservability {
+            entity_count: 1,
+            hidden_count: 0,
+            player_count: 1,
+            unit_count: 0,
+            last_entity_id: Some(404),
+            last_player_entity_id: Some(404),
+            last_unit_entity_id: None,
+            local_entity_id: Some(404),
+            local_unit_kind: Some(2),
+            local_unit_value: Some(999),
+            local_hidden: Some(false),
+            local_last_seen_entity_snapshot_count: Some(3),
+            local_position: Some(RuntimeWorldPositionObservability {
+                x_bits: 20.0f32.to_bits(),
+                y_bits: 33.0f32.to_bits(),
+            }),
+            local_owned_unit_entity_id: None,
+            local_owned_unit_payload_count: None,
+            local_owned_unit_payload_class_id: None,
+            local_owned_unit_payload_revision: None,
+            local_owned_unit_payload_body_len: None,
+            local_owned_unit_payload_sha256: None,
+            local_owned_unit_payload_nested_descendant_count: None,
+            local_owned_carried_item_id: None,
+            local_owned_carried_item_amount: None,
+            local_owned_controller_type: None,
+            local_owned_controller_value: None,
+        };
+
+        assert_eq!(
+            format_runtime_live_entity_summary_text(&summary),
+            "1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
+        );
+    }
+
+    #[test]
+    fn format_runtime_live_entity_panel_text_preserves_field_order() {
+        let panel = sample_runtime_live_entity_panel();
+
+        assert_eq!(
+            format_runtime_live_entity_panel_text(&panel),
+            "liveent:1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
+        );
+    }
+
+    #[test]
+    fn format_runtime_live_entity_detail_text_preserves_field_order() {
+        let panel = sample_runtime_live_entity_panel();
+
+        assert_eq!(
+            format_runtime_live_entity_detail_text(&panel),
+            "liveentd:local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
         );
     }
 
