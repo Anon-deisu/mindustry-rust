@@ -3717,13 +3717,11 @@ fn compose_runtime_core_binding_detail_status_text(hud: &HudModel) -> Option<Str
         return None;
     }
     Some(format!(
-        "cored:{}:a{}:s{}@{}:m{}:s{}@{}",
+        "cored:{}:a{}@{}:m{}@{}",
         panel.kind_label(),
         panel.ambiguous_team_count,
-        panel.ambiguous_team_sample.len(),
         team_u8_status_text(&panel.ambiguous_team_sample),
         panel.missing_team_count,
-        panel.missing_team_sample.len(),
         team_u8_status_text(&panel.missing_team_sample),
     ))
 }
@@ -10053,7 +10051,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-SESSION-DETAIL: sessd:bootstrap(rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7):cb(cored:first-core-per-team:a1:s1@1:m1:s1@4):rd(resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1):k(kickd:r7:o7:c7:h20):l(loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567)",
+            "RUNTIME-SESSION-DETAIL: sessd:bootstrap(rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7):cb(cored:first-core-per-team:a1@1:m1@4):rd(resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1):k(kickd:r7:o7:c7:h20):l(loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567)",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -10097,7 +10095,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-CORE-BINDING-DETAIL: cored:first-core-per-team:a1:s1@1:m1:s1@4",
+            "RUNTIME-CORE-BINDING-DETAIL: cored:first-core-per-team:a1@1:m1@4",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

@@ -2809,13 +2809,11 @@ fn compose_runtime_core_binding_detail_compact_text(hud: &HudModel) -> Option<St
         return None;
     }
     Some(format!(
-        "cored:{}:a{}:s{}@{}:m{}:s{}@{}",
+        "cored:{}:a{}@{}:m{}@{}",
         panel.kind_label(),
         panel.ambiguous_team_count,
-        panel.ambiguous_team_sample.len(),
         team_u8_sample_text(&panel.ambiguous_team_sample),
         panel.missing_team_count,
-        panel.missing_team_sample.len(),
         team_u8_sample_text(&panel.missing_team_sample),
     ))
 }
@@ -6182,7 +6180,7 @@ mod tests {
             "RUNTIME-SESSION: sess:bootstrap=rules=rules-hash-1:tags=tags-hash-2:locales=locales-hash-3:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7;cb=core:first-core-per-team:a1@1:m1@4;rd=resd:tile80/81/82/83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3@to_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1;k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
         ));
         assert!(frame.contains(
-            "RUNTIME-SESSION-DETAIL: sessd:bootstrap(rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7):cb(cored:first-core-per-team:a1:s1@1:m1:s1@4):rd(resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1):k(kickd:r7:o7:c7:h20):l(loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567)"
+            "RUNTIME-SESSION-DETAIL: sessd:bootstrap(rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7):cb(cored:first-core-per-team:a1@1:m1@4):rd(resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1):k(kickd:r7:o7:c7:h20):l(loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567)"
         ));
         assert!(frame.contains(
             "RUNTIME-BOOTSTRAP: rules=rules-hash-1:tags=tags-hash-2:locales=locales-hash-3:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7"
@@ -6207,7 +6205,7 @@ mod tests {
         assert!(frame.contains("RUNTIME-WORLD-RELOAD-DETAIL: reloadd:lw1:cl0:rd1:cc0:p4:d5:r6"));
         assert!(frame.contains("RUNTIME-CORE-BINDING: core:first-core-per-team:a1@1:m1@4"));
         assert!(frame
-            .contains("RUNTIME-CORE-BINDING-DETAIL: cored:first-core-per-team:a1:s1@1:m1:s1@4"));
+            .contains("RUNTIME-CORE-BINDING-DETAIL: cored:first-core-per-team:a1@1:m1@4"));
         assert!(frame.contains(
             "RUNTIME-RECONNECT: reconnect:attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
         ));
