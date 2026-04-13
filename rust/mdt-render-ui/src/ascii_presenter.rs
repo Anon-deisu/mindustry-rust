@@ -2259,7 +2259,9 @@ fn compose_runtime_resource_delta_row_text(hud: &HudModel) -> Option<String> {
     if panel.resource_delta.is_empty() {
         return None;
     }
-    Some(compose_runtime_resource_delta_panel_text(&panel.resource_delta))
+    Some(compose_runtime_resource_delta_panel_compact_text(
+        &panel.resource_delta,
+    ))
 }
 
 fn compose_runtime_resource_delta_detail_text(hud: &HudModel) -> Option<String> {
@@ -2267,7 +2269,9 @@ fn compose_runtime_resource_delta_detail_text(hud: &HudModel) -> Option<String> 
     if panel.resource_delta.is_empty() {
         return None;
     }
-    Some(compose_runtime_resource_delta_detail_panel_text(&panel.resource_delta))
+    Some(compose_runtime_resource_delta_detail_compact_text(
+        &panel.resource_delta,
+    ))
 }
 
 fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
@@ -2350,86 +2354,6 @@ fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
         compose_runtime_reconnect_detail_compact_text(&panel.reconnect)
     ));
     Some(format!("sessd:{}", segments.join(":")))
-}
-
-fn compose_runtime_resource_delta_panel_text(
-    resource_delta: &crate::panel_model::RuntimeResourceDeltaPanelModel,
-) -> String {
-    format!(
-        "tiles={}/{}/{}/{} set={}/{}/{}/{} clear={}/{} tile={}/{} flow={}/{}/{} last={}@{}#{}:bp{}:u{}:eid{} proj={}/{}/{} auth={} delta={}/{}/{} chg={}/{}/{}/{}",
-        resource_delta.remove_tile_count,
-        resource_delta.set_tile_count,
-        resource_delta.set_floor_count,
-        resource_delta.set_overlay_count,
-        resource_delta.set_item_count,
-        resource_delta.set_items_count,
-        resource_delta.set_liquid_count,
-        resource_delta.set_liquids_count,
-        resource_delta.clear_items_count,
-        resource_delta.clear_liquids_count,
-        resource_delta.set_tile_items_count,
-        resource_delta.set_tile_liquids_count,
-        resource_delta.take_items_count,
-        resource_delta.transfer_item_to_count,
-        resource_delta.transfer_item_to_unit_count,
-        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
-        optional_i16_label(resource_delta.last_item_id),
-        optional_i32_label(resource_delta.last_amount),
-        optional_i32_label(resource_delta.last_build_pos),
-        command_unit_ref_text(resource_delta.last_unit),
-        optional_i32_label(resource_delta.last_to_entity_id),
-        resource_delta.build_count,
-        resource_delta.build_stack_count,
-        resource_delta.entity_count,
-        resource_delta.authoritative_build_update_count,
-        resource_delta.delta_apply_count,
-        resource_delta.delta_skip_count,
-        resource_delta.delta_conflict_count,
-        optional_i32_label(resource_delta.last_changed_build_pos),
-        optional_i32_label(resource_delta.last_changed_entity_id),
-        optional_i16_label(resource_delta.last_changed_item_id),
-        optional_i32_label(resource_delta.last_changed_amount),
-    )
-}
-
-fn compose_runtime_resource_delta_detail_panel_text(
-    resource_delta: &crate::panel_model::RuntimeResourceDeltaPanelModel,
-) -> String {
-    format!(
-        "tile-rm={} tile-set={} floor-set={} overlay-set={} item-set={}/{} liquid-set={}/{} clear={}/{} tile-apply={}/{} flow={}/{}/{} last-kind={} item={} amount={} build={} unit={} to-entity={} projection={}/{}/{} authoritative={} delta={}/{}/{} changed={}/{}/{}/{}",
-        resource_delta.remove_tile_count,
-        resource_delta.set_tile_count,
-        resource_delta.set_floor_count,
-        resource_delta.set_overlay_count,
-        resource_delta.set_item_count,
-        resource_delta.set_items_count,
-        resource_delta.set_liquid_count,
-        resource_delta.set_liquids_count,
-        resource_delta.clear_items_count,
-        resource_delta.clear_liquids_count,
-        resource_delta.set_tile_items_count,
-        resource_delta.set_tile_liquids_count,
-        resource_delta.take_items_count,
-        resource_delta.transfer_item_to_count,
-        resource_delta.transfer_item_to_unit_count,
-        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
-        optional_i16_label(resource_delta.last_item_id),
-        optional_i32_label(resource_delta.last_amount),
-        optional_i32_label(resource_delta.last_build_pos),
-        command_unit_ref_text(resource_delta.last_unit),
-        optional_i32_label(resource_delta.last_to_entity_id),
-        resource_delta.build_count,
-        resource_delta.build_stack_count,
-        resource_delta.entity_count,
-        resource_delta.authoritative_build_update_count,
-        resource_delta.delta_apply_count,
-        resource_delta.delta_skip_count,
-        resource_delta.delta_conflict_count,
-        optional_i32_label(resource_delta.last_changed_build_pos),
-        optional_i32_label(resource_delta.last_changed_entity_id),
-        optional_i16_label(resource_delta.last_changed_item_id),
-        optional_i32_label(resource_delta.last_changed_amount),
-    )
 }
 
 fn compose_runtime_resource_delta_panel_compact_text(
@@ -5817,10 +5741,10 @@ mod tests {
             "RUNTIME-BOOTSTRAP-DETAIL: rules-label=rules-hash-1:tags-label=tags-hash-2:locales-label=locales-hash-3:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7"
         ));
         assert!(frame.contains(
-            "RUNTIME-RESOURCE-DELTA: tiles=80/81/82/83 set=22/23/24/25 clear=84/85 tile=26/27 flow=1/2/3 last=to_unit@6#none:bpnone:u2:808:eid404 proj=2/3/1 auth=4 delta=5/6/7 chg=999/900/6/1"
+            "RUNTIME-RESOURCE-DELTA: resd:tile80/81/82/83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3@to_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1"
         ));
         assert!(frame.contains(
-            "RUNTIME-RESOURCE-DELTA-DETAIL: tile-rm=80 tile-set=81 floor-set=82 overlay-set=83 item-set=22/23 liquid-set=24/25 clear=84/85 tile-apply=26/27 flow=1/2/3 last-kind=to_unit item=6 amount=none build=none unit=2:808 to-entity=404 projection=2/3/1 authoritative=4 delta=5/6/7 changed=999/900/6/1"
+            "RUNTIME-RESOURCE-DELTA-DETAIL: resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1"
         ));
         assert!(frame.contains("RUNTIME-KICK: idInUse@7:IdInUse:wait_for_old~"));
         assert!(frame
