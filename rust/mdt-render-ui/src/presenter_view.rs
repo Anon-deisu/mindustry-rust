@@ -219,12 +219,33 @@ pub(crate) fn render_rect_detail_is_visible(
         || top_tile >= window.origin_y.saturating_add(window.height) as i32)
 }
 
+pub(crate) fn tile_local_coords(
+    tile_x: i32,
+    tile_y: i32,
+    window: PresenterViewWindow,
+) -> Option<(usize, usize)> {
+    let Ok(tile_x) = usize::try_from(tile_x) else {
+        return None;
+    };
+    let Ok(tile_y) = usize::try_from(tile_y) else {
+        return None;
+    };
+    if tile_x < window.origin_x
+        || tile_y < window.origin_y
+        || tile_x >= window.origin_x.saturating_add(window.width)
+        || tile_y >= window.origin_y.saturating_add(window.height)
+    {
+        return None;
+    }
+    Some((tile_x - window.origin_x, tile_y - window.origin_y))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         crop_origin, crop_window, crop_window_to_focus, normalize_zoom, projected_window,
-        render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
-        world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
+        render_line_is_visible, render_rect_detail_is_visible, tile_local_coords,
+        visible_window_tile, world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
         zoomed_view_tile_span, CropWindowMode,
     };
     use crate::{panel_model::PresenterViewWindow, RenderModel, RenderObject, Viewport};
@@ -467,6 +488,21 @@ mod tests {
 
         assert!(render_line_is_visible(window, -1, 4, 2, 4));
         assert!(!render_line_is_visible(window, -3, -2, -1, -1));
+    }
+
+    #[test]
+    fn tile_local_coords_maps_visible_tiles_to_local_offsets() {
+        let window = PresenterViewWindow {
+            origin_x: 2,
+            origin_y: 3,
+            width: 4,
+            height: 3,
+        };
+
+        assert_eq!(tile_local_coords(2, 3, window), Some((0, 0)));
+        assert_eq!(tile_local_coords(5, 5, window), Some((3, 2)));
+        assert_eq!(tile_local_coords(6, 3, window), None);
+        assert_eq!(tile_local_coords(-1, 3, window), None);
     }
 
     #[test]

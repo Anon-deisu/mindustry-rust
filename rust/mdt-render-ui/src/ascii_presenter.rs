@@ -16,7 +16,7 @@ use crate::panel_model::{
 };
 use crate::presenter_view::{
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
-    world_rect_tile_coords, world_tile_coords, CropWindowMode,
+    world_rect_tile_coords, world_tile_coords, tile_local_coords, CropWindowMode,
 };
 use crate::render_model::{
     RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -1602,21 +1602,9 @@ fn draw_ascii_tile_if_visible(
     tile_y: i32,
     sprite: char,
 ) {
-    let Ok(tile_x) = usize::try_from(tile_x) else {
+    let Some((local_x, local_y)) = tile_local_coords(tile_x, tile_y, window) else {
         return;
     };
-    let Ok(tile_y) = usize::try_from(tile_y) else {
-        return;
-    };
-    if tile_x < window.origin_x
-        || tile_y < window.origin_y
-        || tile_x >= window.origin_x.saturating_add(window.width)
-        || tile_y >= window.origin_y.saturating_add(window.height)
-    {
-        return;
-    }
-    let local_x = tile_x - window.origin_x;
-    let local_y = tile_y - window.origin_y;
     grid[local_y][local_x] = sprite;
 }
 
