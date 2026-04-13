@@ -23,12 +23,13 @@ use crate::presenter_view::{
     format_runtime_admin_detail_text, format_runtime_admin_panel_text,
     format_runtime_chat_detail_text, format_runtime_chat_panel_text,
     format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
-    format_runtime_command_mode_panel_text, format_runtime_command_unit_ref_text,
+    format_runtime_command_mode_panel_text,
     format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
     format_runtime_dialog_stack_summary_text,
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
     format_runtime_kick_detail_text, format_runtime_kick_panel_text,
     format_runtime_marker_detail_text, format_runtime_marker_panel_text,
+    format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
     format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
     format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
     format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
@@ -2129,9 +2130,7 @@ fn compose_runtime_resource_delta_row_text(hud: &HudModel) -> Option<String> {
     if panel.resource_delta.is_empty() {
         return None;
     }
-    Some(compose_runtime_resource_delta_panel_compact_text(
-        &panel.resource_delta,
-    ))
+    Some(format_runtime_resource_delta_panel_text(&panel.resource_delta))
 }
 
 fn compose_runtime_resource_delta_detail_text(hud: &HudModel) -> Option<String> {
@@ -2139,9 +2138,7 @@ fn compose_runtime_resource_delta_detail_text(hud: &HudModel) -> Option<String> 
     if panel.resource_delta.is_empty() {
         return None;
     }
-    Some(compose_runtime_resource_delta_detail_compact_text(
-        &panel.resource_delta,
-    ))
+    Some(format_runtime_resource_delta_detail_text(&panel.resource_delta))
 }
 
 fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
@@ -2158,7 +2155,7 @@ fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
     }
     segments.push(format!(
         "rd={}",
-        compose_runtime_resource_delta_panel_compact_text(&panel.resource_delta)
+        format_runtime_resource_delta_panel_text(&panel.resource_delta)
     ));
     segments.push(format!(
         "k={}",
@@ -2219,7 +2216,7 @@ fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
     }
     segments.push(format!(
         "rd({})",
-        compose_runtime_resource_delta_detail_compact_text(&panel.resource_delta)
+        format_runtime_resource_delta_detail_text(&panel.resource_delta)
     ));
     segments.push(format!(
         "k({})",
@@ -2234,86 +2231,6 @@ fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
         compose_runtime_reconnect_detail_compact_text(&panel.reconnect)
     ));
     Some(format!("sessd:{}", segments.join(":")))
-}
-
-fn compose_runtime_resource_delta_panel_compact_text(
-    resource_delta: &crate::panel_model::RuntimeResourceDeltaPanelModel,
-) -> String {
-    format!(
-        "resd:tile{}/{}/{}/{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}@{}:{}:{}:{}:{}:{}:proj{}/{}/{}:au{}:d{}/{}/{}:chg{}/{}/{}/{}",
-        resource_delta.remove_tile_count,
-        resource_delta.set_tile_count,
-        resource_delta.set_floor_count,
-        resource_delta.set_overlay_count,
-        resource_delta.set_item_count,
-        resource_delta.set_items_count,
-        resource_delta.set_liquid_count,
-        resource_delta.set_liquids_count,
-        resource_delta.clear_items_count,
-        resource_delta.clear_liquids_count,
-        resource_delta.set_tile_items_count,
-        resource_delta.set_tile_liquids_count,
-        resource_delta.take_items_count,
-        resource_delta.transfer_item_to_count,
-        resource_delta.transfer_item_to_unit_count,
-        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
-        optional_i16_label(resource_delta.last_item_id),
-        optional_i32_label(resource_delta.last_amount),
-        optional_i32_label(resource_delta.last_build_pos),
-        format_runtime_command_unit_ref_text(resource_delta.last_unit),
-        optional_i32_label(resource_delta.last_to_entity_id),
-        resource_delta.build_count,
-        resource_delta.build_stack_count,
-        resource_delta.entity_count,
-        resource_delta.authoritative_build_update_count,
-        resource_delta.delta_apply_count,
-        resource_delta.delta_skip_count,
-        resource_delta.delta_conflict_count,
-        optional_i32_label(resource_delta.last_changed_build_pos),
-        optional_i32_label(resource_delta.last_changed_entity_id),
-        optional_i16_label(resource_delta.last_changed_item_id),
-        optional_i32_label(resource_delta.last_changed_amount),
-    )
-}
-
-fn compose_runtime_resource_delta_detail_compact_text(
-    resource_delta: &crate::panel_model::RuntimeResourceDeltaPanelModel,
-) -> String {
-    format!(
-        "resdd:rm{}:st{}:sf{}:so{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}:last{}:{}:{}:{}:{}:{}:proj{}/{}/{}:au{}:d{}/{}/{}:chg{}/{}/{}/{}",
-        resource_delta.remove_tile_count,
-        resource_delta.set_tile_count,
-        resource_delta.set_floor_count,
-        resource_delta.set_overlay_count,
-        resource_delta.set_item_count,
-        resource_delta.set_items_count,
-        resource_delta.set_liquid_count,
-        resource_delta.set_liquids_count,
-        resource_delta.clear_items_count,
-        resource_delta.clear_liquids_count,
-        resource_delta.set_tile_items_count,
-        resource_delta.set_tile_liquids_count,
-        resource_delta.take_items_count,
-        resource_delta.transfer_item_to_count,
-        resource_delta.transfer_item_to_unit_count,
-        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
-        optional_i16_label(resource_delta.last_item_id),
-        optional_i32_label(resource_delta.last_amount),
-        optional_i32_label(resource_delta.last_build_pos),
-        format_runtime_command_unit_ref_text(resource_delta.last_unit),
-        optional_i32_label(resource_delta.last_to_entity_id),
-        resource_delta.build_count,
-        resource_delta.build_stack_count,
-        resource_delta.entity_count,
-        resource_delta.authoritative_build_update_count,
-        resource_delta.delta_apply_count,
-        resource_delta.delta_skip_count,
-        resource_delta.delta_conflict_count,
-        optional_i32_label(resource_delta.last_changed_build_pos),
-        optional_i32_label(resource_delta.last_changed_entity_id),
-        optional_i16_label(resource_delta.last_changed_item_id),
-        optional_i32_label(resource_delta.last_changed_amount),
-    )
 }
 
 fn compose_runtime_loading_row_text(hud: &HudModel) -> Option<String> {

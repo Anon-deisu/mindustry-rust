@@ -6,6 +6,7 @@ use crate::{
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
         RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeMarkerPanelModel,
         RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
+        RuntimeResourceDeltaPanelModel,
         RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
         RuntimeWorldReloadPanelModel,
     },
@@ -928,6 +929,86 @@ pub(crate) fn format_runtime_kick_detail_text(kick: &RuntimeKickPanelModel) -> S
     )
 }
 
+pub(crate) fn format_runtime_resource_delta_panel_text(
+    resource_delta: &RuntimeResourceDeltaPanelModel,
+) -> String {
+    format!(
+        "resd:tile{}/{}/{}/{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}@{}:{}:{}:{}:{}:{}:proj{}/{}/{}:au{}:d{}/{}/{}:chg{}/{}/{}/{}",
+        resource_delta.remove_tile_count,
+        resource_delta.set_tile_count,
+        resource_delta.set_floor_count,
+        resource_delta.set_overlay_count,
+        resource_delta.set_item_count,
+        resource_delta.set_items_count,
+        resource_delta.set_liquid_count,
+        resource_delta.set_liquids_count,
+        resource_delta.clear_items_count,
+        resource_delta.clear_liquids_count,
+        resource_delta.set_tile_items_count,
+        resource_delta.set_tile_liquids_count,
+        resource_delta.take_items_count,
+        resource_delta.transfer_item_to_count,
+        resource_delta.transfer_item_to_unit_count,
+        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
+        format_optional_i16_text(resource_delta.last_item_id),
+        format_optional_i32_text(resource_delta.last_amount),
+        format_optional_i32_text(resource_delta.last_build_pos),
+        format_runtime_command_unit_ref_text(resource_delta.last_unit),
+        format_optional_i32_text(resource_delta.last_to_entity_id),
+        resource_delta.build_count,
+        resource_delta.build_stack_count,
+        resource_delta.entity_count,
+        resource_delta.authoritative_build_update_count,
+        resource_delta.delta_apply_count,
+        resource_delta.delta_skip_count,
+        resource_delta.delta_conflict_count,
+        format_optional_i32_text(resource_delta.last_changed_build_pos),
+        format_optional_i32_text(resource_delta.last_changed_entity_id),
+        format_optional_i16_text(resource_delta.last_changed_item_id),
+        format_optional_i32_text(resource_delta.last_changed_amount),
+    )
+}
+
+pub(crate) fn format_runtime_resource_delta_detail_text(
+    resource_delta: &RuntimeResourceDeltaPanelModel,
+) -> String {
+    format!(
+        "resdd:rm{}:st{}:sf{}:so{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}:last{}:{}:{}:{}:{}:{}:proj{}/{}/{}:au{}:d{}/{}/{}:chg{}/{}/{}/{}",
+        resource_delta.remove_tile_count,
+        resource_delta.set_tile_count,
+        resource_delta.set_floor_count,
+        resource_delta.set_overlay_count,
+        resource_delta.set_item_count,
+        resource_delta.set_items_count,
+        resource_delta.set_liquid_count,
+        resource_delta.set_liquids_count,
+        resource_delta.clear_items_count,
+        resource_delta.clear_liquids_count,
+        resource_delta.set_tile_items_count,
+        resource_delta.set_tile_liquids_count,
+        resource_delta.take_items_count,
+        resource_delta.transfer_item_to_count,
+        resource_delta.transfer_item_to_unit_count,
+        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
+        format_optional_i16_text(resource_delta.last_item_id),
+        format_optional_i32_text(resource_delta.last_amount),
+        format_optional_i32_text(resource_delta.last_build_pos),
+        format_runtime_command_unit_ref_text(resource_delta.last_unit),
+        format_optional_i32_text(resource_delta.last_to_entity_id),
+        resource_delta.build_count,
+        resource_delta.build_stack_count,
+        resource_delta.entity_count,
+        resource_delta.authoritative_build_update_count,
+        resource_delta.delta_apply_count,
+        resource_delta.delta_skip_count,
+        resource_delta.delta_conflict_count,
+        format_optional_i32_text(resource_delta.last_changed_build_pos),
+        format_optional_i32_text(resource_delta.last_changed_entity_id),
+        format_optional_i16_text(resource_delta.last_changed_item_id),
+        format_optional_i32_text(resource_delta.last_changed_amount),
+    )
+}
+
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
     format!(
         "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
@@ -1135,6 +1216,12 @@ fn format_optional_i32_text(value: Option<i32>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn format_optional_i16_text(value: Option<i16>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
 fn format_optional_bool_flag(value: Option<bool>) -> char {
     match value {
         Some(true) => '1',
@@ -1280,6 +1367,7 @@ mod tests {
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
         format_runtime_kick_detail_text, format_runtime_kick_panel_text,
         format_runtime_marker_detail_text, format_runtime_marker_panel_text,
+        format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
@@ -1309,6 +1397,7 @@ mod tests {
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
             RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeMarkerPanelModel,
             RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
+            RuntimeResourceDeltaPanelModel,
             RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
             RuntimeWorldReloadPanelModel,
         },
@@ -1610,6 +1699,92 @@ mod tests {
         assert_eq!(
             format_runtime_kick_detail_text(&panel),
             "kickd:r16:o7:c7:h9"
+        );
+    }
+
+    #[test]
+    fn format_runtime_resource_delta_panel_text_preserves_field_order() {
+        let panel = RuntimeResourceDeltaPanelModel {
+            remove_tile_count: 1,
+            set_tile_count: 2,
+            set_floor_count: 3,
+            set_overlay_count: 4,
+            set_item_count: 5,
+            set_items_count: 6,
+            set_liquid_count: 7,
+            set_liquids_count: 8,
+            clear_items_count: 9,
+            clear_liquids_count: 10,
+            set_tile_items_count: 11,
+            set_tile_liquids_count: 12,
+            take_items_count: 13,
+            transfer_item_to_count: 14,
+            transfer_item_to_unit_count: 15,
+            last_kind: Some("to unit".to_string()),
+            last_item_id: Some(16),
+            last_amount: Some(17),
+            last_build_pos: Some(18),
+            last_unit: Some(RuntimeCommandUnitRefObservability { kind: 2, value: 19 }),
+            last_to_entity_id: Some(20),
+            build_count: 21,
+            build_stack_count: 22,
+            entity_count: 23,
+            authoritative_build_update_count: 24,
+            delta_apply_count: 25,
+            delta_skip_count: 26,
+            delta_conflict_count: 27,
+            last_changed_build_pos: Some(28),
+            last_changed_entity_id: Some(29),
+            last_changed_item_id: Some(30),
+            last_changed_amount: Some(31),
+        };
+
+        assert_eq!(
+            format_runtime_resource_delta_panel_text(&panel),
+            "resd:tile1/2/3/4:set5/6/7/8:clr9/10:tile11/12:flow13/14/15@to_unit:16:17:18:2:19:20:proj21/22/23:au24:d25/26/27:chg28/29/30/31"
+        );
+    }
+
+    #[test]
+    fn format_runtime_resource_delta_detail_text_preserves_field_order() {
+        let panel = RuntimeResourceDeltaPanelModel {
+            remove_tile_count: 1,
+            set_tile_count: 2,
+            set_floor_count: 3,
+            set_overlay_count: 4,
+            set_item_count: 5,
+            set_items_count: 6,
+            set_liquid_count: 7,
+            set_liquids_count: 8,
+            clear_items_count: 9,
+            clear_liquids_count: 10,
+            set_tile_items_count: 11,
+            set_tile_liquids_count: 12,
+            take_items_count: 13,
+            transfer_item_to_count: 14,
+            transfer_item_to_unit_count: 15,
+            last_kind: Some("to unit".to_string()),
+            last_item_id: Some(16),
+            last_amount: Some(17),
+            last_build_pos: Some(18),
+            last_unit: Some(RuntimeCommandUnitRefObservability { kind: 2, value: 19 }),
+            last_to_entity_id: Some(20),
+            build_count: 21,
+            build_stack_count: 22,
+            entity_count: 23,
+            authoritative_build_update_count: 24,
+            delta_apply_count: 25,
+            delta_skip_count: 26,
+            delta_conflict_count: 27,
+            last_changed_build_pos: Some(28),
+            last_changed_entity_id: Some(29),
+            last_changed_item_id: Some(30),
+            last_changed_amount: Some(31),
+        };
+
+        assert_eq!(
+            format_runtime_resource_delta_detail_text(&panel),
+            "resdd:rm1:st2:sf3:so4:set5/6/7/8:clr9/10:tile11/12:flow13/14/15:lastto_unit:16:17:18:2:19:20:proj21/22/23:au24:d25/26/27:chg28/29/30/31"
         );
     }
 
