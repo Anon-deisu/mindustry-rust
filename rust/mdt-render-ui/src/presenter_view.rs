@@ -1,7 +1,8 @@
 use crate::{
     panel_model::{
         MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
-        RuntimeCommandModePanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        RuntimeCommandModePanelModel, RuntimeDialogNoticeKind, RuntimeDialogPanelModel,
+        RuntimeDialogPromptKind, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
         RuntimeUiNoticePanelModel,
     },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
@@ -545,6 +546,51 @@ pub(crate) fn format_runtime_dialog_notice_text(
     }
 }
 
+pub(crate) fn format_runtime_dialog_panel_text(panel: &RuntimeDialogPanelModel) -> String {
+    format!(
+        "dialog:p={}:a{}:m{}/f{}/h{}:tin{}@{}:{}/{}/{}#{}:n{}:e{}:n={}@{}:c{}",
+        format_runtime_dialog_prompt_text(panel.prompt_kind),
+        u8::from(panel.prompt_active),
+        panel.menu_open_count,
+        panel.follow_up_menu_open_count,
+        panel.hide_follow_up_menu_count,
+        panel.text_input_open_count,
+        format_optional_i32_text(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
+        panel.text_input_last_length.unwrap_or_default(),
+        format_optional_bool_flag(panel.text_input_last_numeric),
+        format_optional_bool_flag(panel.text_input_last_allow_empty),
+        format_runtime_dialog_notice_text(panel.notice_kind),
+        compact_runtime_ui_text(panel.notice_text.as_deref()),
+        panel.notice_count,
+    )
+}
+
+pub(crate) fn format_runtime_dialog_detail_text(
+    panel: &RuntimeDialogPanelModel,
+    prompt: &RuntimePromptPanelModel,
+    notice: &RuntimeNoticeStatePanelModel,
+) -> String {
+    format!(
+        "dialogd:p={}:a{}:m{}:fo{}:tin{}:msg{}:def{}:n={}:h{}:r{}:i{}:w{}:l{}",
+        format_runtime_dialog_prompt_text(prompt.kind),
+        u8::from(prompt.is_active()),
+        u8::from(prompt.menu_active()),
+        panel.outstanding_follow_up_count(),
+        prompt.text_input_open_count,
+        panel.prompt_message_len(),
+        panel.default_text_len(),
+        format_runtime_dialog_notice_text(notice.kind),
+        u8::from(notice.hud_active),
+        u8::from(notice.reliable_hud_active),
+        u8::from(notice.toast_info_active),
+        u8::from(notice.toast_warning_active),
+        panel.notice_text_len(),
+    )
+}
+
 pub(crate) fn format_runtime_command_i32_list_text(values: &[i32]) -> String {
     if values.is_empty() {
         "none".to_string()
@@ -703,6 +749,14 @@ fn format_optional_i32_text(value: Option<i32>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn format_optional_bool_flag(value: Option<bool>) -> char {
+    match value {
+        Some(true) => '1',
+        Some(false) => '0',
+        None => 'n',
+    }
+}
+
 fn format_optional_u8_text(value: Option<u8>) -> String {
     value
         .map(|value| value.to_string())
@@ -830,6 +884,7 @@ mod tests {
         format_runtime_command_mode_detail_text, format_runtime_command_mode_panel_text,
         format_runtime_command_rect_text, format_runtime_command_stance_text,
         format_runtime_command_target_text, format_runtime_command_unit_ref_text,
+        format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
         format_live_effect_ttl_text,
@@ -846,7 +901,8 @@ mod tests {
     use crate::{
         panel_model::{
             MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
-            RuntimeCommandModePanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+            RuntimeCommandModePanelModel, RuntimeDialogNoticeKind, RuntimeDialogPanelModel,
+            RuntimeDialogPromptKind, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
         },
         render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
         BuildQueueHeadStage, RenderModel, RenderObject,
@@ -961,6 +1017,85 @@ mod tests {
             "warn"
         );
         assert_eq!(format_runtime_dialog_notice_text(None), "none");
+    }
+
+    #[test]
+    fn format_runtime_dialog_panel_text_preserves_field_order() {
+        let panel = RuntimeDialogPanelModel {
+            prompt_kind: Some(RuntimeDialogPromptKind::TextInput),
+            prompt_active: true,
+            menu_open_count: 16,
+            follow_up_menu_open_count: 17,
+            hide_follow_up_menu_count: 18,
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            text_input_last_title: Some("Digits".to_string()),
+            text_input_last_message: Some("Only numbers".to_string()),
+            text_input_last_default_text: Some("12345".to_string()),
+            text_input_last_length: Some(16),
+            text_input_last_numeric: Some(true),
+            text_input_last_allow_empty: Some(true),
+            notice_kind: Some(RuntimeDialogNoticeKind::ToastWarning),
+            notice_text: Some("warn".to_string()),
+            notice_count: 48,
+        };
+
+        assert_eq!(
+            format_runtime_dialog_panel_text(&panel),
+            "dialog:p=input:a1:m16/f17/h18:tin53@404:Digits/Only_numbers/12345#16:n1:e1:n=warn@warn:c48"
+        );
+    }
+
+    #[test]
+    fn format_runtime_dialog_detail_text_preserves_field_order() {
+        let panel = RuntimeDialogPanelModel {
+            prompt_kind: Some(RuntimeDialogPromptKind::TextInput),
+            prompt_active: true,
+            menu_open_count: 1,
+            follow_up_menu_open_count: 0,
+            hide_follow_up_menu_count: 0,
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            text_input_last_title: Some("Digits".to_string()),
+            text_input_last_message: Some("Only numbers".to_string()),
+            text_input_last_default_text: Some("12345".to_string()),
+            text_input_last_length: Some(16),
+            text_input_last_numeric: Some(true),
+            text_input_last_allow_empty: Some(true),
+            notice_kind: Some(RuntimeDialogNoticeKind::ToastWarning),
+            notice_text: Some("warn".to_string()),
+            notice_count: 48,
+        };
+        let prompt = RuntimePromptPanelModel {
+            kind: Some(RuntimeDialogPromptKind::TextInput),
+            menu_active: true,
+            text_input_active: true,
+            menu_open_count: 1,
+            follow_up_menu_open_count: 0,
+            hide_follow_up_menu_count: 0,
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            text_input_last_title: Some("Digits".to_string()),
+            text_input_last_message: Some("Only numbers".to_string()),
+            text_input_last_default_text: Some("12345".to_string()),
+            text_input_last_length: Some(16),
+            text_input_last_numeric: Some(true),
+            text_input_last_allow_empty: Some(true),
+        };
+        let notice = RuntimeNoticeStatePanelModel {
+            kind: Some(RuntimeDialogNoticeKind::ToastWarning),
+            text: Some("warn".to_string()),
+            count: 48,
+            hud_active: true,
+            reliable_hud_active: true,
+            toast_info_active: true,
+            toast_warning_active: true,
+        };
+
+        assert_eq!(
+            format_runtime_dialog_detail_text(&panel, &prompt, &notice),
+            "dialogd:p=input:a1:m1:fo0:tin53:msg12:def5:n=warn:h1:r1:i1:w1:l4"
+        );
     }
 
     #[test]

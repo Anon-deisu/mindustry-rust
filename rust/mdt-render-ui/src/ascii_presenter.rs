@@ -22,6 +22,7 @@ use crate::presenter_view::{
     format_counted_detail_text, format_counted_preview_text,
     format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
     format_runtime_command_mode_panel_text, format_runtime_command_unit_ref_text,
+    format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
     format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
     format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
     format_live_effect_ttl_text,
@@ -2039,25 +2040,7 @@ fn compose_runtime_prompt_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_dialog_panel(hud)?;
-    Some(format!(
-        "dialog:p={}:a{}:m{}/f{}/h{}:tin{}@{}:{}/{}/{}#{}:n{}:e{}:n={}@{}:c{}",
-        format_runtime_dialog_prompt_text(panel.prompt_kind),
-        if panel.prompt_active { 1 } else { 0 },
-        panel.menu_open_count,
-        panel.follow_up_menu_open_count,
-        panel.hide_follow_up_menu_count,
-        panel.text_input_open_count,
-        optional_i32_label(panel.text_input_last_id),
-        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
-        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
-        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
-        panel.text_input_last_length.unwrap_or_default(),
-        optional_bool_label(panel.text_input_last_numeric),
-        optional_bool_label(panel.text_input_last_allow_empty),
-        format_runtime_dialog_notice_text(panel.notice_kind),
-        compact_runtime_ui_text(panel.notice_text.as_deref()),
-        panel.notice_count,
-    ))
+    Some(format_runtime_dialog_panel_text(&panel))
 }
 
 fn compose_runtime_dialog_detail_text(hud: &HudModel) -> Option<String> {
@@ -2067,22 +2050,7 @@ fn compose_runtime_dialog_detail_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() && !notice.is_active() && notice.count == 0 && notice.text.is_none() {
         return None;
     }
-    Some(format!(
-        "dialogd:p={}:a{}:m{}:fo{}:tin{}:msg{}:def{}:n={}:h{}:r{}:i{}:w{}:l{}",
-        format_runtime_dialog_prompt_text(prompt.kind),
-        bool_flag(prompt.is_active()),
-        bool_flag(prompt.menu_active()),
-        panel.outstanding_follow_up_count(),
-        prompt.text_input_open_count,
-        panel.prompt_message_len(),
-        panel.default_text_len(),
-        format_runtime_dialog_notice_text(notice.kind),
-        bool_flag(notice.hud_active),
-        bool_flag(notice.reliable_hud_active),
-        bool_flag(notice.toast_info_active),
-        bool_flag(notice.toast_warning_active),
-        panel.notice_text_len(),
-    ))
+    Some(format_runtime_dialog_detail_text(&panel, &prompt, &notice))
 }
 
 fn compose_runtime_chat_panel_text(hud: &HudModel) -> Option<String> {
