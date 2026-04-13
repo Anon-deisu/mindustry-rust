@@ -4,8 +4,8 @@ use crate::{
         MinimapPanelModel, PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
-        RuntimeDialogStackPanelModel, RuntimeMarkerPanelModel, RuntimeNoticeStatePanelModel,
-        RuntimePromptPanelModel,
+        RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeMarkerPanelModel,
+        RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
         RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
         RuntimeWorldReloadPanelModel,
     },
@@ -908,6 +908,26 @@ pub(crate) fn format_runtime_marker_detail_text(panel: &RuntimeMarkerPanelModel)
     )
 }
 
+pub(crate) fn format_runtime_kick_panel_text(kick: &RuntimeKickPanelModel) -> String {
+    format!(
+        "{}@{}:{}:{}",
+        compact_runtime_ui_text(kick.reason_text.as_deref()),
+        format_optional_i32_text(kick.reason_ordinal),
+        compact_runtime_ui_text(kick.hint_category.as_deref()),
+        compact_runtime_ui_text(kick.hint_text.as_deref()),
+    )
+}
+
+pub(crate) fn format_runtime_kick_detail_text(kick: &RuntimeKickPanelModel) -> String {
+    format!(
+        "kickd:r{}:o{}:c{}:h{}",
+        runtime_ui_text_len(kick.reason_text.as_deref()),
+        format_optional_i32_text(kick.reason_ordinal),
+        runtime_ui_text_len(kick.hint_category.as_deref()),
+        runtime_ui_text_len(kick.hint_text.as_deref()),
+    )
+}
+
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
     format!(
         "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
@@ -1258,6 +1278,7 @@ mod tests {
         format_runtime_world_label_scalar_text,
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
+        format_runtime_kick_detail_text, format_runtime_kick_panel_text,
         format_runtime_marker_detail_text, format_runtime_marker_panel_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
@@ -1286,8 +1307,8 @@ mod tests {
             RuntimeChatPanelModel,
             RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
-            RuntimeDialogStackPanelModel, RuntimeMarkerPanelModel, RuntimeNoticeStatePanelModel,
-            RuntimePromptPanelModel,
+            RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeMarkerPanelModel,
+            RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
             RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
             RuntimeWorldReloadPanelModel,
         },
@@ -1559,6 +1580,36 @@ mod tests {
         assert_eq!(
             format_runtime_marker_detail_text(&panel),
             "markerd:tot51:mut36:txt7:tex8:f2:last904:c13"
+        );
+    }
+
+    #[test]
+    fn format_runtime_kick_panel_text_preserves_field_order() {
+        let panel = RuntimeKickPanelModel {
+            reason_text: Some("manual reconnect".to_string()),
+            reason_ordinal: Some(7),
+            hint_category: Some("network".to_string()),
+            hint_text: Some("check vpn".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_kick_panel_text(&panel),
+            "manual_recon~@7:network:check_vpn"
+        );
+    }
+
+    #[test]
+    fn format_runtime_kick_detail_text_preserves_field_order() {
+        let panel = RuntimeKickPanelModel {
+            reason_text: Some("manual reconnect".to_string()),
+            reason_ordinal: Some(7),
+            hint_category: Some("network".to_string()),
+            hint_text: Some("check vpn".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_kick_detail_text(&panel),
+            "kickd:r16:o7:c7:h9"
         );
     }
 

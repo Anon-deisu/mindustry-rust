@@ -27,6 +27,7 @@ use crate::presenter_view::{
     format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
     format_runtime_dialog_stack_summary_text,
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
+    format_runtime_kick_detail_text, format_runtime_kick_panel_text,
     format_runtime_marker_detail_text, format_runtime_marker_panel_text,
     format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
     format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
@@ -2104,7 +2105,7 @@ fn compose_runtime_marker_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_kick_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_kick_panel(hud)?;
-    Some(format!("kick:{}", compose_runtime_kick_panel_text(&panel)))
+    Some(format!("kick:{}", format_runtime_kick_panel_text(&panel)))
 }
 
 fn compose_runtime_bootstrap_row_text(hud: &HudModel) -> Option<String> {
@@ -2161,7 +2162,7 @@ fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
     ));
     segments.push(format!(
         "k={}",
-        compose_runtime_kick_panel_text(&panel.kick)
+        format_runtime_kick_panel_text(&panel.kick)
     ));
     segments.push(format!(
         "l={}",
@@ -2179,7 +2180,7 @@ fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
     if !panel.kick.is_empty() {
         return Some(format!(
             "KICK {}",
-            compose_runtime_kick_panel_text(&panel.kick)
+            format_runtime_kick_panel_text(&panel.kick)
         ));
     }
     let mut segments = Vec::new();
@@ -2222,7 +2223,7 @@ fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
     ));
     segments.push(format!(
         "k({})",
-        compose_runtime_kick_detail_compact_text(&panel.kick)
+        format_runtime_kick_detail_text(&panel.kick)
     ));
     segments.push(format!(
         "l({})",
@@ -2325,7 +2326,7 @@ fn compose_runtime_loading_row_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_kick_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_kick_panel(hud)?;
-    (!panel.is_empty()).then(|| compose_runtime_kick_detail_panel_text(&panel))
+    (!panel.is_empty()).then(|| format_runtime_kick_detail_text(&panel))
 }
 
 fn compose_runtime_loading_detail_text(hud: &HudModel) -> Option<String> {
@@ -3449,16 +3450,6 @@ fn compose_live_effect_panel_text(
     )
 }
 
-fn compose_runtime_kick_panel_text(kick: &crate::panel_model::RuntimeKickPanelModel) -> String {
-    format!(
-        "{}@{}:{}:{}",
-        compact_runtime_ui_text(kick.reason_text.as_deref()),
-        optional_i32_label(kick.reason_ordinal),
-        compact_runtime_ui_text(kick.hint_category.as_deref()),
-        compact_runtime_ui_text(kick.hint_text.as_deref()),
-    )
-}
-
 fn compose_runtime_loading_panel_text(
     loading: &crate::panel_model::RuntimeLoadingPanelModel,
 ) -> String {
@@ -3513,24 +3504,6 @@ fn compose_runtime_reconnect_panel_compact_text(
         compact_runtime_ui_text(reconnect.reason_text.as_deref()),
         optional_i32_label(reconnect.reason_ordinal),
         compact_runtime_ui_text(reconnect.hint_text.as_deref()),
-    )
-}
-
-fn compose_runtime_kick_detail_panel_text(
-    kick: &crate::panel_model::RuntimeKickPanelModel,
-) -> String {
-    compose_runtime_kick_detail_compact_text(kick)
-}
-
-fn compose_runtime_kick_detail_compact_text(
-    kick: &crate::panel_model::RuntimeKickPanelModel,
-) -> String {
-    format!(
-        "kickd:r{}:o{}:c{}:h{}",
-        runtime_ui_text_len(kick.reason_text.as_deref()),
-        optional_i32_label(kick.reason_ordinal),
-        runtime_ui_text_len(kick.hint_category.as_deref()),
-        runtime_ui_text_len(kick.hint_text.as_deref()),
     )
 }
 
