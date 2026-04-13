@@ -3210,7 +3210,7 @@ fn compose_build_minimap_flow_text(
 ) -> Option<String> {
     let panel = build_build_minimap_assist_panel(scene, hud, window)?;
     Some(format!(
-        "next={} select={} queue={} place-ready={} focus={} cover={} rt={}%",
+        "bflow:n={}:s={}:q={}:r{}:f={}:c={}:rt{}",
         panel.next_action_label(),
         build_interaction_selection_text(panel.selection_state),
         build_interaction_queue_text(panel.queue_state),
@@ -6104,7 +6104,7 @@ mod tests {
             "BUILD-MINIMAP-DIAG: bmdiag:n=resolve:p=match:a=detached:f=inside:c=offscreen:v=unseen"
         ));
         assert!(frame.contains(
-            "BUILD-MINIMAP-FLOW: next=resolve select=head-aligned queue=mixed place-ready=1 focus=inside cover=offscreen rt=0%"
+            "BUILD-MINIMAP-FLOW: bflow:n=resolve:s=head-aligned:q=mixed:r1:f=inside:c=offscreen:rt0"
         ));
         assert!(frame.contains(
             "BUILD-MINIMAP-DETAIL: bmdetail:n=resolve:pair=match:a=detached:f=inside:v=unseen:c=offscreen:scope=multi:m=place:s=head-aligned:q=mixed:r1:auth=rej-miss-build:pm=match:src=tilecfg:h=10:12:b=alpha:rt0:od75"
