@@ -27,8 +27,7 @@ use crate::presenter_view::{
     format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
     format_runtime_dialog_stack_summary_text,
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
-    format_runtime_world_label_sample_text,
-    format_runtime_world_label_scalar_text,
+    format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
     format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
     format_runtime_stack_depth_text, format_runtime_stack_detail_text,
     format_runtime_stack_panel_text,
@@ -2063,23 +2062,7 @@ fn compose_runtime_admin_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_world_label_panel(hud)?;
-    Some(format!(
-        "wlabel:set{}:rel{}:rm{}:tot{}:act{}:inact{}:last{}:f{}:fs{}:z{}:pos{}:txt{}:l{}:n{}",
-        panel.label_count,
-        panel.reliable_label_count,
-        panel.remove_label_count,
-        panel.total_count,
-        panel.active_count,
-        panel.inactive_count(),
-        optional_i32_label(panel.last_entity_id),
-        optional_u8_label(panel.last_flags),
-        format_runtime_world_label_scalar_text(panel.last_font_size_bits, panel.last_font_size()),
-        format_runtime_world_label_scalar_text(panel.last_z_bits, panel.last_z()),
-        world_position_text(panel.last_position.as_ref()),
-        format_runtime_world_label_sample_text(panel.last_text.as_deref()),
-        panel.last_text_line_count(),
-        panel.last_text_len(),
-    ))
+    Some(format_runtime_world_label_panel_text(&panel))
 }
 
 fn compose_runtime_world_label_detail_text(hud: &HudModel) -> Option<String> {
@@ -2098,22 +2081,7 @@ fn compose_runtime_world_label_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
 
-    Some(format!(
-        "wlabeld:set{}:rel{}:rm{}:tot{}:act{}:in{}:last{}:f{}:txt{}x{}:fs{}:z{}:p{}",
-        panel.label_count,
-        panel.reliable_label_count,
-        panel.remove_label_count,
-        panel.total_count,
-        panel.active_count,
-        panel.inactive_count(),
-        optional_i32_label(panel.last_entity_id),
-        optional_u8_label(panel.last_flags),
-        panel.last_text_len(),
-        panel.last_text_line_count(),
-        format_runtime_world_label_scalar_text(panel.last_font_size_bits, panel.last_font_size()),
-        format_runtime_world_label_scalar_text(panel.last_z_bits, panel.last_z()),
-        world_position_text(panel.last_position.as_ref()),
-    ))
+    Some(format_runtime_world_label_detail_text(&panel))
 }
 
 fn compose_runtime_marker_panel_text(hud: &HudModel) -> Option<String> {

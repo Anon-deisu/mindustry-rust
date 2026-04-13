@@ -5,7 +5,7 @@ use crate::{
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
         RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
-        RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel,
+        RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
     },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     BuildQueueHeadStage, RenderModel, RenderObject,
@@ -803,6 +803,49 @@ pub(crate) fn format_runtime_admin_detail_text(panel: &RuntimeAdminPanelModel) -
     )
 }
 
+pub(crate) fn format_runtime_world_label_panel_text(
+    panel: &RuntimeWorldLabelPanelModel,
+) -> String {
+    format!(
+        "wlabel:set{}:rel{}:rm{}:tot{}:act{}:inact{}:last{}:f{}:fs{}:z{}:pos{}:txt{}:l{}:n{}",
+        panel.label_count,
+        panel.reliable_label_count,
+        panel.remove_label_count,
+        panel.total_count,
+        panel.active_count,
+        panel.inactive_count(),
+        format_optional_i32_text(panel.last_entity_id),
+        format_optional_u8_text(panel.last_flags),
+        format_runtime_world_label_scalar_text(panel.last_font_size_bits, panel.last_font_size()),
+        format_runtime_world_label_scalar_text(panel.last_z_bits, panel.last_z()),
+        format_world_position_status_text(panel.last_position.as_ref()),
+        format_runtime_world_label_sample_text(panel.last_text.as_deref()),
+        panel.last_text_line_count(),
+        panel.last_text_len(),
+    )
+}
+
+pub(crate) fn format_runtime_world_label_detail_text(
+    panel: &RuntimeWorldLabelPanelModel,
+) -> String {
+    format!(
+        "wlabeld:set{}:rel{}:rm{}:tot{}:act{}:in{}:last{}:f{}:txt{}x{}:fs{}:z{}:p{}",
+        panel.label_count,
+        panel.reliable_label_count,
+        panel.remove_label_count,
+        panel.total_count,
+        panel.active_count,
+        panel.inactive_count(),
+        format_optional_i32_text(panel.last_entity_id),
+        format_optional_u8_text(panel.last_flags),
+        panel.last_text_len(),
+        panel.last_text_line_count(),
+        format_runtime_world_label_scalar_text(panel.last_font_size_bits, panel.last_font_size()),
+        format_runtime_world_label_scalar_text(panel.last_z_bits, panel.last_z()),
+        format_world_position_status_text(panel.last_position.as_ref()),
+    )
+}
+
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
     format!(
         "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
@@ -1151,6 +1194,7 @@ mod tests {
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
         format_runtime_world_label_sample_text,
         format_runtime_world_label_scalar_text,
+        format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
@@ -1179,7 +1223,7 @@ mod tests {
             RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
             RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
-            RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel,
+            RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
         },
         render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
         BuildQueueHeadStage, RenderModel, RenderObject,
@@ -1321,6 +1365,58 @@ mod tests {
         assert_eq!(
             format_runtime_world_label_scalar_text(Some(1094713344), None),
             "1094713344"
+        );
+    }
+
+    #[test]
+    fn format_runtime_world_label_panel_text_preserves_field_order() {
+        let panel = RuntimeWorldLabelPanelModel {
+            label_count: 19,
+            reliable_label_count: 20,
+            remove_label_count: 21,
+            total_count: 60,
+            active_count: 2,
+            inactive_count: 1,
+            last_entity_id: Some(904),
+            last_flags: Some(3),
+            last_font_size_bits: Some(1094713344),
+            last_z_bits: Some(1082130432),
+            last_position: Some(RuntimeWorldPositionObservability {
+                x_bits: 0x4220_0000,
+                y_bits: 0x4270_0000,
+            }),
+            last_text: Some("world label".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_world_label_panel_text(&panel),
+            "wlabel:set19:rel20:rm21:tot60:act2:inact1:last904:f3:fs1094713344@12.0:z1082130432@4.0:pos40.0:60.0:txtworld_label:l1:n11"
+        );
+    }
+
+    #[test]
+    fn format_runtime_world_label_detail_text_preserves_field_order() {
+        let panel = RuntimeWorldLabelPanelModel {
+            label_count: 19,
+            reliable_label_count: 20,
+            remove_label_count: 21,
+            total_count: 60,
+            active_count: 2,
+            inactive_count: 1,
+            last_entity_id: Some(904),
+            last_flags: Some(3),
+            last_font_size_bits: Some(1094713344),
+            last_z_bits: Some(1082130432),
+            last_position: Some(RuntimeWorldPositionObservability {
+                x_bits: 0x4220_0000,
+                y_bits: 0x4270_0000,
+            }),
+            last_text: Some("world label".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_world_label_detail_text(&panel),
+            "wlabeld:set19:rel20:rm21:tot60:act2:in1:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0"
         );
     }
 
