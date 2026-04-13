@@ -723,6 +723,18 @@ pub(crate) fn format_visibility_minimap_text(
     )
 }
 
+pub(crate) fn format_minimap_density_visibility_text(panel: &MinimapPanelModel) -> String {
+    format!(
+        "minidv:ov{}:fg{}:cov{}:mapd{}:wind{}:out{}",
+        u8::from(panel.overlay_visible),
+        u8::from(panel.fog_enabled),
+        panel.window_coverage_percent,
+        panel.map_object_density_percent(),
+        panel.window_object_density_percent(),
+        panel.outside_object_percent(),
+    )
+}
+
 pub(crate) fn format_semantic_detail_text(
     detail_counts: &[RenderSemanticDetailCount],
 ) -> Option<String> {
@@ -2001,6 +2013,7 @@ mod tests {
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
         format_counted_detail_text, format_counted_preview_text,
         format_hud_visibility_detail_text, format_minimap_kind_text,
+        format_minimap_density_visibility_text,
         format_minimap_legend_text, format_semantic_detail_text,
         format_optional_focus_tile_text, format_optional_signed_tile_text,
         format_visibility_minimap_text,
@@ -4260,6 +4273,24 @@ mod tests {
         assert_eq!(
             format_minimap_kind_text(&panel),
             "minikind:obj7@pl1:mk2:pn3:bk4:rt5:tr6:uk8"
+        );
+    }
+
+    #[test]
+    fn format_minimap_density_visibility_text_preserves_field_order() {
+        let mut panel = sample_minimap_panel();
+        panel.overlay_visible = true;
+        panel.fog_enabled = false;
+        panel.window_coverage_percent = 24;
+        panel.tracked_object_count = 20;
+        panel.map_tile_count = 200;
+        panel.window_tracked_object_count = 12;
+        panel.window_tile_count = 48;
+        panel.outside_window_count = 5;
+
+        assert_eq!(
+            format_minimap_density_visibility_text(&panel),
+            "minidv:ov1:fg0:cov24:mapd10:wind25:out25"
         );
     }
 

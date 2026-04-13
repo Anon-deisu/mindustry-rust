@@ -19,6 +19,7 @@ use crate::presenter_view::{
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
     compact_runtime_ui_text,
     format_hud_visibility_detail_text, format_minimap_kind_text, format_minimap_legend_text,
+    format_minimap_density_visibility_text,
     format_optional_focus_tile_text, format_optional_signed_tile_text,
     format_semantic_detail_text,
     format_minimap_visibility_detail_text, format_visibility_minimap_text,
@@ -2423,15 +2424,7 @@ fn compose_minimap_detail_lines(
 }
 
 fn compose_minimap_density_visibility_line(panel: &MinimapPanelModel) -> String {
-    format!(
-        "minidv:ov{}:fg{}:cov{}:mapd{}:wind{}:out{}",
-        bool_flag(panel.overlay_visible),
-        bool_flag(panel.fog_enabled),
-        panel.window_coverage_percent,
-        panel.map_object_density_percent(),
-        panel.window_object_density_percent(),
-        panel.outside_object_percent(),
-    )
+    format_minimap_density_visibility_text(panel)
 }
 
 fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {
