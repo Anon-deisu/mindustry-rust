@@ -691,6 +691,38 @@ pub(crate) fn format_minimap_visibility_detail_text(minimap: &MinimapPanelModel)
     )
 }
 
+pub(crate) fn format_visibility_minimap_text(
+    visibility: &HudVisibilityPanelModel,
+    minimap: &MinimapPanelModel,
+) -> String {
+    format!(
+        "overlay={} fog={} known={}({}%) vis={}({}%/{}%) hid={}({}%/{}%) map={}x{} window={}:{}->{}:{} size={}x{} cover={}/{}({}%) focus={} in-window={}",
+        u8::from(visibility.overlay_visible),
+        u8::from(visibility.fog_enabled),
+        visibility.known_tile_count,
+        visibility.known_tile_percent,
+        visibility.visible_tile_count,
+        visibility.visible_known_percent,
+        visibility.visible_map_percent(),
+        visibility.hidden_tile_count,
+        visibility.hidden_known_percent,
+        visibility.hidden_map_percent(),
+        minimap.map_width,
+        minimap.map_height,
+        minimap.window.origin_x,
+        minimap.window.origin_y,
+        minimap.window_last_x,
+        minimap.window_last_y,
+        minimap.window.width,
+        minimap.window.height,
+        minimap.window_tile_count,
+        minimap.map_tile_count,
+        minimap.window_coverage_percent,
+        format_optional_focus_tile_text(minimap.focus_tile),
+        format_optional_bool_flag(minimap.focus_in_window),
+    )
+}
+
 pub(crate) fn format_semantic_detail_text(
     detail_counts: &[RenderSemanticDetailCount],
 ) -> Option<String> {
@@ -1833,6 +1865,13 @@ fn format_optional_bool_flag(value: Option<bool>) -> char {
     }
 }
 
+fn format_optional_focus_tile_text(value: Option<(usize, usize)>) -> String {
+    match value {
+        Some((x, y)) => format!("{x}:{y}"),
+        None => "-".to_string(),
+    }
+}
+
 fn format_optional_u8_text(value: Option<u8>) -> String {
     value
         .map(|value| value.to_string())
@@ -1956,6 +1995,7 @@ mod tests {
         format_counted_detail_text, format_counted_preview_text,
         format_hud_visibility_detail_text, format_minimap_kind_text,
         format_minimap_legend_text, format_semantic_detail_text,
+        format_visibility_minimap_text,
         format_runtime_command_control_group_operation_text,
         format_runtime_command_group_lines,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
@@ -3317,6 +3357,32 @@ mod tests {
         assert_eq!(
             format_hud_visibility_detail_text(&summary, &visibility),
             "hudvisd:s=mixed:ov=on:fg=off:k=120/200:v=80/120:h=40/120:u=80/200"
+        );
+    }
+
+    #[test]
+    fn format_visibility_minimap_text_preserves_field_order() {
+        let visibility = sample_hud_visibility_panel();
+        let mut minimap = sample_minimap_panel();
+        minimap.map_width = 20;
+        minimap.map_height = 10;
+        minimap.window = PresenterViewWindow {
+            origin_x: 1,
+            origin_y: 2,
+            width: 8,
+            height: 6,
+        };
+        minimap.window_last_x = 8;
+        minimap.window_last_y = 7;
+        minimap.window_tile_count = 48;
+        minimap.window_coverage_percent = 24;
+        minimap.map_tile_count = 200;
+        minimap.focus_tile = Some((4, 5));
+        minimap.focus_in_window = Some(true);
+
+        assert_eq!(
+            format_visibility_minimap_text(&visibility, &minimap),
+            "overlay=1 fog=0 known=120(60%) vis=80(67%/40%) hid=40(33%/20%) map=20x10 window=1:2->8:7 size=8x6 cover=48/200(24%) focus=4:5 in-window=1"
         );
     }
 

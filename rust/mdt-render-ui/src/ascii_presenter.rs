@@ -20,7 +20,7 @@ use crate::presenter_view::{
     compact_runtime_ui_text,
     format_hud_visibility_detail_text, format_minimap_kind_text, format_minimap_legend_text,
     format_semantic_detail_text,
-    format_minimap_visibility_detail_text,
+    format_minimap_visibility_detail_text, format_visibility_minimap_text,
     format_counted_detail_text, format_counted_preview_text,
     format_runtime_admin_detail_text, format_runtime_admin_panel_text,
     format_runtime_chat_detail_text, format_runtime_chat_panel_text,
@@ -1646,32 +1646,7 @@ fn compose_visibility_minimap_text(
 ) -> Option<String> {
     let visibility = build_hud_visibility_panel(hud)?;
     let minimap = build_minimap_panel(scene, hud, window)?;
-    Some(format!(
-        "overlay={} fog={} known={}({}%) vis={}({}%/{}%) hid={}({}%/{}%) map={}x{} window={}:{}->{}:{} size={}x{} cover={}/{}({}%) focus={} in-window={}",
-        bool_flag(visibility.overlay_visible),
-        bool_flag(visibility.fog_enabled),
-        visibility.known_tile_count,
-        visibility.known_tile_percent,
-        visibility.visible_tile_count,
-        visibility.visible_known_percent,
-        visibility.visible_map_percent(),
-        visibility.hidden_tile_count,
-        visibility.hidden_known_percent,
-        visibility.hidden_map_percent(),
-        minimap.map_width,
-        minimap.map_height,
-        minimap.window.origin_x,
-        minimap.window.origin_y,
-        minimap.window_last_x,
-        minimap.window_last_y,
-        minimap.window.width,
-        minimap.window.height,
-        minimap.window_tile_count,
-        minimap.map_tile_count,
-        minimap.window_coverage_percent,
-        optional_focus_tile_text(minimap.focus_tile),
-        optional_bool_label(minimap.focus_in_window),
-    ))
+    Some(format_visibility_minimap_text(&visibility, &minimap))
 }
 
 fn compose_hud_detail_text(hud: &HudModel) -> Option<String> {
