@@ -2520,21 +2520,13 @@ fn compose_render_icon_detail_status_text(
     let mut parts = vec![format!("count={}", icon_primitives.len())];
     for (family, variant, layer, tile_x, tile_y, payload) in icon_primitives {
         parts.push(format!(
-            "{}/{}@{layer}:{tile_x}:{tile_y} {}",
+            "{}/{}@{layer}:{tile_x}:{tile_y} payload[{}]",
             family.label(),
             variant,
-            format_render_primitive_payload(&payload)
+            format_render_primitive_payload_fields(&payload)
         ));
     }
     Some(parts.join(" "))
-}
-
-fn format_render_primitive_payload(payload: &RenderPrimitivePayload) -> String {
-    format!(
-        "{}{{{}}}",
-        payload.label,
-        format_render_primitive_payload_fields(payload)
-    )
 }
 
 fn format_render_primitive_payload_fields(payload: &RenderPrimitivePayload) -> String {
@@ -11577,11 +11569,11 @@ mod tests {
         assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON-DETAIL: count=2");
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-effect-icon{variant=content-icon,content_id=9,content_type=6,delivery=normal,effect_id=-1,x_bits=0x00000000,y_bits=0x00000000}",
+            "payload[variant=content-icon,content_id=9,content_type=6,delivery=normal,effect_id=-1,x_bits=0x00000000,y_bits=0x00000000]",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-build-config-icon{variant=payload-source,content_id=7,content_type=1,tile_x=1,tile_y=0}",
+            "payload[variant=payload-source,content_id=7,content_type=1,tile_x=1,tile_y=0]",
         );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_EFFECT));
         assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_BUILD_CONFIG));
@@ -11780,7 +11772,7 @@ mod tests {
         assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON-DETAIL: count=1");
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-effect{variant=normal,delivery=normal,effect_id=13,has_data=true,x_bits=0x41000000,y_bits=0x41800000}",
+            "payload[variant=normal,delivery=normal,effect_id=13,has_data=true,x_bits=0x41000000,y_bits=0x41800000]",
         );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_EFFECT_MARKER));
     }
@@ -11825,11 +11817,11 @@ mod tests {
         assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON-DETAIL: count=2");
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-unit-assembler-progress{variant=tank-assembler,block_count=4,pay_rotation_bits=0x40800000,payload_present=false,progress_bits=0x3f400000,sample_id=9,sample_kind=b,sample_present=true,tile_x=30,tile_y=40,unit_count=2}",
+            "payload[variant=tank-assembler,block_count=4,pay_rotation_bits=0x40800000,payload_present=false,progress_bits=0x3f400000,sample_id=9,sample_kind=b,sample_present=true,tile_x=30,tile_y=40,unit_count=2]",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-unit-assembler-command{variant=tank-assembler,tile_x=30,tile_y=40,x_bits=0x42200000,y_bits=0x42700000}",
+            "payload[variant=tank-assembler,tile_x=30,tile_y=40,x_bits=0x42200000,y_bits=0x42700000]",
         );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_UNIT_ASSEMBLER));
         assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_RUNTIME_UNIT_ASSEMBLER));
@@ -11953,23 +11945,23 @@ mod tests {
         assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON-DETAIL: count=5");
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-config{variant=string,tile_x=0,tile_y=0}",
+            "payload[variant=string,tile_x=0,tile_y=0]",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-config-parse-fail{variant=int,tile_x=1,tile_y=0}",
+            "payload[variant=int,tile_x=1,tile_y=0]",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-config-noapply{variant=content,tile_x=2,tile_y=0}",
+            "payload[variant=content,tile_x=2,tile_y=0]",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-config-rollback{variant=unit,tile_x=3,tile_y=0}",
+            "payload[variant=unit,tile_x=3,tile_y=0]",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-config-pending-mismatch{variant=payload,tile_x=4,tile_y=0}",
+            "payload[variant=payload,tile_x=4,tile_y=0]",
         );
         assert_frame_line_contains(&frame.panel_lines, "runtime-config/string@30:0:0");
         assert_frame_line_contains(&frame.panel_lines, "runtime-config-parse-fail/int@31:1:0");
