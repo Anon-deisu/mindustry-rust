@@ -3086,7 +3086,7 @@ fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<Stri
         },
     )?;
     Some(format!(
-        "tracked={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
+        "minikind:obj{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
         panel.tracked_object_count,
         panel.player_count,
         panel.marker_count,
@@ -5217,7 +5217,7 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains(
-            "MINIMAP-KINDS: tracked=7 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
+            "MINIMAP-KINDS: minikind:obj7@pl1:mk2:pn0:bk0:rt4:tr0:uk0"
         ));
         assert!(frame.contains(
             "MINIMAP-KINDS-DETAIL: marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
@@ -6030,11 +6030,11 @@ mod tests {
         assert!(frame
             .contains("MINIMAP-VIS-DETAIL: minivisd:v=mixed:c=offscreen:md0:wd400:od0:vp=warn"));
         assert!(frame.contains(
-            "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
+            "MINIMAP-KINDS: minikind:obj4@pl1:mk1:pn1:bk1:rt0:tr0:uk0"
         ));
         let minimap_kinds_pos = frame
             .lines()
-            .position(|line| line == "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0")
+            .position(|line| line == "MINIMAP-KINDS: minikind:obj4@pl1:mk1:pn1:bk1:rt0:tr0:uk0")
             .expect("minimap kinds line");
         let minimap_legend_pos = frame
             .lines()
@@ -6408,7 +6408,7 @@ mod tests {
             "MINIMAP-FLOW-DETAIL: next=survey focus=inside vis=unseen cover=offscreen pan=hold target=player"
         ));
         assert!(frame.contains(
-            "MINIMAP-KINDS: tracked=3 player=1 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=1"
+            "MINIMAP-KINDS: minikind:obj3@pl1:mk0:pn0:bk0:rt0:tr1:uk1"
         ));
         assert!(frame.contains(
             "MINIMAP-LEGEND: legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis=unseen:ov0:fg0"
@@ -6615,7 +6615,7 @@ mod tests {
         let kinds_pos = frame
             .lines()
             .position(|line| {
-                line == "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
+                line == "MINIMAP-KINDS: minikind:obj4@pl1:mk1:pn1:bk1:rt0:tr0:uk0"
             })
             .expect("minimap kinds line");
         let legend_pos = frame
