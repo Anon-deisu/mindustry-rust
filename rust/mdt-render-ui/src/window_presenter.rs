@@ -4579,7 +4579,7 @@ fn build_interaction_queue_status_text(
     match value {
         crate::panel_model::BuildInteractionQueueState::Empty => "empty",
         crate::panel_model::BuildInteractionQueueState::Queued => "queued",
-        crate::panel_model::BuildInteractionQueueState::InFlight => "inflight",
+        crate::panel_model::BuildInteractionQueueState::InFlight => "flight",
         crate::panel_model::BuildInteractionQueueState::Mixed => "mixed",
     }
 }
@@ -6762,6 +6762,16 @@ mod tests {
             runtime_ui: Some(runtime_ui),
             ..HudModel::default()
         }
+    }
+
+    #[test]
+    fn window_build_interaction_queue_inflight_uses_flight_token() {
+        assert_eq!(
+            super::build_interaction_queue_status_text(
+                crate::panel_model::BuildInteractionQueueState::InFlight
+            ),
+            "flight"
+        );
     }
 
     fn runtime_command_rect_objects(
