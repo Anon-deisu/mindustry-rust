@@ -4235,7 +4235,7 @@ fn compose_build_config_rollback_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP)?;
     let strip = &panel.rollback_strip;
     Some(format!(
-        "cfgstrip:a{}:rb{}:last={}:src={}:b{}:cl{}:lr{}:pm={}:out={}:block={}",
+        "rbstrip:a{}:rb{}:last={}:src={}:b{}:cl{}:lr{}:pm={}:out={}:block={}",
         strip.applied_authoritative_count,
         strip.rollback_count,
         build_config_tile_status_text(strip.last_build_tile),
@@ -9938,7 +9938,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-ROLLBACK: cfgstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node",
+            "BUILD-ROLLBACK: rbstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -10291,7 +10291,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-ROLLBACK: cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=gamma",
+            "BUILD-ROLLBACK: rbstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=gamma",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

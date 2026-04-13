@@ -3350,7 +3350,7 @@ fn compose_build_config_rollback_text(hud: &HudModel) -> Option<String> {
     let panel = build_build_config_panel(hud, 3)?;
     let strip = &panel.rollback_strip;
     Some(format!(
-        "cfgstrip:a{}:rb{}:last={}:src={}:b{}:cl{}:lr{}:pm={}:out={}:block={}",
+        "rbstrip:a{}:rb{}:last={}:src={}:b{}:cl{}:lr{}:pm={}:out={}:block={}",
         strip.applied_authoritative_count,
         strip.rollback_count,
         build_config_tile_text(strip.last_build_tile),
@@ -6100,7 +6100,7 @@ mod tests {
             frame.contains("BUILD-CONFIG-ENTRY: 2/2:power-node#1@23:45:links=24:46|25:47")
         );
         assert!(frame.contains(
-            "BUILD-ROLLBACK: cfgstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node"
+            "BUILD-ROLLBACK: rbstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node"
         ));
         assert!(frame.contains(
             "BUILD-ROLLBACK-DETAIL: authoritative=3 rollback=1 last=23:45 source=constructFinish business=1 clear=1 last-rb=1 pending=mismatch outcome=applied block=power-node"
@@ -6444,7 +6444,7 @@ mod tests {
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 3/4:alpha#1@one"));
         assert!(frame.contains("BUILD-CONFIG-MORE: cfgmore:+1"));
         assert!(frame.contains(
-            "BUILD-ROLLBACK: cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=alpha"
+            "BUILD-ROLLBACK: rbstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=alpha"
         ));
         assert!(frame.contains(
             "BUILD-ROLLBACK-DETAIL: authoritative=4 rollback=2 last=10:12 source=tileConfig business=1 clear=0 last-rb=0 pending=match outcome=rejected-missing-building block=alpha"
