@@ -14,7 +14,7 @@ use crate::{
         RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
         RuntimeWorldReloadPanelModel,
     },
-    render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
+    render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue, RenderSemanticDetailCount},
     BuildQueueHeadStage, RenderModel, RenderObject,
     RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
     RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
@@ -296,6 +296,20 @@ pub(crate) fn compose_minimap_window_distribution_text(panel: &MinimapPanelModel
 
 pub(crate) fn compose_minimap_window_kind_distribution_text(panel: &MinimapPanelModel) -> String {
     format_minimap_window_counts_text("miniwin-kinds: ", " ", panel)
+}
+
+pub(crate) fn format_minimap_kind_text(panel: &MinimapPanelModel) -> String {
+    format!(
+        "minikind:obj{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
+        panel.tracked_object_count,
+        panel.player_count,
+        panel.marker_count,
+        panel.plan_count,
+        panel.block_count,
+        panel.runtime_count,
+        panel.terrain_count,
+        panel.unknown_count,
+    )
 }
 
 fn format_minimap_window_counts_text(
@@ -674,6 +688,22 @@ pub(crate) fn format_minimap_visibility_detail_text(minimap: &MinimapPanelModel)
         minimap.window_object_density_percent(),
         minimap.outside_object_percent(),
         minimap.viewport_band(),
+    )
+}
+
+pub(crate) fn format_semantic_detail_text(
+    detail_counts: &[RenderSemanticDetailCount],
+) -> Option<String> {
+    if detail_counts.is_empty() {
+        return None;
+    }
+
+    Some(
+        detail_counts
+            .iter()
+            .map(|detail| format!("{}:{}", detail.label, detail.count))
+            .collect::<Vec<_>>()
+            .join(","),
     )
 }
 
@@ -1924,7 +1954,8 @@ mod tests {
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
         format_counted_detail_text, format_counted_preview_text,
-        format_hud_visibility_detail_text, format_minimap_legend_text,
+        format_hud_visibility_detail_text, format_minimap_kind_text,
+        format_minimap_legend_text, format_semantic_detail_text,
         format_runtime_command_control_group_operation_text,
         format_runtime_command_group_lines,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
@@ -1993,7 +2024,7 @@ mod tests {
             RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
             RuntimeWorldReloadPanelModel,
         },
-        render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
+        render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue, RenderSemanticDetailCount},
         BuildQueueHeadStage, RenderModel, RenderObject,
         RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
         RuntimeCoreBindingKindObservability,
@@ -4124,6 +4155,45 @@ mod tests {
         assert_eq!(
             compose_minimap_window_kind_distribution_text(&panel),
             "miniwin-kinds: tracked=12 outside=5 player=1 marker=2 plan=3 block=4 runtime=5 terrain=6 unknown=7"
+        );
+    }
+
+    #[test]
+    fn format_minimap_kind_text_preserves_field_order() {
+        let mut panel = sample_minimap_panel();
+        panel.tracked_object_count = 7;
+        panel.player_count = 1;
+        panel.marker_count = 2;
+        panel.plan_count = 3;
+        panel.block_count = 4;
+        panel.runtime_count = 5;
+        panel.terrain_count = 6;
+        panel.unknown_count = 8;
+
+        assert_eq!(
+            format_minimap_kind_text(&panel),
+            "minikind:obj7@pl1:mk2:pn3:bk4:rt5:tr6:uk8"
+        );
+    }
+
+    #[test]
+    fn format_semantic_detail_text_handles_empty_and_preserves_order() {
+        assert_eq!(format_semantic_detail_text(&[]), None);
+
+        let detail_counts = vec![
+            RenderSemanticDetailCount {
+                label: "player",
+                count: 1,
+            },
+            RenderSemanticDetailCount {
+                label: "runtime",
+                count: 2,
+            },
+        ];
+
+        assert_eq!(
+            format_semantic_detail_text(&detail_counts),
+            Some("player:1,runtime:2".to_string())
         );
     }
 

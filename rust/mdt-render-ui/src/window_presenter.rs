@@ -20,7 +20,8 @@ use crate::{
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
         compact_runtime_ui_text,
-        format_hud_visibility_detail_text, format_minimap_legend_text,
+        format_hud_visibility_detail_text, format_minimap_kind_text, format_minimap_legend_text,
+        format_semantic_detail_text,
         format_minimap_visibility_detail_text,
         format_counted_detail_text, format_counted_preview_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
@@ -3186,18 +3187,7 @@ fn compose_minimap_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Opti
             height: 0,
         },
     )?;
-    let text = format!(
-        "minikind:obj{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
-        panel.tracked_object_count,
-        panel.player_count,
-        panel.marker_count,
-        panel.plan_count,
-        panel.block_count,
-        panel.runtime_count,
-        panel.terrain_count,
-        panel.unknown_count,
-    );
-    Some(text)
+    Some(format_minimap_kind_text(&panel))
 }
 
 fn compose_minimap_kind_detail_status_text(scene: &RenderModel, hud: &HudModel) -> Option<String> {
@@ -3211,7 +3201,7 @@ fn compose_minimap_kind_detail_status_text(scene: &RenderModel, hud: &HudModel) 
             height: 0,
         },
     )?;
-    semantic_detail_text(&panel.detail_counts)
+    format_semantic_detail_text(&panel.detail_counts)
 }
 
 fn compose_minimap_window_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Option<String> {
@@ -4002,22 +3992,6 @@ fn render_pipeline_summary(
             height: window.height,
         },
     ))
-}
-
-fn semantic_detail_text(
-    detail_counts: &[crate::render_model::RenderSemanticDetailCount],
-) -> Option<String> {
-    if detail_counts.is_empty() {
-        return None;
-    }
-
-    Some(
-        detail_counts
-            .iter()
-            .map(|detail| format!("{}:{}", detail.label, detail.count))
-            .collect::<Vec<_>>()
-            .join(","),
-    )
 }
 
 fn build_queue_head_status_text(head: Option<&BuildQueueHeadObservability>) -> String {
