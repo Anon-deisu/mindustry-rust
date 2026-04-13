@@ -2407,7 +2407,7 @@ fn compose_render_rect_detail_status_text(
     ) in rect_primitives
     {
         parts.push(format!(
-            "{family}@{layer}:{left}:{top}:{right}:{bottom} {family}{{{}}}",
+            "{family}@{layer}:{left}:{top}:{right}:{bottom} payload[{}]",
             format_render_rect_detail_fields(
                 left_tile,
                 top_tile,
@@ -11329,7 +11329,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RENDER-RECT-DETAIL: count=1 runtime-command-target-rect@29:32:40:48:56 runtime-command-target-rect{left_tile=4,top_tile=5,right_tile=6,bottom_tile=7,width_tiles=2,height_tiles=2,line_count=4}",
+            "RENDER-RECT-DETAIL: count=1 runtime-command-target-rect@29:32:40:48:56 payload[left_tile=4,top_tile=5,right_tile=6,bottom_tile=7,width_tiles=2,height_tiles=2,line_count=4]",
         );
     }
 
@@ -11461,7 +11461,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RENDER-RECT-DETAIL: count=1 runtime-break-rect@30:16:24:24:32 runtime-break-rect{left_tile=2,top_tile=3,right_tile=3,bottom_tile=4,width_tiles=1,height_tiles=1,line_count=4}",
+            "RENDER-RECT-DETAIL: count=1 runtime-break-rect@30:16:24:24:32 payload[left_tile=2,top_tile=3,right_tile=3,bottom_tile=4,width_tiles=1,height_tiles=1,line_count=4]",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -11524,7 +11524,7 @@ mod tests {
         assert_frame_line_contains(&frame.panel_lines, "RENDER-RECT-DETAIL: count=3");
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-command-target-rect@31:48:8:56:16 runtime-command-target-rect{left_tile=6,top_tile=1,right_tile=7,bottom_tile=2,width_tiles=1,height_tiles=1,line_count=4}",
+            "runtime-command-target-rect@31:48:8:56:16 payload[left_tile=6,top_tile=1,right_tile=7,bottom_tile=2,width_tiles=1,height_tiles=1,line_count=4]",
         );
     }
 
