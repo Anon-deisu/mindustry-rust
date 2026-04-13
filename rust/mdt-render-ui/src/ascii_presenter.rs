@@ -2200,7 +2200,7 @@ fn compose_runtime_marker_panel_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "create={} remove={} update={} text={} texture={} fail={} last={} control={}",
+        "marker:cr{}:rm{}:up{}:txt{}:tex{}:f{}:last{}:ctl{}",
         panel.create_count,
         panel.remove_count,
         panel.update_count,
@@ -2218,7 +2218,7 @@ fn compose_runtime_marker_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "total={} mutate={} text={} texture={} fail={} last={} control-len={}",
+        "markerd:tot{}:mut{}:txt{}:tex{}:f{}:last{}:c{}",
         panel.total_count(),
         panel.mutate_count(),
         panel.update_text_count,
@@ -5663,10 +5663,10 @@ mod tests {
             "RUNTIME-WORLD-LABEL-DETAIL: wlabeld:set19:rel20:rm21:act2:in1:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0"
         ));
         assert!(frame.contains(
-            "RUNTIME-MARKER: create=54 remove=55 update=56 text=57 texture=58 fail=2 last=808 control=flushText"
+            "RUNTIME-MARKER: marker:cr54:rm55:up56:txt57:tex58:f2:last808:ctlflushText"
         ));
         assert!(frame.contains(
-            "RUNTIME-MARKER-DETAIL: total=280 mutate=165 text=57 texture=58 fail=2 last=808 control-len=9"
+            "RUNTIME-MARKER-DETAIL: markerd:tot280:mut165:txt57:tex58:f2:last808:c9"
         ));
         assert!(frame.contains(
             "RUNTIME-SESSION: sess:bootstrap=rules=rules-hash-1:tags=tags-hash-2:locales=locales-hash-3:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7;cb=core:first-core-per-team:a1@1:m1@4;rd=resd:tile80/81/82/83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3@to_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1;k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
