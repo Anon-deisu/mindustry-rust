@@ -2231,7 +2231,7 @@ fn compose_runtime_marker_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_kick_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_kick_panel(hud)?;
-    Some(compose_runtime_kick_panel_text(&panel))
+    Some(format!("kick:{}", compose_runtime_kick_panel_text(&panel)))
 }
 
 fn compose_runtime_bootstrap_row_text(hud: &HudModel) -> Option<String> {
@@ -3677,13 +3677,7 @@ fn compose_runtime_reconnect_panel_compact_text(
 fn compose_runtime_kick_detail_panel_text(
     kick: &crate::panel_model::RuntimeKickPanelModel,
 ) -> String {
-    format!(
-        "reason-len={} ordinal={} category-len={} hint-len={}",
-        runtime_ui_text_len(kick.reason_text.as_deref()),
-        optional_i32_label(kick.reason_ordinal),
-        runtime_ui_text_len(kick.hint_category.as_deref()),
-        runtime_ui_text_len(kick.hint_text.as_deref()),
-    )
+    compose_runtime_kick_detail_compact_text(kick)
 }
 
 fn compose_runtime_kick_detail_compact_text(
@@ -3805,7 +3799,7 @@ fn runtime_world_reload_detail_text(
     world_reload: &crate::panel_model::RuntimeWorldReloadPanelModel,
 ) -> String {
     format!(
-        "loaded={} client={} ready={} confirm={} pending={} deferred={} replayed={}",
+        "reloadd:lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
         if world_reload.had_loaded_world { 1 } else { 0 },
         if world_reload.had_client_loaded { 1 } else { 0 },
         if world_reload.was_ready_to_enter_world {
@@ -5672,18 +5666,15 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-RESOURCE-DELTA-DETAIL: resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1"
         ));
-        assert!(frame.contains("RUNTIME-KICK: idInUse@7:IdInUse:wait_for_old~"));
-        assert!(frame
-            .contains("RUNTIME-KICK-DETAIL: reason-len=7 ordinal=7 category-len=7 hint-len=20"));
+        assert!(frame.contains("RUNTIME-KICK: kick:idInUse@7:IdInUse:wait_for_old~"));
+        assert!(frame.contains("RUNTIME-KICK-DETAIL: kickd:r7:o7:c7:h20"));
         assert!(frame.contains(
             "RUNTIME-LOADING: loading:defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
         ));
         assert!(frame.contains(
             "RUNTIME-LOADING-DETAIL: loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6"
         ));
-        assert!(frame.contains(
-            "RUNTIME-WORLD-RELOAD-DETAIL: loaded=1 client=0 ready=1 confirm=0 pending=4 deferred=5 replayed=6"
-        ));
+        assert!(frame.contains("RUNTIME-WORLD-RELOAD-DETAIL: reloadd:lw1:cl0:rd1:cc0:p4:d5:r6"));
         assert!(frame.contains("RUNTIME-CORE-BINDING: core:first-core-per-team:a1@1:m1@4"));
         assert!(frame.contains(
             "RUNTIME-CORE-BINDING-DETAIL: cored:first-core-per-team:a1:s1@1:m1:s1@4"
