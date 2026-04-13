@@ -343,6 +343,7 @@ impl CommandModeState {
         self.command_rect = rect;
         if rect.is_some() {
             self.active = true;
+            self.clear_recent_target_state();
         }
     }
 
@@ -747,6 +748,44 @@ mod tests {
                 }),
             }
         );
+    }
+
+    #[test]
+    fn set_command_rect_clears_stale_recent_target_and_selection_state() {
+        let mut state = CommandModeState::default();
+        state.record_command_target(Some(808), Some(unit(2, 909)), Some((1.5, -2.25)));
+        state.record_set_unit_command(&[77, 88, 77], Some(7));
+        state.record_set_unit_stance(&[77, 88, 77], Some(3), true);
+
+        state.set_command_rect(Some(CommandModeRectProjection {
+            x0: -4,
+            y0: 5,
+            x1: 6,
+            y1: 9,
+        }));
+
+        let projection = state.projection();
+        assert_eq!(
+            projection.command_rect,
+            Some(CommandModeRectProjection {
+                x0: -4,
+                y0: 5,
+                x1: 6,
+                y1: 9,
+            })
+        );
+        assert!(projection.active);
+        assert_eq!(projection.last_target, None);
+        assert_eq!(projection.last_command_selection, None);
+        assert_eq!(projection.last_stance_selection, None);
+
+        let summary = projection.summary();
+        assert!(summary.has_command_rect);
+        assert!(!summary.has_recent_target);
+        assert!(!summary.has_recent_command_selection);
+        assert!(!summary.has_recent_stance_selection);
+        assert_eq!(summary.recent_selection_label(), "none");
+        assert_eq!(summary.summary_label(), "rect");
     }
 
     #[test]
