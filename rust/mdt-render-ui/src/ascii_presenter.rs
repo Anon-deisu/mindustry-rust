@@ -443,6 +443,11 @@ impl AsciiScenePresenter {
                 "RUNTIME-COMMAND-DETAIL: {runtime_command_detail_text}\n"
             ));
         }
+        for runtime_command_group_text in compose_runtime_command_group_lines(hud) {
+            out.push_str(&format!(
+                "RUNTIME-COMMAND-GROUP: {runtime_command_group_text}\n"
+            ));
+        }
         if let Some(runtime_admin_text) = compose_runtime_admin_panel_text(hud) {
             out.push_str(&format!("RUNTIME-ADMIN: {runtime_admin_text}\n"));
         }
@@ -2337,6 +2342,28 @@ fn compose_runtime_command_mode_detail_text(hud: &HudModel) -> Option<String> {
         ),
         command_stance_text(panel.last_stance_selection),
     ))
+}
+
+fn compose_runtime_command_group_lines(hud: &HudModel) -> Vec<String> {
+    let Some(panel) = build_runtime_command_mode_panel(hud) else {
+        return Vec::new();
+    };
+    let group_count = panel.control_groups.len();
+    panel
+        .control_groups
+        .iter()
+        .enumerate()
+        .map(|(index, group)| {
+            format!(
+                "cmdg:{}/{}:g{}#{}@{}",
+                index + 1,
+                group_count,
+                group.index,
+                group.unit_count,
+                optional_i32_label(group.first_unit_id)
+            )
+        })
+        .collect()
 }
 
 fn compose_runtime_admin_panel_text(hud: &HudModel) -> Option<String> {
@@ -6022,6 +6049,8 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-COMMAND-DETAIL: cmdd:sample11,22,33:grp2#3@11,4#1@99:bld327686:rect-3:4:12:18:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
         ));
+        assert!(frame.contains("RUNTIME-COMMAND-GROUP: cmdg:1/2:g2#3@11"));
+        assert!(frame.contains("RUNTIME-COMMAND-GROUP: cmdg:2/2:g4#1@99"));
         assert!(frame.contains("RUNTIME-ADMIN: admin:t56@123456:f76:dbg57/58@12:f231"));
         assert!(
             frame.contains("RUNTIME-ADMIN-DETAIL: admind:tr56/76@123456:dbg57/77:udbg58/78:last12")
@@ -6663,6 +6692,7 @@ mod tests {
         assert!(!presenter.last_frame().contains("RUNTIME-SESSION-DETAIL:"));
         assert!(!presenter.last_frame().contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(!presenter.last_frame().contains("RUNTIME-COMMAND-DETAIL:"));
+        assert!(!presenter.last_frame().contains("RUNTIME-COMMAND-GROUP:"));
         assert!(!presenter.last_frame().contains("RUNTIME-DIALOG-STACK:"));
         assert!(!presenter.last_frame().contains("BUILD-FLOW-DETAIL:"));
         assert!(!presenter

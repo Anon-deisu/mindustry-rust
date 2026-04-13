@@ -1810,6 +1810,11 @@ fn compose_frame_panel_lines(
             "RUNTIME-COMMAND-DETAIL: {runtime_command_detail_text}"
         ));
     }
+    for runtime_command_group_text in compose_runtime_command_group_status_lines(hud) {
+        lines.push(format!(
+            "RUNTIME-COMMAND-GROUP: {runtime_command_group_text}"
+        ));
+    }
     if let Some(runtime_admin_text) = compose_runtime_admin_panel_status_text(hud) {
         lines.push(format!("RUNTIME-ADMIN: {runtime_admin_text}"));
     }
@@ -3270,6 +3275,28 @@ fn compose_runtime_command_mode_detail_status_text(hud: &HudModel) -> Option<Str
         ),
         command_stance_status_text(panel.last_stance_selection),
     ))
+}
+
+fn compose_runtime_command_group_status_lines(hud: &HudModel) -> Vec<String> {
+    let Some(panel) = build_runtime_command_mode_panel(hud) else {
+        return Vec::new();
+    };
+    let group_count = panel.control_groups.len();
+    panel
+        .control_groups
+        .iter()
+        .enumerate()
+        .map(|(index, group)| {
+            format!(
+                "cmdg:{}/{}:g{}#{}@{}",
+                index + 1,
+                group_count,
+                group.index,
+                group.unit_count,
+                optional_i32_label(group.first_unit_id)
+            )
+        })
+        .collect()
 }
 
 fn compose_runtime_admin_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -9753,6 +9780,14 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-COMMAND-GROUP: cmdg:1/2:g2#3@11",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-COMMAND-GROUP: cmdg:2/2:g4#1@99",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-ADMIN: admin:t56@123456:f76:dbg57/58@12:f231",
         );
         assert_frame_line_contains(
@@ -10230,6 +10265,14 @@ mod tests {
                 .iter()
                 .all(|line| !line.starts_with("RUNTIME-COMMAND-DETAIL:")),
             "unexpected runtime command detail line in {:?}",
+            frame.panel_lines
+        );
+        assert!(
+            frame
+                .panel_lines
+                .iter()
+                .all(|line| !line.starts_with("RUNTIME-COMMAND-GROUP:")),
+            "unexpected runtime command group line in {:?}",
             frame.panel_lines
         );
         assert!(
