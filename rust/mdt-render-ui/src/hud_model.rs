@@ -586,9 +586,27 @@ pub struct RuntimeCommandModeObservability {
     pub command_buildings: Vec<i32>,
     pub command_rect: Option<RuntimeCommandRectObservability>,
     pub control_groups: Vec<RuntimeCommandControlGroupObservability>,
+    pub last_control_group_operation: Option<RuntimeCommandRecentControlGroupOperationObservability>,
     pub last_target: Option<RuntimeCommandTargetObservability>,
     pub last_command_selection: Option<RuntimeCommandSelectionObservability>,
     pub last_stance_selection: Option<RuntimeCommandStanceObservability>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeCommandRecentControlGroupOperationObservability {
+    Bind,
+    Recall,
+    Clear,
+}
+
+impl RuntimeCommandRecentControlGroupOperationObservability {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Bind => "group-bind",
+            Self::Recall => "group-recall",
+            Self::Clear => "group-clear",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

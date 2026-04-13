@@ -2308,7 +2308,7 @@ fn compose_runtime_dialog_stack_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_command_mode_panel(hud)?;
     Some(format!(
-        "cmd:act{}:sel{}@{}:bld{}@{}:rect{}:grp{}:t{}:c{}:s{}",
+        "cmd:act{}:sel{}@{}:bld{}@{}:rect{}:grp{}:op{}:t{}:c{}:s{}",
         if panel.active { 1 } else { 0 },
         panel.selected_unit_count,
         command_i32_sample_text(&panel.selected_unit_sample),
@@ -2316,6 +2316,7 @@ fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
         optional_i32_label(panel.first_command_building),
         command_rect_text(panel.command_rect),
         command_control_groups_text(&panel.control_groups),
+        command_control_group_operation_text(panel.last_control_group_operation),
         command_target_text(panel.last_target),
         optional_u8_label(
             panel
@@ -2329,9 +2330,10 @@ fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_command_mode_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_command_mode_panel(hud)?;
     Some(format!(
-        "cmdd:sample{}:grp{}:bld{}:rect{}:t{}:c{}:s{}",
+        "cmdd:sample{}:grp{}:op{}:bld{}:rect{}:t{}:c{}:s{}",
         command_i32_sample_text(&panel.selected_unit_sample),
         command_control_groups_text(&panel.control_groups),
+        command_control_group_operation_text(panel.last_control_group_operation),
         optional_i32_label(panel.first_command_building),
         command_rect_text(panel.command_rect),
         command_target_text(panel.last_target),
@@ -4527,6 +4529,12 @@ fn command_control_groups_text(
         .join(",")
 }
 
+fn command_control_group_operation_text(
+    value: Option<crate::RuntimeCommandRecentControlGroupOperationObservability>,
+) -> &'static str {
+    value.map(|operation| operation.label()).unwrap_or("none")
+}
+
 fn command_target_text(value: Option<crate::RuntimeCommandTargetObservability>) -> String {
     let Some(value) = value else {
         return "none".to_string();
@@ -5624,6 +5632,9 @@ mod tests {
                             unit_ids: vec![99],
                         },
                     ],
+                    last_control_group_operation: Some(
+                        crate::RuntimeCommandRecentControlGroupOperationObservability::Recall,
+                    ),
                     last_target: Some(crate::RuntimeCommandTargetObservability {
                         build_target: Some(((9 & 0xffff) << 16) | (10 & 0xffff)),
                         unit_target: Some(crate::RuntimeCommandUnitRefObservability {
@@ -6044,10 +6055,10 @@ mod tests {
             "RUNTIME-DIALOG-STACK: stackx:f=input:p=input@input>menu:m16:fo0:i53:n=warn@hud>reliable>info>warn:md2:hd4:c1:7/8:tin404:s404:dd7:t7"
         ));
         assert!(frame.contains(
-            "RUNTIME-COMMAND: cmd:act1:sel4@11,22,33:bld2@327686:rect-3:4:12:18:grp2#3@11,4#1@99:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
+            "RUNTIME-COMMAND: cmd:act1:sel4@11,22,33:bld2@327686:rect-3:4:12:18:grp2#3@11,4#1@99:opgroup-recall:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
         ));
         assert!(frame.contains(
-            "RUNTIME-COMMAND-DETAIL: cmdd:sample11,22,33:grp2#3@11,4#1@99:bld327686:rect-3:4:12:18:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
+            "RUNTIME-COMMAND-DETAIL: cmdd:sample11,22,33:grp2#3@11,4#1@99:opgroup-recall:bld327686:rect-3:4:12:18:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
         ));
         assert!(frame.contains("RUNTIME-COMMAND-GROUP: cmdg:1/2:g2#3@11"));
         assert!(frame.contains("RUNTIME-COMMAND-GROUP: cmdg:2/2:g4#1@99"));

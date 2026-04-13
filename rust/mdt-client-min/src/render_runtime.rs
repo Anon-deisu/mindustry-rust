@@ -2778,6 +2778,9 @@ fn runtime_command_mode_observability(
                 },
             )
             .collect(),
+        last_control_group_operation: projection
+            .last_control_group_operation
+            .map(runtime_command_control_group_operation_observability),
         last_target: projection.last_target.map(|target| {
             mdt_render_ui::RuntimeCommandTargetObservability {
                 build_target: target.build_target,
@@ -2814,6 +2817,22 @@ fn runtime_command_mode_observability(
                 enabled: selection.enabled,
             }
         }),
+    }
+}
+
+fn runtime_command_control_group_operation_observability(
+    operation: mdt_input::command_mode::CommandModeRecentControlGroupOperation,
+) -> mdt_render_ui::RuntimeCommandRecentControlGroupOperationObservability {
+    match operation {
+        mdt_input::command_mode::CommandModeRecentControlGroupOperation::Bind => {
+            mdt_render_ui::RuntimeCommandRecentControlGroupOperationObservability::Bind
+        }
+        mdt_input::command_mode::CommandModeRecentControlGroupOperation::Recall => {
+            mdt_render_ui::RuntimeCommandRecentControlGroupOperationObservability::Recall
+        }
+        mdt_input::command_mode::CommandModeRecentControlGroupOperation::Clear => {
+            mdt_render_ui::RuntimeCommandRecentControlGroupOperationObservability::Clear
+        }
     }
 }
 
@@ -8186,7 +8205,9 @@ mod tests {
                     index: 4,
                     unit_ids: vec![99],
                 }],
-                last_control_group_operation: None,
+                last_control_group_operation: Some(
+                    mdt_input::command_mode::CommandModeRecentControlGroupOperation::Recall,
+                ),
                 last_target: Some(mdt_input::CommandModeTargetProjection {
                     unit_target: Some(mdt_input::CommandUnitRef {
                         kind: 2,
@@ -8267,6 +8288,10 @@ mod tests {
                 index: 4,
                 unit_ids: vec![99],
             }]
+        );
+        assert_eq!(
+            runtime_ui.command_mode.last_control_group_operation,
+            Some(mdt_render_ui::RuntimeCommandRecentControlGroupOperationObservability::Recall)
         );
         assert_eq!(
             runtime_ui.command_mode.last_target,

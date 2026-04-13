@@ -1029,6 +1029,7 @@ pub struct RuntimeCommandModePanelModel {
     pub first_command_building: Option<i32>,
     pub command_rect: Option<crate::RuntimeCommandRectObservability>,
     pub control_groups: Vec<RuntimeCommandControlGroupPanelModel>,
+    pub last_control_group_operation: Option<crate::RuntimeCommandRecentControlGroupOperationObservability>,
     pub last_target: Option<crate::RuntimeCommandTargetObservability>,
     pub last_command_selection: Option<crate::RuntimeCommandSelectionObservability>,
     pub last_stance_selection: Option<crate::RuntimeCommandStanceObservability>,
@@ -2488,6 +2489,7 @@ pub fn build_runtime_command_mode_panel(hud: &HudModel) -> Option<RuntimeCommand
         && command_mode.command_buildings.is_empty()
         && command_mode.command_rect.is_none()
         && command_mode.control_groups.is_empty()
+        && command_mode.last_control_group_operation.is_none()
         && command_mode.last_target.is_none()
         && command_mode.last_command_selection.is_none()
         && command_mode.last_stance_selection.is_none()
@@ -2515,6 +2517,7 @@ pub fn build_runtime_command_mode_panel(hud: &HudModel) -> Option<RuntimeCommand
                 first_unit_id: group.unit_ids.first().copied(),
             })
             .collect(),
+        last_control_group_operation: command_mode.last_control_group_operation,
         last_target: command_mode.last_target,
         last_command_selection: command_mode.last_command_selection,
         last_stance_selection: command_mode.last_stance_selection,
@@ -2976,14 +2979,15 @@ mod tests {
     use crate::{
         hud_model::{
             HudSummary, RuntimeBootstrapObservability, RuntimeCommandControlGroupObservability,
-            RuntimeCommandModeObservability, RuntimeCommandRectObservability,
-            RuntimeCommandSelectionObservability, RuntimeCommandStanceObservability,
-            RuntimeCommandTargetObservability, RuntimeCommandUnitRefObservability,
-            RuntimeCoreBindingKindObservability, RuntimeCoreBindingObservability,
-            RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
-            RuntimeReconnectReasonKind, RuntimeResourceDeltaObservability,
-            RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
-            RuntimeWorldReloadObservability,
+            RuntimeCommandModeObservability,
+            RuntimeCommandRecentControlGroupOperationObservability,
+            RuntimeCommandRectObservability, RuntimeCommandSelectionObservability,
+            RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
+            RuntimeCommandUnitRefObservability, RuntimeCoreBindingKindObservability,
+            RuntimeCoreBindingObservability, RuntimeReconnectObservability,
+            RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
+            RuntimeResourceDeltaObservability, RuntimeSessionObservability,
+            RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
         },
         BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
         BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
@@ -4648,6 +4652,9 @@ mod tests {
                             unit_ids: vec![99],
                         },
                     ],
+                    last_control_group_operation: Some(
+                        RuntimeCommandRecentControlGroupOperationObservability::Recall,
+                    ),
                     last_target: Some(RuntimeCommandTargetObservability {
                         build_target: Some(pack_point2(9, 10)),
                         unit_target: Some(RuntimeCommandUnitRefObservability {
@@ -4707,6 +4714,10 @@ mod tests {
         assert_eq!(panel.control_groups[1].unit_count, 1);
         assert_eq!(panel.control_groups[1].first_unit_id, Some(99));
         assert_eq!(
+            panel.last_control_group_operation,
+            Some(RuntimeCommandRecentControlGroupOperationObservability::Recall)
+        );
+        assert_eq!(
             panel.last_target,
             Some(RuntimeCommandTargetObservability {
                 build_target: Some(pack_point2(9, 10)),
@@ -4739,6 +4750,35 @@ mod tests {
                 enabled: false,
             })
         );
+    }
+
+    #[test]
+    fn builds_runtime_command_mode_panel_for_recent_control_group_operation_only() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                command_mode: RuntimeCommandModeObservability {
+                    last_control_group_operation: Some(
+                        RuntimeCommandRecentControlGroupOperationObservability::Bind,
+                    ),
+                    ..RuntimeCommandModeObservability::default()
+                },
+                ..RuntimeUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+
+        let panel =
+            build_runtime_command_mode_panel(&hud).expect("expected runtime command-mode panel");
+        assert!(!panel.active);
+        assert_eq!(panel.selected_unit_count, 0);
+        assert!(panel.control_groups.is_empty());
+        assert_eq!(
+            panel.last_control_group_operation,
+            Some(RuntimeCommandRecentControlGroupOperationObservability::Bind)
+        );
+        assert_eq!(panel.last_target, None);
+        assert_eq!(panel.last_command_selection, None);
+        assert_eq!(panel.last_stance_selection, None);
     }
 
     #[test]
