@@ -5,8 +5,8 @@ use crate::{
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
         RuntimeCoreBindingPanelModel,
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
-        RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeMarkerPanelModel,
-        RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
+        RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeLoadingPanelModel,
+        RuntimeMarkerPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
         RuntimeReconnectPanelModel, RuntimeResourceDeltaPanelModel,
         RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
         RuntimeWorldReloadPanelModel,
@@ -15,6 +15,7 @@ use crate::{
     BuildQueueHeadStage, RenderModel, RenderObject,
     RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
     RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
+    RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
     RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
     RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
     RuntimeWorldPositionObservability,
@@ -1071,6 +1072,55 @@ pub(crate) fn format_runtime_core_binding_detail_text(
     )
 }
 
+pub(crate) fn format_runtime_loading_panel_text(
+    loading: &RuntimeLoadingPanelModel,
+) -> String {
+    format!(
+        "defer{}:replay{}:drop{}:qdrop{}:sfail{}:scfail{}:efail{}:rdy{}@{}:to{}:cto{}:rto{}:lt{}@{}:rs{}:rr{}:wr{}:kr{}:lr{}:lwr{}",
+        loading.deferred_inbound_packet_count,
+        loading.replayed_inbound_packet_count,
+        loading.dropped_loading_low_priority_packet_count,
+        loading.dropped_loading_deferred_overflow_count,
+        loading.failed_state_snapshot_parse_count,
+        loading.failed_state_snapshot_core_data_parse_count,
+        loading.failed_entity_snapshot_parse_count,
+        loading.ready_inbound_liveness_anchor_count,
+        format_optional_u64_text(loading.last_ready_inbound_liveness_anchor_at_ms),
+        loading.timeout_count,
+        loading.connect_or_loading_timeout_count,
+        loading.ready_snapshot_timeout_count,
+        format_runtime_session_timeout_kind_text(loading.last_timeout_kind),
+        format_optional_u64_text(loading.last_timeout_idle_ms),
+        loading.reset_count,
+        loading.reconnect_reset_count,
+        loading.world_reload_count,
+        loading.kick_reset_count,
+        format_runtime_session_reset_kind_text(loading.last_reset_kind),
+        format_runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
+    )
+}
+
+pub(crate) fn format_runtime_loading_detail_text(
+    loading: &RuntimeLoadingPanelModel,
+) -> String {
+    format!(
+        "loadingd:rdy{}@{}:to{}/{}/{}:{}@{}:rs{}/{}/{}/{}:{}:{}",
+        loading.ready_inbound_liveness_anchor_count,
+        format_optional_u64_text(loading.last_ready_inbound_liveness_anchor_at_ms),
+        loading.timeout_count,
+        loading.connect_or_loading_timeout_count,
+        loading.ready_snapshot_timeout_count,
+        format_runtime_session_timeout_kind_text(loading.last_timeout_kind),
+        format_optional_u64_text(loading.last_timeout_idle_ms),
+        loading.reset_count,
+        loading.reconnect_reset_count,
+        loading.world_reload_count,
+        loading.kick_reset_count,
+        format_runtime_session_reset_kind_text(loading.last_reset_kind),
+        format_runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
+    )
+}
+
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
     format!(
         "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
@@ -1284,6 +1334,12 @@ fn format_optional_i16_text(value: Option<i16>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn format_optional_u64_text(value: Option<u64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
 fn format_runtime_reconnect_phase_text(phase: RuntimeReconnectPhaseObservability) -> &'static str {
     match phase {
         RuntimeReconnectPhaseObservability::Idle => "idle",
@@ -1302,6 +1358,25 @@ fn format_runtime_reconnect_reason_kind_text(
         Some(RuntimeReconnectReasonKind::Kick) => "kick",
         Some(RuntimeReconnectReasonKind::Timeout) => "timeout",
         Some(RuntimeReconnectReasonKind::ManualConnect) => "manual",
+        None => "none",
+    }
+}
+
+fn format_runtime_session_timeout_kind_text(
+    kind: Option<RuntimeSessionTimeoutKind>,
+) -> &'static str {
+    match kind {
+        Some(RuntimeSessionTimeoutKind::ConnectOrLoading) => "cload",
+        Some(RuntimeSessionTimeoutKind::ReadySnapshotStall) => "ready",
+        None => "none",
+    }
+}
+
+fn format_runtime_session_reset_kind_text(kind: Option<RuntimeSessionResetKind>) -> &'static str {
+    match kind {
+        Some(RuntimeSessionResetKind::Reconnect) => "reconnect",
+        Some(RuntimeSessionResetKind::WorldReload) => "reload",
+        Some(RuntimeSessionResetKind::Kick) => "kick",
         None => "none",
     }
 }
@@ -1462,6 +1537,7 @@ mod tests {
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
         format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
+        format_runtime_loading_detail_text, format_runtime_loading_panel_text,
         format_runtime_kick_detail_text, format_runtime_kick_panel_text,
         format_runtime_marker_detail_text, format_runtime_marker_panel_text,
         format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
@@ -1494,7 +1570,8 @@ mod tests {
             RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
             RuntimeCoreBindingPanelModel,
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
-            RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeMarkerPanelModel,
+            RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeLoadingPanelModel,
+            RuntimeMarkerPanelModel,
             RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
             RuntimeReconnectPanelModel,
             RuntimeResourceDeltaPanelModel,
@@ -1506,6 +1583,7 @@ mod tests {
         RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
         RuntimeCoreBindingKindObservability,
         RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
+        RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
         RuntimeCommandSelectionObservability,
         RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
         RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
@@ -1959,6 +2037,84 @@ mod tests {
         assert_eq!(
             format_runtime_core_binding_detail_text(&panel),
             "cored:first-core-per-team:a1@2,3:m4@5"
+        );
+    }
+
+    #[test]
+    fn format_runtime_loading_panel_text_preserves_field_order() {
+        let panel = RuntimeLoadingPanelModel {
+            deferred_inbound_packet_count: 1,
+            replayed_inbound_packet_count: 2,
+            dropped_loading_low_priority_packet_count: 3,
+            dropped_loading_deferred_overflow_count: 4,
+            failed_state_snapshot_parse_count: 5,
+            failed_state_snapshot_core_data_parse_count: 6,
+            failed_entity_snapshot_parse_count: 7,
+            ready_inbound_liveness_anchor_count: 8,
+            last_ready_inbound_liveness_anchor_at_ms: Some(9),
+            timeout_count: 10,
+            connect_or_loading_timeout_count: 11,
+            ready_snapshot_timeout_count: 12,
+            last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+            last_timeout_idle_ms: Some(13),
+            reset_count: 14,
+            reconnect_reset_count: 15,
+            world_reload_count: 16,
+            kick_reset_count: 17,
+            last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+            last_world_reload: Some(RuntimeWorldReloadPanelModel {
+                had_loaded_world: true,
+                had_client_loaded: false,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 4,
+                cleared_deferred_inbound_packets: 5,
+                cleared_replayed_loading_events: 6,
+            }),
+        };
+
+        assert_eq!(
+            format_runtime_loading_panel_text(&panel),
+            "defer1:replay2:drop3:qdrop4:sfail5:scfail6:efail7:rdy8@9:to10:cto11:rto12:ltready@13:rs14:rr15:wr16:kr17:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+        );
+    }
+
+    #[test]
+    fn format_runtime_loading_detail_text_preserves_field_order() {
+        let panel = RuntimeLoadingPanelModel {
+            deferred_inbound_packet_count: 1,
+            replayed_inbound_packet_count: 2,
+            dropped_loading_low_priority_packet_count: 3,
+            dropped_loading_deferred_overflow_count: 4,
+            failed_state_snapshot_parse_count: 5,
+            failed_state_snapshot_core_data_parse_count: 6,
+            failed_entity_snapshot_parse_count: 7,
+            ready_inbound_liveness_anchor_count: 8,
+            last_ready_inbound_liveness_anchor_at_ms: Some(9),
+            timeout_count: 10,
+            connect_or_loading_timeout_count: 11,
+            ready_snapshot_timeout_count: 12,
+            last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+            last_timeout_idle_ms: Some(13),
+            reset_count: 14,
+            reconnect_reset_count: 15,
+            world_reload_count: 16,
+            kick_reset_count: 17,
+            last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+            last_world_reload: Some(RuntimeWorldReloadPanelModel {
+                had_loaded_world: true,
+                had_client_loaded: false,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 4,
+                cleared_deferred_inbound_packets: 5,
+                cleared_replayed_loading_events: 6,
+            }),
+        };
+
+        assert_eq!(
+            format_runtime_loading_detail_text(&panel),
+            "loadingd:rdy8@9:to10/11/12:ready@13:rs14/15/16/17:reload:@lw1:cl0:rd1:cc0:p4:d5:r6"
         );
     }
 

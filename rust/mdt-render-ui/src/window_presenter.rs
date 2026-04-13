@@ -31,6 +31,7 @@ use crate::{
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
         format_runtime_kick_detail_text, format_runtime_kick_panel_text,
+        format_runtime_loading_detail_text, format_runtime_loading_panel_text,
         format_runtime_marker_detail_text, format_runtime_marker_panel_text,
         format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
         format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
@@ -1548,7 +1549,7 @@ fn compose_frame_session_banner_text(hud: &HudModel) -> Option<String> {
     if !panel.loading.is_empty() {
         segments.push(format!(
             "LOADING {}",
-            compose_runtime_loading_panel_status_text(&panel.loading)
+            format_runtime_loading_panel_text(&panel.loading)
         ));
     }
     (!segments.is_empty()).then(|| segments.join(" | "))
@@ -3076,7 +3077,7 @@ fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {
     ));
     segments.push(format!(
         "l={}",
-        compose_runtime_loading_panel_status_text(&panel.loading)
+        format_runtime_loading_panel_text(&panel.loading)
     ));
     segments.push(format!(
         "r={}",
@@ -3107,7 +3108,7 @@ fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> 
     ));
     segments.push(format!(
         "l({})",
-        compose_runtime_loading_detail_panel_status_text(&panel.loading)
+        format_runtime_loading_detail_text(&panel.loading)
     ));
     segments.push(format!(
         "r({})",
@@ -3118,10 +3119,7 @@ fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> 
 
 fn compose_runtime_loading_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_loading_panel(hud)?;
-    Some(format!(
-        "loading:{}",
-        compose_runtime_loading_panel_status_text(&panel)
-    ))
+    Some(format!("loading:{}", format_runtime_loading_panel_text(&panel)))
 }
 
 fn compose_runtime_kick_detail_status_text(hud: &HudModel) -> Option<String> {
@@ -3131,7 +3129,7 @@ fn compose_runtime_kick_detail_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_loading_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_loading_panel(hud)?;
-    (!panel.is_empty()).then(|| compose_runtime_loading_detail_panel_status_text(&panel))
+    (!panel.is_empty()).then(|| format_runtime_loading_detail_text(&panel))
 }
 
 fn compose_runtime_world_reload_status_text(hud: &HudModel) -> Option<String> {
@@ -4140,76 +4138,6 @@ fn compose_live_effect_panel_status_text(
         world_position_status_text(effect.display_position()),
         format_live_effect_ttl_text(effect.display_overlay_ttl()),
     )
-}
-
-fn compose_runtime_loading_panel_status_text(
-    loading: &crate::panel_model::RuntimeLoadingPanelModel,
-) -> String {
-    format!(
-        "defer{}:replay{}:drop{}:qdrop{}:sfail{}:scfail{}:efail{}:rdy{}@{}:to{}:cto{}:rto{}:lt{}@{}:rs{}:rr{}:wr{}:kr{}:lr{}:lwr{}",
-        loading.deferred_inbound_packet_count,
-        loading.replayed_inbound_packet_count,
-        loading.dropped_loading_low_priority_packet_count,
-        loading.dropped_loading_deferred_overflow_count,
-        loading.failed_state_snapshot_parse_count,
-        loading.failed_state_snapshot_core_data_parse_count,
-        loading.failed_entity_snapshot_parse_count,
-        loading.ready_inbound_liveness_anchor_count,
-        optional_u64_label(loading.last_ready_inbound_liveness_anchor_at_ms),
-        loading.timeout_count,
-        loading.connect_or_loading_timeout_count,
-        loading.ready_snapshot_timeout_count,
-        runtime_session_timeout_kind_status_text(loading.last_timeout_kind),
-        optional_u64_label(loading.last_timeout_idle_ms),
-        loading.reset_count,
-        loading.reconnect_reset_count,
-        loading.world_reload_count,
-        loading.kick_reset_count,
-        runtime_session_reset_kind_status_text(loading.last_reset_kind),
-        format_runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
-    )
-}
-
-fn compose_runtime_loading_detail_panel_status_text(
-    loading: &crate::panel_model::RuntimeLoadingPanelModel,
-) -> String {
-    format!(
-        "loadingd:rdy{}@{}:to{}/{}/{}:{}@{}:rs{}/{}/{}/{}:{}:{}",
-        loading.ready_inbound_liveness_anchor_count,
-        optional_u64_label(loading.last_ready_inbound_liveness_anchor_at_ms),
-        loading.timeout_count,
-        loading.connect_or_loading_timeout_count,
-        loading.ready_snapshot_timeout_count,
-        runtime_session_timeout_kind_status_text(loading.last_timeout_kind),
-        optional_u64_label(loading.last_timeout_idle_ms),
-        loading.reset_count,
-        loading.reconnect_reset_count,
-        loading.world_reload_count,
-        loading.kick_reset_count,
-        runtime_session_reset_kind_status_text(loading.last_reset_kind),
-        format_runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
-    )
-}
-
-fn runtime_session_timeout_kind_status_text(
-    kind: Option<crate::hud_model::RuntimeSessionTimeoutKind>,
-) -> &'static str {
-    match kind {
-        Some(crate::hud_model::RuntimeSessionTimeoutKind::ConnectOrLoading) => "cload",
-        Some(crate::hud_model::RuntimeSessionTimeoutKind::ReadySnapshotStall) => "ready",
-        None => "none",
-    }
-}
-
-fn runtime_session_reset_kind_status_text(
-    kind: Option<crate::hud_model::RuntimeSessionResetKind>,
-) -> &'static str {
-    match kind {
-        Some(crate::hud_model::RuntimeSessionResetKind::Reconnect) => "reconnect",
-        Some(crate::hud_model::RuntimeSessionResetKind::WorldReload) => "reload",
-        Some(crate::hud_model::RuntimeSessionResetKind::Kick) => "kick",
-        None => "none",
-    }
 }
 
 fn compose_runtime_world_reload_detail_status_text(hud: &HudModel) -> Option<String> {
