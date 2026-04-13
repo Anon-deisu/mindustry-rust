@@ -2130,7 +2130,7 @@ fn compose_runtime_admin_detail_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_world_label_panel(hud)?;
     Some(format!(
-        "set={} rel={} remove={} total={} active={} inactive={} last={} flags={} font={} z={} pos={} text={} lines={} len={}",
+        "wlabel:set{}:rel{}:rm{}:tot{}:act{}:inact{}:last{}:f{}:fs{}:z{}:pos{}:txt{}:l{}:n{}",
         panel.label_count,
         panel.reliable_label_count,
         panel.remove_label_count,
@@ -2165,7 +2165,7 @@ fn compose_runtime_world_label_detail_text(hud: &HudModel) -> Option<String> {
     }
 
     Some(format!(
-        "set={} rel={} remove={} active={} inactive={} last={} flags={} text-len={} lines={} font={} z={} pos={}",
+        "wlabeld:set{}:rel{}:rm{}:act{}:in{}:last{}:f{}:txt{}x{}:fs{}:z{}:p{}",
         panel.label_count,
         panel.reliable_label_count,
         panel.remove_label_count,
@@ -2185,9 +2185,10 @@ fn runtime_world_label_text_sample(value: Option<&str>) -> String {
     let Some(value) = value else {
         return "none".to_string();
     };
-    let sample = value.chars().take(24).collect::<String>();
-    if value.chars().count() > 24 {
-        format!("{sample}...")
+    let sanitized = value.replace(' ', "_");
+    let sample = sanitized.chars().take(24).collect::<String>();
+    if sanitized.chars().count() > 24 {
+        format!("{sample}~")
     } else {
         sample
     }
@@ -5656,10 +5657,10 @@ mod tests {
             "RUNTIME-RULES-DETAIL: rulesd:set67:obj69:rule71:clr73:done74"
         ));
         assert!(frame.contains(
-            "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 inactive=1 last=904 flags=3 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0 text=world label lines=1 len=11"
+            "RUNTIME-WORLD-LABEL: wlabel:set19:rel20:rm21:tot60:act2:inact1:last904:f3:fs1094713344@12.0:z1082130432@4.0:pos40.0:60.0:txtworld_label:l1:n11"
         ));
         assert!(frame.contains(
-            "RUNTIME-WORLD-LABEL-DETAIL: set=19 rel=20 remove=21 active=2 inactive=1 last=904 flags=3 text-len=11 lines=1 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0"
+            "RUNTIME-WORLD-LABEL-DETAIL: wlabeld:set19:rel20:rm21:act2:in1:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0"
         ));
         assert!(frame.contains(
             "RUNTIME-MARKER: create=54 remove=55 update=56 text=57 texture=58 fail=2 last=808 control=flushText"
