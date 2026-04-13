@@ -3848,7 +3848,7 @@ fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
         return None;
     }
 
-    Some(summary.family_and_detail_text())
+    Some(format!("overlay:{}", summary.family_and_detail_text()))
 }
 
 fn compose_overlay_detail_text(scene: &RenderModel) -> Option<String> {
@@ -4712,7 +4712,7 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains(
-            "OVERLAY-KINDS: players=1 markers=2 plans=0 blocks=0 runtime=4 terrain=0 unknown=0"
+            "OVERLAY-KINDS: overlay:players=1 markers=2 plans=0 blocks=0 runtime=4 terrain=0 unknown=0"
         ));
         assert!(frame.contains(
             "detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
@@ -5572,7 +5572,7 @@ mod tests {
             "BUILD-INSPECTOR: family=power-node tracked=1 sample=23:45:links=24:46|25:47"
         ));
         assert!(frame.contains(
-            "OVERLAY-KINDS: players=1 markers=1 plans=1 blocks=1 runtime=0 terrain=0 unknown=0"
+            "OVERLAY-KINDS: overlay:players=1 markers=1 plans=1 blocks=1 runtime=0 terrain=0 unknown=0"
         ));
         assert!(frame.contains("RUNTIME-UI: hud=9/10/11@hud_text/hud_rel"));
         assert!(frame.contains("ann=12@announce"));
