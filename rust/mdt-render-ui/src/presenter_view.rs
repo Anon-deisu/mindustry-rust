@@ -192,14 +192,42 @@ pub(crate) fn world_rect_tile_coords(
     ))
 }
 
+pub(crate) fn render_line_is_visible(
+    window: PresenterViewWindow,
+    start_tile_x: i32,
+    start_tile_y: i32,
+    end_tile_x: i32,
+    end_tile_y: i32,
+) -> bool {
+    let left_tile = start_tile_x.min(end_tile_x);
+    let top_tile = start_tile_y.min(end_tile_y);
+    let right_tile = start_tile_x.max(end_tile_x);
+    let bottom_tile = start_tile_y.max(end_tile_y);
+    render_rect_detail_is_visible(window, left_tile, top_tile, right_tile, bottom_tile)
+}
+
+pub(crate) fn render_rect_detail_is_visible(
+    window: PresenterViewWindow,
+    left_tile: i32,
+    top_tile: i32,
+    right_tile: i32,
+    bottom_tile: i32,
+) -> bool {
+    !(right_tile < window.origin_x as i32
+        || bottom_tile < window.origin_y as i32
+        || left_tile >= window.origin_x.saturating_add(window.width) as i32
+        || top_tile >= window.origin_y.saturating_add(window.height) as i32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         crop_origin, crop_window, crop_window_to_focus, normalize_zoom, projected_window,
-        visible_window_tile, world_rect_tile_coords, world_tile_coords,
-        world_to_tile_index_floor, zoomed_view_tile_span, CropWindowMode,
+        render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
+        world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
+        zoomed_view_tile_span, CropWindowMode,
     };
-    use crate::{RenderModel, RenderObject, Viewport};
+    use crate::{panel_model::PresenterViewWindow, RenderModel, RenderObject, Viewport};
 
     const TILE_SIZE: f32 = 8.0;
 
@@ -412,6 +440,33 @@ mod tests {
             None
         );
         assert_eq!(world_rect_tile_coords(8.0, 16.0, 24.0, 32.0, 0.0), None);
+    }
+
+    #[test]
+    fn render_rect_detail_is_visible_tracks_window_overlap() {
+        let window = PresenterViewWindow {
+            origin_x: 2,
+            origin_y: 3,
+            width: 4,
+            height: 3,
+        };
+
+        assert!(render_rect_detail_is_visible(window, 1, 2, 3, 4));
+        assert!(!render_rect_detail_is_visible(window, -2, -1, 1, 2));
+        assert!(!render_rect_detail_is_visible(window, 6, 3, 7, 4));
+    }
+
+    #[test]
+    fn render_line_is_visible_uses_bounding_rect_overlap() {
+        let window = PresenterViewWindow {
+            origin_x: 2,
+            origin_y: 3,
+            width: 4,
+            height: 3,
+        };
+
+        assert!(render_line_is_visible(window, -1, 4, 2, 4));
+        assert!(!render_line_is_visible(window, -3, -2, -1, -1));
     }
 
     #[test]

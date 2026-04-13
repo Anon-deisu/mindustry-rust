@@ -15,7 +15,8 @@ use crate::panel_model::{
     RuntimeUiNoticePanelModel,
 };
 use crate::presenter_view::{
-    crop_window, visible_window_tile, world_rect_tile_coords, world_tile_coords, CropWindowMode,
+    crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
+    world_rect_tile_coords, world_tile_coords, CropWindowMode,
 };
 use crate::render_model::{
     RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -1462,33 +1463,6 @@ fn render_icon_detail_is_visible(window: PresenterViewWindow, tile_x: i32, tile_
         && (tile_y as usize) >= window.origin_y
         && (tile_x as usize) < window.origin_x.saturating_add(window.width)
         && (tile_y as usize) < window.origin_y.saturating_add(window.height)
-}
-
-fn render_line_is_visible(
-    window: PresenterViewWindow,
-    start_tile_x: i32,
-    start_tile_y: i32,
-    end_tile_x: i32,
-    end_tile_y: i32,
-) -> bool {
-    let left_tile = start_tile_x.min(end_tile_x);
-    let top_tile = start_tile_y.min(end_tile_y);
-    let right_tile = start_tile_x.max(end_tile_x);
-    let bottom_tile = start_tile_y.max(end_tile_y);
-    render_rect_detail_is_visible(window, left_tile, top_tile, right_tile, bottom_tile)
-}
-
-fn render_rect_detail_is_visible(
-    window: PresenterViewWindow,
-    left_tile: i32,
-    top_tile: i32,
-    right_tile: i32,
-    bottom_tile: i32,
-) -> bool {
-    !(right_tile < window.origin_x as i32
-        || bottom_tile < window.origin_y as i32
-        || left_tile >= window.origin_x.saturating_add(window.width) as i32
-        || top_tile >= window.origin_y.saturating_add(window.height) as i32)
 }
 
 fn render_rect_detail_payload_fields(
