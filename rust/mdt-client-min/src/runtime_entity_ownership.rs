@@ -173,7 +173,9 @@ fn authoritative_player_controller_entity_id(
 }
 
 fn unit_allows_heuristic_player_ownership(unit: &TypedRuntimeUnitEntity) -> bool {
-    unit.semantic.controller_type == 0 && unit.semantic.controller_value.is_none()
+    unit.semantic.controller_type == 0
+        && unit.semantic.controller_value.is_none()
+        && unit.unit_payload.is_none()
 }
 
 #[cfg(test)]
@@ -245,6 +247,32 @@ mod tests {
         })
     }
 
+    fn payload_unit(
+        entity_id: i32,
+        controller_type: u8,
+        controller_value: Option<i32>,
+        last_seen_entity_snapshot_count: u64,
+    ) -> TypedRuntimeEntityModel {
+        let TypedRuntimeEntityModel::Unit(mut unit_model) = unit(
+            entity_id,
+            controller_type,
+            controller_value,
+            last_seen_entity_snapshot_count,
+        ) else {
+            unreachable!("unit helper must return unit model");
+        };
+        unit_model.unit_payload = Some(mdt_world::UnitPayloadSnapshot {
+            class_id: 5,
+            revision: 7,
+            body_len: 12,
+            body_sha256:
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
+            nested_unit_payloads: Vec::new(),
+        });
+        TypedRuntimeEntityModel::Unit(unit_model)
+    }
+
     #[test]
     fn controller_backed_ownership_wins_over_heuristic_claims() {
         let by_entity_id = BTreeMap::from([
@@ -287,6 +315,27 @@ mod tests {
             Some(&101)
         );
         assert_eq!(resolution.ownership_conflict_count, 0);
+    }
+
+    #[test]
+    fn heuristic_fallback_does_not_claim_payload_carrying_unit() {
+        let by_entity_id = BTreeMap::from([
+            (101, player(101, 202, 7)),
+            (202, payload_unit(202, 0, None, 1)),
+        ]);
+
+        let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
+
+        assert_eq!(
+            resolution.player_owned_unit_by_player_entity_id.get(&101),
+            None
+        );
+        assert_eq!(
+            resolution.unit_owner_player_by_unit_entity_id.get(&202),
+            None
+        );
+        assert_eq!(resolution.ownership_conflict_count, 0);
+        assert!(resolution.ownership_conflict_unit_sample.is_empty());
     }
 
     #[test]
