@@ -15,8 +15,7 @@ use crate::panel_model::{
     RuntimeUiNoticePanelModel,
 };
 use crate::presenter_view::{
-    crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
-    zoomed_view_tile_span,
+    crop_window, visible_window_tile, CropWindowMode,
 };
 use crate::render_model::{
     RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -60,7 +59,14 @@ impl AsciiScenePresenter {
     fn compose_frame(&self, scene: &RenderModel, hud: &HudModel) -> String {
         let width = (scene.viewport.width / TILE_SIZE).round().max(0.0) as usize;
         let height = (scene.viewport.height / TILE_SIZE).round().max(0.0) as usize;
-        let window = crop_window(scene, width, height, self.max_view_tiles);
+        let window = crop_window(
+            scene,
+            TILE_SIZE,
+            width,
+            height,
+            self.max_view_tiles,
+            CropWindowMode::PreserveBaseWithinMax,
+        );
         let mut grid = vec![vec![' '; window.width]; window.height];
         let primitives = scene.primitives();
         let text_primitive_ids = primitives
@@ -1646,26 +1652,6 @@ fn draw_ascii_tile_if_visible(
     let local_x = tile_x - window.origin_x;
     let local_y = tile_y - window.origin_y;
     grid[local_y][local_x] = sprite;
-}
-
-fn crop_window(
-    scene: &RenderModel,
-    width: usize,
-    height: usize,
-    max_view_tiles: Option<(usize, usize)>,
-) -> PresenterViewWindow {
-    let base_window = projected_window(scene, width, height);
-    let Some((max_width, max_height)) = max_view_tiles else {
-        return base_window;
-    };
-    if base_window.width <= max_width && base_window.height <= max_height {
-        return base_window;
-    }
-
-    let zoom = normalize_zoom(scene.viewport.zoom);
-    let window_width = zoomed_view_tile_span(max_width, zoom, base_window.width);
-    let window_height = zoomed_view_tile_span(max_height, zoom, base_window.height);
-    crop_window_to_focus(scene, TILE_SIZE, base_window, window_width, window_height)
 }
 
 fn sprite_for_id(id: &str) -> char {

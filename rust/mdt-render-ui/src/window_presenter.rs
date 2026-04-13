@@ -17,8 +17,7 @@ use crate::{
         RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
     },
     presenter_view::{
-        crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
-        zoomed_view_tile_span,
+        crop_window, visible_window_tile, CropWindowMode,
     },
     render_model::{
         RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -420,7 +419,14 @@ fn compose_frame(
 ) -> WindowFrame {
     let width = viewport_tile_span(scene.viewport.width);
     let height = viewport_tile_span(scene.viewport.height);
-    let window = crop_window(scene, width, height, max_view_tiles);
+    let window = crop_window(
+        scene,
+        TILE_SIZE,
+        width,
+        height,
+        max_view_tiles,
+        CropWindowMode::PreserveBaseWithinZoomed,
+    );
     let mut tiles = vec![COLOR_EMPTY; window.width.saturating_mul(window.height)];
     let line_end_objects = scene
         .objects
@@ -1106,26 +1112,6 @@ fn runtime_command_rect_kind_priority(kind: WindowMinimapCommandRectKind) -> usi
         WindowMinimapCommandRectKind::Selection => 0,
         WindowMinimapCommandRectKind::Target => 1,
     }
-}
-
-fn crop_window(
-    scene: &RenderModel,
-    width: usize,
-    height: usize,
-    max_view_tiles: Option<(usize, usize)>,
-) -> PresenterViewWindow {
-    let base_window = projected_window(scene, width, height);
-    let Some((max_width, max_height)) = max_view_tiles else {
-        return base_window;
-    };
-    let zoom = normalize_zoom(scene.viewport.zoom);
-    let window_width = zoomed_view_tile_span(max_width, zoom, base_window.width);
-    let window_height = zoomed_view_tile_span(max_height, zoom, base_window.height);
-    if base_window.width <= window_width && base_window.height <= window_height {
-        return base_window;
-    }
-
-    crop_window_to_focus(scene, TILE_SIZE, base_window, window_width, window_height)
 }
 
 #[derive(Debug, Clone, Copy)]

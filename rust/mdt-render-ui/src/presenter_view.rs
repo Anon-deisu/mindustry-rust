@@ -1,5 +1,11 @@
 use crate::{panel_model::PresenterViewWindow, RenderModel, RenderObject};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CropWindowMode {
+    PreserveBaseWithinMax,
+    PreserveBaseWithinZoomed,
+}
+
 pub(crate) fn projected_window(
     scene: &RenderModel,
     viewport_width: usize,
@@ -19,6 +25,35 @@ pub(crate) fn projected_window(
             width: viewport_width,
             height: viewport_height,
         })
+}
+
+pub(crate) fn crop_window(
+    scene: &RenderModel,
+    tile_size: f32,
+    viewport_width: usize,
+    viewport_height: usize,
+    max_view_tiles: Option<(usize, usize)>,
+    mode: CropWindowMode,
+) -> PresenterViewWindow {
+    let base_window = projected_window(scene, viewport_width, viewport_height);
+    let Some((max_width, max_height)) = max_view_tiles else {
+        return base_window;
+    };
+    if matches!(mode, CropWindowMode::PreserveBaseWithinMax)
+        && base_window.width <= max_width
+        && base_window.height <= max_height
+    {
+        return base_window;
+    }
+
+    let zoom = normalize_zoom(scene.viewport.zoom);
+    let window_width = zoomed_view_tile_span(max_width, zoom, base_window.width);
+    let window_height = zoomed_view_tile_span(max_height, zoom, base_window.height);
+    if base_window.width <= window_width && base_window.height <= window_height {
+        return base_window;
+    }
+
+    crop_window_to_focus(scene, tile_size, base_window, window_width, window_height)
 }
 
 pub(crate) fn crop_window_to_focus(
@@ -126,8 +161,8 @@ pub(crate) fn world_to_tile_index_floor(world_position: f32, tile_size: f32) -> 
 #[cfg(test)]
 mod tests {
     use super::{
-        crop_origin, crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
-        world_to_tile_index_floor, zoomed_view_tile_span,
+        crop_origin, crop_window, crop_window_to_focus, normalize_zoom, projected_window,
+        visible_window_tile, world_to_tile_index_floor, zoomed_view_tile_span, CropWindowMode,
     };
     use crate::{RenderModel, RenderObject, Viewport};
 
@@ -162,6 +197,80 @@ mod tests {
         assert_eq!(cropped.origin_y, 2);
         assert_eq!(cropped.width, 4);
         assert_eq!(cropped.height, 4);
+    }
+
+    #[test]
+    fn crop_window_preserves_base_window_when_mode_uses_max_bounds() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 80.0,
+                height: 80.0,
+                zoom: 2.0,
+            },
+            view_window: Some(crate::RenderViewWindow {
+                origin_x: 1,
+                origin_y: 1,
+                width: 4,
+                height: 4,
+            }),
+            objects: vec![RenderObject {
+                id: "player:1".to_string(),
+                layer: 0,
+                x: 24.0,
+                y: 24.0,
+            }],
+        };
+
+        let cropped = crop_window(
+            &scene,
+            TILE_SIZE,
+            10,
+            10,
+            Some((4, 4)),
+            CropWindowMode::PreserveBaseWithinMax,
+        );
+
+        assert_eq!(cropped.origin_x, 1);
+        assert_eq!(cropped.origin_y, 1);
+        assert_eq!(cropped.width, 4);
+        assert_eq!(cropped.height, 4);
+    }
+
+    #[test]
+    fn crop_window_applies_zoomed_bounds_when_mode_uses_zoomed_limit() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 80.0,
+                height: 80.0,
+                zoom: 2.0,
+            },
+            view_window: Some(crate::RenderViewWindow {
+                origin_x: 1,
+                origin_y: 1,
+                width: 4,
+                height: 4,
+            }),
+            objects: vec![RenderObject {
+                id: "player:1".to_string(),
+                layer: 0,
+                x: 24.0,
+                y: 24.0,
+            }],
+        };
+
+        let cropped = crop_window(
+            &scene,
+            TILE_SIZE,
+            10,
+            10,
+            Some((4, 4)),
+            CropWindowMode::PreserveBaseWithinZoomed,
+        );
+
+        assert_eq!(cropped.origin_x, 2);
+        assert_eq!(cropped.origin_y, 2);
+        assert_eq!(cropped.width, 2);
+        assert_eq!(cropped.height, 2);
     }
 
     #[test]
