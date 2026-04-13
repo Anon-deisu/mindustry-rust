@@ -457,6 +457,34 @@ pub(crate) fn format_render_text_signature(
     format!("{kind_label}@{layer}:{tile_x}:{tile_y}")
 }
 
+pub(crate) fn format_counted_preview_text<I>(total: usize, preview_items: I) -> String
+where
+    I: IntoIterator<Item = String>,
+{
+    let preview_items = preview_items.into_iter().collect::<Vec<_>>();
+    let mut parts = vec![format!("count={total}")];
+    parts.extend(preview_items.iter().cloned());
+    if total > preview_items.len() {
+        parts.push(format!("more={}", total - preview_items.len()));
+    }
+    parts.join(" ")
+}
+
+pub(crate) fn format_counted_detail_text<I>(
+    total: usize,
+    item_separator: &str,
+    detail_items: I,
+) -> String
+where
+    I: IntoIterator<Item = String>,
+{
+    let detail_items = detail_items.into_iter().collect::<Vec<_>>();
+    if detail_items.is_empty() {
+        return format!("count={total}");
+    }
+    format!("count={total}{item_separator}{}", detail_items.join(item_separator))
+}
+
 pub(crate) fn format_render_rect_detail_fields(
     left_tile: i32,
     top_tile: i32,
@@ -495,6 +523,7 @@ mod tests {
     use super::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
+        format_counted_detail_text, format_counted_preview_text,
         format_live_effect_position_source_text, format_render_icon_signature,
         format_render_line_signature,
         format_render_primitive_payload_fields_with, format_render_primitive_payload_value_with,
@@ -996,6 +1025,30 @@ mod tests {
         assert_eq!(
             format_render_text_signature("label", 3, 4, 5),
             "label@3:4:5"
+        );
+    }
+
+    #[test]
+    fn format_counted_preview_text_preserves_count_and_more_suffix() {
+        assert_eq!(
+            format_counted_preview_text(4, vec!["a".to_string(), "b".to_string()]),
+            "count=4 a b more=2"
+        );
+        assert_eq!(
+            format_counted_preview_text(2, vec!["a".to_string(), "b".to_string()]),
+            "count=2 a b"
+        );
+    }
+
+    #[test]
+    fn format_counted_detail_text_preserves_separator() {
+        assert_eq!(
+            format_counted_detail_text(2, " | ", vec!["a".to_string(), "b".to_string()]),
+            "count=2 | a | b"
+        );
+        assert_eq!(
+            format_counted_detail_text(2, " ", vec!["a".to_string(), "b".to_string()]),
+            "count=2 a b"
         );
     }
 

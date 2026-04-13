@@ -20,6 +20,7 @@ use crate::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
+        format_counted_detail_text, format_counted_preview_text,
         format_live_effect_position_source_text, format_render_icon_signature,
         format_render_line_signature,
         format_render_primitive_payload_fields_with,
@@ -2048,23 +2049,21 @@ fn compose_render_line_status_text(
             .then_with(|| left.5.cmp(&right.5))
     });
 
-    let mut parts = vec![format!("count={total}")];
-    for (layer, label, start_tile_x, start_tile_y, end_tile_x, end_tile_y) in
-        line_primitives.into_iter().take(2)
-    {
-        parts.push(format_render_line_signature(
+    let preview_items = line_primitives
+        .into_iter()
+        .take(2)
+        .map(|(layer, label, start_tile_x, start_tile_y, end_tile_x, end_tile_y)| {
+            format_render_line_signature(
             &label,
             layer,
             start_tile_x,
             start_tile_y,
             end_tile_x,
             end_tile_y,
-        ));
-    }
-    if total > 2 {
-        parts.push(format!("more={}", total - 2));
-    }
-    Some(parts.join(" "))
+        )
+        })
+        .collect::<Vec<_>>();
+    Some(format_counted_preview_text(total, preview_items))
 }
 
 fn compose_render_line_detail_status_text(
@@ -2123,11 +2122,10 @@ fn compose_render_line_detail_status_text(
             .then_with(|| left.5.cmp(&right.5))
     });
 
-    let mut parts = vec![format!("count={}", line_primitives.len())];
-    for (layer, label, start_tile_x, start_tile_y, end_tile_x, end_tile_y, payload) in
-        line_primitives
-    {
-        parts.push(format!(
+    let total = line_primitives.len();
+    let detail_items = line_primitives.into_iter().map(
+        |(layer, label, start_tile_x, start_tile_y, end_tile_x, end_tile_y, payload)| {
+            format!(
             "{} payload[{}]",
             format_render_line_signature(
                 &label,
@@ -2138,9 +2136,10 @@ fn compose_render_line_detail_status_text(
                 end_tile_y,
             ),
             format_render_primitive_payload_fields(&payload)
-        ));
-    }
-    Some(parts.join(" "))
+        )
+        },
+    );
+    Some(format_counted_detail_text(total, " ", detail_items))
 }
 
 fn compose_render_text_status_text(
@@ -2181,20 +2180,19 @@ fn compose_render_text_status_text(
     let total = text_primitives.len();
     text_primitives.sort_by_key(|(_, layer, _, _, _)| *layer);
 
-    let mut parts = vec![format!("count={total}")];
-    for (kind, layer, x, y, text) in text_primitives.into_iter().take(2) {
-        let kind_text = kind.detail_label().unwrap_or("text");
-        parts.push(format!(
+    let preview_items = text_primitives
+        .into_iter()
+        .take(2)
+        .map(|(kind, layer, x, y, text)| {
+            let kind_text = kind.detail_label().unwrap_or("text");
+            format!(
             "{}={}",
             format_render_text_signature(kind_text, layer, x as i32, y as i32),
             compact_runtime_ui_text(Some(text.as_str()))
-        ));
-    }
-    if total > 2 {
-        parts.push(format!("more={}", total - 2));
-    }
-
-    Some(parts.join(" "))
+        )
+        })
+        .collect::<Vec<_>>();
+    Some(format_counted_preview_text(total, preview_items))
 }
 
 fn compose_render_text_detail_status_text(
@@ -2245,15 +2243,17 @@ fn compose_render_text_detail_status_text(
             .then_with(|| left.3.cmp(&right.3))
     });
 
-    let mut parts = vec![format!("count={}", text_primitives.len())];
-    for (kind_label, layer, tile_x, tile_y, payload) in text_primitives {
-        parts.push(format!(
+    let total = text_primitives.len();
+    let detail_items = text_primitives
+        .into_iter()
+        .map(|(kind_label, layer, tile_x, tile_y, payload)| {
+            format!(
             "{} payload[{}]",
             format_render_text_signature(kind_label, layer, tile_x, tile_y),
             format_render_primitive_payload_fields(&payload)
-        ));
-    }
-    Some(parts.join(" "))
+        )
+        });
+    Some(format_counted_detail_text(total, " ", detail_items))
 }
 
 fn compose_render_rect_status_text(
@@ -2291,21 +2291,21 @@ fn compose_render_rect_status_text(
 
     let total = rect_primitives.len();
     rect_primitives.sort_by_key(|(_, layer, _, _, _, _)| *layer);
-    let mut parts = vec![format!("count={total}")];
-    for (family, layer, left, top, right, bottom) in rect_primitives.into_iter().take(2) {
-        parts.push(format_render_rect_signature(
+    let preview_items = rect_primitives
+        .into_iter()
+        .take(2)
+        .map(|(family, layer, left, top, right, bottom)| {
+            format_render_rect_signature(
             &family,
             layer,
             left as i32,
             top as i32,
             right as i32,
             bottom as i32,
-        ));
-    }
-    if total > 2 {
-        parts.push(format!("more={}", total - 2));
-    }
-    Some(parts.join(" "))
+        )
+        })
+        .collect::<Vec<_>>();
+    Some(format_counted_preview_text(total, preview_items))
 }
 
 fn compose_render_rect_detail_status_text(
@@ -2375,8 +2375,8 @@ fn compose_render_rect_detail_status_text(
             .then_with(|| left.5.cmp(&right.5))
     });
 
-    let mut parts = vec![format!("count={}", rect_primitives.len())];
-    for (
+    let total = rect_primitives.len();
+    let detail_items = rect_primitives.into_iter().map(|(
         layer,
         family,
         left,
@@ -2391,9 +2391,8 @@ fn compose_render_rect_detail_status_text(
         block_name,
         tile_x,
         tile_y,
-    ) in rect_primitives
-    {
-        parts.push(format!(
+    )| {
+        format!(
             "{} payload[{}]",
             format_render_rect_signature(&family, layer, left, top, right, bottom),
             format_render_rect_detail_fields(
@@ -2406,9 +2405,9 @@ fn compose_render_rect_detail_status_text(
                 tile_x,
                 tile_y
             )
-        ));
-    }
-    Some(parts.join(" "))
+        )
+    });
+    Some(format_counted_detail_text(total, " ", detail_items))
 }
 
 fn compose_render_icon_status_text(
@@ -2448,23 +2447,21 @@ fn compose_render_icon_status_text(
 
     let total = icon_primitives.len();
     icon_primitives.sort_by_key(|(_, _, layer, _, _)| *layer);
-    let mut parts = vec![format!("count={total}")];
-    for (family, variant, layer, x, y) in icon_primitives.into_iter().take(2) {
-        let Some((tile_x, tile_y)) = finite_tile_coords(x, y) else {
-            continue;
-        };
-        parts.push(format_render_icon_signature(
+    let preview_items = icon_primitives
+        .into_iter()
+        .take(2)
+        .filter_map(|(family, variant, layer, x, y)| {
+            let (tile_x, tile_y) = finite_tile_coords(x, y)?;
+            Some(format_render_icon_signature(
             family.label(),
             &variant,
             layer,
             tile_x,
             tile_y,
-        ));
-    }
-    if total > 2 {
-        parts.push(format!("more={}", total - 2));
-    }
-    Some(parts.join(" "))
+        ))
+        })
+        .collect::<Vec<_>>();
+    Some(format_counted_preview_text(total, preview_items))
 }
 
 fn compose_render_icon_detail_status_text(
@@ -2507,15 +2504,17 @@ fn compose_render_icon_detail_status_text(
     }
 
     icon_primitives.sort_by_key(|(_, _, layer, _, _, _)| *layer);
-    let mut parts = vec![format!("count={}", icon_primitives.len())];
-    for (family, variant, layer, tile_x, tile_y, payload) in icon_primitives {
-        parts.push(format!(
+    let total = icon_primitives.len();
+    let detail_items = icon_primitives.into_iter().map(
+        |(family, variant, layer, tile_x, tile_y, payload)| {
+            format!(
             "{} payload[{}]",
             format_render_icon_signature(family.label(), &variant, layer, tile_x, tile_y),
             format_render_primitive_payload_fields(&payload)
-        ));
-    }
-    Some(parts.join(" "))
+        )
+        },
+    );
+    Some(format_counted_detail_text(total, " ", detail_items))
 }
 
 fn format_render_primitive_payload_fields(payload: &RenderPrimitivePayload) -> String {
