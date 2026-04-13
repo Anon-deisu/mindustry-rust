@@ -8129,6 +8129,32 @@ mod tests {
     }
 
     #[test]
+    fn clear_last_effect_runtime_binding_states_resets_only_last_binding_state() {
+        let mut state = SessionState::default();
+        state.seen_entity_snapshot = true;
+        state.received_entity_snapshot_count = 9;
+        state.record_effect_runtime_binding_state(Some(
+            EffectRuntimeBindingState::BindingRejected,
+        ));
+        state.record_effect_runtime_source_binding_state(Some(
+            EffectRuntimeBindingState::UnresolvedFallback,
+        ));
+
+        state.clear_last_effect_runtime_binding_states();
+
+        assert_eq!(state.last_effect_runtime_binding_state, None);
+        assert_eq!(state.last_effect_runtime_source_binding_state, None);
+        assert_eq!(state.received_effect_binding_target_follow_count, 0);
+        assert_eq!(state.received_effect_binding_target_reject_count, 1);
+        assert_eq!(state.received_effect_binding_target_fallback_count, 0);
+        assert_eq!(state.received_effect_binding_source_follow_count, 0);
+        assert_eq!(state.received_effect_binding_source_reject_count, 0);
+        assert_eq!(state.received_effect_binding_source_fallback_count, 1);
+        assert!(state.seen_entity_snapshot);
+        assert_eq!(state.received_entity_snapshot_count, 9);
+    }
+
+    #[test]
     fn reconnect_projection_counts_only_distinct_phase_transitions() {
         let mut state = SessionState::default();
 
