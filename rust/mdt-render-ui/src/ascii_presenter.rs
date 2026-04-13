@@ -1696,14 +1696,9 @@ fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_rules_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_rules_panel(hud)?;
     Some(format!(
-        "mut={} fail={} set={}/{}/{} clear={} complete={} state=wv{}:pvp{} obj={} qual={} parents={} flags={} oor={} last={}",
+        "rules:mut{}:fail{}:wv{}:pvp{}:obj{}:q{}:par{}:fg{}:oor{}:last{}",
         panel.mutation_count,
         panel.parse_fail_count,
-        panel.set_rules_count,
-        panel.set_objectives_count,
-        panel.set_rule_count,
-        panel.clear_objectives_count,
-        panel.complete_objective_count,
         optional_bool_label(panel.waves),
         optional_bool_label(panel.pvp),
         panel.objective_count,
@@ -1721,7 +1716,7 @@ fn compose_runtime_rules_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "set-rules={} set-objectives={} set-rule={} clear-objectives={} complete-objective={}",
+        "rulesd:set{}:obj{}:rule{}:clr{}:done{}",
         panel.set_rules_count,
         panel.set_objectives_count,
         panel.set_rule_count,
@@ -5655,10 +5650,10 @@ mod tests {
             "RUNTIME-ADMIN-DETAIL: trace=56 fail=76 last-player=123456 debug=57 fail=77 unreliable=58 fail=78 last-value=12"
         ));
         assert!(frame.contains(
-            "RUNTIME-RULES: mut=354 fail=210 set=67/69/71 clear=73 complete=74 state=wv1:pvp0 obj=2 qual=1 parents=1 flags=2 oor=75 last=9"
+            "RUNTIME-RULES: rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"
         ));
         assert!(frame.contains(
-            "RUNTIME-RULES-DETAIL: set-rules=67 set-objectives=69 set-rule=71 clear-objectives=73 complete-objective=74"
+            "RUNTIME-RULES-DETAIL: rulesd:set67:obj69:rule71:clr73:done74"
         ));
         assert!(frame.contains(
             "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 inactive=1 last=904 flags=3 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0 text=world label lines=1 len=11"
