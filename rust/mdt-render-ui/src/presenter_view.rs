@@ -350,6 +350,17 @@ where
     parts.join(",")
 }
 
+pub(crate) fn format_render_line_signature(
+    label: &str,
+    layer: i32,
+    start_tile_x: i32,
+    start_tile_y: i32,
+    end_tile_x: i32,
+    end_tile_y: i32,
+) -> String {
+    format!("{label}@{layer}:{start_tile_x}:{start_tile_y}->{end_tile_x}:{end_tile_y}")
+}
+
 pub(crate) fn format_render_rect_detail_fields(
     left_tile: i32,
     top_tile: i32,
@@ -388,11 +399,11 @@ mod tests {
     use super::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
-        format_render_primitive_payload_fields_with, format_render_rect_detail_fields,
-        normalize_zoom, projected_window, render_line_is_visible, render_rect_detail_is_visible,
-        render_rect_detail_payload_fields, tile_local_coords, visible_window_tile,
-        world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
-        zoomed_view_tile_span, CropWindowMode,
+        format_render_line_signature, format_render_primitive_payload_fields_with,
+        format_render_rect_detail_fields, normalize_zoom, projected_window,
+        render_line_is_visible, render_rect_detail_is_visible, render_rect_detail_payload_fields,
+        tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
+        world_to_tile_index_floor, zoomed_view_tile_span, CropWindowMode,
     };
     use crate::{
         panel_model::{MinimapPanelModel, PresenterViewWindow},
@@ -763,6 +774,14 @@ mod tests {
                 _ => unreachable!("test payload only uses text, i32 and u32"),
             }),
             "variant=content,content_id=7,x_bits=0x41000000"
+        );
+    }
+
+    #[test]
+    fn format_render_line_signature_preserves_coordinate_template() {
+        assert_eq!(
+            format_render_line_signature("trace", 2, 1, 3, 5, 8),
+            "trace@2:1:3->5:8"
         );
     }
 

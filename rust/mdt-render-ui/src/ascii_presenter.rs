@@ -18,7 +18,8 @@ use crate::presenter_view::{
     compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
-    format_render_primitive_payload_fields_with, format_render_rect_detail_fields,
+    format_render_line_signature, format_render_primitive_payload_fields_with,
+    format_render_rect_detail_fields,
     render_rect_detail_payload_fields,
     format_build_strip_queue_status_text, CropWindowMode,
 };
@@ -992,8 +993,13 @@ fn compose_render_line_status_text(
     for (layer, label, start_tile_x, start_tile_y, end_tile_x, end_tile_y) in
         line_primitives.into_iter().take(2)
     {
-        parts.push(format!(
-            "{label}@{layer}:{start_tile_x}:{start_tile_y}->{end_tile_x}:{end_tile_y}"
+        parts.push(format_render_line_signature(
+            &label,
+            layer,
+            start_tile_x,
+            start_tile_y,
+            end_tile_x,
+            end_tile_y,
         ));
     }
     if total > 2 {
@@ -1063,7 +1069,15 @@ fn compose_render_line_detail_text(
         line_primitives
     {
         parts.push(format!(
-            "{label}@{layer}:{start_tile_x}:{start_tile_y}->{end_tile_x}:{end_tile_y} payload[{}]",
+            "{} payload[{}]",
+            format_render_line_signature(
+                &label,
+                layer,
+                start_tile_x,
+                start_tile_y,
+                end_tile_x,
+                end_tile_y,
+            ),
             render_primitive_payload_fields_text(&payload)
         ));
     }
