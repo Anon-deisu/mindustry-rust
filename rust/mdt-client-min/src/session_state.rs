@@ -4235,9 +4235,6 @@ fn typed_runtime_building_model(
                 .get(&build_pos)
                 .copied();
             let runtime = configured.landing_pad_runtime_by_build_pos.get(&build_pos);
-            if configured_item_id.is_none() && runtime.is_none() {
-                return None;
-            }
             (
                 TypedBuildingRuntimeKind::LandingPad,
                 TypedBuildingRuntimeValue::LandingPad {
@@ -12265,6 +12262,74 @@ mod tests {
                     arriving_item_id: Some(7),
                     arriving_timer_bits: Some(0x41c0_0000),
                     liquid_removed_bits: Some(0x3f80_0000),
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(128),
+                Some(true),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x45),
+                Some(0x13),
+                Some(84),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_gives_landing_pad_family_empty_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0020i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            305,
+            Some("landing-pad".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(128),
+            Some(true),
+            None,
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                305,
+                "landing-pad",
+                TypedBuildingRuntimeKind::LandingPad,
+                TypedBuildingRuntimeValue::LandingPad {
+                    configured_item_id: None,
+                    priority: None,
+                    cooldown_bits: None,
+                    arriving_item_id: None,
+                    arriving_timer_bits: None,
+                    liquid_removed_bits: None,
                 },
                 Vec::new(),
                 Some(2),
