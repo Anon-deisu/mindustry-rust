@@ -1800,7 +1800,7 @@ fn compose_runtime_choice_panel_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "menu-choose={}@{}/{} tin-result={}@{}/{}",
+        "choice:mc{}@{}/{}:tir{}@{}/{}",
         panel.menu_choose_count,
         optional_i32_label(panel.last_menu_choose_menu_id),
         optional_i32_label(panel.last_menu_choose_option),
@@ -1816,7 +1816,7 @@ fn compose_runtime_choice_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "choose-menu={} choose-option={} result-id={} result-len={}",
+        "choiced:mid{}:opt{}:rid{}:rlen{}",
         optional_i32_label(panel.last_menu_choose_menu_id),
         optional_i32_label(panel.last_menu_choose_option),
         optional_i32_label(panel.last_text_input_result_id),
@@ -5616,9 +5616,9 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-MENU-DETAIL: menud:a1:fo0:m40:4:4:2:3:fm41:6:4:1:2:hid41:tin53:id404:tDigits:d5:n1:e1"
         ));
-        assert!(frame.contains("RUNTIME-CHOICE: menu-choose=29@404/2 tin-result=30@405/ok123"));
+        assert!(frame.contains("RUNTIME-CHOICE: choice:mc29@404/2:tir30@405/ok123"));
         assert!(frame.contains(
-            "RUNTIME-CHOICE-DETAIL: choose-menu=404 choose-option=2 result-id=405 result-len=5"
+            "RUNTIME-CHOICE-DETAIL: choiced:mid404:opt2:rid405:rlen5"
         ));
         assert!(frame.contains(
             "RUNTIME-DIALOG: prompt=input act=1 menu=16/17/18 tin=53@404:Digits/Only_numbers/12345#16:n1:e1 notice=warn@warn total=48"
