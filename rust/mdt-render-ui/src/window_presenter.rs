@@ -21,7 +21,7 @@ use crate::{
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
         format_render_primitive_payload_fields_with, render_rect_detail_payload_fields,
-        format_build_strip_queue_status_text, CropWindowMode,
+        format_render_rect_detail_fields, format_build_strip_queue_status_text, CropWindowMode,
     },
     render_model::{
         RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -2495,39 +2495,6 @@ fn compose_render_icon_detail_status_text(
 
 fn format_render_primitive_payload_fields(payload: &RenderPrimitivePayload) -> String {
     format_render_primitive_payload_fields_with(payload, format_render_primitive_payload_value)
-}
-
-fn format_render_rect_detail_fields(
-    left_tile: i32,
-    top_tile: i32,
-    right_tile: i32,
-    bottom_tile: i32,
-    line_count: usize,
-    block_name: Option<&str>,
-    tile_x: Option<i32>,
-    tile_y: Option<i32>,
-) -> String {
-    let width_tiles = (right_tile - left_tile).max(0);
-    let height_tiles = (bottom_tile - top_tile).max(0);
-    let mut parts = vec![
-        format!("left_tile={left_tile}"),
-        format!("top_tile={top_tile}"),
-        format!("right_tile={right_tile}"),
-        format!("bottom_tile={bottom_tile}"),
-        format!("width_tiles={width_tiles}"),
-        format!("height_tiles={height_tiles}"),
-        format!("line_count={line_count}"),
-    ];
-    if let Some(block_name) = block_name {
-        parts.push(format!("block_name={block_name}"));
-    }
-    if let Some(tile_x) = tile_x {
-        parts.push(format!("tile_x={tile_x}"));
-    }
-    if let Some(tile_y) = tile_y {
-        parts.push(format!("tile_y={tile_y}"));
-    }
-    parts.join(",")
 }
 
 fn format_render_primitive_payload_value(

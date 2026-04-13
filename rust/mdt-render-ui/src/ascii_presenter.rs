@@ -18,7 +18,8 @@ use crate::presenter_view::{
     compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
-    format_render_primitive_payload_fields_with, render_rect_detail_payload_fields,
+    format_render_primitive_payload_fields_with, format_render_rect_detail_fields,
+    render_rect_detail_payload_fields,
     format_build_strip_queue_status_text, CropWindowMode,
 };
 use crate::render_model::{
@@ -1232,7 +1233,7 @@ fn compose_render_rect_detail_text(
     {
         parts.push(format!(
             "{family}@{layer}:{left}:{top}:{right}:{bottom} payload[{}]",
-            render_rect_detail_fields_text(
+            format_render_rect_detail_fields(
                 left_tile,
                 top_tile,
                 right_tile,
@@ -1466,39 +1467,6 @@ fn render_icon_detail_is_visible(window: PresenterViewWindow, tile_x: i32, tile_
         && (tile_y as usize) >= window.origin_y
         && (tile_x as usize) < window.origin_x.saturating_add(window.width)
         && (tile_y as usize) < window.origin_y.saturating_add(window.height)
-}
-
-fn render_rect_detail_fields_text(
-    left_tile: i32,
-    top_tile: i32,
-    right_tile: i32,
-    bottom_tile: i32,
-    line_count: usize,
-    block_name: Option<&str>,
-    tile_x: Option<i32>,
-    tile_y: Option<i32>,
-) -> String {
-    let width_tiles = (right_tile - left_tile).max(0);
-    let height_tiles = (bottom_tile - top_tile).max(0);
-    let mut parts = vec![
-        format!("left_tile={left_tile}"),
-        format!("top_tile={top_tile}"),
-        format!("right_tile={right_tile}"),
-        format!("bottom_tile={bottom_tile}"),
-        format!("width_tiles={width_tiles}"),
-        format!("height_tiles={height_tiles}"),
-        format!("line_count={line_count}"),
-    ];
-    if let Some(block_name) = block_name {
-        parts.push(format!("block_name={block_name}"));
-    }
-    if let Some(tile_x) = tile_x {
-        parts.push(format!("tile_x={tile_x}"));
-    }
-    if let Some(tile_y) = tile_y {
-        parts.push(format!("tile_y={tile_y}"));
-    }
-    parts.join(",")
 }
 
 fn render_primitive_payload_fields_text(payload: &RenderPrimitivePayload) -> String {

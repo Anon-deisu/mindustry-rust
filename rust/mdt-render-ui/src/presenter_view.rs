@@ -345,14 +345,47 @@ where
     parts.join(",")
 }
 
+pub(crate) fn format_render_rect_detail_fields(
+    left_tile: i32,
+    top_tile: i32,
+    right_tile: i32,
+    bottom_tile: i32,
+    line_count: usize,
+    block_name: Option<&str>,
+    tile_x: Option<i32>,
+    tile_y: Option<i32>,
+) -> String {
+    let width_tiles = (right_tile - left_tile).max(0);
+    let height_tiles = (bottom_tile - top_tile).max(0);
+    let mut parts = vec![
+        format!("left_tile={left_tile}"),
+        format!("top_tile={top_tile}"),
+        format!("right_tile={right_tile}"),
+        format!("bottom_tile={bottom_tile}"),
+        format!("width_tiles={width_tiles}"),
+        format!("height_tiles={height_tiles}"),
+        format!("line_count={line_count}"),
+    ];
+    if let Some(block_name) = block_name {
+        parts.push(format!("block_name={block_name}"));
+    }
+    if let Some(tile_x) = tile_x {
+        parts.push(format!("tile_x={tile_x}"));
+    }
+    if let Some(tile_y) = tile_y {
+        parts.push(format!("tile_y={tile_y}"));
+    }
+    parts.join(",")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
-        format_render_primitive_payload_fields_with, normalize_zoom, projected_window,
-        render_line_is_visible, render_rect_detail_is_visible, render_rect_detail_payload_fields,
-        tile_local_coords, visible_window_tile,
+        format_render_primitive_payload_fields_with, format_render_rect_detail_fields,
+        normalize_zoom, projected_window, render_line_is_visible, render_rect_detail_is_visible,
+        render_rect_detail_payload_fields, tile_local_coords, visible_window_tile,
         world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
         zoomed_view_tile_span, CropWindowMode,
     };
@@ -725,6 +758,14 @@ mod tests {
                 _ => unreachable!("test payload only uses text, i32 and u32"),
             }),
             "variant=content,content_id=7,x_bits=0x41000000"
+        );
+    }
+
+    #[test]
+    fn format_render_rect_detail_fields_preserves_field_order() {
+        assert_eq!(
+            format_render_rect_detail_fields(1, 2, 3, 4, 4, Some("duo"), Some(1), Some(2)),
+            "left_tile=1,top_tile=2,right_tile=3,bottom_tile=4,width_tiles=2,height_tiles=2,line_count=4,block_name=duo,tile_x=1,tile_y=2"
         );
     }
 
