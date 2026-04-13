@@ -29,6 +29,7 @@ use crate::presenter_view::{
     format_runtime_dialog_stack_summary_text,
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
     format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
+    format_runtime_live_effect_detail_text,
     format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
     format_runtime_live_entity_summary_text,
     format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
@@ -2148,18 +2149,7 @@ fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_effect_panel(hud)?;
-    Some(format!(
-        "livefxd:hint{}:src{}:pos{}:ttl{}:data{}:arel{}:ctr{}:rel{}:bind{}",
-        panel.last_business_hint.as_deref().unwrap_or("none"),
-        live_effect_position_source_text(panel.display_position_source()),
-        world_position_text(panel.display_position()),
-        format_live_effect_ttl_text(panel.display_overlay_ttl()),
-        format_live_effect_data_shape_text(panel.last_data_len, panel.last_data_type_tag),
-        format_live_effect_reliable_flag_text(panel.active_reliable),
-        compact_runtime_ui_text(panel.display_contract_name()),
-        compact_runtime_ui_text(panel.display_reliable_contract_name()),
-        panel.binding_detail.as_deref().unwrap_or("none"),
-    ))
+    Some(format_runtime_live_effect_detail_text(&panel))
 }
 
 fn compose_build_ui_text(hud: &HudModel) -> Option<String> {

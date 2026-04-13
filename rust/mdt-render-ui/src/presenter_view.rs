@@ -6,6 +6,7 @@ use crate::{
         RuntimeCoreBindingPanelModel,
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
         RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeLoadingPanelModel,
+        RuntimeLiveEffectPanelModel,
         RuntimeLiveEntityPanelModel,
         RuntimeMarkerPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
         RuntimeReconnectPanelModel, RuntimeResourceDeltaPanelModel,
@@ -937,6 +938,23 @@ pub(crate) fn format_runtime_live_entity_detail_text(
     format!("liveentd:{}", entity.detail_label())
 }
 
+pub(crate) fn format_runtime_live_effect_detail_text(
+    effect: &RuntimeLiveEffectPanelModel,
+) -> String {
+    format!(
+        "livefxd:hint{}:src{}:pos{}:ttl{}:data{}:arel{}:ctr{}:rel{}:bind{}",
+        effect.last_business_hint.as_deref().unwrap_or("none"),
+        format_live_effect_position_source_text(effect.display_position_source()),
+        format_world_position_status_text(effect.display_position()),
+        format_live_effect_ttl_text(effect.display_overlay_ttl()),
+        format_live_effect_data_shape_text(effect.last_data_len, effect.last_data_type_tag),
+        format_live_effect_reliable_flag_text(effect.active_reliable),
+        compact_runtime_ui_text(effect.display_contract_name()),
+        compact_runtime_ui_text(effect.display_reliable_contract_name()),
+        effect.binding_detail.as_deref().unwrap_or("none"),
+    )
+}
+
 fn format_runtime_live_entity_body_text(
     entity_count: usize,
     hidden_count: usize,
@@ -1835,6 +1853,7 @@ mod tests {
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
         format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
+        format_runtime_live_effect_detail_text,
         format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
         format_runtime_live_entity_summary_text,
         format_runtime_loading_detail_text, format_runtime_loading_panel_text,
@@ -1875,6 +1894,7 @@ mod tests {
             RuntimeCoreBindingPanelModel,
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
             RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeLoadingPanelModel,
+            RuntimeLiveEffectPanelModel,
             RuntimeLiveEntityPanelModel,
             RuntimeMarkerPanelModel,
             RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
@@ -1970,6 +1990,38 @@ mod tests {
             local_owned_carried_item_amount: Some(4),
             local_owned_controller_type: Some(4),
             local_owned_controller_value: Some(101),
+        }
+    }
+
+    fn sample_runtime_live_effect_panel() -> RuntimeLiveEffectPanelModel {
+        RuntimeLiveEffectPanelModel {
+            effect_count: 11,
+            spawn_effect_count: 73,
+            active_overlay_count: 1,
+            binding_label: Some("target:parent-follow/source:parent-follow".to_string()),
+            binding_detail: Some("source=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0".to_string()),
+            active_effect_id: Some(13),
+            active_contract_name: Some("lightning".to_string()),
+            active_reliable: Some(true),
+            active_position: Some(RuntimeWorldPositionObservability {
+                x_bits: 28.0f32.to_bits(),
+                y_bits: 36.0f32.to_bits(),
+            }),
+            active_overlay_remaining_ticks: Some(3),
+            active_overlay_lifetime_ticks: Some(5),
+            last_effect_id: None,
+            last_spawn_effect_unit_type_id: Some(19),
+            last_data_len: Some(9),
+            last_data_type_tag: Some(4),
+            last_kind: Some("Point2".to_string()),
+            last_contract_name: Some("lightning".to_string()),
+            last_reliable_contract_name: Some("lightning".to_string()),
+            last_business_hint: Some("pos:point2:3:4@1/0".to_string()),
+            last_position_hint: Some(RuntimeWorldPositionObservability {
+                x_bits: 28.0f32.to_bits(),
+                y_bits: 36.0f32.to_bits(),
+            }),
+            last_position_source: Some(RuntimeLiveEffectPositionSource::BusinessProjection),
         }
     }
 
@@ -3266,6 +3318,16 @@ mod tests {
         assert_eq!(
             format_runtime_live_entity_detail_text(&panel),
             "liveentd:local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
+        );
+    }
+
+    #[test]
+    fn format_runtime_live_effect_detail_text_preserves_field_order() {
+        let panel = sample_runtime_live_effect_panel();
+
+        assert_eq!(
+            format_runtime_live_effect_detail_text(&panel),
+            "livefxd:hintpos:point2:3:4@1/0:srcactive:pos28.0:36.0:ttl3/5:data9/4:arel1:ctrlightning:rellightning:bindsource=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0"
         );
     }
 
