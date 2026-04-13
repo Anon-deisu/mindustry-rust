@@ -1826,7 +1826,7 @@ fn compose_runtime_prompt_panel_text(hud: &HudModel) -> Option<String> {
     }
     let layers = panel.layer_labels().join(">");
     Some(format!(
-        "kind={} active={} depth={} layers={} menu={} follow-up={} tin={}@{}:{}/{}/{}#{}:n{}:e{}",
+        "prompt:k={}:a{}:d{}:l={}:m{}:fo{}:tin{}@{}:{}/{}/{}#{}:n{}:e{}",
         runtime_dialog_prompt_text(panel.kind),
         bool_flag(panel.is_active()),
         panel.depth(),
@@ -1854,7 +1854,7 @@ fn compose_runtime_prompt_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "menu-active={} follow-up-open={} follow-up-hide={} outstanding-follow-up={} text-input={} id={} title-len={} message-len={} default-len={} numeric={} allow-empty={}",
+        "promptd:ma{}:fm{}:fh{}:fo{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
         bool_flag(panel.menu_active()),
         panel.follow_up_menu_open_count,
         panel.hide_follow_up_menu_count,
@@ -6342,10 +6342,10 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains(
-            "RUNTIME-PROMPT: kind=input active=1 depth=3 layers=input>follow-up>menu menu=16 follow-up=2 tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
+            "RUNTIME-PROMPT: prompt:k=input:a1:d3:l=input>follow-up>menu:m16:fo2:tin53@404:Digits/Only_numbers/12345#16:n1:e1"
         ));
         assert!(frame.contains(
-            "RUNTIME-PROMPT-DETAIL: menu-active=1 follow-up-open=17 follow-up-hide=15 outstanding-follow-up=2 text-input=53 id=404 title-len=6 message-len=12 default-len=5 numeric=1 allow-empty=1"
+            "RUNTIME-PROMPT-DETAIL: promptd:ma1:fm17:fh15:fo2:tin53:id404:t6:m12:d5:n1:e1"
         ));
     }
 
