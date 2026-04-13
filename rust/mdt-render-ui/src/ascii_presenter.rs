@@ -3410,7 +3410,7 @@ fn compose_build_minimap_aux_text(
     let panel = build_build_minimap_assist_panel(scene, hud, window)?;
     let window_tile_count = window.width.saturating_mul(window.height);
     Some(format!(
-        "preb:m={}:s={}:q={}:r{}:cfg={}/{}@{}:auth={}:pm={}:head={}:tile={}:src={}:b={}:f={}@{}:v{}:u{}:w{}:d{}:obj{}:rt{}:rs{}",
+        "preb:m={}:s={}:q={}:r{}:c={}/{}@{}:a={}:p={}:h={}:t={}:x={}:b={}:f={}@{}:v{}:u{}:w{}:d{}:o{}:rt{}:rs{}",
         build_interaction_mode_text(panel.mode),
         build_interaction_selection_text(panel.selection_state),
         build_interaction_queue_text(panel.queue_state),
@@ -6462,7 +6462,7 @@ mod tests {
         let build_minimap_aux_pos = frame
             .lines()
             .position(|line| {
-                line == "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=4/8@gamma:auth=rej-miss-build:pm=match:head=10:12:tile=10:12:src=tilecfg:b=alpha:f=1:1@1:v0:u100:w0:d75:obj3:rt0:rs0"
+                line == "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:c=4/8@gamma:a=rej-miss-build:p=match:h=10:12:t=10:12:x=tilecfg:b=alpha:f=1:1@1:v0:u100:w0:d75:o3:rt0:rs0"
             })
             .expect("build minimap aux line");
         assert!(build_interaction_detail_pos < build_queue_pos);
@@ -6471,7 +6471,7 @@ mod tests {
             "BUILD-STRIP-DETAIL: selected=301 rot=1 available=1 families=4 samples=8 top=gamma head=queued@10:12:place:b301:r1 authority=rejected-missing-building pending=match source=tileConfig tile=10:12 block=alpha orphan=6"
         ));
         assert!(frame.contains(
-            "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=4/8@gamma:auth=rej-miss-build:pm=match:head=10:12:tile=10:12:src=tilecfg:b=alpha:f=1:1@1:v0:u100:w0:d75:obj3:rt0:rs0"
+            "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:c=4/8@gamma:a=rej-miss-build:p=match:h=10:12:t=10:12:x=tilecfg:b=alpha:f=1:1@1:v0:u100:w0:d75:o3:rt0:rs0"
         ));
         assert!(frame.contains(
             "BUILD-MINIMAP-DIAG: bmdiag:n=resolve:p=match:a=detached:f=inside:c=offscreen:v=unseen"
