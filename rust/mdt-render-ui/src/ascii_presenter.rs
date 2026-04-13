@@ -24,7 +24,8 @@ use crate::presenter_view::{
     format_runtime_command_mode_panel_text, format_runtime_command_unit_ref_text,
     format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
-    format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
+    format_runtime_dialog_prompt_text,
+    format_runtime_stack_detail_text, format_runtime_stack_panel_text,
     format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
     format_live_effect_ttl_text,
     format_live_effect_position_source_text, format_render_icon_signature,
@@ -2046,29 +2047,7 @@ fn compose_runtime_stack_panel_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    let prompt_layers = panel.prompt_layer_labels().join(">");
-    let notice_layers = panel.notice_layer_labels().join(">");
-    Some(format!(
-        "stack:f={}:p{}@{}:n={}@{}:c{}:g{}:t{}:tin{}:s{}",
-        panel.foreground_label(),
-        panel.prompt_depth(),
-        if prompt_layers.is_empty() {
-            "none"
-        } else {
-            prompt_layers.as_str()
-        },
-        format_runtime_dialog_notice_text(panel.notice_kind),
-        if notice_layers.is_empty() {
-            "none"
-        } else {
-            notice_layers.as_str()
-        },
-        panel.chat_depth(),
-        panel.active_group_count(),
-        panel.total_depth(),
-        optional_i32_label(panel.text_input_last_id),
-        optional_i32_label(panel.last_chat_sender_entity_id),
-    ))
+    Some(format_runtime_stack_panel_text(&panel))
 }
 
 fn compose_runtime_stack_detail_text(hud: &HudModel) -> Option<String> {
@@ -2076,25 +2055,7 @@ fn compose_runtime_stack_detail_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "stackd:f={}:g{}:t{}:p={}:m{}:fo{}:i{}:n={}:h{}:r{}:i{}:w{}:c{}:{}/{}:sid{}",
-        panel.foreground_label(),
-        panel.active_group_count(),
-        panel.total_depth(),
-        format_runtime_dialog_prompt_text(panel.prompt.kind),
-        bool_flag(panel.prompt.menu_active()),
-        panel.prompt.outstanding_follow_up_count(),
-        panel.prompt.text_input_open_count,
-        format_runtime_dialog_notice_text(panel.notice.kind),
-        bool_flag(panel.notice.hud_active),
-        bool_flag(panel.notice.reliable_hud_active),
-        bool_flag(panel.notice.toast_info_active),
-        bool_flag(panel.notice.toast_warning_active),
-        bool_flag(!panel.chat.is_empty()),
-        panel.chat.server_message_count,
-        panel.chat.chat_message_count,
-        optional_i32_label(panel.chat.last_chat_sender_entity_id),
-    ))
+    Some(format_runtime_stack_detail_text(&panel))
 }
 
 fn compose_runtime_stack_depth_text(hud: &HudModel) -> Option<String> {

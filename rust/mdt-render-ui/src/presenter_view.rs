@@ -2,8 +2,8 @@ use crate::{
     panel_model::{
         MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
         RuntimeCommandModePanelModel, RuntimeDialogNoticeKind, RuntimeDialogPanelModel,
-        RuntimeDialogPromptKind, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
-        RuntimeUiNoticePanelModel,
+        RuntimeDialogPromptKind, RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel,
+        RuntimePromptPanelModel, RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel,
     },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     BuildQueueHeadStage, RenderModel, RenderObject,
@@ -637,6 +637,54 @@ pub(crate) fn format_runtime_notice_state_detail_text(
     )
 }
 
+pub(crate) fn format_runtime_stack_panel_text(panel: &RuntimeUiStackPanelModel) -> String {
+    let prompt_layers = panel.prompt_layer_labels().join(">");
+    let notice_layers = panel.notice_layer_labels().join(">");
+    format!(
+        "stack:f={}:p{}@{}:n={}@{}:c{}:g{}:t{}:tin{}:s{}",
+        panel.foreground_label(),
+        panel.prompt_depth(),
+        if prompt_layers.is_empty() {
+            "none"
+        } else {
+            prompt_layers.as_str()
+        },
+        format_runtime_dialog_notice_text(panel.notice_kind),
+        if notice_layers.is_empty() {
+            "none"
+        } else {
+            notice_layers.as_str()
+        },
+        panel.chat_depth(),
+        panel.active_group_count(),
+        panel.total_depth(),
+        format_optional_i32_text(panel.text_input_last_id),
+        format_optional_i32_text(panel.last_chat_sender_entity_id),
+    )
+}
+
+pub(crate) fn format_runtime_stack_detail_text(panel: &RuntimeDialogStackPanelModel) -> String {
+    format!(
+        "stackd:f={}:g{}:t{}:p={}:m{}:fo{}:i{}:n={}:h{}:r{}:i{}:w{}:c{}:{}/{}:sid{}",
+        panel.foreground_label(),
+        panel.active_group_count(),
+        panel.total_depth(),
+        format_runtime_dialog_prompt_text(panel.prompt.kind),
+        u8::from(panel.prompt.menu_active()),
+        panel.prompt.outstanding_follow_up_count(),
+        panel.prompt.text_input_open_count,
+        format_runtime_dialog_notice_text(panel.notice.kind),
+        u8::from(panel.notice.hud_active),
+        u8::from(panel.notice.reliable_hud_active),
+        u8::from(panel.notice.toast_info_active),
+        u8::from(panel.notice.toast_warning_active),
+        u8::from(!panel.chat.is_empty()),
+        panel.chat.server_message_count,
+        panel.chat.chat_message_count,
+        format_optional_i32_text(panel.chat.last_chat_sender_entity_id),
+    )
+}
+
 pub(crate) fn format_runtime_command_i32_list_text(values: &[i32]) -> String {
     if values.is_empty() {
         "none".to_string()
@@ -933,6 +981,7 @@ mod tests {
         format_runtime_command_target_text, format_runtime_command_unit_ref_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
+        format_runtime_stack_detail_text, format_runtime_stack_panel_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
         format_live_effect_ttl_text,
         format_live_effect_position_source_text, format_render_icon_signature,
@@ -947,9 +996,11 @@ mod tests {
     };
     use crate::{
         panel_model::{
-            MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
-            RuntimeCommandModePanelModel, RuntimeDialogNoticeKind, RuntimeDialogPanelModel,
-            RuntimeDialogPromptKind, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
+            MinimapPanelModel, PresenterViewWindow, RuntimeChatPanelModel,
+            RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
+            RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
+            RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
+            RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel,
         },
         render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
         BuildQueueHeadStage, RenderModel, RenderObject,
@@ -1178,6 +1229,77 @@ mod tests {
         assert_eq!(
             format_runtime_notice_state_detail_text(&panel),
             "nstated:n=warn@warn:src=warn:c48:d4:l4:layers=hud>reliable>info>warn"
+        );
+    }
+
+    #[test]
+    fn format_runtime_stack_panel_text_preserves_field_order() {
+        let panel = RuntimeUiStackPanelModel {
+            foreground_kind: Some(RuntimeUiStackForegroundKind::TextInput),
+            menu_active: true,
+            outstanding_follow_up_count: 0,
+            text_input_active: true,
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            notice_kind: Some(RuntimeDialogNoticeKind::ToastWarning),
+            hud_notice_active: true,
+            reliable_hud_notice_active: true,
+            toast_info_active: true,
+            toast_warning_active: true,
+            chat_active: true,
+            server_message_count: 7,
+            chat_message_count: 8,
+            last_chat_sender_entity_id: Some(404),
+        };
+
+        assert_eq!(
+            format_runtime_stack_panel_text(&panel),
+            "stack:f=input:p2@input>menu:n=warn@hud>reliable>info>warn:c1:g3:t7:tin404:s404"
+        );
+    }
+
+    #[test]
+    fn format_runtime_stack_detail_text_preserves_field_order() {
+        let panel = RuntimeDialogStackPanelModel {
+            foreground_kind: Some(RuntimeUiStackForegroundKind::TextInput),
+            prompt: RuntimePromptPanelModel {
+                kind: Some(RuntimeDialogPromptKind::TextInput),
+                menu_active: true,
+                text_input_active: true,
+                menu_open_count: 1,
+                follow_up_menu_open_count: 0,
+                hide_follow_up_menu_count: 0,
+                text_input_open_count: 53,
+                text_input_last_id: Some(404),
+                text_input_last_title: Some("Digits".to_string()),
+                text_input_last_message: Some("Only numbers".to_string()),
+                text_input_last_default_text: Some("12345".to_string()),
+                text_input_last_length: Some(16),
+                text_input_last_numeric: Some(true),
+                text_input_last_allow_empty: Some(true),
+            },
+            notice: RuntimeNoticeStatePanelModel {
+                kind: Some(RuntimeDialogNoticeKind::ToastWarning),
+                text: Some("warn".to_string()),
+                count: 48,
+                hud_active: true,
+                reliable_hud_active: true,
+                toast_info_active: true,
+                toast_warning_active: true,
+            },
+            chat: RuntimeChatPanelModel {
+                server_message_count: 7,
+                last_server_message: Some("server text".to_string()),
+                chat_message_count: 8,
+                last_chat_message: Some("[cyan]hello".to_string()),
+                last_chat_unformatted: Some("hello".to_string()),
+                last_chat_sender_entity_id: Some(404),
+            },
+        };
+
+        assert_eq!(
+            format_runtime_stack_detail_text(&panel),
+            "stackd:f=input:g3:t7:p=input:m1:fo0:i53:n=warn:h1:r1:i1:w1:c1:7/8:sid404"
         );
     }
 
