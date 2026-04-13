@@ -28,6 +28,7 @@ use crate::presenter_view::{
     format_runtime_dialog_stack_summary_text,
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
     format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
+    format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
     format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
     format_runtime_stack_depth_text, format_runtime_stack_detail_text,
     format_runtime_stack_panel_text,
@@ -2203,7 +2204,7 @@ fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
     if let Some(world_reload) = panel.loading.last_world_reload.as_ref() {
         segments.push(format!(
             "RELOAD {}",
-            runtime_world_reload_panel_text(Some(world_reload))
+            format_runtime_world_reload_panel_text(Some(world_reload))
         ));
     }
     if !panel.reconnect.is_empty() {
@@ -2352,7 +2353,8 @@ fn compose_runtime_loading_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_world_reload_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_loading_panel(hud)?;
-    (!panel.is_empty()).then(|| runtime_world_reload_panel_text(panel.last_world_reload.as_ref()))
+    (!panel.is_empty())
+        .then(|| format_runtime_world_reload_panel_text(panel.last_world_reload.as_ref()))
 }
 
 fn compose_runtime_core_binding_panel_text(hud: &HudModel) -> Option<String> {
@@ -3505,7 +3507,7 @@ fn compose_runtime_loading_panel_compact_text(
         loading.world_reload_count,
         loading.kick_reset_count,
         runtime_session_reset_kind_text(loading.last_reset_kind),
-        runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
+        format_runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
     )
 }
 
@@ -3573,7 +3575,7 @@ fn compose_runtime_loading_detail_compact_text(
         loading.world_reload_count,
         loading.kick_reset_count,
         runtime_session_reset_kind_text(loading.last_reset_kind),
-        runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
+        format_runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
     )
 }
 
@@ -3621,59 +3623,10 @@ fn runtime_session_reset_kind_text(
     }
 }
 
-fn runtime_world_reload_panel_text(
-    world_reload: Option<&crate::panel_model::RuntimeWorldReloadPanelModel>,
-) -> String {
-    match world_reload {
-        Some(world_reload) => format!(
-            "@lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
-            if world_reload.had_loaded_world { 1 } else { 0 },
-            if world_reload.had_client_loaded { 1 } else { 0 },
-            if world_reload.was_ready_to_enter_world {
-                1
-            } else {
-                0
-            },
-            if world_reload.had_connect_confirm_sent {
-                1
-            } else {
-                0
-            },
-            world_reload.cleared_pending_packets,
-            world_reload.cleared_deferred_inbound_packets,
-            world_reload.cleared_replayed_loading_events,
-        ),
-        None => "none".to_string(),
-    }
-}
-
 fn compose_runtime_world_reload_detail_text(hud: &HudModel) -> Option<String> {
     let loading = build_runtime_loading_panel(hud)?;
     let world_reload = loading.last_world_reload.as_ref()?;
-    Some(runtime_world_reload_detail_text(world_reload))
-}
-
-fn runtime_world_reload_detail_text(
-    world_reload: &crate::panel_model::RuntimeWorldReloadPanelModel,
-) -> String {
-    format!(
-        "reloadd:lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
-        if world_reload.had_loaded_world { 1 } else { 0 },
-        if world_reload.had_client_loaded { 1 } else { 0 },
-        if world_reload.was_ready_to_enter_world {
-            1
-        } else {
-            0
-        },
-        if world_reload.had_connect_confirm_sent {
-            1
-        } else {
-            0
-        },
-        world_reload.cleared_pending_packets,
-        world_reload.cleared_deferred_inbound_packets,
-        world_reload.cleared_replayed_loading_events,
-    )
+    Some(format_runtime_world_reload_detail_text(world_reload))
 }
 
 fn runtime_reconnect_phase_text(

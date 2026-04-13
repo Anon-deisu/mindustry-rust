@@ -6,6 +6,7 @@ use crate::{
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
         RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
         RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
+        RuntimeWorldReloadPanelModel,
     },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     BuildQueueHeadStage, RenderModel, RenderObject,
@@ -846,6 +847,39 @@ pub(crate) fn format_runtime_world_label_detail_text(
     )
 }
 
+pub(crate) fn format_runtime_world_reload_panel_text(
+    world_reload: Option<&RuntimeWorldReloadPanelModel>,
+) -> String {
+    match world_reload {
+        Some(world_reload) => format!(
+            "@lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
+            u8::from(world_reload.had_loaded_world),
+            u8::from(world_reload.had_client_loaded),
+            u8::from(world_reload.was_ready_to_enter_world),
+            u8::from(world_reload.had_connect_confirm_sent),
+            world_reload.cleared_pending_packets,
+            world_reload.cleared_deferred_inbound_packets,
+            world_reload.cleared_replayed_loading_events,
+        ),
+        None => "none".to_string(),
+    }
+}
+
+pub(crate) fn format_runtime_world_reload_detail_text(
+    world_reload: &RuntimeWorldReloadPanelModel,
+) -> String {
+    format!(
+        "reloadd:lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
+        u8::from(world_reload.had_loaded_world),
+        u8::from(world_reload.had_client_loaded),
+        u8::from(world_reload.was_ready_to_enter_world),
+        u8::from(world_reload.had_connect_confirm_sent),
+        world_reload.cleared_pending_packets,
+        world_reload.cleared_deferred_inbound_packets,
+        world_reload.cleared_replayed_loading_events,
+    )
+}
+
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
     format!(
         "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
@@ -1195,6 +1229,7 @@ mod tests {
         format_runtime_world_label_sample_text,
         format_runtime_world_label_scalar_text,
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
+        format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
@@ -1224,6 +1259,7 @@ mod tests {
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
             RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
             RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
+            RuntimeWorldReloadPanelModel,
         },
         render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
         BuildQueueHeadStage, RenderModel, RenderObject,
@@ -1417,6 +1453,44 @@ mod tests {
         assert_eq!(
             format_runtime_world_label_detail_text(&panel),
             "wlabeld:set19:rel20:rm21:tot60:act2:in1:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0"
+        );
+    }
+
+    #[test]
+    fn format_runtime_world_reload_panel_text_preserves_field_order_and_none() {
+        assert_eq!(format_runtime_world_reload_panel_text(None), "none");
+
+        let panel = RuntimeWorldReloadPanelModel {
+            had_loaded_world: true,
+            had_client_loaded: false,
+            was_ready_to_enter_world: true,
+            had_connect_confirm_sent: false,
+            cleared_pending_packets: 5,
+            cleared_deferred_inbound_packets: 6,
+            cleared_replayed_loading_events: 7,
+        };
+
+        assert_eq!(
+            format_runtime_world_reload_panel_text(Some(&panel)),
+            "@lw1:cl0:rd1:cc0:p5:d6:r7"
+        );
+    }
+
+    #[test]
+    fn format_runtime_world_reload_detail_text_preserves_field_order() {
+        let panel = RuntimeWorldReloadPanelModel {
+            had_loaded_world: true,
+            had_client_loaded: false,
+            was_ready_to_enter_world: true,
+            had_connect_confirm_sent: false,
+            cleared_pending_packets: 5,
+            cleared_deferred_inbound_packets: 6,
+            cleared_replayed_loading_events: 7,
+        };
+
+        assert_eq!(
+            format_runtime_world_reload_detail_text(&panel),
+            "reloadd:lw1:cl0:rd1:cc0:p5:d6:r7"
         );
     }
 
