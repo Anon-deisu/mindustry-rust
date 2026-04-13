@@ -3245,18 +3245,23 @@ fn compose_build_ui_inspector_lines(hud: &HudModel) -> Vec<String> {
         return Vec::new();
     };
 
-    build_ui
+    let lines = build_ui
         .inspector_entries
         .iter()
         .map(|entry| {
             format!(
-                "family={} tracked={} sample={}",
+                "{}#{}@{}",
                 compact_runtime_ui_text(Some(entry.family.as_str())),
                 entry.tracked_count,
                 compact_build_inspector_text(entry.sample.as_str(), 72),
             )
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        Vec::new()
+    } else {
+        vec![lines.join(";")]
+    }
 }
 
 fn compact_build_inspector_text(value: &str, limit: usize) -> String {
@@ -5566,10 +5571,8 @@ mod tests {
         assert!(frame.contains("BUILD-QUEUE: bqueue:q1:i2:f3:r4:o1:h=flight@100:99:place:b301:r1"));
         assert!(frame
             .contains("BUILD-QUEUE-DETAIL: q=1 i=2 f=3 r=4 o=1 h=flight@100:99:place:b301:r1"));
-        assert!(frame
-            .contains("BUILD-INSPECTOR: family=message tracked=1 sample=18:40:len=5:text=hello"));
         assert!(frame.contains(
-            "BUILD-INSPECTOR: family=power-node tracked=1 sample=23:45:links=24:46|25:47"
+            "BUILD-INSPECTOR: message#1@18:40:len=5:text=hello;power-node#1@23:45:links=24:46|25:47"
         ));
         assert!(frame.contains(
             "OVERLAY-KINDS: overlay:players=1 markers=1 plans=1 blocks=1 runtime=0 terrain=0 unknown=0"
