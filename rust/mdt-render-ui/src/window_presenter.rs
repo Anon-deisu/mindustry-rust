@@ -4051,7 +4051,7 @@ fn compose_minimap_density_visibility_status_text(panel: &MinimapPanelModel) -> 
 
 fn compose_minimap_window_distribution_status_text(panel: &MinimapPanelModel) -> String {
     format!(
-        "miniwin:win{}:off{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
+        "miniwin:tracked={}:outside={}:player={}:marker={}:plan={}:block={}:runtime={}:terrain={}:unknown={}",
         panel.window_tracked_object_count,
         panel.outside_window_count,
         panel.window_player_count,
@@ -9134,7 +9134,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-WINDOW: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0",
+            "MINIMAP-WINDOW: miniwin:tracked=7:outside=0:player=1:marker=2:plan=0:block=0:runtime=4:terrain=0:unknown=0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

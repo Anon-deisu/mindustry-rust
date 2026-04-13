@@ -3192,7 +3192,7 @@ fn compose_minimap_density_visibility_line(panel: &MinimapPanelModel) -> String 
 
 fn compose_minimap_window_distribution_line(panel: &MinimapPanelModel) -> String {
     format!(
-        "miniwin:win{}:off{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
+        "miniwin:tracked={}:outside={}:player={}:marker={}:plan={}:block={}:runtime={}:terrain={}:unknown={}",
         panel.window_tracked_object_count,
         panel.outside_window_count,
         panel.window_player_count,
@@ -5276,14 +5276,18 @@ mod tests {
                 .expect("minimap panel"),
             )
         )));
-        assert!(frame.contains("MINIMAP-WINDOW: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"));
+        assert!(frame.contains(
+            "MINIMAP-WINDOW: miniwin:tracked=7:outside=0:player=1:marker=2:plan=0:block=0:runtime=4:terrain=0:unknown=0"
+        ));
         assert!(frame.contains(
             "MINIMAP-WINDOW-KINDS: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
         ));
         assert!(!frame.contains(
             "MINIMAP-DETAIL: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
         ));
-        assert!(!frame.contains("MINIMAP-DETAIL: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"));
+        assert!(!frame.contains(
+            "MINIMAP-DETAIL: miniwin:tracked=7:outside=0:player=1:marker=2:plan=0:block=0:runtime=4:terrain=0:unknown=0"
+        ));
     }
 
     #[test]
