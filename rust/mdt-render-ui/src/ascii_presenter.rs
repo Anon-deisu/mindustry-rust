@@ -2289,7 +2289,7 @@ fn compose_runtime_stack_depth_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "stackdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
+        "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
         summary.prompt_depth,
         summary.notice_depth,
         summary.chat_depth,
@@ -6148,7 +6148,7 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-STACK: stack:f=input:p2@input>menu:n=warn@hud>reliable>info>warn:c1:g3:t7:tin404:s404"
         ));
-        assert!(frame.contains("RUNTIME-STACK-DEPTH: stackdepth:p2:n4:c1:m2:h4:d7:g3:t7"));
+        assert!(frame.contains("RUNTIME-STACK-DEPTH: sdepth:p2:n4:c1:m2:h4:d7:g3:t7"));
         assert!(frame.contains(
             "RUNTIME-STACK-DETAIL: stackd:f=input:g3:t7:p=input:m1:fo0:i53:n=warn:h1:r1:i1:w1:c1:7/8:sid404"
         ));
@@ -6845,28 +6845,28 @@ mod tests {
                 "chat-only",
                 runtime_stack_test_hud(chat_only),
                 "RUNTIME-STACK: stack:f=chat:p0@none:n=none@none:c1:g1:t1:tinnone:s42",
-                "RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:m0:h0:d1:g1:t1",
+                "RUNTIME-STACK-DEPTH: sdepth:p0:n0:c1:m0:h0:d1:g1:t1",
                 "RUNTIME-STACK-DETAIL: stackd:f=chat:g1:t1:p=none:m0:fo0:i0:n=none:h0:r0:i0:w0:c1:1/2:sid42",
             ),
             (
                 "menu-only",
                 runtime_stack_test_hud(menu_only),
                 "RUNTIME-STACK: stack:f=menu:p1@menu:n=none@none:c0:g1:t1:tinnone:snone",
-                "RUNTIME-STACK-DEPTH: stackdepth:p1:n0:c0:m1:h0:d1:g1:t1",
+                "RUNTIME-STACK-DEPTH: sdepth:p1:n0:c0:m1:h0:d1:g1:t1",
                 "RUNTIME-STACK-DETAIL: stackd:f=menu:g1:t1:p=menu:m1:fo0:i0:n=none:h0:r0:i0:w0:c0:0/0:sidnone",
             ),
             (
                 "follow-up-without-text-input",
                 runtime_stack_test_hud(follow_up_only),
                 "RUNTIME-STACK: stack:f=follow-up:p1@follow-up:n=none@none:c0:g1:t1:tinnone:snone",
-                "RUNTIME-STACK-DEPTH: stackdepth:p1:n0:c0:m1:h0:d1:g1:t1",
+                "RUNTIME-STACK-DEPTH: sdepth:p1:n0:c0:m1:h0:d1:g1:t1",
                 "RUNTIME-STACK-DETAIL: stackd:f=follow-up:g1:t1:p=follow:m0:fo1:i0:n=none:h0:r0:i0:w0:c0:0/0:sidnone",
             ),
             (
                 "text-input+notice+chat",
                 runtime_stack_test_hud(input_notice_chat),
                 "RUNTIME-STACK: stack:f=input:p1@input:n=warn@warn:c1:g3:t3:tin404:s404",
-                "RUNTIME-STACK-DEPTH: stackdepth:p1:n1:c1:m1:h1:d3:g3:t3",
+                "RUNTIME-STACK-DEPTH: sdepth:p1:n1:c1:m1:h1:d3:g3:t3",
                 "RUNTIME-STACK-DETAIL: stackd:f=input:g3:t3:p=input:m0:fo0:i1:n=warn:h0:r0:i0:w1:c1:1/1:sid404",
             ),
         ];
@@ -6912,7 +6912,7 @@ mod tests {
         assert!(
             frame.contains("RUNTIME-STACK: stack:f=chat:p0@none:n=none@none:c1:g1:t1:tin404:s42")
         );
-        assert!(frame.contains("RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:m0:h0:d1:g1:t1"));
+        assert!(frame.contains("RUNTIME-STACK-DEPTH: sdepth:p0:n0:c1:m0:h0:d1:g1:t1"));
         assert!(frame.contains(
             "RUNTIME-STACK-DETAIL: stackd:f=chat:g1:t1:p=none:m0:fo0:i1:n=none:h0:r0:i0:w0:c1:1/2:sid42"
         ));
