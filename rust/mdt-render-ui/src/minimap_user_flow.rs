@@ -83,25 +83,14 @@ pub(crate) struct MinimapUserFlowPanelModel {
 
 impl MinimapUserFlowPanelModel {
     pub(crate) fn visibility_label(&self) -> &'static str {
-        if self.unknown_tile_percent == 100 {
-            "unseen"
-        } else if self.visible_tile_count == 0 {
-            "hidden"
-        } else if self.unknown_tile_percent == 0 {
-            "mapped"
-        } else {
-            "mixed"
-        }
+        crate::panel_model::minimap_visibility_label(
+            self.visible_tile_count,
+            self.unknown_tile_percent,
+        )
     }
 
     pub(crate) fn coverage_label(&self) -> &'static str {
-        if self.window_coverage_percent == 0 {
-            "offscreen"
-        } else if self.window_coverage_percent == 100 {
-            "full"
-        } else {
-            "partial"
-        }
+        crate::panel_model::minimap_coverage_label(self.window_coverage_percent)
     }
 
     pub(crate) fn pan_label(&self) -> &'static str {
@@ -210,15 +199,7 @@ pub(crate) fn build_minimap_user_flow_panel(
     } else {
         MinimapUserTargetKind::None
     };
-    let visibility_label = if panel.unknown_tile_percent == 100 {
-        "unseen"
-    } else if panel.visible_tile_count == 0 {
-        "hidden"
-    } else if panel.unknown_tile_percent == 0 {
-        "mapped"
-    } else {
-        "mixed"
-    };
+    let visibility_label = panel.visibility_label();
     let next_action = match focus_state {
         MinimapUserFocusState::Missing => "locate",
         MinimapUserFocusState::Outside => "pan",

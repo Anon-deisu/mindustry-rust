@@ -1292,6 +1292,33 @@ impl RuntimeBootstrapPanelModel {
 }
 
 impl MinimapPanelModel {
+    pub fn visibility_label(&self) -> &'static str {
+        minimap_visibility_label(self.visible_tile_count, self.unknown_tile_percent)
+    }
+
+    pub fn coverage_label(&self) -> &'static str {
+        minimap_coverage_label(self.window_coverage_percent)
+    }
+
+    pub fn viewport_band(&self) -> &'static str {
+        minimap_viewport_band(
+            self.window_coverage_percent,
+            self.map_object_density_percent(),
+            self.window_object_density_percent(),
+            self.outside_object_percent(),
+        )
+    }
+
+    #[allow(dead_code)]
+    pub fn map_visibility_label(&self) -> &'static str {
+        self.visibility_label()
+    }
+
+    #[allow(dead_code)]
+    pub fn window_coverage_label(&self) -> &'static str {
+        self.coverage_label()
+    }
+
     pub fn visible_map_percent(&self) -> usize {
         percent_of(self.visible_tile_count, self.map_tile_count)
     }
@@ -1333,6 +1360,52 @@ impl MinimapPanelModel {
             self.window_tracked_object_count,
             self.tracked_object_count,
         )
+    }
+}
+
+pub(crate) fn minimap_visibility_label(
+    visible_tile_count: usize,
+    unknown_tile_percent: usize,
+) -> &'static str {
+    if unknown_tile_percent == 100 {
+        "unseen"
+    } else if visible_tile_count == 0 {
+        "hidden"
+    } else if unknown_tile_percent == 0 {
+        "mapped"
+    } else {
+        "mixed"
+    }
+}
+
+pub(crate) fn minimap_coverage_label(window_coverage_percent: usize) -> &'static str {
+    if window_coverage_percent == 0 {
+        "offscreen"
+    } else if window_coverage_percent == 100 {
+        "full"
+    } else {
+        "partial"
+    }
+}
+
+pub(crate) fn minimap_viewport_band(
+    window_coverage_percent: usize,
+    map_object_density_percent: usize,
+    window_object_density_percent: usize,
+    outside_object_percent: usize,
+) -> &'static str {
+    let density_deficit = map_object_density_percent.saturating_sub(window_object_density_percent);
+    if window_coverage_percent <= 10
+        || outside_object_percent >= 60
+        || (map_object_density_percent > 0 && window_object_density_percent == 0)
+        || density_deficit >= 10
+    {
+        "warn"
+    } else if window_coverage_percent <= 50 || outside_object_percent >= 30 || density_deficit >= 4
+    {
+        "partial"
+    } else {
+        "full"
     }
 }
 
@@ -5384,6 +5457,9 @@ mod tests {
         assert_eq!(minimap.map_object_density_percent(), 1);
         assert_eq!(minimap.window_object_density_percent(), 6);
         assert_eq!(minimap.outside_object_percent(), 0);
+        assert_eq!(minimap.visibility_label(), "mixed");
+        assert_eq!(minimap.coverage_label(), "partial");
+        assert_eq!(minimap.viewport_band(), "partial");
         assert_eq!(minimap.focus_tile, Some((2, 3)));
         assert_eq!(minimap.focus_in_window, Some(true));
     }

@@ -3874,15 +3874,15 @@ fn compose_minimap_visibility_detail_status_text(
     hud: &HudModel,
     window: PresenterViewWindow,
 ) -> Option<String> {
-    let visibility = build_minimap_user_flow_panel(scene, hud, window)?;
     let minimap = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "minivisd:v={}:c={}:md{}:wd{}:od{}",
-        visibility.visibility_label(),
-        visibility.coverage_label(),
+        "minivisd:v={}:c={}:md{}:wd{}:od{}:vp={}",
+        minimap.visibility_label(),
+        minimap.coverage_label(),
         minimap.map_object_density_percent(),
         minimap.window_object_density_percent(),
         minimap.outside_object_percent(),
+        minimap.viewport_band(),
     ))
 }
 
@@ -5755,24 +5755,35 @@ fn draw_window_minimap_viewport(
     );
 }
 
+fn window_minimap_viewport_band(
+    window_coverage_percent: usize,
+    map_object_density_percent: usize,
+    window_object_density_percent: usize,
+    outside_object_percent: usize,
+) -> &'static str {
+    crate::panel_model::minimap_viewport_band(
+        window_coverage_percent,
+        map_object_density_percent,
+        window_object_density_percent,
+        outside_object_percent,
+    )
+}
+
 fn window_minimap_viewport_color(
     window_coverage_percent: usize,
     map_object_density_percent: usize,
     window_object_density_percent: usize,
     outside_object_percent: usize,
 ) -> u32 {
-    let density_deficit = map_object_density_percent.saturating_sub(window_object_density_percent);
-    if window_coverage_percent <= 10
-        || outside_object_percent >= 60
-        || (map_object_density_percent > 0 && window_object_density_percent == 0)
-        || density_deficit >= 10
-    {
-        COLOR_MINIMAP_INSET_VIEWPORT_WARN
-    } else if window_coverage_percent <= 50 || outside_object_percent >= 30 || density_deficit >= 4
-    {
-        COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL
-    } else {
-        COLOR_MINIMAP_INSET_VIEWPORT
+    match window_minimap_viewport_band(
+        window_coverage_percent,
+        map_object_density_percent,
+        window_object_density_percent,
+        outside_object_percent,
+    ) {
+        "warn" => COLOR_MINIMAP_INSET_VIEWPORT_WARN,
+        "partial" => COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL,
+        _ => COLOR_MINIMAP_INSET_VIEWPORT,
     }
 }
 
@@ -7443,6 +7454,9 @@ mod tests {
 
     #[test]
     fn window_minimap_viewport_color_tracks_coverage_density_and_visibility_bands() {
+        assert_eq!(super::window_minimap_viewport_band(0, 2, 11, 50), "warn");
+        assert_eq!(super::window_minimap_viewport_band(11, 2, 2, 29), "partial");
+        assert_eq!(super::window_minimap_viewport_band(51, 3, 3, 29), "full");
         assert_eq!(
             super::window_minimap_viewport_color(0, 2, 11, 50),
             COLOR_MINIMAP_INSET_VIEWPORT_WARN
@@ -9675,7 +9689,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-VIS-DETAIL: minivisd:v=mixed:c=offscreen:md0:wd400:od0",
+            "MINIMAP-VIS-DETAIL: minivisd:v=mixed:c=offscreen:md0:wd400:od0:vp=warn",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -10032,7 +10046,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-VIS-DETAIL: minivisd:v=unseen:c=offscreen:md0:wd75:od0",
+            "MINIMAP-VIS-DETAIL: minivisd:v=unseen:c=offscreen:md0:wd75:od0:vp=warn",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
