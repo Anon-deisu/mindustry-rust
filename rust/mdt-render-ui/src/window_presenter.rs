@@ -3420,10 +3420,11 @@ fn compose_runtime_world_label_detail_status_text(hud: &HudModel) -> Option<Stri
     }
 
     Some(format!(
-        "wlabeld:set{}:rel{}:rm{}:act{}:in{}:last{}:f{}:txt{}x{}:fs{}:z{}:p{}",
+        "wlabeld:set{}:rel{}:rm{}:tot{}:act{}:in{}:last{}:f{}:txt{}x{}:fs{}:z{}:p{}",
         panel.label_count,
         panel.reliable_label_count,
         panel.remove_label_count,
+        panel.total_count,
         panel.active_count,
         panel.inactive_count(),
         optional_i32_label(panel.last_entity_id),
@@ -10040,7 +10041,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-WORLD-LABEL-DETAIL: wlabeld:set19:rel20:rm21:act2:in1:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0",
+            "RUNTIME-WORLD-LABEL-DETAIL: wlabeld:set19:rel20:rm21:tot60:act2:in1:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
