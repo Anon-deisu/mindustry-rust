@@ -1,10 +1,11 @@
 use crate::{
     hud_model::{RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
     panel_model::{
-        MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
-        RuntimeCommandModePanelModel, RuntimeDialogNoticeKind, RuntimeDialogPanelModel,
-        RuntimeDialogPromptKind, RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel,
-        RuntimePromptPanelModel, RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel,
+        MinimapPanelModel, PresenterViewWindow, RuntimeChatPanelModel,
+        RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
+        RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
+        RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
+        RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel,
     },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     BuildQueueHeadStage, RenderModel, RenderObject,
@@ -592,6 +593,48 @@ pub(crate) fn format_runtime_dialog_detail_text(
     )
 }
 
+pub(crate) fn format_runtime_prompt_panel_text(panel: &RuntimePromptPanelModel) -> String {
+    let layers = panel.layer_labels().join(">");
+    format!(
+        "prompt:k={}:a{}:d{}:l={}:m{}:fo{}:tin{}@{}:{}/{}/{}#{}:n{}:e{}",
+        format_runtime_dialog_prompt_text(panel.kind),
+        u8::from(panel.is_active()),
+        panel.depth(),
+        if layers.is_empty() {
+            "none"
+        } else {
+            layers.as_str()
+        },
+        panel.menu_open_count,
+        panel.outstanding_follow_up_count(),
+        panel.text_input_open_count,
+        format_optional_i32_text(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
+        panel.text_input_last_length.unwrap_or_default(),
+        format_optional_bool_flag(panel.text_input_last_numeric),
+        format_optional_bool_flag(panel.text_input_last_allow_empty),
+    )
+}
+
+pub(crate) fn format_runtime_prompt_detail_text(panel: &RuntimePromptPanelModel) -> String {
+    format!(
+        "pd:ma{}:fm{}:fh{}:fo{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
+        u8::from(panel.menu_active()),
+        panel.follow_up_menu_open_count,
+        panel.hide_follow_up_menu_count,
+        panel.outstanding_follow_up_count(),
+        panel.text_input_open_count,
+        format_optional_i32_text(panel.text_input_last_id),
+        runtime_ui_text_len(panel.text_input_last_title.as_deref()),
+        panel.prompt_message_len(),
+        panel.default_text_len(),
+        format_optional_bool_flag(panel.text_input_last_numeric),
+        format_optional_bool_flag(panel.text_input_last_allow_empty),
+    )
+}
+
 pub(crate) fn format_runtime_notice_state_panel_text(
     panel: &RuntimeNoticeStatePanelModel,
 ) -> String {
@@ -683,6 +726,29 @@ pub(crate) fn format_runtime_stack_detail_text(panel: &RuntimeDialogStackPanelMo
         panel.chat.server_message_count,
         panel.chat.chat_message_count,
         format_optional_i32_text(panel.chat.last_chat_sender_entity_id),
+    )
+}
+
+pub(crate) fn format_runtime_chat_panel_text(panel: &RuntimeChatPanelModel) -> String {
+    format!(
+        "chat:srv{}@{}:msg{}@{}:raw{}:s{}",
+        panel.server_message_count,
+        compact_runtime_ui_text(panel.last_server_message.as_deref()),
+        panel.chat_message_count,
+        compact_runtime_ui_text(panel.last_chat_message.as_deref()),
+        compact_runtime_ui_text(panel.last_chat_unformatted.as_deref()),
+        format_optional_i32_text(panel.last_chat_sender_entity_id),
+    )
+}
+
+pub(crate) fn format_runtime_chat_detail_text(panel: &RuntimeChatPanelModel) -> String {
+    format!(
+        "chatd:s{}:c{}:r{}:eq{}:sid{}",
+        panel.last_server_message_len(),
+        panel.last_chat_message_len(),
+        panel.last_chat_unformatted_len(),
+        format_optional_bool_flag(panel.formatted_matches_unformatted()),
+        format_optional_i32_text(panel.last_chat_sender_entity_id),
     )
 }
 
@@ -1032,6 +1098,8 @@ mod tests {
         format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
+        format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
+        format_runtime_chat_detail_text, format_runtime_chat_panel_text,
         format_runtime_stack_depth_text, format_runtime_stack_detail_text,
         format_runtime_stack_panel_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
@@ -1285,6 +1353,90 @@ mod tests {
         assert_eq!(
             format_runtime_notice_state_detail_text(&panel),
             "nstated:n=warn@warn:src=warn:c48:d4:l4:layers=hud>reliable>info>warn"
+        );
+    }
+
+    #[test]
+    fn format_runtime_prompt_panel_text_preserves_field_order() {
+        let panel = RuntimePromptPanelModel {
+            kind: Some(RuntimeDialogPromptKind::TextInput),
+            menu_active: true,
+            text_input_active: true,
+            menu_open_count: 16,
+            follow_up_menu_open_count: 17,
+            hide_follow_up_menu_count: 18,
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            text_input_last_title: Some("Digits".to_string()),
+            text_input_last_message: Some("Only numbers".to_string()),
+            text_input_last_default_text: Some("12345".to_string()),
+            text_input_last_length: Some(16),
+            text_input_last_numeric: Some(true),
+            text_input_last_allow_empty: Some(true),
+        };
+
+        assert_eq!(
+            format_runtime_prompt_panel_text(&panel),
+            "prompt:k=input:a1:d2:l=input>menu:m16:fo0:tin53@404:Digits/Only_numbers/12345#16:n1:e1"
+        );
+    }
+
+    #[test]
+    fn format_runtime_prompt_detail_text_preserves_field_order() {
+        let panel = RuntimePromptPanelModel {
+            kind: Some(RuntimeDialogPromptKind::TextInput),
+            menu_active: true,
+            text_input_active: true,
+            menu_open_count: 16,
+            follow_up_menu_open_count: 17,
+            hide_follow_up_menu_count: 18,
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            text_input_last_title: Some("Digits".to_string()),
+            text_input_last_message: Some("Only numbers".to_string()),
+            text_input_last_default_text: Some("12345".to_string()),
+            text_input_last_length: Some(16),
+            text_input_last_numeric: Some(true),
+            text_input_last_allow_empty: Some(true),
+        };
+
+        assert_eq!(
+            format_runtime_prompt_detail_text(&panel),
+            "pd:ma1:fm17:fh18:fo0:tin53:id404:t6:m12:d5:n1:e1"
+        );
+    }
+
+    #[test]
+    fn format_runtime_chat_panel_text_preserves_field_order() {
+        let panel = RuntimeChatPanelModel {
+            server_message_count: 7,
+            last_server_message: Some("server text".to_string()),
+            chat_message_count: 8,
+            last_chat_message: Some("[cyan]hello".to_string()),
+            last_chat_unformatted: Some("hello".to_string()),
+            last_chat_sender_entity_id: Some(404),
+        };
+
+        assert_eq!(
+            format_runtime_chat_panel_text(&panel),
+            "chat:srv7@server_text:msg8@[cyan]hello:rawhello:s404"
+        );
+    }
+
+    #[test]
+    fn format_runtime_chat_detail_text_preserves_field_order() {
+        let panel = RuntimeChatPanelModel {
+            server_message_count: 7,
+            last_server_message: Some("server text".to_string()),
+            chat_message_count: 8,
+            last_chat_message: Some("[cyan]hello".to_string()),
+            last_chat_unformatted: Some("hello".to_string()),
+            last_chat_sender_entity_id: Some(404),
+        };
+
+        assert_eq!(
+            format_runtime_chat_detail_text(&panel),
+            "chatd:s11:c11:r5:eq0:sid404"
         );
     }
 

@@ -22,12 +22,13 @@ use crate::{
         compact_runtime_ui_text, runtime_ui_notice_panel_is_empty, runtime_ui_text_len,
         runtime_ui_uri_scheme,
         format_counted_detail_text, format_counted_preview_text,
+        format_runtime_chat_detail_text, format_runtime_chat_panel_text,
         format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
         format_runtime_command_mode_panel_text, format_runtime_command_unit_ref_text,
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
-        format_runtime_dialog_prompt_text,
+        format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_stack_depth_text, format_runtime_stack_detail_text,
         format_runtime_stack_panel_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
@@ -2866,28 +2867,7 @@ fn compose_runtime_prompt_panel_status_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    let layers = panel.layer_labels().join(">");
-    Some(format!(
-        "prompt:k={}:a{}:d{}:l={}:m{}:fo{}:tin{}@{}:{}/{}/{}#{}:n{}:e{}",
-        format_runtime_dialog_prompt_text(panel.kind),
-        if panel.is_active() { 1 } else { 0 },
-        panel.depth(),
-        if layers.is_empty() {
-            "none"
-        } else {
-            layers.as_str()
-        },
-        panel.menu_open_count,
-        panel.outstanding_follow_up_count(),
-        panel.text_input_open_count,
-        optional_i32_label(panel.text_input_last_id),
-        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
-        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
-        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
-        panel.text_input_last_length.unwrap_or_default(),
-        optional_bool_label(panel.text_input_last_numeric),
-        optional_bool_label(panel.text_input_last_allow_empty),
-    ))
+    Some(format_runtime_prompt_panel_text(&panel))
 }
 
 fn compose_runtime_prompt_detail_status_text(hud: &HudModel) -> Option<String> {
@@ -2895,20 +2875,7 @@ fn compose_runtime_prompt_detail_status_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "pd:ma{}:fm{}:fh{}:fo{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
-        if panel.menu_active() { 1 } else { 0 },
-        panel.follow_up_menu_open_count,
-        panel.hide_follow_up_menu_count,
-        panel.outstanding_follow_up_count(),
-        panel.text_input_open_count,
-        optional_i32_label(panel.text_input_last_id),
-        runtime_ui_text_len(panel.text_input_last_title.as_deref()),
-        panel.prompt_message_len(),
-        panel.default_text_len(),
-        optional_bool_label(panel.text_input_last_numeric),
-        optional_bool_label(panel.text_input_last_allow_empty),
-    ))
+    Some(format_runtime_prompt_detail_text(&panel))
 }
 
 fn compose_runtime_dialog_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -2928,15 +2895,7 @@ fn compose_runtime_dialog_detail_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_chat_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_chat_panel(hud)?;
-    Some(format!(
-        "chat:srv{}@{}:msg{}@{}:raw{}:s{}",
-        panel.server_message_count,
-        compact_runtime_ui_text(panel.last_server_message.as_deref()),
-        panel.chat_message_count,
-        compact_runtime_ui_text(panel.last_chat_message.as_deref()),
-        compact_runtime_ui_text(panel.last_chat_unformatted.as_deref()),
-        optional_i32_label(panel.last_chat_sender_entity_id),
-    ))
+    Some(format_runtime_chat_panel_text(&panel))
 }
 
 fn compose_runtime_chat_detail_status_text(hud: &HudModel) -> Option<String> {
@@ -2944,14 +2903,7 @@ fn compose_runtime_chat_detail_status_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "chatd:s{}:c{}:r{}:eq{}:sid{}",
-        panel.last_server_message_len(),
-        panel.last_chat_message_len(),
-        panel.last_chat_unformatted_len(),
-        optional_bool_label(panel.formatted_matches_unformatted()),
-        optional_i32_label(panel.last_chat_sender_entity_id),
-    ))
+    Some(format_runtime_chat_detail_text(&panel))
 }
 
 fn compose_runtime_stack_panel_status_text(hud: &HudModel) -> Option<String> {
