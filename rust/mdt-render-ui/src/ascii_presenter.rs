@@ -2438,7 +2438,7 @@ fn compose_runtime_resource_delta_detail_compact_text(
 
 fn compose_runtime_loading_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_loading_panel(hud)?;
-    Some(compose_runtime_loading_panel_text(&panel))
+    Some(format!("loading:{}", compose_runtime_loading_panel_text(&panel)))
 }
 
 fn compose_runtime_kick_detail_text(hud: &HudModel) -> Option<String> {
@@ -3635,29 +3635,7 @@ fn compose_runtime_kick_panel_text(kick: &crate::panel_model::RuntimeKickPanelMo
 fn compose_runtime_loading_panel_text(
     loading: &crate::panel_model::RuntimeLoadingPanelModel,
 ) -> String {
-    format!(
-        "defer{} replay{} drop{} qdrop{} sfail{} scfail{} efail{} rdy{}@{} to{}/{}/{} lt{}@{} rs{}/{}/{}/{} lr{} lwr{}",
-        loading.deferred_inbound_packet_count,
-        loading.replayed_inbound_packet_count,
-        loading.dropped_loading_low_priority_packet_count,
-        loading.dropped_loading_deferred_overflow_count,
-        loading.failed_state_snapshot_parse_count,
-        loading.failed_state_snapshot_core_data_parse_count,
-        loading.failed_entity_snapshot_parse_count,
-        loading.ready_inbound_liveness_anchor_count,
-        optional_u64_label(loading.last_ready_inbound_liveness_anchor_at_ms),
-        loading.timeout_count,
-        loading.connect_or_loading_timeout_count,
-        loading.ready_snapshot_timeout_count,
-        runtime_session_timeout_kind_text(loading.last_timeout_kind),
-        optional_u64_label(loading.last_timeout_idle_ms),
-        loading.reset_count,
-        loading.reconnect_reset_count,
-        loading.world_reload_count,
-        loading.kick_reset_count,
-        runtime_session_reset_kind_text(loading.last_reset_kind),
-        runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
-    )
+    compose_runtime_loading_panel_compact_text(loading)
 }
 
 fn compose_runtime_loading_panel_compact_text(
@@ -3749,22 +3727,7 @@ fn compose_runtime_kick_detail_compact_text(
 fn compose_runtime_loading_detail_panel_text(
     loading: &crate::panel_model::RuntimeLoadingPanelModel,
 ) -> String {
-    format!(
-        "ready={}@{} timeout={}/{}/{} kind={} idle={} resets={}/{}/{}/{} last-reset={} world={}",
-        loading.ready_inbound_liveness_anchor_count,
-        optional_u64_label(loading.last_ready_inbound_liveness_anchor_at_ms),
-        loading.timeout_count,
-        loading.connect_or_loading_timeout_count,
-        loading.ready_snapshot_timeout_count,
-        runtime_session_timeout_kind_text(loading.last_timeout_kind),
-        optional_u64_label(loading.last_timeout_idle_ms),
-        loading.reset_count,
-        loading.reconnect_reset_count,
-        loading.world_reload_count,
-        loading.kick_reset_count,
-        runtime_session_reset_kind_text(loading.last_reset_kind),
-        runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
-    )
+    compose_runtime_loading_detail_compact_text(loading)
 }
 
 fn compose_runtime_loading_detail_compact_text(
@@ -4483,7 +4446,7 @@ mod tests {
         presenter.present(&scene, &hud);
 
         assert!(presenter.last_frame().contains(
-            "SESSION-BANNER: LOADING defer5 replay6 drop7 qdrop8 sfail0 scfail0 efail0 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+            "SESSION-BANNER: LOADING defer5:replay6:drop7:qdrop8:sfail0:scfail0:efail0:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
         ));
     }
 
@@ -5750,10 +5713,10 @@ mod tests {
         assert!(frame
             .contains("RUNTIME-KICK-DETAIL: reason-len=7 ordinal=7 category-len=7 hint-len=20"));
         assert!(frame.contains(
-            "RUNTIME-LOADING: defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+            "RUNTIME-LOADING: loading:defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
         ));
         assert!(frame.contains(
-            "RUNTIME-LOADING-DETAIL: ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6"
+            "RUNTIME-LOADING-DETAIL: loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6"
         ));
         assert!(frame.contains(
             "RUNTIME-WORLD-RELOAD-DETAIL: loaded=1 client=0 ready=1 confirm=0 pending=4 deferred=5 replayed=6"
