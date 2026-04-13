@@ -82,6 +82,7 @@ pub struct WindowMinimapInset {
     pub window_object_density_percent: usize,
     pub outside_object_percent: usize,
     pub focus_tile: Option<(usize, usize)>,
+    pub focus_in_window: Option<bool>,
     pub player_tile: Option<(usize, usize)>,
     pub ping_tile: Option<(usize, usize)>,
     pub unit_assembler_tiles: Vec<(usize, usize)>,
@@ -546,6 +547,7 @@ fn compose_window_minimap_inset(
         window_object_density_percent: panel.window_object_density_percent(),
         outside_object_percent: panel.outside_object_percent(),
         focus_tile: clamp_window_minimap_tile(panel.focus_tile, panel.map_width, panel.map_height),
+        focus_in_window: panel.focus_in_window,
         player_tile: clamp_window_minimap_tile(
             scene.player_focus_tile(TILE_SIZE),
             panel.map_width,
@@ -5401,6 +5403,7 @@ fn overlay_window_minimap_inset(
             inset.map_width,
             inset.map_height,
             focus_tile,
+            inset.focus_in_window,
         );
     }
     if let Some(ping_tile) = inset.ping_tile {
@@ -5566,6 +5569,7 @@ fn draw_window_minimap_focus(
     map_width: usize,
     map_height: usize,
     tile: (usize, usize),
+    focus_in_window: Option<bool>,
 ) {
     let Some((pixel_x, pixel_y)) = project_window_minimap_point(
         tile,
@@ -5581,6 +5585,7 @@ fn draw_window_minimap_focus(
     } else {
         1
     };
+    let color = window_minimap_focus_color(focus_in_window);
     let center_x = map_start_x.saturating_add(pixel_x);
     let center_y = map_start_y.saturating_add(pixel_y);
 
@@ -5592,7 +5597,7 @@ fn draw_window_minimap_focus(
         center_y,
         arm * 2 + 1,
         1,
-        COLOR_MARKER,
+        color,
     );
     fill_window_hud_rect(
         pixels,
@@ -5602,8 +5607,15 @@ fn draw_window_minimap_focus(
         center_y.saturating_sub(arm),
         1,
         arm * 2 + 1,
-        COLOR_MARKER,
+        color,
     );
+}
+
+fn window_minimap_focus_color(focus_in_window: Option<bool>) -> u32 {
+    match focus_in_window {
+        Some(false) => COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL,
+        _ => COLOR_MARKER,
+    }
 }
 
 fn draw_window_minimap_ping(
@@ -6972,6 +6984,7 @@ mod tests {
                 window_object_density_percent: 11,
                 outside_object_percent: 50,
                 focus_tile: Some((60, 40)),
+                focus_in_window: Some(false),
                 player_tile: Some((20, 18)),
                 ping_tile: Some((44, 22)),
                 unit_assembler_tiles: vec![(34, 12), (36, 14)],
@@ -7091,6 +7104,7 @@ mod tests {
                 window_object_density_percent: 5,
                 outside_object_percent: 10,
                 focus_tile: None,
+                focus_in_window: None,
                 player_tile: None,
                 ping_tile: None,
                 unit_assembler_tiles: Vec::new(),
@@ -7118,6 +7132,61 @@ mod tests {
         assert!(top_right_pixels.contains(&COLOR_TERRAIN));
         assert!(top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL));
         assert!(!top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_WARN));
+    }
+
+    #[test]
+    fn scale_frame_pixels_colors_focus_marker_by_focus_in_window() {
+        let make_frame = |focus_in_window| WindowFrame {
+            frame_id: 0,
+            title: "demo".to_string(),
+            wave_text: None,
+            session_banner_text: None,
+            status_text: String::new(),
+            build_strip_text: None,
+            build_strip_detail_text: None,
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 24,
+            height: 18,
+            minimap_inset: Some(WindowMinimapInset {
+                map_width: 80,
+                map_height: 60,
+                window: crate::panel_model::PresenterViewWindow {
+                    origin_x: 16,
+                    origin_y: 12,
+                    width: 24,
+                    height: 18,
+                },
+                window_coverage_percent: 100,
+                map_object_density_percent: 0,
+                window_object_density_percent: 0,
+                outside_object_percent: 0,
+                focus_tile: Some((40, 30)),
+                focus_in_window,
+                player_tile: None,
+                ping_tile: None,
+                unit_assembler_tiles: Vec::new(),
+                tile_action_tiles: Vec::new(),
+                command_tiles: Vec::new(),
+                command_rects: Vec::new(),
+                runtime_break_rects: Vec::new(),
+                unit_assembler_rects: Vec::new(),
+                world_label_tiles: Vec::new(),
+                runtime_overlay_tiles: Vec::new(),
+            }),
+            pixels: vec![COLOR_EMPTY; 24 * 18],
+        };
+
+        let inside_pixels = scale_frame_pixels(&make_frame(Some(true)), 4);
+        let outside_pixels = scale_frame_pixels(&make_frame(Some(false)), 4);
+
+        assert!(inside_pixels.contains(&COLOR_MARKER));
+        assert!(!inside_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL));
+        assert!(outside_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL));
+        assert!(!outside_pixels.contains(&COLOR_MARKER));
     }
 
     #[test]
@@ -7520,6 +7589,7 @@ mod tests {
             panel.window_object_density_percent()
         );
         assert_eq!(inset.outside_object_percent, panel.outside_object_percent());
+        assert_eq!(inset.focus_in_window, panel.focus_in_window);
         assert_frame_line_contains(
             &frame.panel_lines,
             &format!(
