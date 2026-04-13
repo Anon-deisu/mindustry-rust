@@ -2452,14 +2452,7 @@ fn compose_runtime_core_binding_panel_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "kind={} ambiguous={}@{} missing={}@{}",
-        panel.kind_label(),
-        panel.ambiguous_team_count,
-        team_u8_sample_text(&panel.ambiguous_team_sample),
-        panel.missing_team_count,
-        team_u8_sample_text(&panel.missing_team_sample),
-    ))
+    compose_runtime_core_binding_panel_compact_text(hud)
 }
 
 fn compose_runtime_core_binding_detail_text(hud: &HudModel) -> Option<String> {
@@ -2467,14 +2460,7 @@ fn compose_runtime_core_binding_detail_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "kind={} ambiguous-count={} ambiguous-sample={} missing-count={} missing-sample={}",
-        panel.kind_label(),
-        panel.ambiguous_team_count,
-        team_u8_sample_text(&panel.ambiguous_team_sample),
-        panel.missing_team_count,
-        team_u8_sample_text(&panel.missing_team_sample),
-    ))
+    compose_runtime_core_binding_detail_compact_text(hud)
 }
 
 fn compose_runtime_core_binding_panel_compact_text(hud: &HudModel) -> Option<String> {
@@ -5698,10 +5684,9 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-WORLD-RELOAD-DETAIL: loaded=1 client=0 ready=1 confirm=0 pending=4 deferred=5 replayed=6"
         ));
-        assert!(frame
-            .contains("RUNTIME-CORE-BINDING: kind=first-core-per-team ambiguous=1@1 missing=1@4"));
+        assert!(frame.contains("RUNTIME-CORE-BINDING: core:first-core-per-team:a1@1:m1@4"));
         assert!(frame.contains(
-            "RUNTIME-CORE-BINDING-DETAIL: kind=first-core-per-team ambiguous-count=1 ambiguous-sample=1 missing-count=1 missing-sample=4"
+            "RUNTIME-CORE-BINDING-DETAIL: cored:first-core-per-team:a1:s1@1:m1:s1@4"
         ));
         assert!(frame.contains(
             "RUNTIME-RECONNECT: reconnect:attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
