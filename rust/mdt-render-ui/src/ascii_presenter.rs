@@ -2957,6 +2957,7 @@ fn compose_build_config_detail_text(hud: &HudModel) -> Option<String> {
 }
 
 #[cfg(test)]
+#[cfg(test)]
 fn compose_build_config_authority_summary_text(
     interaction: Option<&crate::panel_model::BuildInteractionPanelModel>,
 ) -> String {
@@ -3015,16 +3016,16 @@ fn compose_build_config_rollback_text(hud: &HudModel) -> Option<String> {
     let panel = build_build_config_panel(hud, 3)?;
     let strip = &panel.rollback_strip;
     Some(format!(
-        "authoritative={} rollback={} last={} src={} business={} clear={} last-rb={} pending={} outcome={} block={}",
+        "cfgstrip:a{}:rb{}:last={}:src={}:b{}:cl{}:lr{}:pm={}:out={}:block={}",
         strip.applied_authoritative_count,
         strip.rollback_count,
         build_config_tile_text(strip.last_build_tile),
-        build_config_rollback_source_text(strip.last_source),
+        build_config_rollback_source_compact_text(strip.last_source),
         if strip.last_business_applied { 1 } else { 0 },
         if strip.last_cleared_pending_local { 1 } else { 0 },
         if strip.last_was_rollback { 1 } else { 0 },
         build_config_pending_match_text(strip.last_pending_local_match),
-        build_config_outcome_text(strip.last_configured_outcome),
+        build_config_outcome_compact_text(strip.last_configured_outcome),
         compact_runtime_ui_text(strip.last_configured_block_name.as_deref()),
     ))
 }
@@ -3353,6 +3354,7 @@ fn optional_build_tile_text(value: Option<(i32, i32)>) -> String {
     }
 }
 
+#[cfg(test)]
 fn build_config_rollback_source_text(
     value: Option<crate::BuildConfigAuthoritySourceObservability>,
 ) -> &'static str {
@@ -3458,22 +3460,20 @@ fn build_interaction_authority_compact_text(
     }
 }
 
-fn build_config_outcome_text(
+fn build_config_outcome_compact_text(
     value: Option<crate::BuildConfigOutcomeObservability>,
 ) -> &'static str {
     match value {
         Some(crate::BuildConfigOutcomeObservability::Applied) => "applied",
-        Some(crate::BuildConfigOutcomeObservability::RejectedMissingBuilding) => {
-            "rejected-missing-building"
-        }
+        Some(crate::BuildConfigOutcomeObservability::RejectedMissingBuilding) => "rej-miss-build",
         Some(crate::BuildConfigOutcomeObservability::RejectedMissingBlockMetadata) => {
-            "rejected-missing-block-metadata"
+            "rej-miss-meta"
         }
         Some(crate::BuildConfigOutcomeObservability::RejectedUnsupportedBlock) => {
-            "rejected-unsupported-block"
+            "rej-unsupported-block"
         }
         Some(crate::BuildConfigOutcomeObservability::RejectedUnsupportedConfigType) => {
-            "rejected-unsupported-config-type"
+            "rej-unsupported-cfg"
         }
         None => "none",
     }
@@ -5548,7 +5548,7 @@ mod tests {
         assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:1/2:message#1@18:40:len=5:text=hello"));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:2/2:power-node#1@23:45:links=24:46|25:47"));
         assert!(frame.contains(
-            "BUILD-ROLLBACK: authoritative=3 rollback=1 last=23:45 src=constructFinish business=1 clear=1 last-rb=1 pending=mismatch outcome=applied block=power-node"
+            "BUILD-ROLLBACK: cfgstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node"
         ));
         assert!(frame.contains(
             "BUILD-ROLLBACK-DETAIL: authoritative=3 rollback=1 last=23:45 source=constructFinish business=1 clear=1 last-rb=1 pending=mismatch outcome=applied block=power-node"
@@ -5903,7 +5903,7 @@ mod tests {
         assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:3/4:alpha#1@one"));
         assert!(frame.contains("BUILD-CONFIG-MORE: cfgmore:+1"));
         assert!(frame.contains(
-            "BUILD-ROLLBACK: authoritative=4 rollback=2 last=10:12 src=tileConfig business=1 clear=0 last-rb=0 pending=match outcome=rejected-missing-building block=alpha"
+            "BUILD-ROLLBACK: cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=alpha"
         ));
         assert!(frame.contains(
             "BUILD-ROLLBACK-DETAIL: authoritative=4 rollback=2 last=10:12 source=tileConfig business=1 clear=0 last-rb=0 pending=match outcome=rejected-missing-building block=alpha"
