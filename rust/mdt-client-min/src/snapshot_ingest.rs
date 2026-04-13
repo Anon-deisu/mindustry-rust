@@ -856,6 +856,30 @@ mod tests {
     }
 
     #[test]
+    fn high_frequency_remote_method_entity_snapshot_sets_seen_entity_snapshot_flag() {
+        let mut state = SessionState::default();
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::ClientSnapshot, 11, &[]),
+        );
+        assert!(!state.seen_entity_snapshot);
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::EntitySnapshot, 46, &[]),
+        );
+
+        assert!(state.seen_entity_snapshot);
+        assert_eq!(state.received_snapshot_count, 2);
+        assert_eq!(
+            state.last_snapshot_method,
+            Some(HighFrequencyRemoteMethod::EntitySnapshot)
+        );
+        assert_eq!(state.last_snapshot_packet_id, Some(46));
+    }
+
+    #[test]
     fn state_snapshot_ingest_decodes_structured_core_data_into_session_state() {
         let core_data = [
             0x01, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x41, 0x00, 0x01, 0x00, 0x00,
