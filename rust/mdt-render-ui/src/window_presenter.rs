@@ -1616,7 +1616,7 @@ fn compose_frame_panel_lines(
         lines.push(format!("MINIMAP-KINDS-DETAIL: {minimap_kind_detail_text}"));
     }
     if let Some(minimap_window_kinds_text) = compose_minimap_window_kind_status_text(scene, hud) {
-        lines.push(format!("MINIMAP-WINDOW-KINDS: {minimap_window_kinds_text}"));
+        lines.push(format!("MINIWIN-KINDS: {minimap_window_kinds_text}"));
     }
     if let Some(minimap_window_text) =
         compose_minimap_window_distribution_line_status_text(scene, hud)
@@ -9147,7 +9147,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-WINDOW-KINDS: miniwin-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0",
+            "MINIWIN-KINDS: miniwin-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

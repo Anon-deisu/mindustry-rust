@@ -210,7 +210,7 @@ impl AsciiScenePresenter {
         }
         if let Some(minimap_window_kinds_text) = compose_minimap_window_kind_line(scene, hud) {
             out.push_str(&format!(
-                "MINIMAP-WINDOW-KINDS: {minimap_window_kinds_text}\n"
+                "MINIWIN-KINDS: {minimap_window_kinds_text}\n"
             ));
         }
         if let Some(minimap_window_text) = compose_minimap_window_line(scene, hud) {
@@ -5280,7 +5280,7 @@ mod tests {
             "MINIMAP-WINDOW: miniwin:tracked=7:outside=0:player=1:marker=2:plan=0:block=0:runtime=4:terrain=0:unknown=0"
         ));
         assert!(frame.contains(
-            "MINIMAP-WINDOW-KINDS: miniwin-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
+            "MINIWIN-KINDS: miniwin-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
         ));
         assert!(!frame.contains(
             "MINIMAP-DETAIL: miniwin-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
