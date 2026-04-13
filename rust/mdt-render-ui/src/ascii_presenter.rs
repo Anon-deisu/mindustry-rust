@@ -2820,7 +2820,7 @@ fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_effect_panel(hud)?;
     Some(format!(
-        "livefxd:hint{}:src{}:pos{}:ttl{}:data{}:arel{}:ctr{}:rel{}",
+        "livefxd:hint{}:src{}:pos{}:ttl{}:data{}:arel{}:ctr{}:rel{}:bind{}",
         panel.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(panel.display_position_source()),
         world_position_text(panel.display_position()),
@@ -2829,6 +2829,7 @@ fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String>
         live_effect_reliable_flag_text(panel.active_reliable),
         compact_runtime_ui_text(panel.display_contract_name()),
         compact_runtime_ui_text(panel.display_reliable_contract_name()),
+        panel.binding_detail.as_deref().unwrap_or("none"),
     ))
 }
 
@@ -3850,7 +3851,7 @@ fn compose_live_entity_panel_text(
 
 fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservability) -> String {
     format!(
-        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:r{}:h{}:p{}@{}:ttl{}",
+        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:bind{}:r{}:h{}:p{}@{}:ttl{}",
         effect.effect_count,
         effect.spawn_effect_count,
         effect.active_overlay_count,
@@ -3860,6 +3861,7 @@ fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservabilit
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.display_contract_name()),
         compact_runtime_ui_text(effect.display_reliable_contract_name()),
+        effect.binding_label.as_deref().unwrap_or("none"),
         live_effect_reliable_flag_text(effect.active_reliable),
         effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(effect.display_position_source()),
@@ -3872,7 +3874,7 @@ fn compose_live_effect_panel_text(
     effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
 ) -> String {
     format!(
-        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:r{}:h{}:p{}@{}:ttl{}",
+        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:bind{}:r{}:h{}:p{}@{}:ttl{}",
         effect.effect_count,
         effect.spawn_effect_count,
         effect.active_overlay_count,
@@ -3882,6 +3884,7 @@ fn compose_live_effect_panel_text(
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.display_contract_name()),
         compact_runtime_ui_text(effect.display_reliable_contract_name()),
+        effect.binding_label.as_deref().unwrap_or("none"),
         live_effect_reliable_flag_text(effect.active_reliable),
         effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(effect.display_position_source()),
@@ -5856,6 +5859,12 @@ mod tests {
                         effect_count: 11,
                         spawn_effect_count: 73,
                         active_overlay_count: 1,
+                        binding_label: Some(
+                            "target:parent-follow/source:parent-follow".to_string(),
+                        ),
+                        binding_detail: Some(
+                            "source=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0".to_string(),
+                        ),
                         active_effect_id: Some(13),
                         active_contract_name: Some("lightning".to_string()),
                         active_reliable: Some(true),
@@ -5948,9 +5957,8 @@ mod tests {
         assert!(frame.contains(
             "VIS-MINIMAP: overlay=1 fog=1 known=144(3%) vis=120(83%/2%) hid=24(16%/0%) map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1"
         ));
-        assert!(frame.contains(
-            "MINIMAP-VIS-DETAIL: minivisd:v=mixed:c=offscreen:md0:wd400:od0:vp=warn"
-        ));
+        assert!(frame
+            .contains("MINIMAP-VIS-DETAIL: minivisd:v=mixed:c=offscreen:md0:wd400:od0:vp=warn"));
         assert!(frame.contains(
             "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
         ));
@@ -6134,14 +6142,14 @@ mod tests {
             "RUNTIME-LIVE-ENTITY-DETAIL: liveentd:local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT: livefx:11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
+            "RUNTIME-LIVE-EFFECT: livefx:11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:bindtarget:parent-follow/source:parent-follow:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT-DETAIL: livefxd:hintpos:point2:3:4@1/0:srcactive:pos28.0:36.0:ttl3/5:data9/4:arel1:ctrlightning:rellightning"
+            "RUNTIME-LIVE-EFFECT-DETAIL: livefxd:hintpos:point2:3:4@1/0:srcactive:pos28.0:36.0:ttl3/5:data9/4:arel1:ctrlightning:rellightning:bindsource=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0"
         ));
         assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.contains(
-            "fx=11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
+            "fx=11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:bindtarget:parent-follow/source:parent-follow:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
         ));
     }
 

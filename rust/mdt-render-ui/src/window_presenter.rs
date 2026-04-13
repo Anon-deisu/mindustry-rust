@@ -3728,7 +3728,7 @@ fn compose_runtime_live_effect_panel_status_text(hud: &HudModel) -> Option<Strin
 fn compose_runtime_live_effect_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_effect_panel(hud)?;
     Some(format!(
-        "livefxd:hint{}:src{}:pos{}:ttl{}:data{}:arel{}:ctr{}:rel{}",
+        "livefxd:hint{}:src{}:pos{}:ttl{}:data{}:arel{}:ctr{}:rel{}:bind{}",
         panel.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_status_text(panel.display_position_source()),
         world_position_status_text(panel.display_position()),
@@ -3737,6 +3737,7 @@ fn compose_runtime_live_effect_detail_status_text(hud: &HudModel) -> Option<Stri
         live_effect_reliable_flag_status_text(panel.active_reliable),
         compact_runtime_ui_text(panel.display_contract_name()),
         compact_runtime_ui_text(panel.display_reliable_contract_name()),
+        panel.binding_detail.as_deref().unwrap_or("none"),
     ))
 }
 
@@ -4666,7 +4667,7 @@ fn compose_live_effect_status_text(
     effect: &crate::RuntimeLiveEffectSummaryObservability,
 ) -> String {
     format!(
-        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:r{}:h{}:p{}@{}:ttl{}",
+        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:bind{}:r{}:h{}:p{}@{}:ttl{}",
         effect.effect_count,
         effect.spawn_effect_count,
         effect.active_overlay_count,
@@ -4676,6 +4677,7 @@ fn compose_live_effect_status_text(
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.display_contract_name()),
         compact_runtime_ui_text(effect.display_reliable_contract_name()),
+        effect.binding_label.as_deref().unwrap_or("none"),
         live_effect_reliable_flag_status_text(effect.active_reliable),
         effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_status_text(effect.display_position_source()),
@@ -4688,7 +4690,7 @@ fn compose_live_effect_panel_status_text(
     effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
 ) -> String {
     format!(
-        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:r{}:h{}:p{}@{}:ttl{}",
+        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:bind{}:r{}:h{}:p{}@{}:ttl{}",
         effect.effect_count,
         effect.spawn_effect_count,
         effect.active_overlay_count,
@@ -4698,6 +4700,7 @@ fn compose_live_effect_panel_status_text(
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.display_contract_name()),
         compact_runtime_ui_text(effect.display_reliable_contract_name()),
+        effect.binding_label.as_deref().unwrap_or("none"),
         live_effect_reliable_flag_status_text(effect.active_reliable),
         effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_status_text(effect.display_position_source()),
@@ -9552,6 +9555,12 @@ mod tests {
                         effect_count: 11,
                         spawn_effect_count: 73,
                         active_overlay_count: 1,
+                        binding_label: Some(
+                            "target:parent-follow/source:parent-follow".to_string(),
+                        ),
+                        binding_detail: Some(
+                            "source=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0".to_string(),
+                        ),
                         active_effect_id: Some(13),
                         active_contract_name: Some("lightning".to_string()),
                         active_reliable: Some(true),
@@ -9669,7 +9678,7 @@ mod tests {
             .status_text
             .contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.status_text.contains(
-            "fx=11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
+            "fx=11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:bindtarget:parent-follow/source:parent-follow:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
         ));
         assert!(frame
             .status_text
@@ -9920,11 +9929,11 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-LIVE-EFFECT: livefx:11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5",
+            "RUNTIME-LIVE-EFFECT: livefx:11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:bindtarget:parent-follow/source:parent-follow:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-LIVE-EFFECT-DETAIL: livefxd:hintpos:point2:3:4@1/0:srcactive:pos28.0:36.0:ttl3/5:data9/4:arel1:ctrlightning:rellightning",
+            "RUNTIME-LIVE-EFFECT-DETAIL: livefxd:hintpos:point2:3:4@1/0:srcactive:pos28.0:36.0:ttl3/5:data9/4:arel1:ctrlightning:rellightning:bindsource=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0",
         );
         assert_frame_line_contains(&frame.overlay_lines, "OVERLAY: Plans 1");
         assert_frame_line_contains(

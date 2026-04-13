@@ -1029,7 +1029,8 @@ pub struct RuntimeCommandModePanelModel {
     pub first_command_building: Option<i32>,
     pub command_rect: Option<crate::RuntimeCommandRectObservability>,
     pub control_groups: Vec<RuntimeCommandControlGroupPanelModel>,
-    pub last_control_group_operation: Option<crate::RuntimeCommandRecentControlGroupOperationObservability>,
+    pub last_control_group_operation:
+        Option<crate::RuntimeCommandRecentControlGroupOperationObservability>,
     pub last_target: Option<crate::RuntimeCommandTargetObservability>,
     pub last_command_selection: Option<crate::RuntimeCommandSelectionObservability>,
     pub last_stance_selection: Option<crate::RuntimeCommandStanceObservability>,
@@ -1704,6 +1705,8 @@ pub struct RuntimeLiveEffectPanelModel {
     pub effect_count: u64,
     pub spawn_effect_count: u64,
     pub active_overlay_count: usize,
+    pub binding_label: Option<String>,
+    pub binding_detail: Option<String>,
     pub active_effect_id: Option<i16>,
     pub active_contract_name: Option<String>,
     pub active_reliable: Option<bool>,
@@ -2952,6 +2955,8 @@ pub fn build_runtime_live_effect_panel(hud: &HudModel) -> Option<RuntimeLiveEffe
         effect_count: effect.effect_count,
         spawn_effect_count: effect.spawn_effect_count,
         active_overlay_count: effect.active_overlay_count,
+        binding_label: effect.binding_label.clone(),
+        binding_detail: effect.binding_detail.clone(),
         active_effect_id: effect.active_effect_id,
         active_contract_name: effect.active_contract_name.clone(),
         active_reliable: effect.active_reliable,
@@ -3032,12 +3037,11 @@ fn clamp_hud_view_window_to_map(
 mod tests {
     use super::{
         build_build_config_entry_breakdown, build_build_config_panel,
-        build_build_interaction_panel, build_build_minimap_assist_panel,
-        build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_bootstrap_panel, build_runtime_chat_panel,
-        build_runtime_choice_panel, build_runtime_command_mode_panel,
-        build_runtime_core_binding_panel, build_runtime_dialog_panel,
-        build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+        build_build_interaction_panel, build_build_minimap_assist_panel, build_hud_status_panel,
+        build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
+        build_runtime_bootstrap_panel, build_runtime_chat_panel, build_runtime_choice_panel,
+        build_runtime_command_mode_panel, build_runtime_core_binding_panel,
+        build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
@@ -4442,6 +4446,12 @@ mod tests {
                         effect_count: 11,
                         spawn_effect_count: 73,
                         active_overlay_count: 1,
+                        binding_label: Some(
+                            "target:parent-follow/source:parent-follow".to_string(),
+                        ),
+                        binding_detail: Some(
+                            "source=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0".to_string(),
+                        ),
                         active_effect_id: Some(13),
                         active_contract_name: Some("lightning".to_string()),
                         active_reliable: Some(true),
@@ -4478,6 +4488,16 @@ mod tests {
         assert_eq!(panel.effect_count, 11);
         assert_eq!(panel.spawn_effect_count, 73);
         assert_eq!(panel.active_overlay_count, 1);
+        assert_eq!(
+            panel.binding_label.as_deref(),
+            Some("target:parent-follow/source:parent-follow")
+        );
+        assert_eq!(
+            panel.binding_detail.as_deref(),
+            Some(
+                "source=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0"
+            )
+        );
         assert_eq!(panel.active_effect_id, Some(13));
         assert_eq!(panel.active_contract_name.as_deref(), Some("lightning"));
         assert_eq!(panel.active_reliable, Some(true));

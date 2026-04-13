@@ -1025,6 +1025,8 @@ pub struct RuntimeLiveEffectSummaryObservability {
     pub effect_count: u64,
     pub spawn_effect_count: u64,
     pub active_overlay_count: usize,
+    pub binding_label: Option<String>,
+    pub binding_detail: Option<String>,
     pub active_effect_id: Option<i16>,
     pub active_contract_name: Option<String>,
     pub active_reliable: Option<bool>,

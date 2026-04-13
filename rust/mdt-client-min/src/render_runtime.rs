@@ -2749,7 +2749,7 @@ fn runtime_ui_observability(
         world_labels: runtime_world_label_observability(session_state),
         markers: runtime_marker_observability(session_state),
         session: runtime_session_observability(session_state, world_overlay),
-        live: runtime_live_summary_observability(session_state, world_overlay),
+        live: runtime_live_summary_observability(snapshot_input, session_state, world_overlay),
     }
 }
 
@@ -3206,12 +3206,17 @@ fn runtime_reconnect_reason_kind_observability(
 }
 
 fn runtime_live_summary_observability(
+    snapshot_input: &ClientSnapshotInputState,
     session_state: &SessionState,
     world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeLiveSummaryObservability {
     RuntimeLiveSummaryObservability {
         entity: runtime_live_entity_summary_observability(session_state),
-        effect: runtime_live_effect_summary_observability(session_state, world_overlay),
+        effect: runtime_live_effect_summary_observability(
+            snapshot_input,
+            session_state,
+            world_overlay,
+        ),
     }
 }
 
@@ -3272,6 +3277,7 @@ fn runtime_live_entity_summary_observability(
 }
 
 fn runtime_live_effect_summary_observability(
+    snapshot_input: &ClientSnapshotInputState,
     session_state: &SessionState,
     world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeLiveEffectSummaryObservability {
@@ -3282,6 +3288,21 @@ fn runtime_live_effect_summary_observability(
         effect_count: session_state.received_effect_count,
         spawn_effect_count: session_state.received_spawn_effect_count,
         active_overlay_count: world_overlay.effect_overlays.len(),
+        binding_label: Some(runtime_effect_binding_label(
+            snapshot_input,
+            session_state,
+            world_overlay,
+        ))
+        .filter(|label| label != "target:none/source:none"),
+        binding_detail: Some(runtime_effect_binding_detail_label(
+            snapshot_input,
+            session_state,
+            world_overlay,
+        ))
+        .filter(|detail| {
+            detail
+                != "source=none session=target:none/source:none overlay=target:none/source:none active=0 target_counts=0/0/0 source_counts=0/0/0"
+        }),
         active_effect_id: active_overlay.and_then(|overlay| overlay.effect_id),
         active_contract_name: active_overlay
             .and_then(|overlay| overlay.contract_name.map(str::to_string)),
@@ -13721,6 +13742,16 @@ mod tests {
             .live
             .effect;
         assert_eq!(live_effect.active_overlay_count, 1);
+        assert_eq!(
+            live_effect.binding_label.as_deref(),
+            Some("target:parent-follow/source:parent-follow")
+        );
+        assert_eq!(
+            live_effect.binding_detail.as_deref(),
+            Some(
+                "source=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0"
+            )
+        );
         assert_eq!(live_effect.active_effect_id, Some(8));
         assert_eq!(
             live_effect.last_contract_name.as_deref(),
@@ -13787,6 +13818,16 @@ mod tests {
             .live
             .effect;
         assert_eq!(live_effect.active_overlay_count, 3);
+        assert_eq!(
+            live_effect.binding_label.as_deref(),
+            Some("target:parent-follow/source:parent-follow")
+        );
+        assert_eq!(
+            live_effect.binding_detail.as_deref(),
+            Some(
+                "source=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=3 target_counts=1/1/1 source_counts=1/1/1"
+            )
+        );
         assert_eq!(live_effect.active_effect_id, Some(9));
         assert_eq!(
             live_effect.last_contract_name.as_deref(),
@@ -15538,7 +15579,11 @@ mod tests {
             polyline_points: Vec::new(),
         });
 
-        let observability = runtime_live_effect_summary_observability(&state, &world_overlay);
+        let observability = runtime_live_effect_summary_observability(
+            &ClientSnapshotInputState::default(),
+            &state,
+            &world_overlay,
+        );
 
         assert_eq!(observability.active_overlay_count, 1);
         assert_eq!(observability.active_effect_id, Some(13));
