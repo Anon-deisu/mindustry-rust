@@ -2266,8 +2266,8 @@ fn compose_render_text_detail_status_text(
     let mut parts = vec![format!("count={}", text_primitives.len())];
     for (kind_label, layer, tile_x, tile_y, payload) in text_primitives {
         parts.push(format!(
-            "{kind_label}@{layer}:{tile_x}:{tile_y} {}",
-            format_render_primitive_payload(&payload)
+            "{kind_label}@{layer}:{tile_x}:{tile_y} payload[{}]",
+            format_render_primitive_payload_fields(&payload)
         ));
     }
     Some(parts.join(" "))
@@ -2530,6 +2530,14 @@ fn compose_render_icon_detail_status_text(
 }
 
 fn format_render_primitive_payload(payload: &RenderPrimitivePayload) -> String {
+    format!(
+        "{}{{{}}}",
+        payload.label,
+        format_render_primitive_payload_fields(payload)
+    )
+}
+
+fn format_render_primitive_payload_fields(payload: &RenderPrimitivePayload) -> String {
     let mut parts = Vec::new();
     if let Some(variant) = payload.field("variant") {
         parts.push(format!(
@@ -2546,7 +2554,7 @@ fn format_render_primitive_payload(payload: &RenderPrimitivePayload) -> String {
             format_render_primitive_payload_value(field_name, field_value)
         ));
     }
-    format!("{}{{{}}}", payload.label, parts.join(","))
+    parts.join(",")
 }
 
 fn render_line_is_visible(
@@ -11032,11 +11040,11 @@ mod tests {
         assert_frame_line_contains(&frame.panel_lines, "RENDER-TEXT-DETAIL: count=2");
         assert_frame_line_contains(
             &frame.panel_lines,
-            "marker-text@30:8:0 marker-text{text=Marker}",
+            "marker-text@30:8:0 payload[text=Marker]",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-world-label@39:0:0 runtime-world-label{text=Hello}",
+            "runtime-world-label@39:0:0 payload[text=Hello]",
         );
     }
 
@@ -11086,11 +11094,11 @@ mod tests {
         assert_frame_line_contains(&frame.panel_lines, "RENDER-TEXT-DETAIL: count=3");
         assert_frame_line_contains(
             &frame.panel_lines,
-            "marker-shape-text@31:16:0 marker-shape-text{text=Shape}",
+            "marker-shape-text@31:16:0 payload[text=Shape]",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "runtime-world-label@39:0:0 runtime-world-label{text=Hello}",
+            "runtime-world-label@39:0:0 payload[text=Hello]",
         );
     }
 
