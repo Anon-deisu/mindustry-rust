@@ -1,4 +1,5 @@
 use crate::{
+    hud_model::{RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
     panel_model::{
         MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
         RuntimeCommandModePanelModel, RuntimeDialogNoticeKind, RuntimeDialogPanelModel,
@@ -685,6 +686,55 @@ pub(crate) fn format_runtime_stack_detail_text(panel: &RuntimeDialogStackPanelMo
     )
 }
 
+pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
+    format!(
+        "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
+        summary.prompt_depth,
+        summary.notice_depth,
+        summary.chat_depth,
+        summary.menu_depth(),
+        summary.hud_depth(),
+        summary.dialog_depth(),
+        summary.active_group_count,
+        summary.total_depth,
+    )
+}
+
+pub(crate) fn format_runtime_dialog_stack_summary_text(
+    summary: &RuntimeUiStackSummary,
+) -> String {
+    let prompt_layers = summary.prompt_layer_labels().join(">");
+    let notice_layers = summary.notice_layer_labels().join(">");
+    format!(
+        "stackx:f={}:p={}@{}:m{}:fo{}:i{}:n={}@{}:md{}:hd{}:c{}:{}/{}:tin{}:s{}:dd{}:t{}",
+        summary.foreground_label(),
+        summary.prompt_label(),
+        if prompt_layers.is_empty() {
+            "none"
+        } else {
+            prompt_layers.as_str()
+        },
+        summary.menu_open_count,
+        summary.outstanding_follow_up_count,
+        summary.text_input_open_count,
+        summary.notice_label(),
+        if notice_layers.is_empty() {
+            "none"
+        } else {
+            notice_layers.as_str()
+        },
+        summary.menu_depth(),
+        summary.hud_depth(),
+        u8::from(summary.chat_active),
+        summary.server_message_count,
+        summary.chat_message_count,
+        format_optional_i32_text(summary.text_input_last_id),
+        format_optional_i32_text(summary.last_chat_sender_entity_id),
+        summary.dialog_depth(),
+        summary.total_depth(),
+    )
+}
+
 pub(crate) fn format_runtime_command_i32_list_text(values: &[i32]) -> String {
     if values.is_empty() {
         "none".to_string()
@@ -979,9 +1029,11 @@ mod tests {
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_command_rect_text, format_runtime_command_stance_text,
         format_runtime_command_target_text, format_runtime_command_unit_ref_text,
+        format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
-        format_runtime_stack_detail_text, format_runtime_stack_panel_text,
+        format_runtime_stack_depth_text, format_runtime_stack_detail_text,
+        format_runtime_stack_panel_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
         format_live_effect_ttl_text,
         format_live_effect_position_source_text, format_render_icon_signature,
@@ -995,6 +1047,10 @@ mod tests {
         world_to_tile_index_floor, zoomed_view_tile_span, CropWindowMode,
     };
     use crate::{
+        hud_model::{
+            RuntimeUiNoticeLayerKind, RuntimeUiPromptLayerKind,
+            RuntimeUiStackDepthSummary, RuntimeUiStackForegroundSummaryKind, RuntimeUiStackSummary,
+        },
         panel_model::{
             MinimapPanelModel, PresenterViewWindow, RuntimeChatPanelModel,
             RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
@@ -1300,6 +1356,51 @@ mod tests {
         assert_eq!(
             format_runtime_stack_detail_text(&panel),
             "stackd:f=input:g3:t7:p=input:m1:fo0:i53:n=warn:h1:r1:i1:w1:c1:7/8:sid404"
+        );
+    }
+
+    #[test]
+    fn format_runtime_stack_depth_text_preserves_field_order() {
+        let summary = RuntimeUiStackDepthSummary {
+            prompt_depth: 2,
+            notice_depth: 4,
+            chat_depth: 1,
+            active_group_count: 3,
+            total_depth: 7,
+        };
+
+        assert_eq!(
+            format_runtime_stack_depth_text(&summary),
+            "sdepth:p2:n4:c1:m2:h4:d7:g3:t7"
+        );
+    }
+
+    #[test]
+    fn format_runtime_dialog_stack_summary_text_preserves_field_order() {
+        let summary = RuntimeUiStackSummary {
+            foreground_kind: Some(RuntimeUiStackForegroundSummaryKind::TextInput),
+            prompt_kind: Some(RuntimeUiPromptLayerKind::TextInput),
+            prompt_layers: vec![RuntimeUiPromptLayerKind::TextInput, RuntimeUiPromptLayerKind::Menu],
+            notice_kind: Some(RuntimeUiNoticeLayerKind::ToastWarning),
+            notice_layers: vec![
+                RuntimeUiNoticeLayerKind::Hud,
+                RuntimeUiNoticeLayerKind::HudReliable,
+                RuntimeUiNoticeLayerKind::ToastInfo,
+                RuntimeUiNoticeLayerKind::ToastWarning,
+            ],
+            chat_active: true,
+            menu_open_count: 16,
+            outstanding_follow_up_count: 0,
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            server_message_count: 7,
+            chat_message_count: 8,
+            last_chat_sender_entity_id: Some(404),
+        };
+
+        assert_eq!(
+            format_runtime_dialog_stack_summary_text(&summary),
+            "stackx:f=input:p=input@input>menu:m16:fo0:i53:n=warn@hud>reliable>info>warn:md2:hd4:c1:7/8:tin404:s404:dd7:t7"
         );
     }
 

@@ -25,9 +25,11 @@ use crate::{
         format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
         format_runtime_command_mode_panel_text, format_runtime_command_unit_ref_text,
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
+        format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_dialog_prompt_text,
-        format_runtime_stack_detail_text, format_runtime_stack_panel_text,
+        format_runtime_stack_depth_text, format_runtime_stack_detail_text,
+        format_runtime_stack_panel_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
         format_live_effect_ttl_text,
         format_live_effect_position_source_text, format_render_icon_signature,
@@ -2973,17 +2975,7 @@ fn compose_runtime_stack_depth_status_text(hud: &HudModel) -> Option<String> {
     if summary.is_empty() {
         return None;
     }
-    Some(format!(
-        "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
-        summary.prompt_depth,
-        summary.notice_depth,
-        summary.chat_depth,
-        summary.menu_depth(),
-        summary.hud_depth(),
-        summary.dialog_depth(),
-        summary.active_group_count,
-        summary.total_depth,
-    ))
+    Some(format_runtime_stack_depth_text(&summary))
 }
 
 fn compose_runtime_dialog_stack_status_text(hud: &HudModel) -> Option<String> {
@@ -2991,36 +2983,7 @@ fn compose_runtime_dialog_stack_status_text(hud: &HudModel) -> Option<String> {
     if summary.is_empty() {
         return None;
     }
-    let prompt_layers = summary.prompt_layer_labels().join(">");
-    let notice_layers = summary.notice_layer_labels().join(">");
-    Some(format!(
-        "stackx:f={}:p={}@{}:m{}:fo{}:i{}:n={}@{}:md{}:hd{}:c{}:{}/{}:tin{}:s{}:dd{}:t{}",
-        summary.foreground_label(),
-        summary.prompt_label(),
-        if prompt_layers.is_empty() {
-            "none"
-        } else {
-            prompt_layers.as_str()
-        },
-        summary.menu_open_count,
-        summary.outstanding_follow_up_count,
-        summary.text_input_open_count,
-        summary.notice_label(),
-        if notice_layers.is_empty() {
-            "none"
-        } else {
-            notice_layers.as_str()
-        },
-        summary.menu_depth(),
-        summary.hud_depth(),
-        if summary.chat_active { 1 } else { 0 },
-        summary.server_message_count,
-        summary.chat_message_count,
-        optional_i32_label(summary.text_input_last_id),
-        optional_i32_label(summary.last_chat_sender_entity_id),
-        summary.dialog_depth(),
-        summary.total_depth(),
-    ))
+    Some(format_runtime_dialog_stack_summary_text(&summary))
 }
 
 fn compose_runtime_command_mode_panel_status_text(hud: &HudModel) -> Option<String> {
