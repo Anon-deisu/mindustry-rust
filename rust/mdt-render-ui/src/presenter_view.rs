@@ -485,6 +485,33 @@ where
     format!("count={total}{item_separator}{}", detail_items.join(item_separator))
 }
 
+pub(crate) fn format_live_effect_ttl_text(ttl: Option<(u8, u8)>) -> String {
+    match ttl {
+        Some((remaining, total)) => format!("{remaining}/{total}"),
+        None => "none".to_string(),
+    }
+}
+
+pub(crate) fn format_live_effect_data_shape_text(
+    data_len: Option<usize>,
+    data_type_tag: Option<u8>,
+) -> String {
+    match (data_len, data_type_tag) {
+        (Some(data_len), Some(data_type_tag)) => format!("{data_len}/{data_type_tag}"),
+        (Some(data_len), None) => format!("{data_len}/none"),
+        (None, Some(data_type_tag)) => format!("none/{data_type_tag}"),
+        (None, None) => "none".to_string(),
+    }
+}
+
+pub(crate) fn format_live_effect_reliable_flag_text(flag: Option<bool>) -> &'static str {
+    match flag {
+        Some(true) => "1",
+        Some(false) => "0",
+        None => "?",
+    }
+}
+
 pub(crate) fn format_render_rect_detail_fields(
     left_tile: i32,
     top_tile: i32,
@@ -524,6 +551,8 @@ mod tests {
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
         format_counted_detail_text, format_counted_preview_text,
+        format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
+        format_live_effect_ttl_text,
         format_live_effect_position_source_text, format_render_icon_signature,
         format_render_line_signature,
         format_render_primitive_payload_fields_with, format_render_primitive_payload_value_with,
@@ -1018,6 +1047,30 @@ mod tests {
             )),
             "spawn"
         );
+    }
+
+    #[test]
+    fn format_live_effect_ttl_text_handles_missing_and_present_values() {
+        assert_eq!(format_live_effect_ttl_text(None), "none");
+        assert_eq!(format_live_effect_ttl_text(Some((3, 5))), "3/5");
+    }
+
+    #[test]
+    fn format_live_effect_data_shape_text_handles_partial_values() {
+        assert_eq!(format_live_effect_data_shape_text(None, None), "none");
+        assert_eq!(format_live_effect_data_shape_text(Some(9), Some(4)), "9/4");
+        assert_eq!(format_live_effect_data_shape_text(Some(9), None), "9/none");
+        assert_eq!(
+            format_live_effect_data_shape_text(None, Some(4)),
+            "none/4"
+        );
+    }
+
+    #[test]
+    fn format_live_effect_reliable_flag_text_handles_all_variants() {
+        assert_eq!(format_live_effect_reliable_flag_text(Some(true)), "1");
+        assert_eq!(format_live_effect_reliable_flag_text(Some(false)), "0");
+        assert_eq!(format_live_effect_reliable_flag_text(None), "?");
     }
 
     #[test]

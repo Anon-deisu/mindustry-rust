@@ -19,6 +19,8 @@ use crate::presenter_view::{
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
     format_counted_detail_text, format_counted_preview_text,
+    format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
+    format_live_effect_ttl_text,
     format_live_effect_position_source_text, format_render_icon_signature,
     format_render_line_signature,
     format_render_primitive_payload_fields_with, format_render_primitive_payload_value_with,
@@ -2745,9 +2747,9 @@ fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String>
         panel.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(panel.display_position_source()),
         world_position_text(panel.display_position()),
-        live_effect_ttl_text(panel.display_overlay_ttl()),
-        live_effect_data_shape_text(panel.last_data_len, panel.last_data_type_tag),
-        live_effect_reliable_flag_text(panel.active_reliable),
+        format_live_effect_ttl_text(panel.display_overlay_ttl()),
+        format_live_effect_data_shape_text(panel.last_data_len, panel.last_data_type_tag),
+        format_live_effect_reliable_flag_text(panel.active_reliable),
         compact_runtime_ui_text(panel.display_contract_name()),
         compact_runtime_ui_text(panel.display_reliable_contract_name()),
         panel.binding_detail.as_deref().unwrap_or("none"),
@@ -3735,16 +3737,16 @@ fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservabilit
         effect.active_overlay_count,
         optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
-        live_effect_data_shape_text(effect.last_data_len, effect.last_data_type_tag),
+        format_live_effect_data_shape_text(effect.last_data_len, effect.last_data_type_tag),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.display_contract_name()),
         compact_runtime_ui_text(effect.display_reliable_contract_name()),
         effect.binding_label.as_deref().unwrap_or("none"),
-        live_effect_reliable_flag_text(effect.active_reliable),
+        format_live_effect_reliable_flag_text(effect.active_reliable),
         effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(effect.display_position_source()),
         world_position_text(effect.display_position()),
-        live_effect_ttl_text(effect.display_overlay_ttl()),
+        format_live_effect_ttl_text(effect.display_overlay_ttl()),
     )
 }
 
@@ -3758,41 +3760,17 @@ fn compose_live_effect_panel_text(
         effect.active_overlay_count,
         optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
-        live_effect_data_shape_text(effect.last_data_len, effect.last_data_type_tag),
+        format_live_effect_data_shape_text(effect.last_data_len, effect.last_data_type_tag),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.display_contract_name()),
         compact_runtime_ui_text(effect.display_reliable_contract_name()),
         effect.binding_label.as_deref().unwrap_or("none"),
-        live_effect_reliable_flag_text(effect.active_reliable),
+        format_live_effect_reliable_flag_text(effect.active_reliable),
         effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(effect.display_position_source()),
         world_position_text(effect.display_position()),
-        live_effect_ttl_text(effect.display_overlay_ttl()),
+        format_live_effect_ttl_text(effect.display_overlay_ttl()),
     )
-}
-
-fn live_effect_ttl_text(ttl: Option<(u8, u8)>) -> String {
-    match ttl {
-        Some((remaining, total)) => format!("{remaining}/{total}"),
-        None => "none".to_string(),
-    }
-}
-
-fn live_effect_data_shape_text(data_len: Option<usize>, data_type_tag: Option<u8>) -> String {
-    match (data_len, data_type_tag) {
-        (Some(data_len), Some(data_type_tag)) => format!("{data_len}/{data_type_tag}"),
-        (Some(data_len), None) => format!("{data_len}/none"),
-        (None, Some(data_type_tag)) => format!("none/{data_type_tag}"),
-        (None, None) => "none".to_string(),
-    }
-}
-
-fn live_effect_reliable_flag_text(flag: Option<bool>) -> &'static str {
-    match flag {
-        Some(true) => "1",
-        Some(false) => "0",
-        None => "?",
-    }
 }
 
 fn compose_runtime_kick_panel_text(kick: &crate::panel_model::RuntimeKickPanelModel) -> String {
