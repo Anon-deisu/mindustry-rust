@@ -2503,10 +2503,11 @@ fn compose_hud_visibility_status_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_hud_detail_status_text(hud: &HudModel) -> Option<String> {
+    let hud_summary = hud.summary.as_ref()?;
     let summary = build_hud_status_panel(hud)?;
     let visibility = build_hud_visibility_panel(hud)?;
     Some(format!(
-        "huddet:p={}#{}:sel={}#{}:t{}:vm{}:hm{}",
+        "huddet:p={}#{}:sel={}#{}:t{}:vm{}:hm{}:ov{}:fg{}:mini=f{}:w{}+{}:a{}",
         compact_runtime_ui_text(Some(summary.player_name.as_str())),
         summary.player_name_len(),
         compact_runtime_ui_text(Some(summary.selected_block.as_str())),
@@ -2514,6 +2515,12 @@ fn compose_hud_detail_status_text(hud: &HudModel) -> Option<String> {
         summary.map_tile_count(),
         visibility.visible_map_percent(),
         visibility.hidden_map_percent(),
+        bool_flag(hud_summary.overlay_visible),
+        bool_flag(hud_summary.fog_enabled),
+        optional_focus_tile_status_text(hud_summary.minimap.focus_tile),
+        hud_summary.minimap.view_window.origin_label(),
+        hud_summary.minimap.view_window.size_label(),
+        hud_summary.minimap.view_window.tile_count(),
     ))
 }
 
@@ -7622,6 +7629,40 @@ mod tests {
         assert_eq!(
             super::compose_hud_visibility_status_text(&hud),
             Some("hudvis:ov1:fg1:k144p3:v120p83:h24p16:u4656p97:vm2:hm0".to_string())
+        );
+    }
+
+    #[test]
+    fn present_once_surfaces_hud_detail_visibility_and_minimap() {
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: true,
+                visible_tile_count: 120,
+                hidden_tile_count: 24,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((0, 0)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 1,
+                        height: 1,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        assert_eq!(
+            super::compose_hud_detail_status_text(&hud),
+            Some("huddet:p=operator#8:sel=payload-rout~#14:t4800:vm2:hm0:ov1:fg1:mini=f0:0:w0:0+1x1:a1".to_string())
         );
     }
 

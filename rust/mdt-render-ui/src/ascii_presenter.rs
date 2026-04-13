@@ -1568,10 +1568,11 @@ fn compose_visibility_minimap_text(
 }
 
 fn compose_hud_detail_text(hud: &HudModel) -> Option<String> {
+    let hud_summary = hud.summary.as_ref()?;
     let summary = build_hud_status_panel(hud)?;
     let visibility = build_hud_visibility_panel(hud)?;
     Some(format!(
-        "player={} len={} selected={} len={} tiles={} vis-map={} hidden-map={}",
+        "player={} len={} selected={} len={} tiles={} vis-map={} hidden-map={} overlay={} fog={} minimap={}",
         compact_runtime_ui_text(Some(summary.player_name.as_str())),
         summary.player_name_len(),
         compact_runtime_ui_text(Some(summary.selected_block.as_str())),
@@ -1579,6 +1580,9 @@ fn compose_hud_detail_text(hud: &HudModel) -> Option<String> {
         summary.map_tile_count(),
         visibility.visible_map_percent(),
         visibility.hidden_map_percent(),
+        hud_summary.overlay_label(),
+        hud_summary.fog_label(),
+        hud_summary.minimap.detail_label(),
     ))
 }
 
@@ -4923,6 +4927,43 @@ mod tests {
             super::compose_hud_visibility_text(&hud),
             Some(
                 "overlay=1 fog=1 known=144(3%) vis=120(83%) hid=24(16%) unseen=4656(97%) vis-map=2% hid-map=0%"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn ascii_presenter_surfaces_hud_detail_visibility_and_minimap() {
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: true,
+                visible_tile_count: 120,
+                hidden_tile_count: 24,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((0, 0)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 1,
+                        height: 1,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        assert_eq!(
+            super::compose_hud_detail_text(&hud),
+            Some(
+                "player=operator len=8 selected=payload-rout~ len=14 tiles=4800 vis-map=2 hidden-map=0 overlay=on fog=on minimap=focus=0:0 window-origin=0:0 window-size=1x1 window-area=1"
                     .to_string()
             )
         );
