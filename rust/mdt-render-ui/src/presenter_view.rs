@@ -490,6 +490,17 @@ pub(crate) fn format_runtime_world_label_sample_text(value: Option<&str>) -> Str
     }
 }
 
+pub(crate) fn format_runtime_world_label_scalar_text(
+    bits: Option<u32>,
+    value: Option<f32>,
+) -> String {
+    match (bits, value) {
+        (Some(bits), Some(value)) => format!("{bits}@{value:.1}"),
+        (Some(bits), None) => bits.to_string(),
+        (None, _) => "none".to_string(),
+    }
+}
+
 pub(crate) fn runtime_ui_uri_scheme(value: Option<&str>) -> String {
     value
         .map(str::trim)
@@ -1139,6 +1150,7 @@ mod tests {
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
         format_runtime_world_label_sample_text,
+        format_runtime_world_label_scalar_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
@@ -1296,6 +1308,19 @@ mod tests {
                 "123456789012345678901234567890"
             )),
             "123456789012345678901234~"
+        );
+    }
+
+    #[test]
+    fn format_runtime_world_label_scalar_text_handles_missing_and_finite_values() {
+        assert_eq!(format_runtime_world_label_scalar_text(None, None), "none");
+        assert_eq!(
+            format_runtime_world_label_scalar_text(Some(1094713344), Some(12.0)),
+            "1094713344@12.0"
+        );
+        assert_eq!(
+            format_runtime_world_label_scalar_text(Some(1094713344), None),
+            "1094713344"
         );
     }
 

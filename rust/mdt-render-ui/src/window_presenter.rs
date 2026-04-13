@@ -30,6 +30,7 @@ use crate::{
         format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_world_label_sample_text,
+        format_runtime_world_label_scalar_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_stack_depth_text, format_runtime_stack_detail_text,
         format_runtime_stack_panel_text,
@@ -2982,8 +2983,8 @@ fn compose_runtime_world_label_panel_status_text(hud: &HudModel) -> Option<Strin
         panel.inactive_count(),
         optional_i32_label(panel.last_entity_id),
         optional_u8_label(panel.last_flags),
-        runtime_world_label_scalar_status_text(panel.last_font_size_bits, panel.last_font_size()),
-        runtime_world_label_scalar_status_text(panel.last_z_bits, panel.last_z()),
+        format_runtime_world_label_scalar_text(panel.last_font_size_bits, panel.last_font_size()),
+        format_runtime_world_label_scalar_text(panel.last_z_bits, panel.last_z()),
         world_position_status_text(panel.last_position.as_ref()),
         format_runtime_world_label_sample_text(panel.last_text.as_deref()),
         panel.last_text_line_count(),
@@ -3019,8 +3020,8 @@ fn compose_runtime_world_label_detail_status_text(hud: &HudModel) -> Option<Stri
         optional_u8_label(panel.last_flags),
         panel.last_text_len(),
         panel.last_text_line_count(),
-        runtime_world_label_scalar_status_text(panel.last_font_size_bits, panel.last_font_size()),
-        runtime_world_label_scalar_status_text(panel.last_z_bits, panel.last_z()),
+        format_runtime_world_label_scalar_text(panel.last_font_size_bits, panel.last_font_size()),
+        format_runtime_world_label_scalar_text(panel.last_z_bits, panel.last_z()),
         world_position_status_text(panel.last_position.as_ref()),
     ))
 }
@@ -4716,14 +4717,6 @@ fn optional_u32_label(value: Option<u32>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
-}
-
-fn runtime_world_label_scalar_status_text(bits: Option<u32>, value: Option<f32>) -> String {
-    match (bits, value) {
-        (Some(bits), Some(value)) => format!("{bits}@{value:.1}"),
-        (Some(bits), None) => bits.to_string(),
-        (None, _) => "none".to_string(),
-    }
 }
 
 fn optional_u64_label(value: Option<u64>) -> String {
