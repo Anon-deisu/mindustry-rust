@@ -2633,15 +2633,11 @@ fn apply_runtime_command_mode_cli_ops(
                 build_target,
                 unit_target,
                 pos_target,
-            } => {
-                let selected_units = runtime_command_mode.projection().selected_units;
-                runtime_command_mode.record_command_units(
-                    &selected_units,
-                    *build_target,
-                    command_unit_ref_from_client(*unit_target),
-                    *pos_target,
-                );
-            }
+            } => runtime_command_mode.record_command_target(
+                *build_target,
+                command_unit_ref_from_client(*unit_target),
+                *pos_target,
+            ),
             CommandModeCliOp::SetCommand {
                 unit_ids,
                 command_id,
@@ -11594,7 +11590,7 @@ mod tests {
 
         let projection = runtime_command_mode.projection();
         assert!(projection.active);
-        assert!(projection.command_buildings.is_empty());
+        assert_eq!(projection.command_buildings, vec![404]);
         assert_eq!(projection.selected_units, vec![77, 88]);
         assert_eq!(
             projection.last_target,
@@ -11623,6 +11619,55 @@ mod tests {
                 stance_id: None,
                 enabled: false,
             })
+        );
+    }
+
+    #[test]
+    fn runtime_command_mode_cli_set_target_preserves_existing_selection_state() {
+        let mut runtime_command_mode = CommandModeState::default();
+
+        apply_runtime_command_mode_cli_ops(
+            &mut runtime_command_mode,
+            &[
+                CommandModeCliOp::SelectBuilding {
+                    build_pos: Some(404),
+                },
+                CommandModeCliOp::SetCommand {
+                    unit_ids: vec![77, 88, 77],
+                    command_id: Some(7),
+                },
+                CommandModeCliOp::SetTarget {
+                    build_target: Some(808),
+                    unit_target: ClientUnitRef::Standard(909),
+                    pos_target: Some((1.5, -2.25)),
+                },
+            ],
+        );
+
+        assert_eq!(
+            runtime_command_mode.projection(),
+            mdt_input::CommandModeProjection {
+                active: true,
+                selected_units: vec![77, 88],
+                command_buildings: vec![404],
+                command_rect: None,
+                control_groups: Vec::new(),
+                last_control_group_operation: None,
+                last_target: Some(mdt_input::CommandModeTargetProjection {
+                    build_target: Some(808),
+                    unit_target: Some(mdt_input::CommandUnitRef {
+                        kind: 2,
+                        value: 909,
+                    }),
+                    position_target: Some(mdt_input::CommandModePositionTarget {
+                        x_bits: 1.5f32.to_bits(),
+                        y_bits: (-2.25f32).to_bits(),
+                    }),
+                    rect_target: None,
+                }),
+                last_command_selection: None,
+                last_stance_selection: None,
+            }
         );
     }
 

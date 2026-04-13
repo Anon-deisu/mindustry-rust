@@ -467,6 +467,23 @@ impl CommandModeState {
         });
     }
 
+    pub fn record_command_target(
+        &mut self,
+        build_target: Option<i32>,
+        unit_target: Option<CommandUnitRef>,
+        pos_target: Option<(f32, f32)>,
+    ) {
+        self.active = true;
+        self.clear_recent_target_state();
+        self.command_rect = None;
+        self.last_target = Some(CommandModeTargetProjection {
+            build_target,
+            unit_target,
+            position_target: pos_target.and_then(command_mode_position_target),
+            rect_target: None,
+        });
+    }
+
     pub fn record_set_unit_command(&mut self, unit_ids: &[i32], command_id: Option<u8>) {
         self.active = true;
         self.selected_units = dedupe_i32(unit_ids);
@@ -883,6 +900,32 @@ mod tests {
                 rect_target: None,
             })
         );
+    }
+
+    #[test]
+    fn record_command_target_preserves_existing_selection_state() {
+        let mut state = CommandModeState::default();
+        state.record_building_control_select(Some(404));
+        state.record_set_unit_command(&[77, 88, 77], Some(7));
+
+        state.record_command_target(Some(808), Some(unit(2, 909)), Some((1.5, -2.25)));
+
+        assert_eq!(state.projection().selected_units, vec![77, 88]);
+        assert_eq!(state.projection().command_buildings, vec![404]);
+        assert_eq!(
+            state.projection().last_target,
+            Some(CommandModeTargetProjection {
+                build_target: Some(808),
+                unit_target: Some(unit(2, 909)),
+                position_target: Some(CommandModePositionTarget {
+                    x_bits: 1.5f32.to_bits(),
+                    y_bits: (-2.25f32).to_bits(),
+                }),
+                rect_target: None,
+            })
+        );
+        assert_eq!(state.projection().last_command_selection, None);
+        assert_eq!(state.projection().last_stance_selection, None);
     }
 
     #[test]
