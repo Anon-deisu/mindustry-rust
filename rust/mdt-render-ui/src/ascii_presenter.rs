@@ -3160,7 +3160,7 @@ fn compose_build_minimap_aux_text(
     let panel = build_build_minimap_assist_panel(scene, hud, window)?;
     let window_tile_count = window.width.saturating_mul(window.height);
     Some(format!(
-        "mode={} select={} queue={} place-ready={} cfg={}/{} top={} auth={} pending={} head={} auth-tile={} src={} block={} focus={} in-window={} visible-map={} unknown-map={} window={} d{} tracked={} runtime={} runtime-share={}%",
+        "preb:m={}:s={}:q={}:r{}:cfg={}/{}@{}:auth={}:pm={}:head={}:tile={}:src={}:b={}:f={}@{}:v{}:u{}:w{}:d{}:obj{}:rt{}:rs{}",
         build_interaction_mode_text(panel.mode),
         build_interaction_selection_text(panel.selection_state),
         build_interaction_queue_text(panel.queue_state),
@@ -3168,11 +3168,11 @@ fn compose_build_minimap_aux_text(
         panel.config_family_count,
         panel.config_sample_count,
         compact_runtime_ui_text(panel.top_config_family.as_deref()),
-        build_interaction_authority_text(panel.authority_state),
+        build_interaction_authority_compact_text(panel.authority_state),
         build_config_pending_match_text(panel.authority_pending_match),
-        build_flow_head_tile_text(panel.head_tile),
+        optional_build_tile_text(panel.head_tile),
         build_config_tile_text(panel.authority_tile),
-        build_config_rollback_source_text(panel.authority_source),
+        build_config_rollback_source_compact_text(panel.authority_source),
         compact_runtime_ui_text(panel.authority_block_name.as_deref()),
         optional_focus_tile_text(panel.focus_tile),
         optional_bool_label(panel.focus_in_window),
@@ -3431,13 +3431,6 @@ fn build_config_head_text(head: Option<&crate::panel_model::BuildConfigHeadModel
 }
 
 fn build_config_tile_text(value: Option<(i32, i32)>) -> String {
-    match value {
-        Some((x, y)) => format!("{x}:{y}"),
-        None => "none".to_string(),
-    }
-}
-
-fn build_flow_head_tile_text(value: Option<(i32, i32)>) -> String {
     match value {
         Some((x, y)) => format!("{x}:{y}"),
         None => "none".to_string(),
@@ -6096,7 +6089,7 @@ mod tests {
         let build_minimap_aux_pos = frame
             .lines()
             .position(|line| {
-                line == "BUILD-MINIMAP-AUX: mode=place select=head-aligned queue=mixed place-ready=1 cfg=4/8 top=gamma auth=rejected-missing-building pending=match head=10:12 auth-tile=10:12 src=tileConfig block=alpha focus=1:1 in-window=1 visible-map=0 unknown-map=100 window=0 d75 tracked=3 runtime=0 runtime-share=0%"
+                line == "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=4/8@gamma:auth=rej-miss-build:pm=match:head=10:12:tile=10:12:src=tilecfg:b=alpha:f=1:1@1:v0:u100:w0:d75:obj3:rt0:rs0"
             })
             .expect("build minimap aux line");
         assert!(build_interaction_detail_pos < build_queue_pos);
@@ -6105,7 +6098,7 @@ mod tests {
             "BUILD-STRIP-DETAIL: selected=301 rot=1 available=1 families=4 samples=8 top=gamma head=queued@10:12:place:b301:r1 authority=rejected-missing-building pending=match source=tileConfig tile=10:12 block=alpha orphan=6"
         ));
         assert!(frame.contains(
-            "BUILD-MINIMAP-AUX: mode=place select=head-aligned queue=mixed place-ready=1 cfg=4/8 top=gamma auth=rejected-missing-building pending=match head=10:12 auth-tile=10:12 src=tileConfig block=alpha focus=1:1 in-window=1 visible-map=0 unknown-map=100 window=0 d75 tracked=3 runtime=0 runtime-share=0%"
+            "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=4/8@gamma:auth=rej-miss-build:pm=match:head=10:12:tile=10:12:src=tilecfg:b=alpha:f=1:1@1:v0:u100:w0:d75:obj3:rt0:rs0"
         ));
         assert!(frame.contains(
             "BUILD-MINIMAP-DIAG: next=resolve pair=match anchor=detached focus=inside cover=offscreen visibility=unseen"
