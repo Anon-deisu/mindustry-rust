@@ -510,6 +510,11 @@ impl AsciiScenePresenter {
                 "RUNTIME-LOADING-DETAIL: {runtime_loading_detail_text}\n"
             ));
         }
+        if let Some(runtime_world_reload_text) = compose_runtime_world_reload_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-WORLD-RELOAD: {runtime_world_reload_text}\n"
+            ));
+        }
         if let Some(runtime_world_reload_detail_text) =
             compose_runtime_world_reload_detail_text(hud)
         {
@@ -2633,6 +2638,11 @@ fn compose_runtime_loading_detail_text(hud: &HudModel) -> Option<String> {
     (!panel.is_empty()).then(|| compose_runtime_loading_detail_panel_text(&panel))
 }
 
+fn compose_runtime_world_reload_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_loading_panel(hud)?;
+    (!panel.is_empty()).then(|| runtime_world_reload_panel_text(panel.last_world_reload.as_ref()))
+}
+
 fn compose_runtime_core_binding_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_core_binding_panel(hud)?;
     if panel.is_empty() {
@@ -4596,6 +4606,70 @@ mod tests {
         assert!(presenter.last_frame().contains(
             "SESSION-BANNER: LOADING defer5:replay6:drop7:qdrop8:sfail0:scfail0:efail0:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
         ));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_runtime_world_reload_summary() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let mut runtime_ui = crate::RuntimeUiObservability::default();
+        runtime_ui.session.loading = crate::RuntimeLoadingObservability {
+            deferred_inbound_packet_count: 5,
+            replayed_inbound_packet_count: 6,
+            dropped_loading_low_priority_packet_count: 7,
+            dropped_loading_deferred_overflow_count: 8,
+            ready_inbound_liveness_anchor_count: 12,
+            last_ready_inbound_liveness_anchor_at_ms: Some(1300),
+            timeout_count: 2,
+            connect_or_loading_timeout_count: 1,
+            ready_snapshot_timeout_count: 1,
+            last_timeout_kind: Some(crate::RuntimeSessionTimeoutKind::ReadySnapshotStall),
+            last_timeout_idle_ms: Some(20000),
+            reset_count: 3,
+            reconnect_reset_count: 1,
+            world_reload_count: 1,
+            kick_reset_count: 1,
+            last_reset_kind: Some(crate::RuntimeSessionResetKind::WorldReload),
+            last_world_reload: Some(crate::RuntimeWorldReloadObservability {
+                had_loaded_world: true,
+                had_client_loaded: false,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 4,
+                cleared_deferred_inbound_packets: 5,
+                cleared_replayed_loading_events: 6,
+            }),
+            ..crate::RuntimeLoadingObservability::default()
+        };
+        let hud = HudModel {
+            title: "demo".to_string(),
+            wave_text: Some("Wave 7".to_string()),
+            runtime_ui: Some(runtime_ui),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RUNTIME-WORLD-RELOAD: @lw1:cl0:rd1:cc0:p4:d5:r6"));
+        let loading_detail = frame
+            .find("RUNTIME-LOADING-DETAIL: loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6")
+            .unwrap();
+        let world_reload = frame
+            .find("RUNTIME-WORLD-RELOAD: @lw1:cl0:rd1:cc0:p4:d5:r6")
+            .unwrap();
+        let world_reload_detail = frame
+            .find("RUNTIME-WORLD-RELOAD-DETAIL: reloadd:lw1:cl0:rd1:cc0:p4:d5:r6")
+            .unwrap();
+        assert!(loading_detail < world_reload && world_reload < world_reload_detail);
     }
 
     #[test]

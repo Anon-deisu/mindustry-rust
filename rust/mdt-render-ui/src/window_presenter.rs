@@ -1870,6 +1870,9 @@ fn compose_frame_panel_lines(
             "RUNTIME-LOADING-DETAIL: {runtime_loading_detail_text}"
         ));
     }
+    if let Some(runtime_world_reload_text) = compose_runtime_world_reload_status_text(hud) {
+        lines.push(format!("RUNTIME-WORLD-RELOAD: {runtime_world_reload_text}"));
+    }
     if let Some(runtime_world_reload_detail_text) =
         compose_runtime_world_reload_detail_status_text(hud)
     {
@@ -3565,6 +3568,12 @@ fn compose_runtime_kick_detail_status_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_loading_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_loading_panel(hud)?;
     (!panel.is_empty()).then(|| compose_runtime_loading_detail_panel_status_text(&panel))
+}
+
+fn compose_runtime_world_reload_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_loading_panel(hud)?;
+    (!panel.is_empty())
+        .then(|| runtime_world_reload_panel_status_text(panel.last_world_reload.as_ref()))
 }
 
 fn compose_runtime_core_binding_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -10244,6 +10253,91 @@ mod tests {
             window_hud_top_line(frame),
             frame.session_banner_text.as_deref()
         );
+    }
+
+    #[test]
+    fn present_once_reports_runtime_world_reload_summary() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.session.loading = crate::RuntimeLoadingObservability {
+            deferred_inbound_packet_count: 5,
+            replayed_inbound_packet_count: 6,
+            dropped_loading_low_priority_packet_count: 7,
+            dropped_loading_deferred_overflow_count: 8,
+            ready_inbound_liveness_anchor_count: 12,
+            last_ready_inbound_liveness_anchor_at_ms: Some(1300),
+            timeout_count: 2,
+            connect_or_loading_timeout_count: 1,
+            ready_snapshot_timeout_count: 1,
+            last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+            last_timeout_idle_ms: Some(20000),
+            reset_count: 3,
+            reconnect_reset_count: 1,
+            world_reload_count: 1,
+            kick_reset_count: 1,
+            last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+            last_world_reload: Some(RuntimeWorldReloadObservability {
+                had_loaded_world: true,
+                had_client_loaded: false,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 4,
+                cleared_deferred_inbound_packets: 5,
+                cleared_replayed_loading_events: 6,
+            }),
+            ..crate::RuntimeLoadingObservability::default()
+        };
+        runtime_ui.session.reconnect = RuntimeReconnectObservability {
+            phase: RuntimeReconnectPhaseObservability::Attempting,
+            phase_transition_count: 3,
+            reason_kind: Some(RuntimeReconnectReasonKind::ConnectRedirect),
+            reason_text: Some("connectRedirect".to_string()),
+            hint_text: Some("server requested redirect".to_string()),
+            redirect_count: 1,
+            last_redirect_ip: Some("127.0.0.1".to_string()),
+            last_redirect_port: Some(6567),
+            ..RuntimeReconnectObservability::default()
+        };
+        let hud = HudModel {
+            title: "demo".to_string(),
+            wave_text: Some("Wave 7".to_string()),
+            runtime_ui: Some(runtime_ui),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        let loading_detail_index = frame
+            .panel_lines
+            .iter()
+            .position(|line| {
+                line == "RUNTIME-LOADING-DETAIL: loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6"
+            })
+            .unwrap();
+        let world_reload_index = frame
+            .panel_lines
+            .iter()
+            .position(|line| line == "RUNTIME-WORLD-RELOAD: @lw1:cl0:rd1:cc0:p4:d5:r6")
+            .unwrap();
+        let world_reload_detail_index = frame
+            .panel_lines
+            .iter()
+            .position(|line| line == "RUNTIME-WORLD-RELOAD-DETAIL: reloadd:lw1:cl0:rd1:cc0:p4:d5:r6")
+            .unwrap();
+        assert!(loading_detail_index < world_reload_index);
+        assert!(world_reload_index < world_reload_detail_index);
     }
 
     #[test]
