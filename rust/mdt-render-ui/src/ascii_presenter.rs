@@ -360,6 +360,9 @@ impl AsciiScenePresenter {
         if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_text(hud) {
             out.push_str(&format!("RUNTIME-NOTICE: {runtime_ui_notice_text}\n"));
         }
+        if let Some(runtime_notice_state_text) = compose_runtime_notice_state_panel_text(hud) {
+            out.push_str(&format!("RUNTIME-NOTICE-STATE: {runtime_notice_state_text}\n"));
+        }
         if let Some(runtime_ui_notice_detail_text) = compose_runtime_ui_notice_detail_text(hud) {
             out.push_str(&format!(
                 "RUNTIME-NOTICE-DETAIL: {runtime_ui_notice_detail_text}\n"
@@ -1881,6 +1884,24 @@ fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
         runtime_ui_text_len(panel.text_input_last_default_text.as_deref()),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_notice_state_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_notice_state_panel(hud)?;
+    let notice_text = format!(
+        "{}@{}",
+        runtime_dialog_notice_text(panel.kind),
+        compact_runtime_ui_text(panel.text.as_deref())
+    );
+    Some(format!(
+        "notice-state:n={}:c{}:h{}:r{}:i{}:w{}",
+        notice_text,
+        panel.count,
+        bool_flag(panel.hud_active),
+        bool_flag(panel.reliable_hud_active),
+        bool_flag(panel.toast_info_active),
+        bool_flag(panel.toast_warning_active),
     ))
 }
 
@@ -6475,6 +6496,28 @@ mod tests {
 
         assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(frame.contains(":uri0:19:https:"));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_runtime_notice_state() {
+        let scene = runtime_stack_test_scene();
+        let mut presenter = AsciiScenePresenter::default();
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.hud_text.set_count = 1;
+        runtime_ui.hud_text.last_message = Some("hud".to_string());
+        runtime_ui.hud_text.set_reliable_count = 1;
+        runtime_ui.hud_text.last_reliable_message = Some("hud rel".to_string());
+        runtime_ui.toast.info_count = 1;
+        runtime_ui.toast.last_info_message = Some("info".to_string());
+        runtime_ui.toast.warning_count = 1;
+        runtime_ui.toast.last_warning_text = Some("warn".to_string());
+
+        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "RUNTIME-NOTICE-STATE: notice-state:n=warn@warn:c4:h1:r1:i1:w1"
+        ));
     }
 
     #[test]
