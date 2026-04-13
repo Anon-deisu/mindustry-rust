@@ -3080,7 +3080,7 @@ fn compose_runtime_prompt_detail_status_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "promptd:ma{}:fm{}:fh{}:fo{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
+        "pd:ma{}:fm{}:fh{}:fo{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
         if panel.menu_active() { 1 } else { 0 },
         panel.follow_up_menu_open_count,
         panel.hide_follow_up_menu_count,
@@ -10971,7 +10971,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-PROMPT-DETAIL: promptd:ma1:fm17:fh15:fo2:tin53:id404:t6:m12:d5:n1:e1",
+            "RUNTIME-PROMPT-DETAIL: pd:ma1:fm17:fh15:fo2:tin53:id404:t6:m12:d5:n1:e1",
         );
     }
 
