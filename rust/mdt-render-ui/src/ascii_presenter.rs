@@ -19,6 +19,7 @@ use crate::presenter_view::{
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
     compact_runtime_ui_text,
     format_hud_visibility_detail_text, format_minimap_kind_text, format_minimap_legend_text,
+    format_optional_focus_tile_text, format_optional_signed_tile_text,
     format_semantic_detail_text,
     format_minimap_visibility_detail_text, format_visibility_minimap_text,
     format_counted_detail_text, format_counted_preview_text,
@@ -2204,10 +2205,10 @@ fn compose_minimap_panel_text(
         panel.window_tile_count,
         panel.map_tile_count,
         panel.window_coverage_percent,
-        optional_focus_tile_text(panel.focus_tile),
+        format_optional_focus_tile_text(panel.focus_tile),
         optional_bool_label(panel.focus_in_window),
-        optional_signed_tile_text(panel.focus_offset_x),
-        optional_signed_tile_text(panel.focus_offset_y),
+        format_optional_signed_tile_text(panel.focus_offset_x),
+        format_optional_signed_tile_text(panel.focus_offset_y),
         bool_flag(panel.window_clamped_left),
         bool_flag(panel.window_clamped_top),
         bool_flag(panel.window_clamped_right),
@@ -2304,10 +2305,10 @@ fn compose_minimap_edge_detail_line(
 fn compose_minimap_edge_summary_text(panel: &MinimapPanelModel) -> String {
     format!(
         "focus={} in-window={} drift={}:{} clamp={} outside={}/{} window={}/{}",
-        optional_focus_tile_text(panel.focus_tile),
+        format_optional_focus_tile_text(panel.focus_tile),
         optional_bool_label(panel.focus_in_window),
-        optional_signed_tile_text(panel.focus_offset_x),
-        optional_signed_tile_text(panel.focus_offset_y),
+        format_optional_signed_tile_text(panel.focus_offset_x),
+        format_optional_signed_tile_text(panel.focus_offset_y),
         minimap_clamp_text(panel),
         panel.outside_window_count,
         panel.tracked_object_count,
@@ -2630,7 +2631,7 @@ fn compose_build_minimap_aux_text(
         build_config_tile_text(panel.authority_tile),
         build_config_rollback_source_compact_text(panel.authority_source),
         compact_runtime_ui_text(panel.authority_block_name.as_deref()),
-        optional_focus_tile_text(panel.focus_tile),
+        format_optional_focus_tile_text(panel.focus_tile),
         optional_bool_label(panel.focus_in_window),
         panel.visible_map_percent,
         panel.unknown_tile_percent,
@@ -3011,20 +3012,6 @@ fn build_config_outcome_compact_text(
             "rej-unsupported-cfg"
         }
         None => "none",
-    }
-}
-
-fn optional_focus_tile_text(value: Option<(usize, usize)>) -> String {
-    match value {
-        Some((x, y)) => format!("{x}:{y}"),
-        None => "-".to_string(),
-    }
-}
-
-fn optional_signed_tile_text(value: Option<isize>) -> String {
-    match value {
-        Some(value) => value.to_string(),
-        None => "-".to_string(),
     }
 }
 

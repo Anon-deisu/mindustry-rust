@@ -1865,9 +1865,16 @@ fn format_optional_bool_flag(value: Option<bool>) -> char {
     }
 }
 
-fn format_optional_focus_tile_text(value: Option<(usize, usize)>) -> String {
+pub(crate) fn format_optional_focus_tile_text(value: Option<(usize, usize)>) -> String {
     match value {
         Some((x, y)) => format!("{x}:{y}"),
+        None => "-".to_string(),
+    }
+}
+
+pub(crate) fn format_optional_signed_tile_text(value: Option<isize>) -> String {
+    match value {
+        Some(value) => value.to_string(),
         None => "-".to_string(),
     }
 }
@@ -1995,6 +2002,7 @@ mod tests {
         format_counted_detail_text, format_counted_preview_text,
         format_hud_visibility_detail_text, format_minimap_kind_text,
         format_minimap_legend_text, format_semantic_detail_text,
+        format_optional_focus_tile_text, format_optional_signed_tile_text,
         format_visibility_minimap_text,
         format_runtime_command_control_group_operation_text,
         format_runtime_command_group_lines,
@@ -3384,6 +3392,19 @@ mod tests {
             format_visibility_minimap_text(&visibility, &minimap),
             "overlay=1 fog=0 known=120(60%) vis=80(67%/40%) hid=40(33%/20%) map=20x10 window=1:2->8:7 size=8x6 cover=48/200(24%) focus=4:5 in-window=1"
         );
+    }
+
+    #[test]
+    fn format_optional_focus_tile_text_handles_some_and_none() {
+        assert_eq!(format_optional_focus_tile_text(Some((4, 5))), "4:5");
+        assert_eq!(format_optional_focus_tile_text(None), "-");
+    }
+
+    #[test]
+    fn format_optional_signed_tile_text_handles_some_and_none() {
+        assert_eq!(format_optional_signed_tile_text(Some(-2)), "-2");
+        assert_eq!(format_optional_signed_tile_text(Some(3)), "3");
+        assert_eq!(format_optional_signed_tile_text(None), "-");
     }
 
     #[test]
