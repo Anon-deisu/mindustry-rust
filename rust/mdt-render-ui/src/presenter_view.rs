@@ -350,6 +350,44 @@ where
     parts.join(",")
 }
 
+pub(crate) fn format_render_primitive_payload_value_with<Fb, Fu32>(
+    field_name: &str,
+    value: &RenderPrimitivePayloadValue,
+    format_bool: Fb,
+    format_u32: Fu32,
+) -> String
+where
+    Fb: FnOnce(bool) -> String,
+    Fu32: FnOnce(&str, u32) -> String,
+{
+    match value {
+        RenderPrimitivePayloadValue::Bool(value) => format_bool(*value),
+        RenderPrimitivePayloadValue::I16(value) => value.to_string(),
+        RenderPrimitivePayloadValue::I32(value) => value.to_string(),
+        RenderPrimitivePayloadValue::I32List(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        RenderPrimitivePayloadValue::U8(value) => value.to_string(),
+        RenderPrimitivePayloadValue::U8List(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        RenderPrimitivePayloadValue::U32(value) => format_u32(field_name, *value),
+        RenderPrimitivePayloadValue::Usize(value) => value.to_string(),
+        RenderPrimitivePayloadValue::Text(value) => value.clone(),
+        RenderPrimitivePayloadValue::TextList(values) => format!("[{}]", values.join(",")),
+    }
+}
+
 pub(crate) fn format_render_line_signature(
     label: &str,
     layer: i32,
@@ -411,11 +449,11 @@ mod tests {
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
         format_render_line_signature, format_render_primitive_payload_fields_with,
-        format_render_rect_detail_fields, format_render_rect_signature, normalize_zoom,
-        projected_window, render_line_is_visible, render_rect_detail_is_visible,
-        render_rect_detail_payload_fields, tile_local_coords, visible_window_tile,
-        world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
-        zoomed_view_tile_span, CropWindowMode,
+        format_render_primitive_payload_value_with, format_render_rect_detail_fields,
+        format_render_rect_signature, normalize_zoom, projected_window,
+        render_line_is_visible, render_rect_detail_is_visible, render_rect_detail_payload_fields,
+        tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
+        world_to_tile_index_floor, zoomed_view_tile_span, CropWindowMode,
     };
     use crate::{
         panel_model::{MinimapPanelModel, PresenterViewWindow},
@@ -786,6 +824,43 @@ mod tests {
                 _ => unreachable!("test payload only uses text, i32 and u32"),
             }),
             "variant=content,content_id=7,x_bits=0x41000000"
+        );
+    }
+
+    #[test]
+    fn format_render_primitive_payload_value_with_uses_bool_and_u32_strategies() {
+        assert_eq!(
+            format_render_primitive_payload_value_with(
+                "active",
+                &RenderPrimitivePayloadValue::Bool(true),
+                |value| if value { "1".to_string() } else { "0".to_string() },
+                |_field_name, value| value.to_string(),
+            ),
+            "1"
+        );
+        assert_eq!(
+            format_render_primitive_payload_value_with(
+                "x_bits",
+                &RenderPrimitivePayloadValue::U32(0x41000000),
+                |value| value.to_string(),
+                |field_name, value| {
+                    if field_name.ends_with("_bits") {
+                        format!("0x{value:08x}")
+                    } else {
+                        value.to_string()
+                    }
+                },
+            ),
+            "0x41000000"
+        );
+        assert_eq!(
+            format_render_primitive_payload_value_with(
+                "tags",
+                &RenderPrimitivePayloadValue::TextList(vec!["a".to_string(), "b".to_string()]),
+                |value| value.to_string(),
+                |_field_name, value| value.to_string(),
+            ),
+            "[a,b]"
         );
     }
 

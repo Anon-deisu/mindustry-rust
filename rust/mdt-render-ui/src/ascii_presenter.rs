@@ -19,6 +19,7 @@ use crate::presenter_view::{
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
     format_render_line_signature, format_render_primitive_payload_fields_with,
+    format_render_primitive_payload_value_with,
     format_render_rect_detail_fields, format_render_rect_signature,
     render_rect_detail_payload_fields,
     format_build_strip_queue_status_text, CropWindowMode,
@@ -1489,38 +1490,19 @@ fn render_icon_detail_is_visible(window: PresenterViewWindow, tile_x: i32, tile_
 }
 
 fn render_primitive_payload_fields_text(payload: &RenderPrimitivePayload) -> String {
-    format_render_primitive_payload_fields_with(payload, |_name, value| {
-        render_primitive_payload_value_text(value)
-    })
+    format_render_primitive_payload_fields_with(payload, render_primitive_payload_value_text)
 }
 
-fn render_primitive_payload_value_text(value: &RenderPrimitivePayloadValue) -> String {
-    match value {
-        RenderPrimitivePayloadValue::Bool(value) => bool_flag(*value).to_string(),
-        RenderPrimitivePayloadValue::I16(value) => value.to_string(),
-        RenderPrimitivePayloadValue::I32(value) => value.to_string(),
-        RenderPrimitivePayloadValue::I32List(values) => format!(
-            "[{}]",
-            values
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
-        RenderPrimitivePayloadValue::U8(value) => value.to_string(),
-        RenderPrimitivePayloadValue::U8List(values) => format!(
-            "[{}]",
-            values
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
-        RenderPrimitivePayloadValue::U32(value) => format!("0x{value:08x}"),
-        RenderPrimitivePayloadValue::Usize(value) => value.to_string(),
-        RenderPrimitivePayloadValue::Text(value) => value.clone(),
-        RenderPrimitivePayloadValue::TextList(values) => format!("[{}]", values.join(",")),
-    }
+fn render_primitive_payload_value_text(
+    field_name: &str,
+    value: &RenderPrimitivePayloadValue,
+) -> String {
+    format_render_primitive_payload_value_with(
+        field_name,
+        value,
+        |value| bool_flag(value).to_string(),
+        |_field_name, value| format!("0x{value:08x}"),
+    )
 }
 
 fn draw_ascii_text(
@@ -4477,7 +4459,7 @@ fn command_stance_text(value: Option<crate::RuntimeCommandStanceObservability>) 
 mod tests {
     use super::{
         ascii_line_end_object_pair, ascii_primitive_render_command, ascii_render_command,
-        AsciiScenePresenter,
+        render_primitive_payload_fields_text, AsciiScenePresenter,
     };
     use crate::{
         hud_model::{
@@ -4488,7 +4470,10 @@ mod tests {
         },
         panel_model::PresenterViewWindow,
         project_scene_models, project_scene_models_with_view_window,
-        render_model::{RenderIconPrimitiveFamily, RenderObjectSemanticKind, RenderPrimitive},
+        render_model::{
+            RenderIconPrimitiveFamily, RenderObjectSemanticKind, RenderPrimitive,
+            RenderPrimitivePayload, RenderPrimitivePayloadValue,
+        },
         BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeAdminObservability,
         RuntimeHudTextObservability, RuntimeMenuObservability, RuntimeRulesObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
@@ -7958,6 +7943,27 @@ mod tests {
             "runtime-config-pending-mismatch/payload@34:4:0 payload[variant=payload,tile_x=4,tile_y=0]"
         ));
         assert_eq!(frame.lines().last(), Some("CCCCC"));
+    }
+
+    #[test]
+    fn ascii_presenter_formats_payload_bools_as_digits_and_u32_as_hex() {
+        let payload = RenderPrimitivePayload {
+            label: "icon".to_string(),
+            fields: BTreeMap::from([
+                ("active", RenderPrimitivePayloadValue::Bool(true)),
+                ("enabled", RenderPrimitivePayloadValue::Bool(false)),
+                ("plain", RenderPrimitivePayloadValue::U32(10)),
+                (
+                    "x_bits",
+                    RenderPrimitivePayloadValue::U32(0x41000000),
+                ),
+            ]),
+        };
+
+        assert_eq!(
+            render_primitive_payload_fields_text(&payload),
+            "active=1,enabled=0,plain=0x0000000a,x_bits=0x41000000"
+        );
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

@@ -21,6 +21,7 @@ use crate::{
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
         format_render_line_signature, format_render_primitive_payload_fields_with,
+        format_render_primitive_payload_value_with,
         render_rect_detail_payload_fields,
         format_render_rect_detail_fields, format_render_rect_signature,
         format_build_strip_queue_status_text, CropWindowMode,
@@ -2521,38 +2522,18 @@ fn format_render_primitive_payload_value(
     field_name: &str,
     value: &RenderPrimitivePayloadValue,
 ) -> String {
-    match value {
-        RenderPrimitivePayloadValue::Bool(value) => value.to_string(),
-        RenderPrimitivePayloadValue::I16(value) => value.to_string(),
-        RenderPrimitivePayloadValue::I32(value) => value.to_string(),
-        RenderPrimitivePayloadValue::I32List(values) => format!(
-            "[{}]",
-            values
-                .iter()
-                .map(|value| value.to_string())
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
-        RenderPrimitivePayloadValue::U8(value) => value.to_string(),
-        RenderPrimitivePayloadValue::U8List(values) => format!(
-            "[{}]",
-            values
-                .iter()
-                .map(|value| value.to_string())
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
-        RenderPrimitivePayloadValue::U32(value) => {
+    format_render_primitive_payload_value_with(
+        field_name,
+        value,
+        |value| value.to_string(),
+        |field_name, value| {
             if field_name.ends_with("_bits") {
                 format!("0x{value:08x}")
             } else {
                 value.to_string()
             }
-        }
-        RenderPrimitivePayloadValue::Usize(value) => value.to_string(),
-        RenderPrimitivePayloadValue::Text(value) => value.clone(),
-        RenderPrimitivePayloadValue::TextList(values) => format!("[{}]", values.join(",")),
-    }
+        },
+    )
 }
 
 fn compose_hud_summary_status_text(hud: &HudModel) -> Option<String> {
@@ -6542,6 +6523,7 @@ fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
 mod tests {
     use super::{
         collect_stable_minimap_overlay_tiles, color_for_object, compose_frame,
+        format_render_primitive_payload_fields,
         fit_window_minimap_size, runtime_break_minimap_rects, runtime_command_minimap_rects,
         runtime_command_minimap_tiles, runtime_ping_minimap_tile,
         runtime_tile_action_minimap_tiles, runtime_unit_assembler_minimap_rects,
@@ -6575,7 +6557,9 @@ mod tests {
         RuntimeHudTextObservability, RuntimeMenuObservability, RuntimeRulesObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
         RuntimeWorldLabelObservability, Viewport,
+        render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     };
+    use std::collections::BTreeMap;
 
     fn runtime_stack_test_scene() -> RenderModel {
         RenderModel {
@@ -11810,6 +11794,27 @@ mod tests {
         assert_eq!(frame.pixel(2, 0), Some(COLOR_ICON_BUILD_CONFIG));
         assert_eq!(frame.pixel(3, 0), Some(COLOR_ICON_BUILD_CONFIG));
         assert_eq!(frame.pixel(4, 0), Some(COLOR_ICON_BUILD_CONFIG));
+    }
+
+    #[test]
+    fn window_presenter_formats_payload_bools_as_true_false_and_bits_suffix_u32_as_hex() {
+        let payload = RenderPrimitivePayload {
+            label: "icon".to_string(),
+            fields: BTreeMap::from([
+                ("active", RenderPrimitivePayloadValue::Bool(true)),
+                ("enabled", RenderPrimitivePayloadValue::Bool(false)),
+                ("plain", RenderPrimitivePayloadValue::U32(10)),
+                (
+                    "x_bits",
+                    RenderPrimitivePayloadValue::U32(0x41000000),
+                ),
+            ]),
+        };
+
+        assert_eq!(
+            format_render_primitive_payload_fields(&payload),
+            "active=true,enabled=false,plain=10,x_bits=0x41000000"
+        );
     }
 
     fn assert_frame_line_contains(lines: &[String], needle: &str) {
