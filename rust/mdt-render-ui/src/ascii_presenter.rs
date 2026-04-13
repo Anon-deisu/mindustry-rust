@@ -1107,14 +1107,18 @@ fn compose_render_icon_status_text(
         return None;
     }
 
+    let total = icon_primitives.len();
     icon_primitives.sort_by_key(|(_, _, layer, _, _)| *layer);
-    let mut parts = vec![format!("count={}", icon_primitives.len())];
+    let mut parts = vec![format!("count={total}")];
     for (family, variant, layer, tile_x, tile_y) in icon_primitives.into_iter().take(2) {
         parts.push(format!(
             "{}/{}@{layer}:{tile_x}:{tile_y}",
             family.label(),
             variant
         ));
+    }
+    if total > 2 {
+        parts.push(format!("more={}", total - 2));
     }
     Some(parts.join(" "))
 }
@@ -7260,6 +7264,7 @@ mod tests {
         assert!(frame.contains(
             "RENDER-ICON: count=5 runtime-break/break@14:0:0 runtime-bullet/bullet@28:1:0"
         ));
+        assert!(frame.contains("more=3"));
         assert_eq!(frame.lines().last(), Some("XBLSW"));
     }
 
