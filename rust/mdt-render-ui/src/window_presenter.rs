@@ -2486,7 +2486,7 @@ fn compose_hud_summary_status_text(hud: &HudModel) -> Option<String> {
 fn compose_hud_visibility_status_text(hud: &HudModel) -> Option<String> {
     let visibility = build_hud_visibility_panel(hud)?;
     Some(format!(
-        "hudvis:ov{}:fg{}:k{}p{}:v{}p{}:h{}p{}:u{}p{}",
+        "hudvis:ov{}:fg{}:k{}p{}:v{}p{}:h{}p{}:u{}p{}:vm{}:hm{}",
         if visibility.overlay_visible { 1 } else { 0 },
         if visibility.fog_enabled { 1 } else { 0 },
         visibility.known_tile_count,
@@ -2497,6 +2497,8 @@ fn compose_hud_visibility_status_text(hud: &HudModel) -> Option<String> {
         visibility.hidden_known_percent,
         visibility.unknown_tile_count,
         visibility.unknown_tile_percent,
+        visibility.visible_map_percent(),
+        visibility.hidden_map_percent(),
     ))
 }
 
@@ -7586,6 +7588,40 @@ mod tests {
                     kind: WindowMinimapRuntimeOverlayKind::Place,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn present_once_surfaces_hud_visibility_map_percents() {
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: true,
+                visible_tile_count: 120,
+                hidden_tile_count: 24,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((0, 0)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 1,
+                        height: 1,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        assert_eq!(
+            super::compose_hud_visibility_status_text(&hud),
+            Some("hudvis:ov1:fg1:k144p3:v120p83:h24p16:u4656p97:vm2:hm0".to_string())
         );
     }
 

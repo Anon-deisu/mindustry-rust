@@ -1516,7 +1516,7 @@ fn compose_hud_summary_text(hud: &HudModel) -> Option<String> {
 fn compose_hud_visibility_text(hud: &HudModel) -> Option<String> {
     let visibility = build_hud_visibility_panel(hud)?;
     Some(format!(
-        "overlay={} fog={} known={}({}%) vis={}({}%) hid={}({}%) unseen={}({}%)",
+        "overlay={} fog={} known={}({}%) vis={}({}%) hid={}({}%) unseen={}({}%) vis-map={}% hid-map={}%",
         if visibility.overlay_visible { 1 } else { 0 },
         if visibility.fog_enabled { 1 } else { 0 },
         visibility.known_tile_count,
@@ -1527,6 +1527,8 @@ fn compose_hud_visibility_text(hud: &HudModel) -> Option<String> {
         visibility.hidden_known_percent,
         visibility.unknown_tile_count,
         visibility.unknown_tile_percent,
+        visibility.visible_map_percent(),
+        visibility.hidden_map_percent(),
     ))
 }
 
@@ -4887,6 +4889,43 @@ mod tests {
             "MINIMAP-DETAIL: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
         ));
         assert!(!frame.contains("MINIMAP-DETAIL: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"));
+    }
+
+    #[test]
+    fn ascii_presenter_surfaces_hud_visibility_map_percents() {
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: true,
+                visible_tile_count: 120,
+                hidden_tile_count: 24,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((0, 0)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 1,
+                        height: 1,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        assert_eq!(
+            super::compose_hud_visibility_text(&hud),
+            Some(
+                "overlay=1 fog=1 known=144(3%) vis=120(83%) hid=24(16%) unseen=4656(97%) vis-map=2% hid-map=0%"
+                    .to_string()
+            )
+        );
     }
 
     #[test]
