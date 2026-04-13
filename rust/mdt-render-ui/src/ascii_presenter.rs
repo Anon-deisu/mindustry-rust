@@ -1343,7 +1343,7 @@ fn compose_render_icon_detail_text(
             } => {
                 let payload = primitive.payload()?;
                 let (tile_x, tile_y) = finite_world_tile(*x, *y)?;
-                if !render_icon_detail_is_visible(window, tile_x, tile_y) {
+                if tile_local_coords(tile_x, tile_y, window).is_none() {
                     return None;
                 }
 
@@ -1408,7 +1408,7 @@ fn compose_render_text_status_text(
             let Some((tile_x, tile_y)) = finite_world_tile(*x, *y) else {
                 return false;
             };
-            render_icon_detail_is_visible(window, tile_x, tile_y)
+            tile_local_coords(tile_x, tile_y, window).is_some()
         })
         .collect::<Vec<_>>();
 
@@ -1447,7 +1447,7 @@ fn compose_render_text_detail_text(
                 let Some((tile_x, tile_y)) = finite_world_tile(*x, *y) else {
                     return None;
                 };
-                if !render_icon_detail_is_visible(window, tile_x, tile_y) {
+                if tile_local_coords(tile_x, tile_y, window).is_none() {
                     return None;
                 }
                 let payload = primitive.payload()?;
@@ -1484,15 +1484,6 @@ fn compose_render_text_detail_text(
         )
     });
     Some(format_counted_detail_text(total, " | ", detail_items))
-}
-
-fn render_icon_detail_is_visible(window: PresenterViewWindow, tile_x: i32, tile_y: i32) -> bool {
-    tile_x >= 0
-        && tile_y >= 0
-        && (tile_x as usize) >= window.origin_x
-        && (tile_y as usize) >= window.origin_y
-        && (tile_x as usize) < window.origin_x.saturating_add(window.width)
-        && (tile_y as usize) < window.origin_y.saturating_add(window.height)
 }
 
 fn render_primitive_payload_fields_text(payload: &RenderPrimitivePayload) -> String {

@@ -2166,12 +2166,7 @@ fn compose_render_text_status_text(
             let Some((tile_x, tile_y)) = finite_tile_coords(*x, *y) else {
                 return false;
             };
-            tile_x >= 0
-                && tile_y >= 0
-                && (tile_x as usize) >= window.origin_x
-                && (tile_y as usize) >= window.origin_y
-                && (tile_x as usize) < window.origin_x.saturating_add(window.width)
-                && (tile_y as usize) < window.origin_y.saturating_add(window.height)
+            tile_local_coords(tile_x, tile_y, window).is_some()
         })
         .collect::<Vec<_>>();
 
@@ -2211,13 +2206,7 @@ fn compose_render_text_detail_status_text(
                 let Some((tile_x, tile_y)) = finite_tile_coords(*x, *y) else {
                     return None;
                 };
-                if tile_x < 0
-                    || tile_y < 0
-                    || (tile_x as usize) < window.origin_x
-                    || (tile_y as usize) < window.origin_y
-                    || (tile_x as usize) >= window.origin_x.saturating_add(window.width)
-                    || (tile_y as usize) >= window.origin_y.saturating_add(window.height)
-                {
+                if tile_local_coords(tile_x, tile_y, window).is_none() {
                     return None;
                 }
                 let payload = primitive.payload()?;
@@ -2434,12 +2423,7 @@ fn compose_render_icon_status_text(
             let Some((tile_x, tile_y)) = finite_tile_coords(*x, *y) else {
                 return false;
             };
-            tile_x >= 0
-                && tile_y >= 0
-                && (tile_x as usize) >= window.origin_x
-                && (tile_y as usize) >= window.origin_y
-                && (tile_x as usize) < window.origin_x.saturating_add(window.width)
-                && (tile_y as usize) < window.origin_y.saturating_add(window.height)
+            tile_local_coords(tile_x, tile_y, window).is_some()
         })
         .collect::<Vec<_>>();
 
@@ -2485,13 +2469,7 @@ fn compose_render_icon_detail_status_text(
                 let Some((tile_x, tile_y)) = finite_tile_coords(*x, *y) else {
                     return None;
                 };
-                if tile_x < 0
-                    || tile_y < 0
-                    || (tile_x as usize) < window.origin_x
-                    || (tile_y as usize) < window.origin_y
-                    || (tile_x as usize) >= window.origin_x.saturating_add(window.width)
-                    || (tile_y as usize) >= window.origin_y.saturating_add(window.height)
-                {
+                if tile_local_coords(tile_x, tile_y, window).is_none() {
                     return None;
                 }
                 let payload = primitive.payload()?;
