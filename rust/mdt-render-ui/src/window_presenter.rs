@@ -26,7 +26,7 @@ use crate::{
         format_render_primitive_payload_value_with,
         render_rect_detail_payload_fields,
         format_render_rect_detail_fields, format_render_rect_signature,
-        format_world_position_status_text,
+        format_render_text_signature, format_world_position_status_text,
         format_build_strip_queue_status_text, CropWindowMode,
     },
     render_model::{
@@ -2185,9 +2185,8 @@ fn compose_render_text_status_text(
     for (kind, layer, x, y, text) in text_primitives.into_iter().take(2) {
         let kind_text = kind.detail_label().unwrap_or("text");
         parts.push(format!(
-            "{kind_text}@{layer}:{}:{}={}",
-            x as i32,
-            y as i32,
+            "{}={}",
+            format_render_text_signature(kind_text, layer, x as i32, y as i32),
             compact_runtime_ui_text(Some(text.as_str()))
         ));
     }
@@ -2249,7 +2248,8 @@ fn compose_render_text_detail_status_text(
     let mut parts = vec![format!("count={}", text_primitives.len())];
     for (kind_label, layer, tile_x, tile_y, payload) in text_primitives {
         parts.push(format!(
-            "{kind_label}@{layer}:{tile_x}:{tile_y} payload[{}]",
+            "{} payload[{}]",
+            format_render_text_signature(kind_label, layer, tile_x, tile_y),
             format_render_primitive_payload_fields(&payload)
         ));
     }

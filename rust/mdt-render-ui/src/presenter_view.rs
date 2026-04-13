@@ -448,6 +448,15 @@ pub(crate) fn format_live_effect_position_source_text(
     }
 }
 
+pub(crate) fn format_render_text_signature(
+    kind_label: &str,
+    layer: i32,
+    tile_x: i32,
+    tile_y: i32,
+) -> String {
+    format!("{kind_label}@{layer}:{tile_x}:{tile_y}")
+}
+
 pub(crate) fn format_render_rect_detail_fields(
     left_tile: i32,
     top_tile: i32,
@@ -490,6 +499,7 @@ mod tests {
         format_render_line_signature,
         format_render_primitive_payload_fields_with, format_render_primitive_payload_value_with,
         format_render_rect_detail_fields, format_render_rect_signature,
+        format_render_text_signature,
         format_world_position_status_text, normalize_zoom, projected_window,
         render_line_is_visible, render_rect_detail_is_visible, render_rect_detail_payload_fields,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
@@ -978,6 +988,14 @@ mod tests {
                 RuntimeLiveEffectPositionSource::SpawnEffectPacket
             )),
             "spawn"
+        );
+    }
+
+    #[test]
+    fn format_render_text_signature_preserves_coordinate_template() {
+        assert_eq!(
+            format_render_text_signature("label", 3, 4, 5),
+            "label@3:4:5"
         );
     }
 
