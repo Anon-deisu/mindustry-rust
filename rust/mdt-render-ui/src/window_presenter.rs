@@ -1469,7 +1469,16 @@ fn color_for_semantic_kind(kind: RenderObjectSemanticKind) -> u32 {
 }
 
 fn compose_window_title(frame: &WindowFrame, title_prefix: &str) -> String {
-    let mut parts = vec![title_prefix.to_string(), frame.title.clone()];
+    let mut parts = Vec::new();
+    match (
+        title_prefix.is_empty(),
+        frame.title.is_empty(),
+    ) {
+        (false, false) => parts.push(format!("{title_prefix}/{}", frame.title)),
+        (false, true) => parts.push(title_prefix.to_string()),
+        (true, false) => parts.push(frame.title.clone()),
+        (true, true) => {}
+    }
     if let Some(wave_text) = frame.wave_text.as_deref().filter(|text| !text.is_empty()) {
         parts.push(wave_text.to_string());
     }
@@ -1483,7 +1492,7 @@ fn compose_window_title(frame: &WindowFrame, title_prefix: &str) -> String {
     {
         parts.push(summary_text.to_string());
     }
-    parts.join(" | ")
+    parts.join(" · ")
 }
 
 fn compose_frame_status_text(
@@ -10127,8 +10136,8 @@ mod tests {
             "OVERLAY-KINDS: overlay:players=1 markers=1 plans=1 blocks=1 runtime=0",
         );
         let window_title = super::compose_window_title(frame, "demo-client");
-        assert!(window_title.contains("demo-client | demo | Wave 7 |"));
-        assert!(window_title.contains("| Plans 1"));
+        assert!(window_title.starts_with("demo-client/demo · Wave 7 · base hud:"));
+        assert!(window_title.ends_with(" · Plans 1"));
     }
 
     #[test]
