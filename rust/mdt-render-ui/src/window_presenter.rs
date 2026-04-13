@@ -5173,7 +5173,7 @@ fn compose_build_strip_queue_fallback_text(build_ui: &BuildUiObservability) -> S
     if let Some(head) = build_ui.head.as_ref() {
         build_queue_head_stage_status_text(head.stage, build_ui.queued_count)
     } else {
-        format!("queued/p{}", build_ui.queued_count)
+        format!("queued@{}", build_ui.queued_count)
     }
 }
 
@@ -5184,7 +5184,7 @@ fn build_queue_head_stage_status_text(stage: BuildQueueHeadStage, pending_count:
         BuildQueueHeadStage::Finished => "finish",
         BuildQueueHeadStage::Removed => "remove",
     };
-    format!("{stage_text}/p{pending_count}")
+    format!("{stage_text}@{pending_count}")
 }
 
 fn compact_runtime_ui_text(value: Option<&str>) -> String {
@@ -9837,7 +9837,7 @@ mod tests {
         assert_eq!(frame.overlay_summary_text.as_deref(), Some("Plans 1"));
         assert_eq!(
             frame.build_strip_text.as_deref(),
-            Some("BUILD: sel=257 r2 q=flight/p3 auth=rollback")
+            Some("BUILD: sel=257 r2 q=flight@3 auth=rollback")
         );
         assert_eq!(
             frame.build_strip_detail_text.as_deref(),
@@ -10239,7 +10239,7 @@ mod tests {
         let frame = backend.frames.last().unwrap();
         assert_eq!(
             frame.build_strip_text.as_deref(),
-            Some("BUILD: sel=301 r1 q=queued/p3 auth=rej-miss-build")
+            Some("BUILD: sel=301 r1 q=queued@3 auth=rej-miss-build")
         );
         assert_eq!(
             frame.build_strip_detail_text.as_deref(),

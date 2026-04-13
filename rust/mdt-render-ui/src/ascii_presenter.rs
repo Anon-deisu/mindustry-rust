@@ -3635,7 +3635,7 @@ fn compose_build_strip_queue_fallback_text(build_ui: &crate::BuildUiObservabilit
     if let Some(head) = build_ui.head.as_ref() {
         build_strip_queue_stage_text(head.stage, build_ui.queued_count)
     } else {
-        format!("queued/p{}", build_ui.queued_count)
+        format!("queued@{}", build_ui.queued_count)
     }
 }
 
@@ -3646,7 +3646,7 @@ fn build_strip_queue_stage_text(stage: crate::BuildQueueHeadStage, pending_count
         crate::BuildQueueHeadStage::Finished => "finish",
         crate::BuildQueueHeadStage::Removed => "remove",
     };
-    format!("{stage_text}/p{pending_count}")
+    format!("{stage_text}@{pending_count}")
 }
 
 fn compose_build_ui_queue_summary_text(build_ui: &crate::BuildUiObservability) -> String {
@@ -6101,7 +6101,7 @@ mod tests {
         assert!(frame.contains(
             "BUILD-INTERACTION-DETAIL: selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@100:99:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=1"
         ));
-        assert!(frame.contains("BUILD: sel=257 r2 q=flight/p3 auth=rollback"));
+        assert!(frame.contains("BUILD: sel=257 r2 q=flight@3 auth=rollback"));
         assert!(frame.contains(
             "BUILD-STRIP-DETAIL: selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@100:99:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=1"
         ));
@@ -6285,7 +6285,7 @@ mod tests {
 
         assert!(presenter
             .last_frame()
-            .contains("BUILD: sel=257 r2 q=flight/p3 auth=rollback"));
+            .contains("BUILD: sel=257 r2 q=flight@3 auth=rollback"));
     }
 
     #[test]
