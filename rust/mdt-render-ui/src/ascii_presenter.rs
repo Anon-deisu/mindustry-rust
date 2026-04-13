@@ -1877,7 +1877,7 @@ fn compose_runtime_prompt_detail_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_dialog_panel(hud)?;
     Some(format!(
-        "prompt={} act={} menu={}/{}/{} tin={}@{}:{}/{}/{}#{}:n{}:e{} notice={}@{} total={}",
+        "dialog:p={}:a{}:m{}/f{}/h{}:tin{}@{}:{}/{}/{}#{}:n{}:e{}:n={}@{}:c{}",
         runtime_dialog_prompt_text(panel.prompt_kind),
         if panel.prompt_active { 1 } else { 0 },
         panel.menu_open_count,
@@ -1905,7 +1905,7 @@ fn compose_runtime_dialog_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "prompt={} active={} layers=menu:{}/follow-up:{}/input:{} message-len={} default-len={} notice={} layers=hud:{}/reliable:{}/info:{}/warn:{} notice-len={}",
+        "dialogd:p={}:a{}:m{}:fo{}:tin{}:msg{}:def{}:n={}:h{}:r{}:i{}:w{}:l{}",
         runtime_dialog_prompt_text(prompt.kind),
         bool_flag(prompt.is_active()),
         bool_flag(prompt.menu_active()),
@@ -5621,10 +5621,10 @@ mod tests {
             "RUNTIME-CHOICE-DETAIL: choiced:mid404:opt2:rid405:rlen5"
         ));
         assert!(frame.contains(
-            "RUNTIME-DIALOG: prompt=input act=1 menu=16/17/18 tin=53@404:Digits/Only_numbers/12345#16:n1:e1 notice=warn@warn total=48"
+            "RUNTIME-DIALOG: dialog:p=input:a1:m16/f17/h18:tin53@404:Digits/Only_numbers/12345#16:n1:e1:n=warn@warn:c48"
         ));
         assert!(frame.contains(
-            "RUNTIME-DIALOG-DETAIL: prompt=input active=1 layers=menu:1/follow-up:0/input:53 message-len=12 default-len=5 notice=warn layers=hud:1/reliable:1/info:1/warn:1 notice-len=4"
+            "RUNTIME-DIALOG-DETAIL: dialogd:p=input:a1:m1:fo0:tin53:msg12:def5:n=warn:h1:r1:i1:w1:l4"
         ));
         assert!(frame.contains(
             "RUNTIME-CHAT: chat:srv7@server_text:msg8@[cyan]hello:rawhello:s404"
