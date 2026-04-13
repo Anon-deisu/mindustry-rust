@@ -1,5 +1,6 @@
 use crate::{
     panel_model::{MinimapPanelModel, PresenterViewWindow},
+    render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     BuildQueueHeadStage, RenderModel, RenderObject,
 };
 
@@ -297,20 +298,46 @@ pub(crate) fn compose_minimap_window_kind_distribution_text(panel: &MinimapPanel
     )
 }
 
+pub(crate) fn render_rect_detail_payload_fields(
+    payload: Option<&RenderPrimitivePayload>,
+) -> (Option<String>, Option<i32>, Option<i32>) {
+    let block_name = payload
+        .and_then(|payload| payload.field("block_name"))
+        .and_then(|value| match value {
+            RenderPrimitivePayloadValue::Text(value) => Some(value.clone()),
+            _ => None,
+        });
+    let tile_x = payload
+        .and_then(|payload| payload.field("tile_x"))
+        .and_then(|value| match value {
+            RenderPrimitivePayloadValue::I32(value) => Some(*value),
+            _ => None,
+        });
+    let tile_y = payload
+        .and_then(|payload| payload.field("tile_y"))
+        .and_then(|value| match value {
+            RenderPrimitivePayloadValue::I32(value) => Some(*value),
+            _ => None,
+        });
+    (block_name, tile_x, tile_y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
         normalize_zoom, projected_window, render_line_is_visible, render_rect_detail_is_visible,
-        tile_local_coords, visible_window_tile,
+        render_rect_detail_payload_fields, tile_local_coords, visible_window_tile,
         world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
         zoomed_view_tile_span, CropWindowMode,
     };
     use crate::{
         panel_model::{MinimapPanelModel, PresenterViewWindow},
+        render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
         BuildQueueHeadStage, RenderModel, RenderObject, Viewport,
     };
+    use std::collections::BTreeMap;
 
     const TILE_SIZE: f32 = 8.0;
 
@@ -607,6 +634,43 @@ mod tests {
             compose_minimap_window_kind_distribution_text(&panel),
             "miniwin-kinds: tracked=12 outside=5 player=1 marker=2 plan=3 block=4 runtime=5 terrain=6 unknown=7"
         );
+    }
+
+    #[test]
+    fn render_rect_detail_payload_fields_extracts_named_values() {
+        let payload = RenderPrimitivePayload {
+            label: "rect".to_string(),
+            fields: BTreeMap::from([
+                (
+                    "block_name",
+                    RenderPrimitivePayloadValue::Text("duo".to_string()),
+                ),
+                ("tile_x", RenderPrimitivePayloadValue::I32(4)),
+                ("tile_y", RenderPrimitivePayloadValue::I32(9)),
+            ]),
+        };
+
+        assert_eq!(
+            render_rect_detail_payload_fields(Some(&payload)),
+            (Some("duo".to_string()), Some(4), Some(9))
+        );
+    }
+
+    #[test]
+    fn render_rect_detail_payload_fields_ignores_missing_or_mistyped_values() {
+        let payload = RenderPrimitivePayload {
+            label: "rect".to_string(),
+            fields: BTreeMap::from([
+                ("block_name", RenderPrimitivePayloadValue::I32(1)),
+                ("tile_x", RenderPrimitivePayloadValue::Text("4".to_string())),
+            ]),
+        };
+
+        assert_eq!(
+            render_rect_detail_payload_fields(Some(&payload)),
+            (None, None, None)
+        );
+        assert_eq!(render_rect_detail_payload_fields(None), (None, None, None));
     }
 
     #[test]

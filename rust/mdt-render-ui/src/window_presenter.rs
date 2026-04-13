@@ -20,7 +20,7 @@ use crate::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
-        format_build_strip_queue_status_text, CropWindowMode,
+        render_rect_detail_payload_fields, format_build_strip_queue_status_text, CropWindowMode,
     },
     render_model::{
         RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -2510,30 +2510,6 @@ fn format_render_primitive_payload_fields(payload: &RenderPrimitivePayload) -> S
         ));
     }
     parts.join(",")
-}
-
-fn render_rect_detail_payload_fields(
-    payload: Option<&RenderPrimitivePayload>,
-) -> (Option<String>, Option<i32>, Option<i32>) {
-    let block_name = payload
-        .and_then(|payload| payload.field("block_name"))
-        .and_then(|value| match value {
-            RenderPrimitivePayloadValue::Text(value) => Some(value.clone()),
-            _ => None,
-        });
-    let tile_x = payload
-        .and_then(|payload| payload.field("tile_x"))
-        .and_then(|value| match value {
-            RenderPrimitivePayloadValue::I32(value) => Some(*value),
-            _ => None,
-        });
-    let tile_y = payload
-        .and_then(|payload| payload.field("tile_y"))
-        .and_then(|value| match value {
-            RenderPrimitivePayloadValue::I32(value) => Some(*value),
-            _ => None,
-        });
-    (block_name, tile_x, tile_y)
 }
 
 fn format_render_rect_detail_fields(
