@@ -29,6 +29,7 @@ use crate::{
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
+        format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
         format_runtime_kick_detail_text, format_runtime_kick_panel_text,
         format_runtime_marker_detail_text, format_runtime_marker_panel_text,
         format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
@@ -3144,14 +3145,7 @@ fn compose_runtime_core_binding_panel_status_text(hud: &HudModel) -> Option<Stri
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "core:{}:a{}@{}:m{}@{}",
-        panel.kind_label(),
-        panel.ambiguous_team_count,
-        team_u8_status_text(&panel.ambiguous_team_sample),
-        panel.missing_team_count,
-        team_u8_status_text(&panel.missing_team_sample),
-    ))
+    Some(format_runtime_core_binding_panel_text(&panel))
 }
 
 fn compose_runtime_core_binding_detail_status_text(hud: &HudModel) -> Option<String> {
@@ -3159,14 +3153,7 @@ fn compose_runtime_core_binding_detail_status_text(hud: &HudModel) -> Option<Str
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "cored:{}:a{}@{}:m{}@{}",
-        panel.kind_label(),
-        panel.ambiguous_team_count,
-        team_u8_status_text(&panel.ambiguous_team_sample),
-        panel.missing_team_count,
-        team_u8_status_text(&panel.missing_team_sample),
-    ))
+    Some(format_runtime_core_binding_detail_text(&panel))
 }
 
 fn compose_runtime_reconnect_status_text(hud: &HudModel) -> Option<String> {
@@ -4432,18 +4419,6 @@ fn optional_u8_label(value: Option<u8>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
-}
-
-fn team_u8_status_text(values: &[u8]) -> String {
-    if values.is_empty() {
-        "none".to_string()
-    } else {
-        values
-            .iter()
-            .map(|value| value.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
-    }
 }
 
 fn optional_u32_label(value: Option<u32>) -> String {
