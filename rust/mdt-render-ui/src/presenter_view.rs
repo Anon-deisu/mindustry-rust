@@ -556,6 +556,91 @@ pub(crate) fn runtime_ui_notice_panel_is_empty(panel: &RuntimeUiNoticePanelModel
         && panel.text_input_last_allow_empty.is_none()
 }
 
+pub(crate) fn format_runtime_ui_notice_panel_text(panel: &RuntimeUiNoticePanelModel) -> String {
+    format!(
+        "notice:hud={}/{}/{}@{}/{}:ann={}@{}:info={}@{}:toast={}/{}@{}/{}:popup={}/{}@{}:{}/{}:clip={}@{}:uri={}@{}:{}:tin={}@{}:{}/{}/{}#{}:n{}:e{}",
+        panel.hud_set_count,
+        panel.hud_set_reliable_count,
+        panel.hud_hide_count,
+        compact_runtime_ui_text(panel.hud_last_message.as_deref()),
+        compact_runtime_ui_text(panel.hud_last_reliable_message.as_deref()),
+        panel.announce_count,
+        compact_runtime_ui_text(panel.last_announce_message.as_deref()),
+        panel.info_message_count,
+        compact_runtime_ui_text(panel.last_info_message.as_deref()),
+        panel.toast_info_count,
+        panel.toast_warning_count,
+        compact_runtime_ui_text(panel.toast_last_info_message.as_deref()),
+        compact_runtime_ui_text(panel.toast_last_warning_text.as_deref()),
+        panel.info_popup_count,
+        panel.info_popup_reliable_count,
+        format_optional_bool_flag(panel.last_info_popup_reliable),
+        compact_runtime_ui_text(panel.last_info_popup_id.as_deref()),
+        compact_runtime_ui_text(panel.last_info_popup_message.as_deref()),
+        panel.clipboard_count,
+        compact_runtime_ui_text(panel.last_clipboard_text.as_deref()),
+        panel.open_uri_count,
+        compact_runtime_ui_text(panel.last_open_uri.as_deref()),
+        runtime_ui_uri_scheme(panel.last_open_uri.as_deref()),
+        panel.text_input_open_count,
+        format_optional_i32_text(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
+        panel.text_input_last_length.unwrap_or_default(),
+        format_optional_bool_flag(panel.text_input_last_numeric),
+        format_optional_bool_flag(panel.text_input_last_allow_empty),
+    )
+}
+
+pub(crate) fn format_runtime_ui_notice_detail_text(
+    panel: &RuntimeUiNoticePanelModel,
+) -> Option<String> {
+    if runtime_ui_notice_panel_is_empty(panel) {
+        return None;
+    }
+
+    Some(format!(
+        "noticed:a1:h{}/{}/{}:l{}/{}:ann{}:a{}:info{}:i{}:t{}/{}:l{}/{}:popup{}/{}:r{}:pid{}:pm{}:pd{}:pb{}:{}:{}:{}:{}:clip{}:{}:uri{}:{}:{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
+        panel.hud_set_count,
+        panel.hud_set_reliable_count,
+        panel.hud_hide_count,
+        runtime_ui_text_len(panel.hud_last_message.as_deref()),
+        runtime_ui_text_len(panel.hud_last_reliable_message.as_deref()),
+        panel.announce_count,
+        runtime_ui_text_len(panel.last_announce_message.as_deref()),
+        panel.info_message_count,
+        runtime_ui_text_len(panel.last_info_message.as_deref()),
+        panel.toast_info_count,
+        panel.toast_warning_count,
+        runtime_ui_text_len(panel.toast_last_info_message.as_deref()),
+        runtime_ui_text_len(panel.toast_last_warning_text.as_deref()),
+        panel.info_popup_count,
+        panel.info_popup_reliable_count,
+        format_optional_bool_flag(panel.last_info_popup_reliable),
+        runtime_ui_text_len(panel.last_info_popup_id.as_deref()),
+        runtime_ui_text_len(panel.last_info_popup_message.as_deref()),
+        format_optional_u32_text(panel.last_info_popup_duration_bits),
+        format_optional_i32_text(panel.last_info_popup_align),
+        format_optional_i32_text(panel.last_info_popup_top),
+        format_optional_i32_text(panel.last_info_popup_left),
+        format_optional_i32_text(panel.last_info_popup_bottom),
+        format_optional_i32_text(panel.last_info_popup_right),
+        panel.clipboard_count,
+        runtime_ui_text_len(panel.last_clipboard_text.as_deref()),
+        panel.open_uri_count,
+        runtime_ui_text_len(panel.last_open_uri.as_deref()),
+        runtime_ui_uri_scheme(panel.last_open_uri.as_deref()),
+        panel.text_input_open_count,
+        format_optional_i32_text(panel.text_input_last_id),
+        runtime_ui_text_len(panel.text_input_last_title.as_deref()),
+        runtime_ui_text_len(panel.text_input_last_message.as_deref()),
+        runtime_ui_text_len(panel.text_input_last_default_text.as_deref()),
+        format_optional_bool_flag(panel.text_input_last_numeric),
+        format_optional_bool_flag(panel.text_input_last_allow_empty),
+    ))
+}
+
 pub(crate) fn format_runtime_dialog_prompt_text(
     kind: Option<RuntimeDialogPromptKind>,
 ) -> &'static str {
@@ -1420,6 +1505,12 @@ fn format_optional_u64_text(value: Option<u64>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn format_optional_u32_text(value: Option<u32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
 fn format_runtime_reconnect_phase_text(phase: RuntimeReconnectPhaseObservability) -> &'static str {
     match phase {
         RuntimeReconnectPhaseObservability::Idle => "idle",
@@ -1606,6 +1697,7 @@ mod tests {
         format_runtime_command_group_lines,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
         format_runtime_command_mode_detail_text, format_runtime_command_mode_panel_text,
+        format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_command_rect_text, format_runtime_command_stance_text,
         format_runtime_command_target_text, format_runtime_command_unit_ref_text,
@@ -1657,6 +1749,7 @@ mod tests {
             RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
             RuntimeReconnectPanelModel,
             RuntimeResourceDeltaPanelModel, RuntimeSessionPanelModel, RuntimeBootstrapPanelModel,
+            RuntimeUiNoticePanelModel,
             RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
             RuntimeWorldReloadPanelModel,
         },
@@ -1674,6 +1767,47 @@ mod tests {
     use std::collections::BTreeMap;
 
     const TILE_SIZE: f32 = 8.0;
+
+    fn sample_runtime_ui_notice_panel() -> RuntimeUiNoticePanelModel {
+        RuntimeUiNoticePanelModel {
+            hud_set_count: 1,
+            hud_set_reliable_count: 2,
+            hud_hide_count: 3,
+            hud_last_message: Some("hud".to_string()),
+            hud_last_reliable_message: Some("rel".to_string()),
+            announce_count: 4,
+            last_announce_message: Some("ann".to_string()),
+            info_message_count: 5,
+            last_info_message: Some("info".to_string()),
+            toast_info_count: 6,
+            toast_warning_count: 7,
+            toast_last_info_message: Some("toasti".to_string()),
+            toast_last_warning_text: Some("toastw".to_string()),
+            info_popup_count: 8,
+            info_popup_reliable_count: 9,
+            last_info_popup_reliable: Some(true),
+            last_info_popup_id: Some("pid".to_string()),
+            last_info_popup_message: Some("popup".to_string()),
+            last_info_popup_duration_bits: Some(16),
+            last_info_popup_align: Some(17),
+            last_info_popup_top: Some(18),
+            last_info_popup_left: Some(19),
+            last_info_popup_bottom: Some(20),
+            last_info_popup_right: Some(21),
+            clipboard_count: 10,
+            last_clipboard_text: Some("clip".to_string()),
+            open_uri_count: 11,
+            last_open_uri: Some("mindustry://join".to_string()),
+            text_input_open_count: 12,
+            text_input_last_id: Some(22),
+            text_input_last_title: Some("title".to_string()),
+            text_input_last_message: Some("msg".to_string()),
+            text_input_last_default_text: Some("def".to_string()),
+            text_input_last_length: Some(23),
+            text_input_last_numeric: Some(false),
+            text_input_last_allow_empty: Some(true),
+        }
+    }
 
     #[test]
     fn crop_window_to_focus_clamps_to_projected_bounds() {
@@ -2697,6 +2831,73 @@ mod tests {
             format_runtime_dialog_detail_text(&panel, &prompt, &notice),
             "dialogd:p=input:a1:m1:fo0:tin53:msg12:def5:n=warn:h1:r1:i1:w1:l4"
         );
+    }
+
+    #[test]
+    fn format_runtime_ui_notice_panel_text_preserves_field_order() {
+        let panel = sample_runtime_ui_notice_panel();
+
+        assert_eq!(
+            format_runtime_ui_notice_panel_text(&panel),
+            "notice:hud=1/2/3@hud/rel:ann=4@ann:info=5@info:toast=6/7@toasti/toastw:popup=8/9@1:pid/popup:clip=10@clip:uri=11@mindustry_//~:mindustry:tin=12@22:title/msg/def#23:n0:e1"
+        );
+    }
+
+    #[test]
+    fn format_runtime_ui_notice_detail_text_preserves_field_order() {
+        let panel = sample_runtime_ui_notice_panel();
+
+        assert_eq!(
+            format_runtime_ui_notice_detail_text(&panel),
+            Some(
+                "noticed:a1:h1/2/3:l3/3:ann4:a3:info5:i4:t6/7:l6/6:popup8/9:r1:pid3:pm5:pd16:pb17:18:19:20:21:clip10:4:uri11:16:mindustry:tin12:id22:t5:m3:d3:n0:e1"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn format_runtime_ui_notice_detail_text_omits_empty_panel() {
+        let panel = RuntimeUiNoticePanelModel {
+            hud_set_count: 0,
+            hud_set_reliable_count: 0,
+            hud_hide_count: 0,
+            hud_last_message: None,
+            hud_last_reliable_message: None,
+            announce_count: 0,
+            last_announce_message: None,
+            info_message_count: 0,
+            last_info_message: None,
+            toast_info_count: 0,
+            toast_warning_count: 0,
+            toast_last_info_message: None,
+            toast_last_warning_text: None,
+            info_popup_count: 0,
+            info_popup_reliable_count: 0,
+            last_info_popup_reliable: None,
+            last_info_popup_id: None,
+            last_info_popup_message: None,
+            last_info_popup_duration_bits: None,
+            last_info_popup_align: None,
+            last_info_popup_top: None,
+            last_info_popup_left: None,
+            last_info_popup_bottom: None,
+            last_info_popup_right: None,
+            clipboard_count: 0,
+            last_clipboard_text: None,
+            open_uri_count: 0,
+            last_open_uri: None,
+            text_input_open_count: 0,
+            text_input_last_id: None,
+            text_input_last_title: None,
+            text_input_last_message: None,
+            text_input_last_default_text: None,
+            text_input_last_length: None,
+            text_input_last_numeric: None,
+            text_input_last_allow_empty: None,
+        };
+
+        assert_eq!(format_runtime_ui_notice_detail_text(&panel), None);
     }
 
     #[test]

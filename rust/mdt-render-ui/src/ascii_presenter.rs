@@ -17,8 +17,7 @@ use crate::presenter_view::{
     compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
-    compact_runtime_ui_text, runtime_ui_notice_panel_is_empty, runtime_ui_text_len,
-    runtime_ui_uri_scheme,
+    compact_runtime_ui_text,
     format_counted_detail_text, format_counted_preview_text,
     format_runtime_admin_detail_text, format_runtime_admin_panel_text,
     format_runtime_chat_detail_text, format_runtime_chat_panel_text,
@@ -28,6 +27,7 @@ use crate::presenter_view::{
     format_runtime_dialog_stack_summary_text,
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
     format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
+    format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
     format_runtime_kick_detail_text, format_runtime_kick_panel_text,
     format_runtime_loading_detail_text, format_runtime_loading_panel_text,
     format_runtime_marker_detail_text, format_runtime_marker_panel_text,
@@ -1745,86 +1745,12 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_ui_notice_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_ui_notice_panel(hud)?;
-    Some(format!(
-        "notice:hud={}/{}/{}@{}/{}:ann={}@{}:info={}@{}:toast={}/{}@{}/{}:popup={}/{}@{}:{}/{}:clip={}@{}:uri={}@{}:{}:tin={}@{}:{}/{}/{}#{}:n{}:e{}",
-        panel.hud_set_count,
-        panel.hud_set_reliable_count,
-        panel.hud_hide_count,
-        compact_runtime_ui_text(panel.hud_last_message.as_deref()),
-        compact_runtime_ui_text(panel.hud_last_reliable_message.as_deref()),
-        panel.announce_count,
-        compact_runtime_ui_text(panel.last_announce_message.as_deref()),
-        panel.info_message_count,
-        compact_runtime_ui_text(panel.last_info_message.as_deref()),
-        panel.toast_info_count,
-        panel.toast_warning_count,
-        compact_runtime_ui_text(panel.toast_last_info_message.as_deref()),
-        compact_runtime_ui_text(panel.toast_last_warning_text.as_deref()),
-        panel.info_popup_count,
-        panel.info_popup_reliable_count,
-        optional_bool_label(panel.last_info_popup_reliable),
-        compact_runtime_ui_text(panel.last_info_popup_id.as_deref()),
-        compact_runtime_ui_text(panel.last_info_popup_message.as_deref()),
-        panel.clipboard_count,
-        compact_runtime_ui_text(panel.last_clipboard_text.as_deref()),
-        panel.open_uri_count,
-        compact_runtime_ui_text(panel.last_open_uri.as_deref()),
-        runtime_ui_uri_scheme(panel.last_open_uri.as_deref()),
-        panel.text_input_open_count,
-        optional_i32_label(panel.text_input_last_id),
-        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
-        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
-        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
-        panel.text_input_last_length.unwrap_or_default(),
-        optional_bool_label(panel.text_input_last_numeric),
-        optional_bool_label(panel.text_input_last_allow_empty),
-    ))
+    Some(format_runtime_ui_notice_panel_text(&panel))
 }
 
 fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_ui_notice_panel(hud)?;
-    if runtime_ui_notice_panel_is_empty(&panel) {
-        return None;
-    }
-    Some(format!(
-        "noticed:a1:h{}/{}/{}:l{}/{}:ann{}:a{}:info{}:i{}:t{}/{}:l{}/{}:popup{}/{}:r{}:pid{}:pm{}:pd{}:pb{}:{}:{}:{}:{}:clip{}:{}:uri{}:{}:{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
-        panel.hud_set_count,
-        panel.hud_set_reliable_count,
-        panel.hud_hide_count,
-        runtime_ui_text_len(panel.hud_last_message.as_deref()),
-        runtime_ui_text_len(panel.hud_last_reliable_message.as_deref()),
-        panel.announce_count,
-        runtime_ui_text_len(panel.last_announce_message.as_deref()),
-        panel.info_message_count,
-        runtime_ui_text_len(panel.last_info_message.as_deref()),
-        panel.toast_info_count,
-        panel.toast_warning_count,
-        runtime_ui_text_len(panel.toast_last_info_message.as_deref()),
-        runtime_ui_text_len(panel.toast_last_warning_text.as_deref()),
-        panel.info_popup_count,
-        panel.info_popup_reliable_count,
-        optional_bool_label(panel.last_info_popup_reliable),
-        runtime_ui_text_len(panel.last_info_popup_id.as_deref()),
-        runtime_ui_text_len(panel.last_info_popup_message.as_deref()),
-        optional_u32_label(panel.last_info_popup_duration_bits),
-        optional_i32_label(panel.last_info_popup_align),
-        optional_i32_label(panel.last_info_popup_top),
-        optional_i32_label(panel.last_info_popup_left),
-        optional_i32_label(panel.last_info_popup_bottom),
-        optional_i32_label(panel.last_info_popup_right),
-        panel.clipboard_count,
-        runtime_ui_text_len(panel.last_clipboard_text.as_deref()),
-        panel.open_uri_count,
-        runtime_ui_text_len(panel.last_open_uri.as_deref()),
-        runtime_ui_uri_scheme(panel.last_open_uri.as_deref()),
-        panel.text_input_open_count,
-        optional_i32_label(panel.text_input_last_id),
-        runtime_ui_text_len(panel.text_input_last_title.as_deref()),
-        runtime_ui_text_len(panel.text_input_last_message.as_deref()),
-        runtime_ui_text_len(panel.text_input_last_default_text.as_deref()),
-        optional_bool_label(panel.text_input_last_numeric),
-        optional_bool_label(panel.text_input_last_allow_empty),
-    ))
+    format_runtime_ui_notice_detail_text(&panel)
 }
 
 fn compose_runtime_notice_state_panel_text(hud: &HudModel) -> Option<String> {
