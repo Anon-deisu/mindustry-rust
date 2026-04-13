@@ -2153,8 +2153,8 @@ fn compose_render_line_detail_status_text(
         line_primitives
     {
         parts.push(format!(
-            "{label}@{layer}:{start_tile_x}:{start_tile_y}->{end_tile_x}:{end_tile_y} {}",
-            format_render_primitive_payload(&payload)
+            "{label}@{layer}:{start_tile_x}:{start_tile_y}->{end_tile_x}:{end_tile_y} payload[{}]",
+            format_render_primitive_payload_fields(&payload)
         ));
     }
     Some(parts.join(" "))
@@ -11211,7 +11211,7 @@ mod tests {
         assert_frame_line_contains(&frame.panel_lines, "RENDER-LINE-DETAIL: count=3");
         assert_frame_line_contains(
             &frame.panel_lines,
-            "marker-line@32:0:2->1:2 marker-line{marker_id=demo-c}",
+            "marker-line@32:0:2->1:2 payload[marker_id=demo-c]",
         );
     }
 
