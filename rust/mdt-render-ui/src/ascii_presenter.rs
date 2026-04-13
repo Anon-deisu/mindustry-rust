@@ -3330,7 +3330,7 @@ fn compose_build_config_entry_lines(hud: &HudModel) -> Vec<String> {
         .enumerate()
         .map(|(index, entry)| {
             format!(
-                "cfgentry:{}/{}:{}#{}@{}",
+                "{}/{}:{}#{}@{}",
                 index + 1,
                 entry_count,
                 compact_runtime_ui_text(Some(entry.family.as_str())),
@@ -6081,9 +6081,9 @@ mod tests {
         assert!(frame.contains(
             "BUILD-CONFIG-DETAIL: selected=257 rot=2 building=1 queued=1 inflight=2 pending=3 finished=3 removed=4 orphan=1 head=flight@100:99:place:b301:r1 align=split last=23:45 outcome=applied pm=mismatch source=constructFinish block=power-node families=2 samples=2 shown=2 more=0"
         ));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:1/2:message#1@18:40:len=5:text=hello"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/2:message#1@18:40:len=5:text=hello"));
         assert!(
-            frame.contains("BUILD-CONFIG-ENTRY: cfgentry:2/2:power-node#1@23:45:links=24:46|25:47")
+            frame.contains("BUILD-CONFIG-ENTRY: 2/2:power-node#1@23:45:links=24:46|25:47")
         );
         assert!(frame.contains(
             "BUILD-ROLLBACK: cfgstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node"
@@ -6425,9 +6425,9 @@ mod tests {
         assert!(frame.contains(
             "BUILD-CONFIG-DETAIL: selected=301 rot=1 building=1 queued=2 inflight=1 pending=3 finished=4 removed=5 orphan=6 head=queued@10:12:place:b301:r1 align=match last=10:12 outcome=rejected-missing-building pm=match source=tileConfig block=alpha families=4 samples=8 shown=3 more=1"
         ));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:1/4:gamma#4@four"));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:2/4:beta#2@two"));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:3/4:alpha#1@one"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/4:gamma#4@four"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/4:beta#2@two"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 3/4:alpha#1@one"));
         assert!(frame.contains("BUILD-CONFIG-MORE: cfgmore:+1"));
         assert!(frame.contains(
             "BUILD-ROLLBACK: cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=alpha"
@@ -6540,11 +6540,11 @@ mod tests {
         presenter.present(&scene, &hud);
 
         let frame = presenter.last_frame();
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:1/4:alpha#4@a4"));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:2/4:beta#4@b4"));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:3/4:gamma#2@g2"));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:4/4:delta#1@d1"));
-        assert!(!frame.contains("cfgentry:1/3"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/4:alpha#4@a4"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/4:beta#4@b4"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 3/4:gamma#2@g2"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 4/4:delta#1@d1"));
+        assert!(!frame.contains("BUILD-CONFIG-ENTRY: 1/3:"));
     }
 
     #[test]

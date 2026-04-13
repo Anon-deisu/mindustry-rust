@@ -4203,7 +4203,7 @@ fn compose_build_config_entry_status_lines(hud: &HudModel) -> Vec<String> {
         .enumerate()
         .map(|(index, entry)| {
             format!(
-                "cfgentry:{}/{}:{}#{}@{}",
+                "{}/{}:{}#{}@{}",
                 index + 1,
                 entry_count,
                 compact_runtime_ui_text(Some(entry.family.as_str())),
@@ -9911,11 +9911,11 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-CONFIG-ENTRY: cfgentry:1/2:message#1@18:40:len=5:text=hello",
+            "BUILD-CONFIG-ENTRY: 1/2:message#1@18:40:len=5:text=hello",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-CONFIG-ENTRY: cfgentry:2/2:power-node#1@23:45:links=24:46|25:47",
+            "BUILD-CONFIG-ENTRY: 2/2:power-node#1@23:45:links=24:46|25:47",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -10260,15 +10260,15 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-CONFIG-ENTRY: cfgentry:1/3:gamma#4@four",
+            "BUILD-CONFIG-ENTRY: 1/3:gamma#4@four",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-CONFIG-ENTRY: cfgentry:2/3:beta#2@two",
+            "BUILD-CONFIG-ENTRY: 2/3:beta#2@two",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-CONFIG-ENTRY: cfgentry:3/3:alpha#1@one",
+            "BUILD-CONFIG-ENTRY: 3/3:alpha#1@one",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -10368,7 +10368,7 @@ mod tests {
 
         assert_eq!(
             super::compose_build_config_entry_status_lines(&hud),
-            vec![format!("cfgentry:1/1:alpha#1@{expected_sample}")]
+            vec![format!("1/1:alpha#1@{expected_sample}")]
         );
     }
 
@@ -10406,10 +10406,10 @@ mod tests {
         assert_eq!(
             super::compose_build_config_entry_status_lines(&hud),
             vec![
-                "cfgentry:1/4:alpha#4@a4".to_string(),
-                "cfgentry:2/4:beta#4@b4".to_string(),
-                "cfgentry:3/4:gamma#2@g2".to_string(),
-                "cfgentry:4/4:delta#1@d1".to_string(),
+                "1/4:alpha#4@a4".to_string(),
+                "2/4:beta#4@b4".to_string(),
+                "3/4:gamma#2@g2".to_string(),
+                "4/4:delta#1@d1".to_string(),
             ]
         );
     }
