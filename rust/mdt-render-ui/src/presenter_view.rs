@@ -269,31 +269,36 @@ fn format_build_queue_stage_text(stage: BuildQueueHeadStage, pending_count: usiz
 }
 
 pub(crate) fn compose_minimap_window_distribution_text(panel: &MinimapPanelModel) -> String {
-    format!(
-        "miniwin:tracked={}:outside={}:player={}:marker={}:plan={}:block={}:runtime={}:terrain={}:unknown={}",
-        panel.window_tracked_object_count,
-        panel.outside_window_count,
-        panel.window_player_count,
-        panel.window_marker_count,
-        panel.window_plan_count,
-        panel.window_block_count,
-        panel.window_runtime_count,
-        panel.window_terrain_count,
-        panel.window_unknown_count,
-    )
+    format_minimap_window_counts_text("miniwin:", ":", panel)
 }
 
 pub(crate) fn compose_minimap_window_kind_distribution_text(panel: &MinimapPanelModel) -> String {
+    format_minimap_window_counts_text("miniwin-kinds: ", " ", panel)
+}
+
+fn format_minimap_window_counts_text(
+    prefix: &str,
+    separator: &str,
+    panel: &MinimapPanelModel,
+) -> String {
     format!(
-        "miniwin-kinds: tracked={} outside={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
+        "{prefix}tracked={}{}outside={}{}player={}{}marker={}{}plan={}{}block={}{}runtime={}{}terrain={}{}unknown={}",
         panel.window_tracked_object_count,
+        separator,
         panel.outside_window_count,
+        separator,
         panel.window_player_count,
+        separator,
         panel.window_marker_count,
+        separator,
         panel.window_plan_count,
+        separator,
         panel.window_block_count,
+        separator,
         panel.window_runtime_count,
+        separator,
         panel.window_terrain_count,
+        separator,
         panel.window_unknown_count,
     )
 }
