@@ -2098,7 +2098,7 @@ fn compose_runtime_command_mode_detail_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_admin_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_admin_panel(hud)?;
     Some(format!(
-        "trace={}@{} fail={} dbg={}/{}@{} fail={}",
+        "admin:t{}@{}:f{}:dbg{}/{}@{}:f{}",
         panel.trace_info_count,
         optional_i32_label(panel.last_trace_info_player_id),
         panel.trace_info_parse_fail_count,
@@ -2115,7 +2115,7 @@ fn compose_runtime_admin_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "trace={} fail={} last-player={} debug={} fail={} unreliable={} fail={} last-value={}",
+        "admind:tr{}/{}@{}:dbg{}/{}:udbg{}/{}:last{}",
         panel.trace_info_count,
         panel.trace_info_parse_fail_count,
         optional_i32_label(panel.last_trace_info_player_id),
@@ -5646,9 +5646,9 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-COMMAND-DETAIL: sample=11,22,33 groups=2#3@11,4#1@99 first-building=327686 rect=-3:4:12:18 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 command=5 stance=7/0"
         ));
-        assert!(frame.contains("RUNTIME-ADMIN: trace=56@123456 fail=76 dbg=57/58@12 fail=231"));
+        assert!(frame.contains("RUNTIME-ADMIN: admin:t56@123456:f76:dbg57/58@12:f231"));
         assert!(frame.contains(
-            "RUNTIME-ADMIN-DETAIL: trace=56 fail=76 last-player=123456 debug=57 fail=77 unreliable=58 fail=78 last-value=12"
+            "RUNTIME-ADMIN-DETAIL: admind:tr56/76@123456:dbg57/77:udbg58/78:last12"
         ));
         assert!(frame.contains(
             "RUNTIME-RULES: rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"
