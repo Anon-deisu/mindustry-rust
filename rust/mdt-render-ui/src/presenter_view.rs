@@ -1,7 +1,8 @@
 use crate::{
     panel_model::{MinimapPanelModel, PresenterViewWindow},
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
-    BuildQueueHeadStage, RenderModel, RenderObject,
+    BuildQueueHeadStage, RenderModel, RenderObject, RuntimeLiveEffectPositionSource,
+    RuntimeWorldPositionObservability,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -420,6 +421,33 @@ pub(crate) fn format_render_icon_signature(
     format!("{family_label}/{variant}@{layer}:{tile_x}:{tile_y}")
 }
 
+pub(crate) fn format_world_position_status_text(
+    value: Option<&RuntimeWorldPositionObservability>,
+) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    let x = f32::from_bits(value.x_bits);
+    let y = f32::from_bits(value.y_bits);
+    if x.is_finite() && y.is_finite() {
+        format!("{x:.1}:{y:.1}")
+    } else {
+        format!("0x{:08x}:0x{:08x}", value.x_bits, value.y_bits)
+    }
+}
+
+pub(crate) fn format_live_effect_position_source_text(
+    source: Option<RuntimeLiveEffectPositionSource>,
+) -> &'static str {
+    match source {
+        Some(RuntimeLiveEffectPositionSource::ActiveOverlay) => "active",
+        Some(RuntimeLiveEffectPositionSource::BusinessProjection) => "biz",
+        Some(RuntimeLiveEffectPositionSource::EffectPacket) => "pkt",
+        Some(RuntimeLiveEffectPositionSource::SpawnEffectPacket) => "spawn",
+        None => "none",
+    }
+}
+
 pub(crate) fn format_render_rect_detail_fields(
     left_tile: i32,
     top_tile: i32,
@@ -458,10 +486,11 @@ mod tests {
     use super::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
-        format_render_icon_signature, format_render_line_signature,
+        format_live_effect_position_source_text, format_render_icon_signature,
+        format_render_line_signature,
         format_render_primitive_payload_fields_with, format_render_primitive_payload_value_with,
-        format_render_rect_detail_fields, format_render_rect_signature, normalize_zoom,
-        projected_window,
+        format_render_rect_detail_fields, format_render_rect_signature,
+        format_world_position_status_text, normalize_zoom, projected_window,
         render_line_is_visible, render_rect_detail_is_visible, render_rect_detail_payload_fields,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
         world_to_tile_index_floor, zoomed_view_tile_span, CropWindowMode,
@@ -469,7 +498,8 @@ mod tests {
     use crate::{
         panel_model::{MinimapPanelModel, PresenterViewWindow},
         render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
-        BuildQueueHeadStage, RenderModel, RenderObject, Viewport,
+        BuildQueueHeadStage, RenderModel, RenderObject, RuntimeLiveEffectPositionSource,
+        RuntimeWorldPositionObservability, Viewport,
     };
     use std::collections::BTreeMap;
 
@@ -896,6 +926,58 @@ mod tests {
         assert_eq!(
             format_render_icon_signature("runtime-break", "break", 7, 3, 5),
             "runtime-break/break@7:3:5"
+        );
+    }
+
+    #[test]
+    fn format_world_position_status_text_handles_missing_finite_and_nonfinite_values() {
+        assert_eq!(format_world_position_status_text(None), "none");
+        assert_eq!(
+            format_world_position_status_text(Some(&RuntimeWorldPositionObservability {
+                x_bits: 12.5f32.to_bits(),
+                y_bits: 7.0f32.to_bits(),
+            })),
+            "12.5:7.0"
+        );
+        assert_eq!(
+            format_world_position_status_text(Some(&RuntimeWorldPositionObservability {
+                x_bits: f32::NAN.to_bits(),
+                y_bits: f32::NEG_INFINITY.to_bits(),
+            })),
+            format!(
+                "0x{:08x}:0x{:08x}",
+                f32::NAN.to_bits(),
+                f32::NEG_INFINITY.to_bits()
+            )
+        );
+    }
+
+    #[test]
+    fn format_live_effect_position_source_text_maps_all_variants() {
+        assert_eq!(format_live_effect_position_source_text(None), "none");
+        assert_eq!(
+            format_live_effect_position_source_text(Some(
+                RuntimeLiveEffectPositionSource::ActiveOverlay
+            )),
+            "active"
+        );
+        assert_eq!(
+            format_live_effect_position_source_text(Some(
+                RuntimeLiveEffectPositionSource::BusinessProjection
+            )),
+            "biz"
+        );
+        assert_eq!(
+            format_live_effect_position_source_text(Some(
+                RuntimeLiveEffectPositionSource::EffectPacket
+            )),
+            "pkt"
+        );
+        assert_eq!(
+            format_live_effect_position_source_text(Some(
+                RuntimeLiveEffectPositionSource::SpawnEffectPacket
+            )),
+            "spawn"
         );
     }
 

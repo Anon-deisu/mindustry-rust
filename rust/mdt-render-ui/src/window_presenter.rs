@@ -20,11 +20,13 @@ use crate::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
-        format_render_icon_signature, format_render_line_signature,
+        format_live_effect_position_source_text, format_render_icon_signature,
+        format_render_line_signature,
         format_render_primitive_payload_fields_with,
         format_render_primitive_payload_value_with,
         render_rect_detail_payload_fields,
         format_render_rect_detail_fields, format_render_rect_signature,
+        format_world_position_status_text,
         format_build_strip_queue_status_text, CropWindowMode,
     },
     render_model::{
@@ -5140,28 +5142,13 @@ fn optional_u64_label(value: Option<u64>) -> String {
 }
 
 fn world_position_status_text(value: Option<&crate::RuntimeWorldPositionObservability>) -> String {
-    let Some(value) = value else {
-        return "none".to_string();
-    };
-    let x = f32::from_bits(value.x_bits);
-    let y = f32::from_bits(value.y_bits);
-    if x.is_finite() && y.is_finite() {
-        format!("{x:.1}:{y:.1}")
-    } else {
-        format!("0x{:08x}:0x{:08x}", value.x_bits, value.y_bits)
-    }
+    format_world_position_status_text(value)
 }
 
 fn live_effect_position_source_status_text(
     source: Option<crate::RuntimeLiveEffectPositionSource>,
 ) -> &'static str {
-    match source {
-        Some(crate::RuntimeLiveEffectPositionSource::ActiveOverlay) => "active",
-        Some(crate::RuntimeLiveEffectPositionSource::BusinessProjection) => "biz",
-        Some(crate::RuntimeLiveEffectPositionSource::EffectPacket) => "pkt",
-        Some(crate::RuntimeLiveEffectPositionSource::SpawnEffectPacket) => "spawn",
-        None => "none",
-    }
+    format_live_effect_position_source_text(source)
 }
 
 fn optional_bool_label(value: Option<bool>) -> char {
