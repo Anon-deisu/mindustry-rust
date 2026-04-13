@@ -322,13 +322,37 @@ pub(crate) fn render_rect_detail_payload_fields(
     (block_name, tile_x, tile_y)
 }
 
+pub(crate) fn format_render_primitive_payload_fields_with<F>(
+    payload: &RenderPrimitivePayload,
+    mut format_value: F,
+) -> String
+where
+    F: FnMut(&str, &RenderPrimitivePayloadValue) -> String,
+{
+    let mut parts = Vec::new();
+    if let Some(variant) = payload.field("variant") {
+        parts.push(format!("variant={}", format_value("variant", variant)));
+    }
+    for (field_name, field_value) in &payload.fields {
+        if *field_name == "variant" {
+            continue;
+        }
+        parts.push(format!(
+            "{field_name}={}",
+            format_value(field_name, field_value)
+        ));
+    }
+    parts.join(",")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
-        normalize_zoom, projected_window, render_line_is_visible, render_rect_detail_is_visible,
-        render_rect_detail_payload_fields, tile_local_coords, visible_window_tile,
+        format_render_primitive_payload_fields_with, normalize_zoom, projected_window,
+        render_line_is_visible, render_rect_detail_is_visible, render_rect_detail_payload_fields,
+        tile_local_coords, visible_window_tile,
         world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
         zoomed_view_tile_span, CropWindowMode,
     };
@@ -671,6 +695,37 @@ mod tests {
             (None, None, None)
         );
         assert_eq!(render_rect_detail_payload_fields(None), (None, None, None));
+    }
+
+    #[test]
+    fn format_render_primitive_payload_fields_with_keeps_variant_first() {
+        let payload = RenderPrimitivePayload {
+            label: "icon".to_string(),
+            fields: BTreeMap::from([
+                ("content_id", RenderPrimitivePayloadValue::I32(7)),
+                (
+                    "variant",
+                    RenderPrimitivePayloadValue::Text("content".to_string()),
+                ),
+                ("x_bits", RenderPrimitivePayloadValue::U32(0x41000000)),
+            ]),
+        };
+
+        assert_eq!(
+            format_render_primitive_payload_fields_with(&payload, |name, value| match value {
+                RenderPrimitivePayloadValue::Text(value) => value.clone(),
+                RenderPrimitivePayloadValue::I32(value) => value.to_string(),
+                RenderPrimitivePayloadValue::U32(value) => {
+                    if name.ends_with("_bits") {
+                        format!("0x{value:08x}")
+                    } else {
+                        value.to_string()
+                    }
+                }
+                _ => unreachable!("test payload only uses text, i32 and u32"),
+            }),
+            "variant=content,content_id=7,x_bits=0x41000000"
+        );
     }
 
     #[test]

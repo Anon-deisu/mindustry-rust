@@ -18,7 +18,7 @@ use crate::presenter_view::{
     compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
-    render_rect_detail_payload_fields,
+    format_render_primitive_payload_fields_with, render_rect_detail_payload_fields,
     format_build_strip_queue_status_text, CropWindowMode,
 };
 use crate::render_model::{
@@ -1502,24 +1502,9 @@ fn render_rect_detail_fields_text(
 }
 
 fn render_primitive_payload_fields_text(payload: &RenderPrimitivePayload) -> String {
-    let mut parts = Vec::new();
-    if let Some(variant) = payload.field("variant") {
-        parts.push(format!(
-            "variant={}",
-            render_primitive_payload_value_text(variant)
-        ));
-    }
-    for (name, value) in &payload.fields {
-        if *name == "variant" {
-            continue;
-        }
-        parts.push(format!(
-            "{}={}",
-            *name,
-            render_primitive_payload_value_text(value)
-        ));
-    }
-    parts.join(",")
+    format_render_primitive_payload_fields_with(payload, |_name, value| {
+        render_primitive_payload_value_text(value)
+    })
 }
 
 fn render_primitive_payload_value_text(value: &RenderPrimitivePayloadValue) -> String {

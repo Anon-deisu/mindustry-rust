@@ -20,7 +20,8 @@ use crate::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
-        render_rect_detail_payload_fields, format_build_strip_queue_status_text, CropWindowMode,
+        format_render_primitive_payload_fields_with, render_rect_detail_payload_fields,
+        format_build_strip_queue_status_text, CropWindowMode,
     },
     render_model::{
         RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -2493,23 +2494,7 @@ fn compose_render_icon_detail_status_text(
 }
 
 fn format_render_primitive_payload_fields(payload: &RenderPrimitivePayload) -> String {
-    let mut parts = Vec::new();
-    if let Some(variant) = payload.field("variant") {
-        parts.push(format!(
-            "variant={}",
-            format_render_primitive_payload_value("variant", variant)
-        ));
-    }
-    for (field_name, field_value) in &payload.fields {
-        if *field_name == "variant" {
-            continue;
-        }
-        parts.push(format!(
-            "{field_name}={}",
-            format_render_primitive_payload_value(field_name, field_value)
-        ));
-    }
-    parts.join(",")
+    format_render_primitive_payload_fields_with(payload, format_render_primitive_payload_value)
 }
 
 fn format_render_rect_detail_fields(
