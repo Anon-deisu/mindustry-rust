@@ -1,4 +1,7 @@
-use crate::{panel_model::PresenterViewWindow, BuildQueueHeadStage, RenderModel, RenderObject};
+use crate::{
+    panel_model::{MinimapPanelModel, PresenterViewWindow},
+    BuildQueueHeadStage, RenderModel, RenderObject,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CropWindowMode {
@@ -264,18 +267,49 @@ fn format_build_queue_stage_text(stage: BuildQueueHeadStage, pending_count: usiz
     format!("{stage_text}@{pending_count}")
 }
 
+pub(crate) fn compose_minimap_window_distribution_text(panel: &MinimapPanelModel) -> String {
+    format!(
+        "miniwin:tracked={}:outside={}:player={}:marker={}:plan={}:block={}:runtime={}:terrain={}:unknown={}",
+        panel.window_tracked_object_count,
+        panel.outside_window_count,
+        panel.window_player_count,
+        panel.window_marker_count,
+        panel.window_plan_count,
+        panel.window_block_count,
+        panel.window_runtime_count,
+        panel.window_terrain_count,
+        panel.window_unknown_count,
+    )
+}
+
+pub(crate) fn compose_minimap_window_kind_distribution_text(panel: &MinimapPanelModel) -> String {
+    format!(
+        "miniwin-kinds: tracked={} outside={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
+        panel.window_tracked_object_count,
+        panel.outside_window_count,
+        panel.window_player_count,
+        panel.window_marker_count,
+        panel.window_plan_count,
+        panel.window_block_count,
+        panel.window_runtime_count,
+        panel.window_terrain_count,
+        panel.window_unknown_count,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        crop_origin, crop_window, crop_window_to_focus, normalize_zoom, projected_window,
-        format_build_strip_queue_status_text, render_line_is_visible,
-        render_rect_detail_is_visible, tile_local_coords, visible_window_tile,
+        compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
+        crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
+        normalize_zoom, projected_window, render_line_is_visible, render_rect_detail_is_visible,
+        tile_local_coords, visible_window_tile,
         world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
         zoomed_view_tile_span, CropWindowMode,
     };
     use crate::{
-        panel_model::PresenterViewWindow, BuildQueueHeadStage, RenderModel, RenderObject,
-        Viewport,
+        panel_model::{MinimapPanelModel, PresenterViewWindow},
+        BuildQueueHeadStage, RenderModel, RenderObject, Viewport,
     };
 
     const TILE_SIZE: f32 = 8.0;
@@ -558,6 +592,24 @@ mod tests {
     }
 
     #[test]
+    fn compose_minimap_window_distribution_text_preserves_compact_field_order() {
+        let panel = sample_minimap_panel();
+        assert_eq!(
+            compose_minimap_window_distribution_text(&panel),
+            "miniwin:tracked=12:outside=5:player=1:marker=2:plan=3:block=4:runtime=5:terrain=6:unknown=7"
+        );
+    }
+
+    #[test]
+    fn compose_minimap_window_kind_distribution_text_preserves_spaced_field_order() {
+        let panel = sample_minimap_panel();
+        assert_eq!(
+            compose_minimap_window_kind_distribution_text(&panel),
+            "miniwin-kinds: tracked=12 outside=5 player=1 marker=2 plan=3 block=4 runtime=5 terrain=6 unknown=7"
+        );
+    }
+
+    #[test]
     fn visible_window_tile_rejects_non_finite_object_coordinates_and_tile_size() {
         let object = RenderObject {
             id: "plan:build".to_string(),
@@ -600,5 +652,59 @@ mod tests {
         assert_eq!(zoomed_view_tile_span(0, 2.0, 10), 1);
         assert_eq!(zoomed_view_tile_span(8, 2.0, 10), 4);
         assert_eq!(zoomed_view_tile_span(8, 0.5, 6), 6);
+    }
+
+    fn sample_minimap_panel() -> MinimapPanelModel {
+        MinimapPanelModel {
+            map_width: 0,
+            map_height: 0,
+            window: PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 0,
+                height: 0,
+            },
+            window_last_x: 0,
+            window_last_y: 0,
+            window_clamped_left: false,
+            window_clamped_top: false,
+            window_clamped_right: false,
+            window_clamped_bottom: false,
+            window_tile_count: 0,
+            window_coverage_percent: 0,
+            map_tile_count: 0,
+            known_tile_count: 0,
+            known_tile_percent: 0,
+            unknown_tile_count: 0,
+            unknown_tile_percent: 0,
+            focus_tile: None,
+            focus_in_window: None,
+            focus_offset_x: None,
+            focus_offset_y: None,
+            overlay_visible: false,
+            fog_enabled: false,
+            visible_tile_count: 0,
+            visible_known_percent: 0,
+            hidden_tile_count: 0,
+            hidden_known_percent: 0,
+            tracked_object_count: 0,
+            window_tracked_object_count: 12,
+            outside_window_count: 5,
+            player_count: 0,
+            window_player_count: 1,
+            marker_count: 0,
+            window_marker_count: 2,
+            plan_count: 0,
+            window_plan_count: 3,
+            block_count: 0,
+            window_block_count: 4,
+            runtime_count: 0,
+            window_runtime_count: 5,
+            terrain_count: 0,
+            window_terrain_count: 6,
+            unknown_count: 0,
+            window_unknown_count: 7,
+            detail_counts: Vec::new(),
+        }
     }
 }

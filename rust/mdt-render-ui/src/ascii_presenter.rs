@@ -15,6 +15,7 @@ use crate::panel_model::{
     RuntimeUiNoticePanelModel,
 };
 use crate::presenter_view::{
+    compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
     format_build_strip_queue_status_text, CropWindowMode,
@@ -3086,7 +3087,7 @@ fn compose_minimap_window_kind_line(scene: &RenderModel, hud: &HudModel) -> Opti
             height: 0,
         },
     )?;
-    Some(compose_minimap_window_kind_distribution_line(&panel))
+    Some(compose_minimap_window_kind_distribution_text(&panel))
 }
 
 fn compose_minimap_window_line(scene: &RenderModel, hud: &HudModel) -> Option<String> {
@@ -3100,7 +3101,7 @@ fn compose_minimap_window_line(scene: &RenderModel, hud: &HudModel) -> Option<St
             height: 0,
         },
     )?;
-    Some(compose_minimap_window_distribution_line(&panel))
+    Some(compose_minimap_window_distribution_text(&panel))
 }
 
 fn compose_minimap_detail_lines(
@@ -3140,36 +3141,6 @@ fn compose_minimap_density_visibility_line(panel: &MinimapPanelModel) -> String 
         panel.map_object_density_percent(),
         panel.window_object_density_percent(),
         panel.outside_object_percent(),
-    )
-}
-
-fn compose_minimap_window_distribution_line(panel: &MinimapPanelModel) -> String {
-    format!(
-        "miniwin:tracked={}:outside={}:player={}:marker={}:plan={}:block={}:runtime={}:terrain={}:unknown={}",
-        panel.window_tracked_object_count,
-        panel.outside_window_count,
-        panel.window_player_count,
-        panel.window_marker_count,
-        panel.window_plan_count,
-        panel.window_block_count,
-        panel.window_runtime_count,
-        panel.window_terrain_count,
-        panel.window_unknown_count,
-    )
-}
-
-fn compose_minimap_window_kind_distribution_line(panel: &MinimapPanelModel) -> String {
-    format!(
-        "miniwin-kinds: tracked={} outside={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
-        panel.window_tracked_object_count,
-        panel.outside_window_count,
-        panel.window_player_count,
-        panel.window_marker_count,
-        panel.window_plan_count,
-        panel.window_block_count,
-        panel.window_runtime_count,
-        panel.window_terrain_count,
-        panel.window_unknown_count,
     )
 }
 
