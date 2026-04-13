@@ -29,6 +29,7 @@ use crate::{
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
+        format_runtime_world_label_sample_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_stack_depth_text, format_runtime_stack_detail_text,
         format_runtime_stack_panel_text,
@@ -2984,7 +2985,7 @@ fn compose_runtime_world_label_panel_status_text(hud: &HudModel) -> Option<Strin
         runtime_world_label_scalar_status_text(panel.last_font_size_bits, panel.last_font_size()),
         runtime_world_label_scalar_status_text(panel.last_z_bits, panel.last_z()),
         world_position_status_text(panel.last_position.as_ref()),
-        runtime_world_label_status_sample(panel.last_text.as_deref()),
+        format_runtime_world_label_sample_text(panel.last_text.as_deref()),
         panel.last_text_line_count(),
         panel.last_text_len(),
     ))
@@ -3022,19 +3023,6 @@ fn compose_runtime_world_label_detail_status_text(hud: &HudModel) -> Option<Stri
         runtime_world_label_scalar_status_text(panel.last_z_bits, panel.last_z()),
         world_position_status_text(panel.last_position.as_ref()),
     ))
-}
-
-fn runtime_world_label_status_sample(value: Option<&str>) -> String {
-    let Some(value) = value else {
-        return "none".to_string();
-    };
-    let sanitized = value.replace(' ', "_");
-    let sample = sanitized.chars().take(24).collect::<String>();
-    if sanitized.chars().count() > 24 {
-        format!("{sample}~")
-    } else {
-        sample
-    }
 }
 
 fn compose_runtime_marker_panel_status_text(hud: &HudModel) -> Option<String> {

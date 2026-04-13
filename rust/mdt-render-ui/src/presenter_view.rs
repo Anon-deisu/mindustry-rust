@@ -477,6 +477,19 @@ pub(crate) fn runtime_ui_text_len(value: Option<&str>) -> usize {
         .unwrap_or_default()
 }
 
+pub(crate) fn format_runtime_world_label_sample_text(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    let sanitized = value.replace(' ', "_");
+    let sample = sanitized.chars().take(24).collect::<String>();
+    if sanitized.chars().count() > 24 {
+        format!("{sample}~")
+    } else {
+        sample
+    }
+}
+
 pub(crate) fn runtime_ui_uri_scheme(value: Option<&str>) -> String {
     value
         .map(str::trim)
@@ -1125,6 +1138,7 @@ mod tests {
         format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
+        format_runtime_world_label_sample_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
@@ -1268,6 +1282,21 @@ mod tests {
             "warn"
         );
         assert_eq!(format_runtime_dialog_notice_text(None), "none");
+    }
+
+    #[test]
+    fn format_runtime_world_label_sample_text_truncates_spaces_and_long_text() {
+        assert_eq!(format_runtime_world_label_sample_text(None), "none");
+        assert_eq!(
+            format_runtime_world_label_sample_text(Some("world label")),
+            "world_label"
+        );
+        assert_eq!(
+            format_runtime_world_label_sample_text(Some(
+                "123456789012345678901234567890"
+            )),
+            "123456789012345678901234~"
+        );
     }
 
     #[test]
