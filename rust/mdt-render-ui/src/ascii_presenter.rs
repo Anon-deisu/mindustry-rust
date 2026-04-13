@@ -19,7 +19,7 @@ use crate::presenter_view::{
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
     format_render_line_signature, format_render_primitive_payload_fields_with,
-    format_render_rect_detail_fields,
+    format_render_rect_detail_fields, format_render_rect_signature,
     render_rect_detail_payload_fields,
     format_build_strip_queue_status_text, CropWindowMode,
 };
@@ -1149,9 +1149,13 @@ fn compose_render_rect_status_text(
     let mut parts = vec![format!("count={total}")];
     for (family, layer, left, top, right, bottom, _, _, _, _) in rect_primitives.into_iter().take(2)
     {
-        parts.push(format!(
-            "{family}@{layer}:{}:{}:{}:{}",
-            left as i32, top as i32, right as i32, bottom as i32
+        parts.push(format_render_rect_signature(
+            &family,
+            layer,
+            left as i32,
+            top as i32,
+            right as i32,
+            bottom as i32,
         ));
     }
     if total > 2 {
@@ -1246,7 +1250,8 @@ fn compose_render_rect_detail_text(
     ) in rect_primitives
     {
         parts.push(format!(
-            "{family}@{layer}:{left}:{top}:{right}:{bottom} payload[{}]",
+            "{} payload[{}]",
+            format_render_rect_signature(&family, layer, left, top, right, bottom),
             format_render_rect_detail_fields(
                 left_tile,
                 top_tile,

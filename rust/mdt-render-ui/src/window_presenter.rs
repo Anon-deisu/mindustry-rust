@@ -22,7 +22,8 @@ use crate::{
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
         format_render_line_signature, format_render_primitive_payload_fields_with,
         render_rect_detail_payload_fields,
-        format_render_rect_detail_fields, format_build_strip_queue_status_text, CropWindowMode,
+        format_render_rect_detail_fields, format_render_rect_signature,
+        format_build_strip_queue_status_text, CropWindowMode,
     },
     render_model::{
         RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -2288,9 +2289,13 @@ fn compose_render_rect_status_text(
     rect_primitives.sort_by_key(|(_, layer, _, _, _, _)| *layer);
     let mut parts = vec![format!("count={total}")];
     for (family, layer, left, top, right, bottom) in rect_primitives.into_iter().take(2) {
-        parts.push(format!(
-            "{family}@{layer}:{}:{}:{}:{}",
-            left as i32, top as i32, right as i32, bottom as i32
+        parts.push(format_render_rect_signature(
+            &family,
+            layer,
+            left as i32,
+            top as i32,
+            right as i32,
+            bottom as i32,
         ));
     }
     if total > 2 {
@@ -2385,7 +2390,8 @@ fn compose_render_rect_detail_status_text(
     ) in rect_primitives
     {
         parts.push(format!(
-            "{family}@{layer}:{left}:{top}:{right}:{bottom} payload[{}]",
+            "{} payload[{}]",
+            format_render_rect_signature(&family, layer, left, top, right, bottom),
             format_render_rect_detail_fields(
                 left_tile,
                 top_tile,
