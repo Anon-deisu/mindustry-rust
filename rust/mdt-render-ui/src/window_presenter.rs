@@ -4369,7 +4369,7 @@ fn compose_build_minimap_flow_status_text(
 ) -> Option<String> {
     let panel = build_build_minimap_assist_panel(scene, hud, window)?;
     Some(format!(
-        "bflow:n={}:s={}:q={}:r{}:f={}:c={}:rt{}",
+        "bmflow:n={}:s={}:q={}:r{}:f={}:c={}:rt{}",
         panel.next_action_label(),
         build_interaction_selection_status_text(panel.selection_state),
         build_interaction_queue_status_text(panel.queue_state),
@@ -10317,7 +10317,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-MINIMAP-FLOW: bflow:n=resolve:s=head-aligned:q=mixed:r1:f=inside:c=offscreen:rt0",
+            "BUILD-MINIMAP-FLOW: bmflow:n=resolve:s=head-aligned:q=mixed:r1:f=inside:c=offscreen:rt0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
