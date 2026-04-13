@@ -1170,6 +1170,37 @@ pub(crate) fn format_runtime_session_detail_text(panel: &RuntimeSessionPanelMode
     format!("sessd:{}", segments.join(":"))
 }
 
+pub(crate) fn format_runtime_session_banner_text(
+    panel: &RuntimeSessionPanelModel,
+) -> Option<String> {
+    if !panel.kick.is_empty() {
+        return Some(format!(
+            "KICK {}",
+            format_runtime_kick_panel_text(&panel.kick)
+        ));
+    }
+    let mut segments = Vec::new();
+    if let Some(world_reload) = panel.loading.last_world_reload.as_ref() {
+        segments.push(format!(
+            "RELOAD {}",
+            format_runtime_world_reload_panel_text(Some(world_reload))
+        ));
+    }
+    if !panel.reconnect.is_empty() {
+        segments.push(format!(
+            "RECONNECT {}",
+            format_runtime_reconnect_panel_text(&panel.reconnect)
+        ));
+    }
+    if !panel.loading.is_empty() {
+        segments.push(format!(
+            "LOADING {}",
+            format_runtime_loading_panel_text(&panel.loading)
+        ));
+    }
+    (!segments.is_empty()).then(|| segments.join(" | "))
+}
+
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
     format!(
         "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
@@ -1591,6 +1622,7 @@ mod tests {
         format_runtime_marker_detail_text, format_runtime_marker_panel_text,
         format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
         format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
+        format_runtime_session_banner_text,
         format_runtime_session_detail_text, format_runtime_session_panel_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
@@ -2385,6 +2417,206 @@ mod tests {
         assert_eq!(
             format_runtime_session_detail_text(&panel),
             "sessd:bootstrap(rules-label=rules:tags-label=tags:locales-label=loc:team-count=1:marker-count=2:custom-chunk-count=3:content-patch-count=4:player-team-plan-count=5:static-fog-team-count=6):cb(cored:first-core-per-team:a1@2:m3@4):rd(resdd:rm1:st2:sf3:so4:set5/6/7/8:clr9/10:tile11/12:flow13/14/15:lastto_unit:16:17:18:2:19:20:proj21/22/23:au24:d25/26/27:chg28/29/30/31):k(kickd:r6:o7:c3:h5):l(loadingd:rdy8@9:to10/11/12:ready@13:rs14/15/16/17:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:manual:r6@7:h5:rd4@1.2.3.4:6567)"
+        );
+    }
+
+    #[test]
+    fn format_runtime_session_banner_text_prefers_kick() {
+        let panel = RuntimeSessionPanelModel {
+            bootstrap: RuntimeBootstrapPanelModel::default(),
+            core_binding: RuntimeCoreBindingPanelModel {
+                kind: None,
+                ambiguous_team_count: 0,
+                ambiguous_team_sample: vec![],
+                missing_team_count: 0,
+                missing_team_sample: vec![],
+            },
+            resource_delta: RuntimeResourceDeltaPanelModel {
+                remove_tile_count: 0,
+                set_tile_count: 0,
+                set_floor_count: 0,
+                set_overlay_count: 0,
+                set_item_count: 0,
+                set_items_count: 0,
+                set_liquid_count: 0,
+                set_liquids_count: 0,
+                clear_items_count: 0,
+                clear_liquids_count: 0,
+                set_tile_items_count: 0,
+                set_tile_liquids_count: 0,
+                take_items_count: 0,
+                transfer_item_to_count: 0,
+                transfer_item_to_unit_count: 0,
+                last_kind: None,
+                last_item_id: None,
+                last_amount: None,
+                last_build_pos: None,
+                last_unit: None,
+                last_to_entity_id: None,
+                build_count: 0,
+                build_stack_count: 0,
+                entity_count: 0,
+                authoritative_build_update_count: 0,
+                delta_apply_count: 0,
+                delta_skip_count: 0,
+                delta_conflict_count: 0,
+                last_changed_build_pos: None,
+                last_changed_entity_id: None,
+                last_changed_item_id: None,
+                last_changed_amount: None,
+            },
+            kick: RuntimeKickPanelModel {
+                reason_text: Some("manual".to_string()),
+                reason_ordinal: Some(7),
+                hint_category: Some("net".to_string()),
+                hint_text: Some("retry".to_string()),
+            },
+            loading: RuntimeLoadingPanelModel {
+                deferred_inbound_packet_count: 1,
+                replayed_inbound_packet_count: 2,
+                dropped_loading_low_priority_packet_count: 3,
+                dropped_loading_deferred_overflow_count: 4,
+                failed_state_snapshot_parse_count: 5,
+                failed_state_snapshot_core_data_parse_count: 6,
+                failed_entity_snapshot_parse_count: 7,
+                ready_inbound_liveness_anchor_count: 8,
+                last_ready_inbound_liveness_anchor_at_ms: Some(9),
+                timeout_count: 10,
+                connect_or_loading_timeout_count: 11,
+                ready_snapshot_timeout_count: 12,
+                last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+                last_timeout_idle_ms: Some(13),
+                reset_count: 14,
+                reconnect_reset_count: 15,
+                world_reload_count: 16,
+                kick_reset_count: 17,
+                last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+                last_world_reload: Some(RuntimeWorldReloadPanelModel {
+                    had_loaded_world: true,
+                    had_client_loaded: false,
+                    was_ready_to_enter_world: true,
+                    had_connect_confirm_sent: false,
+                    cleared_pending_packets: 4,
+                    cleared_deferred_inbound_packets: 5,
+                    cleared_replayed_loading_events: 6,
+                }),
+            },
+            reconnect: RuntimeReconnectPanelModel {
+                phase: RuntimeReconnectPhaseObservability::Attempting,
+                phase_transition_count: 3,
+                reason_kind: Some(RuntimeReconnectReasonKind::ManualConnect),
+                reason_text: Some("manual".to_string()),
+                reason_ordinal: Some(7),
+                hint_text: Some("retry".to_string()),
+                redirect_count: 4,
+                last_redirect_ip: Some("1.2.3.4".to_string()),
+                last_redirect_port: Some(6567),
+            },
+        };
+
+        assert_eq!(
+            format_runtime_session_banner_text(&panel),
+            Some("KICK manual@7:net:retry".to_string())
+        );
+    }
+
+    #[test]
+    fn format_runtime_session_banner_text_joins_reload_reconnect_and_loading() {
+        let panel = RuntimeSessionPanelModel {
+            bootstrap: RuntimeBootstrapPanelModel::default(),
+            core_binding: RuntimeCoreBindingPanelModel {
+                kind: None,
+                ambiguous_team_count: 0,
+                ambiguous_team_sample: vec![],
+                missing_team_count: 0,
+                missing_team_sample: vec![],
+            },
+            resource_delta: RuntimeResourceDeltaPanelModel {
+                remove_tile_count: 0,
+                set_tile_count: 0,
+                set_floor_count: 0,
+                set_overlay_count: 0,
+                set_item_count: 0,
+                set_items_count: 0,
+                set_liquid_count: 0,
+                set_liquids_count: 0,
+                clear_items_count: 0,
+                clear_liquids_count: 0,
+                set_tile_items_count: 0,
+                set_tile_liquids_count: 0,
+                take_items_count: 0,
+                transfer_item_to_count: 0,
+                transfer_item_to_unit_count: 0,
+                last_kind: None,
+                last_item_id: None,
+                last_amount: None,
+                last_build_pos: None,
+                last_unit: None,
+                last_to_entity_id: None,
+                build_count: 0,
+                build_stack_count: 0,
+                entity_count: 0,
+                authoritative_build_update_count: 0,
+                delta_apply_count: 0,
+                delta_skip_count: 0,
+                delta_conflict_count: 0,
+                last_changed_build_pos: None,
+                last_changed_entity_id: None,
+                last_changed_item_id: None,
+                last_changed_amount: None,
+            },
+            kick: RuntimeKickPanelModel {
+                reason_text: None,
+                reason_ordinal: None,
+                hint_category: None,
+                hint_text: None,
+            },
+            loading: RuntimeLoadingPanelModel {
+                deferred_inbound_packet_count: 1,
+                replayed_inbound_packet_count: 2,
+                dropped_loading_low_priority_packet_count: 3,
+                dropped_loading_deferred_overflow_count: 4,
+                failed_state_snapshot_parse_count: 5,
+                failed_state_snapshot_core_data_parse_count: 6,
+                failed_entity_snapshot_parse_count: 7,
+                ready_inbound_liveness_anchor_count: 8,
+                last_ready_inbound_liveness_anchor_at_ms: Some(9),
+                timeout_count: 10,
+                connect_or_loading_timeout_count: 11,
+                ready_snapshot_timeout_count: 12,
+                last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+                last_timeout_idle_ms: Some(13),
+                reset_count: 14,
+                reconnect_reset_count: 15,
+                world_reload_count: 16,
+                kick_reset_count: 17,
+                last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+                last_world_reload: Some(RuntimeWorldReloadPanelModel {
+                    had_loaded_world: true,
+                    had_client_loaded: false,
+                    was_ready_to_enter_world: true,
+                    had_connect_confirm_sent: false,
+                    cleared_pending_packets: 4,
+                    cleared_deferred_inbound_packets: 5,
+                    cleared_replayed_loading_events: 6,
+                }),
+            },
+            reconnect: RuntimeReconnectPanelModel {
+                phase: RuntimeReconnectPhaseObservability::Attempting,
+                phase_transition_count: 3,
+                reason_kind: Some(RuntimeReconnectReasonKind::ManualConnect),
+                reason_text: Some("manual".to_string()),
+                reason_ordinal: Some(7),
+                hint_text: Some("retry".to_string()),
+                redirect_count: 4,
+                last_redirect_ip: Some("1.2.3.4".to_string()),
+                last_redirect_port: Some(6567),
+            },
+        };
+
+        assert_eq!(
+            format_runtime_session_banner_text(&panel),
+            Some("RELOAD @lw1:cl0:rd1:cc0:p4:d5:r6 | RECONNECT attempt3:manual@4/1.2.3.4:6567:manual@7:retry | LOADING defer1:replay2:drop3:qdrop4:sfail5:scfail6:efail7:rdy8@9:to10:cto11:rto12:ltready@13:rs14:rr15:wr16:kr17:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6".to_string())
         );
     }
 

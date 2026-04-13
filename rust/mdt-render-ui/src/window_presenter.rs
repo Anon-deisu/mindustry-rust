@@ -35,7 +35,8 @@ use crate::{
         format_runtime_marker_detail_text, format_runtime_marker_panel_text,
         format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
         format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
-        format_runtime_session_detail_text, format_runtime_session_panel_text,
+        format_runtime_session_banner_text, format_runtime_session_detail_text,
+        format_runtime_session_panel_text,
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
@@ -1528,32 +1529,7 @@ fn compose_zoom_status_text(scene: &RenderModel) -> Option<String> {
 
 fn compose_frame_session_banner_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_session_panel(hud)?;
-    if !panel.kick.is_empty() {
-        return Some(format!(
-            "KICK {}",
-            format_runtime_kick_panel_text(&panel.kick)
-        ));
-    }
-    let mut segments = Vec::new();
-    if let Some(world_reload) = panel.loading.last_world_reload.as_ref() {
-        segments.push(format!(
-            "RELOAD {}",
-            format_runtime_world_reload_panel_text(Some(world_reload))
-        ));
-    }
-    if !panel.reconnect.is_empty() {
-        segments.push(format!(
-            "RECONNECT {}",
-            format_runtime_reconnect_panel_text(&panel.reconnect)
-        ));
-    }
-    if !panel.loading.is_empty() {
-        segments.push(format!(
-            "LOADING {}",
-            format_runtime_loading_panel_text(&panel.loading)
-        ));
-    }
-    (!segments.is_empty()).then(|| segments.join(" | "))
+    format_runtime_session_banner_text(&panel)
 }
 
 fn compose_frame_panel_lines(
