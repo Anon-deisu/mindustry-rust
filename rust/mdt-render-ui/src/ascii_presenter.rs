@@ -18,8 +18,8 @@ use crate::presenter_view::{
     compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
-    format_render_line_signature, format_render_primitive_payload_fields_with,
-    format_render_primitive_payload_value_with,
+    format_render_icon_signature, format_render_line_signature,
+    format_render_primitive_payload_fields_with, format_render_primitive_payload_value_with,
     format_render_rect_detail_fields, format_render_rect_signature,
     render_rect_detail_payload_fields,
     format_build_strip_queue_status_text, CropWindowMode,
@@ -1310,10 +1310,12 @@ fn compose_render_icon_status_text(
     icon_primitives.sort_by_key(|(_, _, layer, _, _)| *layer);
     let mut parts = vec![format!("count={total}")];
     for (family, variant, layer, tile_x, tile_y) in icon_primitives.into_iter().take(2) {
-        parts.push(format!(
-            "{}/{}@{layer}:{tile_x}:{tile_y}",
+        parts.push(format_render_icon_signature(
             family.label(),
-            variant
+            &variant,
+            layer,
+            tile_x,
+            tile_y,
         ));
     }
     if total > 2 {
@@ -1373,7 +1375,8 @@ fn compose_render_icon_detail_text(
     let mut parts = vec![format!("count={}", icon_primitives.len())];
     for (layer, family_label, variant, tile_x, tile_y, payload) in icon_primitives {
         parts.push(format!(
-            "{family_label}/{variant}@{layer}:{tile_x}:{tile_y} payload[{}]",
+            "{} payload[{}]",
+            format_render_icon_signature(family_label, &variant, layer, tile_x, tile_y),
             render_primitive_payload_fields_text(&payload)
         ));
     }
