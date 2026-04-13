@@ -27,6 +27,7 @@ use crate::presenter_view::{
     format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
     format_runtime_dialog_stack_summary_text,
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
+    format_runtime_marker_detail_text, format_runtime_marker_panel_text,
     format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
     format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
     format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
@@ -2090,17 +2091,7 @@ fn compose_runtime_marker_panel_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "marker:cr{}:rm{}:up{}:txt{}:tex{}:f{}:last{}:ctl{}",
-        panel.create_count,
-        panel.remove_count,
-        panel.update_count,
-        panel.update_text_count,
-        panel.update_texture_count,
-        panel.decode_fail_count,
-        optional_i32_label(panel.last_marker_id),
-        compact_runtime_ui_text(panel.last_control_name.as_deref()),
-    ))
+    Some(format_runtime_marker_panel_text(&panel))
 }
 
 fn compose_runtime_marker_detail_text(hud: &HudModel) -> Option<String> {
@@ -2108,16 +2099,7 @@ fn compose_runtime_marker_detail_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "markerd:tot{}:mut{}:txt{}:tex{}:f{}:last{}:c{}",
-        panel.total_count(),
-        panel.mutate_count(),
-        panel.update_text_count,
-        panel.update_texture_count,
-        panel.decode_fail_count,
-        optional_i32_label(panel.last_marker_id),
-        panel.control_name_len(),
-    ))
+    Some(format_runtime_marker_detail_text(&panel))
 }
 
 fn compose_runtime_kick_row_text(hud: &HudModel) -> Option<String> {

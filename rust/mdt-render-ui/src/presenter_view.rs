@@ -4,7 +4,8 @@ use crate::{
         MinimapPanelModel, PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
-        RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
+        RuntimeDialogStackPanelModel, RuntimeMarkerPanelModel, RuntimeNoticeStatePanelModel,
+        RuntimePromptPanelModel,
         RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
         RuntimeWorldReloadPanelModel,
     },
@@ -880,6 +881,33 @@ pub(crate) fn format_runtime_world_reload_detail_text(
     )
 }
 
+pub(crate) fn format_runtime_marker_panel_text(panel: &RuntimeMarkerPanelModel) -> String {
+    format!(
+        "marker:cr{}:rm{}:up{}:txt{}:tex{}:f{}:last{}:ctl{}",
+        panel.create_count,
+        panel.remove_count,
+        panel.update_count,
+        panel.update_text_count,
+        panel.update_texture_count,
+        panel.decode_fail_count,
+        format_optional_i32_text(panel.last_marker_id),
+        compact_runtime_ui_text(panel.last_control_name.as_deref()),
+    )
+}
+
+pub(crate) fn format_runtime_marker_detail_text(panel: &RuntimeMarkerPanelModel) -> String {
+    format!(
+        "markerd:tot{}:mut{}:txt{}:tex{}:f{}:last{}:c{}",
+        panel.total_count(),
+        panel.mutate_count(),
+        panel.update_text_count,
+        panel.update_texture_count,
+        panel.decode_fail_count,
+        format_optional_i32_text(panel.last_marker_id),
+        panel.control_name_len(),
+    )
+}
+
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
     format!(
         "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
@@ -1230,6 +1258,7 @@ mod tests {
         format_runtime_world_label_scalar_text,
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
+        format_runtime_marker_detail_text, format_runtime_marker_panel_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
@@ -1257,7 +1286,8 @@ mod tests {
             RuntimeChatPanelModel,
             RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
-            RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
+            RuntimeDialogStackPanelModel, RuntimeMarkerPanelModel, RuntimeNoticeStatePanelModel,
+            RuntimePromptPanelModel,
             RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
             RuntimeWorldReloadPanelModel,
         },
@@ -1491,6 +1521,44 @@ mod tests {
         assert_eq!(
             format_runtime_world_reload_detail_text(&panel),
             "reloadd:lw1:cl0:rd1:cc0:p5:d6:r7"
+        );
+    }
+
+    #[test]
+    fn format_runtime_marker_panel_text_preserves_field_order() {
+        let panel = RuntimeMarkerPanelModel {
+            create_count: 11,
+            remove_count: 12,
+            update_count: 13,
+            update_text_count: 7,
+            update_texture_count: 8,
+            decode_fail_count: 2,
+            last_marker_id: Some(904),
+            last_control_name: Some("logic control".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_marker_panel_text(&panel),
+            "marker:cr11:rm12:up13:txt7:tex8:f2:last904:ctllogic_contro~"
+        );
+    }
+
+    #[test]
+    fn format_runtime_marker_detail_text_preserves_field_order() {
+        let panel = RuntimeMarkerPanelModel {
+            create_count: 11,
+            remove_count: 12,
+            update_count: 13,
+            update_text_count: 7,
+            update_texture_count: 8,
+            decode_fail_count: 2,
+            last_marker_id: Some(904),
+            last_control_name: Some("logic control".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_marker_detail_text(&panel),
+            "markerd:tot51:mut36:txt7:tex8:f2:last904:c13"
         );
     }
 
