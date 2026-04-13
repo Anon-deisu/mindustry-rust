@@ -30,6 +30,7 @@ use crate::presenter_view::{
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
     format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
     format_runtime_live_effect_detail_text,
+    format_runtime_live_effect_panel_text, format_runtime_live_effect_summary_text,
     format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
     format_runtime_live_entity_summary_text,
     format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
@@ -44,14 +45,11 @@ use crate::presenter_view::{
     format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
     format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
     format_runtime_stack_depth_text, format_runtime_stack_detail_text,
-    format_runtime_stack_panel_text,
-    format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
-    format_live_effect_ttl_text,
-    format_live_effect_position_source_text, format_render_icon_signature,
+    format_runtime_stack_panel_text, format_render_icon_signature,
     format_render_line_signature,
     format_render_primitive_payload_fields_with, format_render_primitive_payload_value_with,
     format_render_rect_detail_fields, format_render_rect_signature,
-    format_render_text_signature, format_world_position_status_text,
+    format_render_text_signature,
     render_rect_detail_payload_fields,
     format_build_strip_queue_status_text, CropWindowMode,
 };
@@ -1731,7 +1729,7 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
         optional_bool_label(text_input.last_numeric),
         optional_bool_label(text_input.last_allow_empty),
         format_runtime_live_entity_summary_text(&live.entity),
-        compose_live_effect_text(&live.effect),
+        format_runtime_live_effect_summary_text(&live.effect),
     ))
 }
 
@@ -2144,7 +2142,7 @@ fn compose_runtime_live_entity_detail_row_text(hud: &HudModel) -> Option<String>
 
 fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_effect_panel(hud)?;
-    Some(format!("livefx:{}", compose_live_effect_panel_text(&panel)))
+    Some(format_runtime_live_effect_panel_text(&panel))
 }
 
 fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String> {
@@ -3072,50 +3070,6 @@ fn build_config_alignment_text(value: Option<bool>) -> &'static str {
     }
 }
 
-fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservability) -> String {
-    format!(
-        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:bind{}:r{}:h{}:p{}@{}:ttl{}",
-        effect.effect_count,
-        effect.spawn_effect_count,
-        effect.active_overlay_count,
-        optional_i16_label(effect.display_effect_id()),
-        optional_i16_label(effect.last_spawn_effect_unit_type_id),
-        format_live_effect_data_shape_text(effect.last_data_len, effect.last_data_type_tag),
-        compact_runtime_ui_text(effect.last_kind.as_deref()),
-        compact_runtime_ui_text(effect.display_contract_name()),
-        compact_runtime_ui_text(effect.display_reliable_contract_name()),
-        effect.binding_label.as_deref().unwrap_or("none"),
-        format_live_effect_reliable_flag_text(effect.active_reliable),
-        effect.last_business_hint.as_deref().unwrap_or("none"),
-        live_effect_position_source_text(effect.display_position_source()),
-        world_position_text(effect.display_position()),
-        format_live_effect_ttl_text(effect.display_overlay_ttl()),
-    )
-}
-
-fn compose_live_effect_panel_text(
-    effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
-) -> String {
-    format!(
-        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:bind{}:r{}:h{}:p{}@{}:ttl{}",
-        effect.effect_count,
-        effect.spawn_effect_count,
-        effect.active_overlay_count,
-        optional_i16_label(effect.display_effect_id()),
-        optional_i16_label(effect.last_spawn_effect_unit_type_id),
-        format_live_effect_data_shape_text(effect.last_data_len, effect.last_data_type_tag),
-        compact_runtime_ui_text(effect.last_kind.as_deref()),
-        compact_runtime_ui_text(effect.display_contract_name()),
-        compact_runtime_ui_text(effect.display_reliable_contract_name()),
-        effect.binding_label.as_deref().unwrap_or("none"),
-        format_live_effect_reliable_flag_text(effect.active_reliable),
-        effect.last_business_hint.as_deref().unwrap_or("none"),
-        live_effect_position_source_text(effect.display_position_source()),
-        world_position_text(effect.display_position()),
-        format_live_effect_ttl_text(effect.display_overlay_ttl()),
-    )
-}
-
 fn compose_runtime_world_reload_detail_text(hud: &HudModel) -> Option<String> {
     let loading = build_runtime_loading_panel(hud)?;
     let world_reload = loading.last_world_reload.as_ref()?;
@@ -3302,16 +3256,6 @@ fn optional_u8_label(value: Option<u8>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
-}
-
-fn world_position_text(value: Option<&crate::RuntimeWorldPositionObservability>) -> String {
-    format_world_position_status_text(value)
-}
-
-fn live_effect_position_source_text(
-    source: Option<crate::RuntimeLiveEffectPositionSource>,
-) -> &'static str {
-    format_live_effect_position_source_text(source)
 }
 
 fn optional_bool_label(value: Option<bool>) -> char {

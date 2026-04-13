@@ -21,6 +21,7 @@ use crate::{
     RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
     RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
     RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
+    RuntimeLiveEffectSummaryObservability,
     RuntimeLiveEntitySummaryObservability,
     RuntimeWorldPositionObservability,
 };
@@ -938,6 +939,55 @@ pub(crate) fn format_runtime_live_entity_detail_text(
     format!("liveentd:{}", entity.detail_label())
 }
 
+pub(crate) fn format_runtime_live_effect_summary_text(
+    effect: &RuntimeLiveEffectSummaryObservability,
+) -> String {
+    format_runtime_live_effect_body_text(
+        effect.effect_count,
+        effect.spawn_effect_count,
+        effect.active_overlay_count,
+        effect.display_effect_id(),
+        effect.last_spawn_effect_unit_type_id,
+        effect.last_data_len,
+        effect.last_data_type_tag,
+        effect.last_kind.as_deref(),
+        effect.display_contract_name(),
+        effect.display_reliable_contract_name(),
+        effect.binding_label.as_deref(),
+        effect.active_reliable,
+        effect.last_business_hint.as_deref(),
+        effect.display_position_source(),
+        effect.display_position(),
+        effect.display_overlay_ttl(),
+    )
+}
+
+pub(crate) fn format_runtime_live_effect_panel_text(
+    effect: &RuntimeLiveEffectPanelModel,
+) -> String {
+    format!(
+        "livefx:{}",
+        format_runtime_live_effect_body_text(
+            effect.effect_count,
+            effect.spawn_effect_count,
+            effect.active_overlay_count,
+            effect.display_effect_id(),
+            effect.last_spawn_effect_unit_type_id,
+            effect.last_data_len,
+            effect.last_data_type_tag,
+            effect.last_kind.as_deref(),
+            effect.display_contract_name(),
+            effect.display_reliable_contract_name(),
+            effect.binding_label.as_deref(),
+            effect.active_reliable,
+            effect.last_business_hint.as_deref(),
+            effect.display_position_source(),
+            effect.display_position(),
+            effect.display_overlay_ttl(),
+        )
+    )
+}
+
 pub(crate) fn format_runtime_live_effect_detail_text(
     effect: &RuntimeLiveEffectPanelModel,
 ) -> String {
@@ -985,6 +1035,44 @@ fn format_runtime_live_entity_body_text(
         format_optional_i32_text(last_entity_id),
         format_optional_i32_text(last_player_entity_id),
         format_optional_i32_text(last_unit_entity_id),
+    )
+}
+
+fn format_runtime_live_effect_body_text(
+    effect_count: u64,
+    spawn_effect_count: u64,
+    active_overlay_count: usize,
+    display_effect_id: Option<i16>,
+    last_spawn_effect_unit_type_id: Option<i16>,
+    last_data_len: Option<usize>,
+    last_data_type_tag: Option<u8>,
+    last_kind: Option<&str>,
+    display_contract_name: Option<&str>,
+    display_reliable_contract_name: Option<&str>,
+    binding_label: Option<&str>,
+    active_reliable: Option<bool>,
+    last_business_hint: Option<&str>,
+    display_position_source: Option<RuntimeLiveEffectPositionSource>,
+    display_position: Option<&RuntimeWorldPositionObservability>,
+    display_overlay_ttl: Option<(u8, u8)>,
+) -> String {
+    format!(
+        "{}/{}:ov{}@{}:u{}:d{}:k{}:c{}/{}:bind{}:r{}:h{}:p{}@{}:ttl{}",
+        effect_count,
+        spawn_effect_count,
+        active_overlay_count,
+        format_optional_i16_text(display_effect_id),
+        format_optional_i16_text(last_spawn_effect_unit_type_id),
+        format_live_effect_data_shape_text(last_data_len, last_data_type_tag),
+        compact_runtime_ui_text(last_kind),
+        compact_runtime_ui_text(display_contract_name),
+        compact_runtime_ui_text(display_reliable_contract_name),
+        binding_label.unwrap_or("none"),
+        format_live_effect_reliable_flag_text(active_reliable),
+        last_business_hint.unwrap_or("none"),
+        format_live_effect_position_source_text(display_position_source),
+        format_world_position_status_text(display_position),
+        format_live_effect_ttl_text(display_overlay_ttl),
     )
 }
 
@@ -1853,7 +1941,8 @@ mod tests {
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
         format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
-        format_runtime_live_effect_detail_text,
+        format_runtime_live_effect_detail_text, format_runtime_live_effect_panel_text,
+        format_runtime_live_effect_summary_text,
         format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
         format_runtime_live_entity_summary_text,
         format_runtime_loading_detail_text, format_runtime_loading_panel_text,
@@ -1913,6 +2002,7 @@ mod tests {
         RuntimeCommandSelectionObservability,
         RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
         RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
+        RuntimeLiveEffectSummaryObservability,
         RuntimeLiveEntitySummaryObservability,
         RuntimeWorldPositionObservability, Viewport,
     };
@@ -1995,6 +2085,38 @@ mod tests {
 
     fn sample_runtime_live_effect_panel() -> RuntimeLiveEffectPanelModel {
         RuntimeLiveEffectPanelModel {
+            effect_count: 11,
+            spawn_effect_count: 73,
+            active_overlay_count: 1,
+            binding_label: Some("target:parent-follow/source:parent-follow".to_string()),
+            binding_detail: Some("source=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0".to_string()),
+            active_effect_id: Some(13),
+            active_contract_name: Some("lightning".to_string()),
+            active_reliable: Some(true),
+            active_position: Some(RuntimeWorldPositionObservability {
+                x_bits: 28.0f32.to_bits(),
+                y_bits: 36.0f32.to_bits(),
+            }),
+            active_overlay_remaining_ticks: Some(3),
+            active_overlay_lifetime_ticks: Some(5),
+            last_effect_id: None,
+            last_spawn_effect_unit_type_id: Some(19),
+            last_data_len: Some(9),
+            last_data_type_tag: Some(4),
+            last_kind: Some("Point2".to_string()),
+            last_contract_name: Some("lightning".to_string()),
+            last_reliable_contract_name: Some("lightning".to_string()),
+            last_business_hint: Some("pos:point2:3:4@1/0".to_string()),
+            last_position_hint: Some(RuntimeWorldPositionObservability {
+                x_bits: 28.0f32.to_bits(),
+                y_bits: 36.0f32.to_bits(),
+            }),
+            last_position_source: Some(RuntimeLiveEffectPositionSource::BusinessProjection),
+        }
+    }
+
+    fn sample_runtime_live_effect_summary() -> RuntimeLiveEffectSummaryObservability {
+        RuntimeLiveEffectSummaryObservability {
             effect_count: 11,
             spawn_effect_count: 73,
             active_overlay_count: 1,
@@ -3328,6 +3450,26 @@ mod tests {
         assert_eq!(
             format_runtime_live_effect_detail_text(&panel),
             "livefxd:hintpos:point2:3:4@1/0:srcactive:pos28.0:36.0:ttl3/5:data9/4:arel1:ctrlightning:rellightning:bindsource=session session=target:parent-follow/source:parent-follow overlay=target:parent-follow/source:parent-follow active=1 target_counts=1/0/0 source_counts=1/0/0"
+        );
+    }
+
+    #[test]
+    fn format_runtime_live_effect_summary_text_preserves_field_order() {
+        let summary = sample_runtime_live_effect_summary();
+
+        assert_eq!(
+            format_runtime_live_effect_summary_text(&summary),
+            "11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:bindtarget:parent-follow/source:parent-follow:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
+        );
+    }
+
+    #[test]
+    fn format_runtime_live_effect_panel_text_preserves_field_order() {
+        let panel = sample_runtime_live_effect_panel();
+
+        assert_eq!(
+            format_runtime_live_effect_panel_text(&panel),
+            "livefx:11/73:ov1@13:u19:d9/4:kPoint2:clightning/lightning:bindtarget:parent-follow/source:parent-follow:r1:hpos:point2:3:4@1/0:pactive@28.0:36.0:ttl3/5"
         );
     }
 
