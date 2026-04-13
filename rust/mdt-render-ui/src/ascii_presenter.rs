@@ -1551,12 +1551,24 @@ fn render_rect_detail_fields_text(
 }
 
 fn render_primitive_payload_fields_text(payload: &RenderPrimitivePayload) -> String {
-    payload
-        .fields
-        .iter()
-        .map(|(name, value)| format!("{}={}", *name, render_primitive_payload_value_text(value)))
-        .collect::<Vec<_>>()
-        .join(",")
+    let mut parts = Vec::new();
+    if let Some(variant) = payload.field("variant") {
+        parts.push(format!(
+            "variant={}",
+            render_primitive_payload_value_text(variant)
+        ));
+    }
+    for (name, value) in &payload.fields {
+        if *name == "variant" {
+            continue;
+        }
+        parts.push(format!(
+            "{}={}",
+            *name,
+            render_primitive_payload_value_text(value)
+        ));
+    }
+    parts.join(",")
 }
 
 fn render_primitive_payload_value_text(value: &RenderPrimitivePayloadValue) -> String {
@@ -7817,7 +7829,7 @@ mod tests {
             "RENDER-ICON: count=2 runtime-effect-icon/content-icon@31:0:0 runtime-build-config-icon/payload-source@32:1:0"
         ));
         assert!(frame.contains(
-            "RENDER-ICON-DETAIL: count=2 | runtime-effect-icon/content-icon@31:0:0 payload[content_id=9,content_type=6,delivery=normal,effect_id=-1,variant=content-icon,x_bits=0x00000000,y_bits=0x00000000] | runtime-build-config-icon/payload-source@32:1:0 payload[content_id=7,content_type=1,tile_x=1,tile_y=0,variant=payload-source]"
+            "RENDER-ICON-DETAIL: count=2 | runtime-effect-icon/content-icon@31:0:0 payload[variant=content-icon,content_id=9,content_type=6,delivery=normal,effect_id=-1,x_bits=0x00000000,y_bits=0x00000000] | runtime-build-config-icon/payload-source@32:1:0 payload[variant=payload-source,content_id=7,content_type=1,tile_x=1,tile_y=0]"
         ));
         assert_eq!(frame.lines().last(), Some("EC"));
     }
@@ -7945,7 +7957,7 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains("RENDER-ICON: count=1 runtime-effect/normal@26:0:0"));
         assert!(frame.contains(
-            "RENDER-ICON-DETAIL: count=1 | runtime-effect/normal@26:0:0 payload[delivery=normal,effect_id=13,has_data=1,variant=normal,x_bits=0x41000000,y_bits=0x41800000]"
+            "RENDER-ICON-DETAIL: count=1 | runtime-effect/normal@26:0:0 payload[variant=normal,delivery=normal,effect_id=13,has_data=1,x_bits=0x41000000,y_bits=0x41800000]"
         ));
         assert_eq!(frame.lines().last(), Some("F"));
     }
@@ -7983,7 +7995,7 @@ mod tests {
             "RENDER-ICON: count=2 runtime-unit-assembler-progress/tank-assembler@16:0:0 runtime-unit-assembler-command/tank-assembler@16:1:0"
         ));
         assert!(frame.contains(
-            "RENDER-ICON-DETAIL: count=2 | runtime-unit-assembler-command/tank-assembler@16:1:0 payload[tile_x=30,tile_y=40,variant=tank-assembler,x_bits=0x42200000,y_bits=0x42700000] | runtime-unit-assembler-progress/tank-assembler@16:0:0 payload[block_count=4,pay_rotation_bits=0x40800000,payload_present=0,progress_bits=0x3f400000,sample_id=9,sample_kind=b,sample_present=1,tile_x=30,tile_y=40,unit_count=2,variant=tank-assembler]"
+            "RENDER-ICON-DETAIL: count=2 | runtime-unit-assembler-command/tank-assembler@16:1:0 payload[variant=tank-assembler,tile_x=30,tile_y=40,x_bits=0x42200000,y_bits=0x42700000] | runtime-unit-assembler-progress/tank-assembler@16:0:0 payload[variant=tank-assembler,block_count=4,pay_rotation_bits=0x40800000,payload_present=0,progress_bits=0x3f400000,sample_id=9,sample_kind=b,sample_present=1,tile_x=30,tile_y=40,unit_count=2]"
         ));
         assert_eq!(frame.lines().last(), Some("AA"));
     }
@@ -8094,9 +8106,9 @@ mod tests {
         assert!(frame.contains("runtime-config-parse-fail/int@31:1:0"));
         assert!(frame.contains("RENDER-ICON-DETAIL: count=5"));
         assert!(frame
-            .contains("runtime-config/string@30:0:0 payload[tile_x=0,tile_y=0,variant=string]"));
+            .contains("runtime-config/string@30:0:0 payload[variant=string,tile_x=0,tile_y=0]"));
         assert!(frame.contains(
-            "runtime-config-pending-mismatch/payload@34:4:0 payload[tile_x=4,tile_y=0,variant=payload]"
+            "runtime-config-pending-mismatch/payload@34:4:0 payload[variant=payload,tile_x=4,tile_y=0]"
         ));
         assert_eq!(frame.lines().last(), Some("CCCCC"));
     }
