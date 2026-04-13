@@ -33,6 +33,7 @@ use crate::presenter_view::{
     format_runtime_marker_detail_text, format_runtime_marker_panel_text,
     format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
     format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
+    format_runtime_session_detail_text, format_runtime_session_panel_text,
     format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
     format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
     format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
@@ -2149,30 +2150,7 @@ fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    let mut segments = Vec::new();
-    if let Some(bootstrap_text) = compose_runtime_bootstrap_row_text(hud) {
-        segments.push(format!("bootstrap={bootstrap_text}"));
-    }
-    if let Some(core_binding_text) = compose_runtime_core_binding_panel_text(hud) {
-        segments.push(format!("cb={core_binding_text}"));
-    }
-    segments.push(format!(
-        "rd={}",
-        format_runtime_resource_delta_panel_text(&panel.resource_delta)
-    ));
-    segments.push(format!(
-        "k={}",
-        format_runtime_kick_panel_text(&panel.kick)
-    ));
-    segments.push(format!(
-        "l={}",
-        format_runtime_loading_panel_text(&panel.loading)
-    ));
-    segments.push(format!(
-        "r={}",
-        format_runtime_reconnect_panel_text(&panel.reconnect)
-    ));
-    Some(format!("sess:{}", segments.join(";")))
+    Some(format_runtime_session_panel_text(&panel))
 }
 
 fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
@@ -2210,30 +2188,7 @@ fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    let mut segments = Vec::new();
-    if let Some(bootstrap_text) = compose_runtime_bootstrap_detail_text(hud) {
-        segments.push(format!("bootstrap({bootstrap_text})"));
-    }
-    if let Some(core_binding_text) = compose_runtime_core_binding_detail_text(hud) {
-        segments.push(format!("cb({core_binding_text})"));
-    }
-    segments.push(format!(
-        "rd({})",
-        format_runtime_resource_delta_detail_text(&panel.resource_delta)
-    ));
-    segments.push(format!(
-        "k({})",
-        format_runtime_kick_detail_text(&panel.kick)
-    ));
-    segments.push(format!(
-        "l({})",
-        format_runtime_loading_detail_text(&panel.loading)
-    ));
-    segments.push(format!(
-        "r({})",
-        format_runtime_reconnect_detail_text(&panel.reconnect)
-    ));
-    Some(format!("sessd:{}", segments.join(":")))
+    Some(format_runtime_session_detail_text(&panel))
 }
 
 fn compose_runtime_loading_row_text(hud: &HudModel) -> Option<String> {
