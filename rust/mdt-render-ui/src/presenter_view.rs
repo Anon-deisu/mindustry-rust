@@ -158,11 +158,22 @@ pub(crate) fn world_to_tile_index_floor(world_position: f32, tile_size: f32) -> 
     (world_position / tile_size).floor() as i32
 }
 
+pub(crate) fn world_tile_coords(x: f32, y: f32, tile_size: f32) -> Option<(i32, i32)> {
+    if !x.is_finite() || !y.is_finite() || !tile_size.is_finite() || tile_size <= 0.0 {
+        return None;
+    }
+    Some((
+        world_to_tile_index_floor(x, tile_size),
+        world_to_tile_index_floor(y, tile_size),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         crop_origin, crop_window, crop_window_to_focus, normalize_zoom, projected_window,
-        visible_window_tile, world_to_tile_index_floor, zoomed_view_tile_span, CropWindowMode,
+        visible_window_tile, world_tile_coords, world_to_tile_index_floor, zoomed_view_tile_span,
+        CropWindowMode,
     };
     use crate::{RenderModel, RenderObject, Viewport};
 
@@ -352,6 +363,14 @@ mod tests {
         assert_eq!(world_to_tile_index_floor(40.0, -8.0), 0);
         assert_eq!(world_to_tile_index_floor(40.0, f32::INFINITY), 0);
         assert_eq!(world_to_tile_index_floor(40.0, f32::NAN), 0);
+    }
+
+    #[test]
+    fn world_tile_coords_rejects_non_finite_positions_and_invalid_tile_size() {
+        assert_eq!(world_tile_coords(40.0, 24.0, TILE_SIZE), Some((5, 3)));
+        assert_eq!(world_tile_coords(f32::NAN, 24.0, TILE_SIZE), None);
+        assert_eq!(world_tile_coords(40.0, f32::INFINITY, TILE_SIZE), None);
+        assert_eq!(world_tile_coords(40.0, 24.0, 0.0), None);
     }
 
     #[test]

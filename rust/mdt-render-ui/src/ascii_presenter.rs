@@ -15,7 +15,7 @@ use crate::panel_model::{
     RuntimeUiNoticePanelModel,
 };
 use crate::presenter_view::{
-    crop_window, visible_window_tile, CropWindowMode,
+    crop_window, visible_window_tile, world_tile_coords, CropWindowMode,
 };
 use crate::render_model::{
     RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -841,10 +841,7 @@ fn ascii_world_object_tile(object: &crate::RenderObject) -> Option<(i32, i32)> {
 }
 
 fn finite_world_tile(x: f32, y: f32) -> Option<(i32, i32)> {
-    (x.is_finite() && y.is_finite()).then_some((
-        crate::presenter_view::world_to_tile_index_floor(x, TILE_SIZE),
-        crate::presenter_view::world_to_tile_index_floor(y, TILE_SIZE),
-    ))
+    world_tile_coords(x, y, TILE_SIZE)
 }
 
 fn finite_world_rect_tiles(
