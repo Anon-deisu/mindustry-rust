@@ -20,6 +20,8 @@ use crate::{
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
         compact_runtime_ui_text,
+        format_hud_visibility_detail_text, format_minimap_legend_text,
+        format_minimap_visibility_detail_text,
         format_counted_detail_text, format_counted_preview_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
@@ -2552,20 +2554,7 @@ fn compose_hud_visibility_status_text(hud: &HudModel) -> Option<String> {
 fn compose_hud_visibility_detail_status_text(hud: &HudModel) -> Option<String> {
     let summary = hud.summary.as_ref()?;
     let visibility = build_hud_visibility_panel(hud)?;
-    Some(format!(
-        "hudvisd:s={}:ov={}:fg={}:k={}/{}:v={}/{}:h={}/{}:u={}/{}",
-        summary.visibility_label(),
-        summary.overlay_label(),
-        summary.fog_label(),
-        visibility.known_tile_count,
-        summary.map_tile_count(),
-        visibility.visible_tile_count,
-        visibility.known_tile_count,
-        visibility.hidden_tile_count,
-        visibility.known_tile_count,
-        visibility.unknown_tile_count,
-        summary.map_tile_count(),
-    ))
+    Some(format_hud_visibility_detail_text(summary, &visibility))
 }
 
 fn compose_hud_detail_status_text(hud: &HudModel) -> Option<String> {
@@ -3198,15 +3187,7 @@ fn compose_minimap_visibility_detail_status_text(
     window: PresenterViewWindow,
 ) -> Option<String> {
     let minimap = build_minimap_panel(scene, hud, window)?;
-    Some(format!(
-        "minivisd:v={}:c={}:md{}:wd{}:od{}:vp={}",
-        minimap.visibility_label(),
-        minimap.coverage_label(),
-        minimap.map_object_density_percent(),
-        minimap.window_object_density_percent(),
-        minimap.outside_object_percent(),
-        minimap.viewport_band(),
-    ))
+    Some(format_minimap_visibility_detail_text(&minimap))
 }
 
 fn compose_minimap_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Option<String> {
@@ -3281,12 +3262,7 @@ fn compose_minimap_window_distribution_line_status_text(
 
 fn compose_minimap_legend_status_text(hud: &HudModel) -> Option<String> {
     let summary = hud.summary.as_ref()?;
-    Some(format!(
-        "legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis={}:ov{}:fg{}",
-        summary.visibility_label(),
-        bool_flag(summary.overlay_visible),
-        bool_flag(summary.fog_enabled),
-    ))
+    Some(format_minimap_legend_text(summary))
 }
 
 fn compose_minimap_detail_status_lines(

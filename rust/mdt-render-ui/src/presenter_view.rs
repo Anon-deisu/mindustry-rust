@@ -1,7 +1,7 @@
 use crate::{
-    hud_model::{RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
+    hud_model::{HudSummary, RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
     panel_model::{
-        MinimapPanelModel, PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
+        HudVisibilityPanelModel, MinimapPanelModel, PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
         RuntimeCoreBindingPanelModel,
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
@@ -641,6 +641,47 @@ pub(crate) fn format_runtime_ui_notice_detail_text(
         format_optional_bool_flag(panel.text_input_last_numeric),
         format_optional_bool_flag(panel.text_input_last_allow_empty),
     ))
+}
+
+pub(crate) fn format_hud_visibility_detail_text(
+    summary: &HudSummary,
+    visibility: &HudVisibilityPanelModel,
+) -> String {
+    format!(
+        "hudvisd:s={}:ov={}:fg={}:k={}/{}:v={}/{}:h={}/{}:u={}/{}",
+        summary.visibility_label(),
+        summary.overlay_label(),
+        summary.fog_label(),
+        visibility.known_tile_count,
+        summary.map_tile_count(),
+        visibility.visible_tile_count,
+        visibility.known_tile_count,
+        visibility.hidden_tile_count,
+        visibility.known_tile_count,
+        visibility.unknown_tile_count,
+        summary.map_tile_count(),
+    )
+}
+
+pub(crate) fn format_minimap_visibility_detail_text(minimap: &MinimapPanelModel) -> String {
+    format!(
+        "minivisd:v={}:c={}:md{}:wd{}:od{}:vp={}",
+        minimap.visibility_label(),
+        minimap.coverage_label(),
+        minimap.map_object_density_percent(),
+        minimap.window_object_density_percent(),
+        minimap.outside_object_percent(),
+        minimap.viewport_band(),
+    )
+}
+
+pub(crate) fn format_minimap_legend_text(summary: &HudSummary) -> String {
+    format!(
+        "legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis={}:ov{}:fg{}",
+        summary.visibility_label(),
+        u8::from(summary.overlay_visible),
+        u8::from(summary.fog_enabled),
+    )
 }
 
 pub(crate) fn format_runtime_dialog_prompt_text(
@@ -1777,6 +1818,7 @@ mod tests {
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
         format_counted_detail_text, format_counted_preview_text,
+        format_hud_visibility_detail_text, format_minimap_legend_text,
         format_runtime_command_control_group_operation_text,
         format_runtime_command_group_lines,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
@@ -1821,10 +1863,12 @@ mod tests {
     };
     use crate::{
         hud_model::{
+            HudMinimapSummary, HudSummary, HudViewWindowSummary,
             RuntimeUiNoticeLayerKind, RuntimeUiPromptLayerKind,
             RuntimeUiStackDepthSummary, RuntimeUiStackForegroundSummaryKind, RuntimeUiStackSummary,
         },
         panel_model::{
+            HudVisibilityPanelModel,
             MinimapPanelModel, PresenterViewWindow, RuntimeAdminPanelModel,
             RuntimeChatPanelModel,
             RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
@@ -1926,6 +1970,46 @@ mod tests {
             local_owned_carried_item_amount: Some(4),
             local_owned_controller_type: Some(4),
             local_owned_controller_value: Some(101),
+        }
+    }
+
+    fn sample_hud_summary() -> HudSummary {
+        HudSummary {
+            player_name: "player".to_string(),
+            team_id: 4,
+            selected_block: "duo".to_string(),
+            plan_count: 3,
+            marker_count: 2,
+            map_width: 20,
+            map_height: 10,
+            overlay_visible: true,
+            fog_enabled: false,
+            visible_tile_count: 80,
+            hidden_tile_count: 40,
+            minimap: HudMinimapSummary {
+                focus_tile: Some((4, 5)),
+                view_window: HudViewWindowSummary {
+                    origin_x: 1,
+                    origin_y: 2,
+                    width: 8,
+                    height: 6,
+                },
+            },
+        }
+    }
+
+    fn sample_hud_visibility_panel() -> HudVisibilityPanelModel {
+        HudVisibilityPanelModel {
+            overlay_visible: true,
+            fog_enabled: false,
+            visible_tile_count: 80,
+            hidden_tile_count: 40,
+            known_tile_count: 120,
+            known_tile_percent: 60,
+            visible_known_percent: 67,
+            hidden_known_percent: 33,
+            unknown_tile_count: 80,
+            unknown_tile_percent: 40,
         }
     }
 
@@ -3018,6 +3102,27 @@ mod tests {
         };
 
         assert_eq!(format_runtime_ui_notice_detail_text(&panel), None);
+    }
+
+    #[test]
+    fn format_hud_visibility_detail_text_preserves_field_order() {
+        let summary = sample_hud_summary();
+        let visibility = sample_hud_visibility_panel();
+
+        assert_eq!(
+            format_hud_visibility_detail_text(&summary, &visibility),
+            "hudvisd:s=mixed:ov=on:fg=off:k=120/200:v=80/120:h=40/120:u=80/200"
+        );
+    }
+
+    #[test]
+    fn format_minimap_legend_text_preserves_field_order() {
+        let summary = sample_hud_summary();
+
+        assert_eq!(
+            format_minimap_legend_text(&summary),
+            "legend:pl@/mkM/pnP/bk#/rtR/tr./uk?:vis=mixed:ov1:fg0"
+        );
     }
 
     #[test]
