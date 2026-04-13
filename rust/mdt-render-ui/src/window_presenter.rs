@@ -2119,13 +2119,17 @@ fn compose_render_rect_status_text(
         return None;
     }
 
+    let total = rect_primitives.len();
     rect_primitives.sort_by_key(|(_, layer, _, _, _, _)| *layer);
-    let mut parts = vec![format!("count={}", rect_primitives.len())];
+    let mut parts = vec![format!("count={total}")];
     for (family, layer, left, top, right, bottom) in rect_primitives.into_iter().take(2) {
         parts.push(format!(
             "{family}@{layer}:{}:{}:{}:{}",
             left as i32, top as i32, right as i32, bottom as i32
         ));
+    }
+    if total > 2 {
+        parts.push(format!("more={}", total - 2));
     }
     Some(parts.join(" "))
 }
@@ -10501,6 +10505,67 @@ mod tests {
         assert_eq!(frame.pixel(3, 4), Some(0xff44_88ff));
         assert_eq!(frame.pixel(3, 3), Some(0xff44_88ff));
         assert_eq!(frame.pixel(2, 3), Some(0xff44_88ff));
+    }
+
+    #[test]
+    fn present_once_reports_render_rect_overflow_count() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let mut objects = Vec::new();
+        objects.extend(runtime_command_rect_objects(
+            "runtime-command-rect",
+            8.0,
+            16.0,
+            24.0,
+            32.0,
+        ));
+        objects.extend(
+            runtime_command_rect_objects("runtime-break-rect", 32.0, 40.0, 40.0, 48.0)
+                .into_iter()
+                .map(|mut object| {
+                    object.layer = 30;
+                    object
+                }),
+        );
+        objects.extend(
+            runtime_command_rect_objects("runtime-command-target-rect", 48.0, 8.0, 56.0, 16.0)
+                .into_iter()
+                .map(|mut object| {
+                    object.layer = 31;
+                    object
+                }),
+        );
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects,
+        };
+
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-RECT: count=3");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-command-rect@29:8:16:24:32",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-break-rect@30:32:40:40:48",
+        );
+        assert_frame_line_contains(&frame.panel_lines, "more=1");
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-RECT-DETAIL: count=3");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-command-target-rect@31:48:8:56:16 runtime-command-target-rect{left_tile=6,top_tile=1,right_tile=7,bottom_tile=2,width_tiles=1,height_tiles=1,line_count=4}",
+        );
     }
 
     #[test]

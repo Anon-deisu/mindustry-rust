@@ -955,14 +955,18 @@ fn compose_render_rect_status_text(
         return None;
     }
 
+    let total = rect_primitives.len();
     rect_primitives.sort_by_key(|(_, layer, _, _, _, _, _, _, _, _)| *layer);
-    let mut parts = vec![format!("count={}", rect_primitives.len())];
+    let mut parts = vec![format!("count={total}")];
     for (family, layer, left, top, right, bottom, _, _, _, _) in rect_primitives.into_iter().take(2)
     {
         parts.push(format!(
             "{family}@{layer}:{}:{}:{}:{}",
             left as i32, top as i32, right as i32, bottom as i32
         ));
+    }
+    if total > 2 {
+        parts.push(format!("more={}", total - 2));
     }
     Some(parts.join(" "))
 }
@@ -7006,6 +7010,95 @@ mod tests {
         assert!(frame.contains("RENDER-RECT: count=1 runtime-break-rect@30:32:40:40:48"));
         assert!(frame.contains(
             "RENDER-RECT-DETAIL: count=1 | runtime-break-rect@30:32:40:40:48 payload[left_tile=4,top_tile=5,right_tile=5,bottom_tile=6,width_tiles=1,height_tiles=1,line_count=4]"
+        ));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_render_rect_overflow_count() {
+        fn runtime_rect_objects(
+            family: &str,
+            layer: i32,
+            left: f32,
+            top: f32,
+            right: f32,
+            bottom: f32,
+        ) -> Vec<RenderObject> {
+            let mut objects = Vec::new();
+            for (edge, source, target) in [
+                ("top", (left, top), (right, top)),
+                ("right", (right, top), (right, bottom)),
+                ("bottom", (right, bottom), (left, bottom)),
+                ("left", (left, bottom), (left, top)),
+            ] {
+                let line_id = format!(
+                    "marker:line:{family}:{edge}:{}:{}:{}:{}",
+                    source.0.to_bits(),
+                    source.1.to_bits(),
+                    target.0.to_bits(),
+                    target.1.to_bits()
+                );
+                objects.push(RenderObject {
+                    id: line_id.clone(),
+                    layer,
+                    x: source.0,
+                    y: source.1,
+                });
+                objects.push(RenderObject {
+                    id: format!("{line_id}:line-end"),
+                    layer,
+                    x: target.0,
+                    y: target.1,
+                });
+            }
+            objects
+        }
+
+        let mut objects = Vec::new();
+        objects.extend(runtime_rect_objects(
+            "runtime-command-rect",
+            29,
+            8.0,
+            16.0,
+            24.0,
+            32.0,
+        ));
+        objects.extend(runtime_rect_objects(
+            "runtime-break-rect",
+            30,
+            32.0,
+            40.0,
+            40.0,
+            48.0,
+        ));
+        objects.extend(runtime_rect_objects(
+            "runtime-command-target-rect",
+            31,
+            48.0,
+            8.0,
+            56.0,
+            16.0,
+        ));
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects,
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RENDER-RECT: count=3"));
+        assert!(frame.contains("runtime-command-rect@29:8:16:24:32"));
+        assert!(frame.contains("runtime-break-rect@30:32:40:40:48"));
+        assert!(frame.contains("more=1"));
+        assert!(frame.contains("RENDER-RECT-DETAIL: count=3"));
+        assert!(frame.contains(
+            "runtime-command-target-rect@31:48:8:56:16 payload[left_tile=6,top_tile=1,right_tile=7,bottom_tile=2,width_tiles=1,height_tiles=1,line_count=4]"
         ));
     }
 
