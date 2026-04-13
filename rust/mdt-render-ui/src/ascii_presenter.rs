@@ -2515,7 +2515,10 @@ fn compose_runtime_core_binding_detail_compact_text(hud: &HudModel) -> Option<St
 
 fn compose_runtime_reconnect_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_reconnect_panel(hud)?;
-    Some(compose_runtime_reconnect_panel_text(&panel))
+    Some(format!(
+        "reconnect:{}",
+        compose_runtime_reconnect_panel_text(&panel)
+    ))
 }
 
 fn compose_runtime_reconnect_detail_text(hud: &HudModel) -> Option<String> {
@@ -3669,18 +3672,7 @@ fn compose_runtime_loading_panel_compact_text(
 fn compose_runtime_reconnect_panel_text(
     reconnect: &crate::panel_model::RuntimeReconnectPanelModel,
 ) -> String {
-    format!(
-        "{}#{} {} redirect={}@{}:{} reason={}#{} hint={}",
-        runtime_reconnect_phase_text(reconnect.phase),
-        reconnect.phase_transition_count,
-        runtime_reconnect_reason_kind_text(reconnect.reason_kind),
-        reconnect.redirect_count,
-        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
-        optional_i32_label(reconnect.last_redirect_port),
-        compact_runtime_ui_text(reconnect.reason_text.as_deref()),
-        optional_i32_label(reconnect.reason_ordinal),
-        compact_runtime_ui_text(reconnect.hint_text.as_deref()),
-    )
+    compose_runtime_reconnect_panel_compact_text(reconnect)
 }
 
 fn compose_runtime_reconnect_panel_compact_text(
@@ -3754,18 +3746,7 @@ fn compose_runtime_loading_detail_compact_text(
 fn compose_runtime_reconnect_detail_panel_text(
     reconnect: &crate::panel_model::RuntimeReconnectPanelModel,
 ) -> String {
-    format!(
-        "phase={} transitions={} reason-kind={} reason-len={} ordinal={} hint-len={} redirect={}@{}:{}",
-        runtime_reconnect_phase_text(reconnect.phase),
-        reconnect.phase_transition_count,
-        runtime_reconnect_reason_kind_text(reconnect.reason_kind),
-        runtime_ui_text_len(reconnect.reason_text.as_deref()),
-        optional_i32_label(reconnect.reason_ordinal),
-        runtime_ui_text_len(reconnect.hint_text.as_deref()),
-        reconnect.redirect_count,
-        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
-        optional_i32_label(reconnect.last_redirect_port),
-    )
+    compose_runtime_reconnect_detail_compact_text(reconnect)
 }
 
 fn compose_runtime_reconnect_detail_compact_text(
@@ -5727,10 +5708,10 @@ mod tests {
             "RUNTIME-CORE-BINDING-DETAIL: kind=first-core-per-team ambiguous-count=1 ambiguous-sample=1 missing-count=1 missing-sample=4"
         ));
         assert!(frame.contains(
-            "RUNTIME-RECONNECT: attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
+            "RUNTIME-RECONNECT: reconnect:attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
         ));
         assert!(frame.contains(
-            "RUNTIME-RECONNECT-DETAIL: phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567"
+            "RUNTIME-RECONNECT-DETAIL: reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567"
         ));
         assert!(frame.contains(
             "RUNTIME-LIVE-ENTITY: liveent:1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
