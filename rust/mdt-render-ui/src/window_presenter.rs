@@ -1529,26 +1529,26 @@ fn compose_frame_session_banner_text(hud: &HudModel) -> Option<String> {
             compose_runtime_kick_panel_status_text(&panel.kick)
         ));
     }
-    if !panel.reconnect.is_empty() && !panel.loading.is_empty() {
-        return Some(format!(
-            "RECONNECT {} | LOADING {}",
-            compose_runtime_reconnect_panel_status_text(&panel.reconnect),
-            compose_runtime_loading_panel_status_text(&panel.loading)
-        ));
-    }
+    let mut segments = Vec::new();
     if !panel.reconnect.is_empty() {
-        return Some(format!(
+        segments.push(format!(
             "RECONNECT {}",
             compose_runtime_reconnect_panel_status_text(&panel.reconnect)
         ));
     }
+    if let Some(world_reload) = panel.loading.last_world_reload.as_ref() {
+        segments.push(format!(
+            "RELOAD {}",
+            runtime_world_reload_panel_status_text(Some(world_reload))
+        ));
+    }
     if !panel.loading.is_empty() {
-        return Some(format!(
+        segments.push(format!(
             "LOADING {}",
             compose_runtime_loading_panel_status_text(&panel.loading)
         ));
     }
-    None
+    (!segments.is_empty()).then(|| segments.join(" | "))
 }
 
 fn compose_frame_panel_lines(
@@ -10454,7 +10454,7 @@ mod tests {
         assert_eq!(
             frame.session_banner_text.as_deref(),
             Some(
-                "RECONNECT attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~ | LOADING defer5:replay6:drop7:qdrop8:sfail0:scfail0:efail0:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+                "RECONNECT attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~ | RELOAD @lw1:cl0:rd1:cc0:p4:d5:r6 | LOADING defer5:replay6:drop7:qdrop8:sfail0:scfail0:efail0:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
             )
         );
         assert_eq!(
@@ -10519,7 +10519,7 @@ mod tests {
         assert_eq!(
             frame.session_banner_text.as_deref(),
             Some(
-                "LOADING defer5:replay6:drop7:qdrop8:sfail0:scfail0:efail0:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+                "RELOAD @lw1:cl0:rd1:cc0:p4:d5:r6 | LOADING defer5:replay6:drop7:qdrop8:sfail0:scfail0:efail0:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
             )
         );
         assert_eq!(
