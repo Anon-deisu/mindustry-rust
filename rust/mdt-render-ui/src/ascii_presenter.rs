@@ -1925,7 +1925,7 @@ fn compose_runtime_dialog_detail_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_chat_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_chat_panel(hud)?;
     Some(format!(
-        "srv={} last-srv={} chat={} last-chat={} raw={} sender={}",
+        "chat:srv{}@{}:msg{}@{}:raw{}:s{}",
         panel.server_message_count,
         compact_runtime_ui_text(panel.last_server_message.as_deref()),
         panel.chat_message_count,
@@ -1941,7 +1941,7 @@ fn compose_runtime_chat_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "server-len={} chat-len={} raw-len={} formatted-eq-raw={} sender={}",
+        "chatd:s{}:c{}:r{}:eq{}:sid{}",
         panel.last_server_message_len(),
         panel.last_chat_message_len(),
         panel.last_chat_unformatted_len(),
@@ -5627,10 +5627,10 @@ mod tests {
             "RUNTIME-DIALOG-DETAIL: prompt=input active=1 layers=menu:1/follow-up:0/input:53 message-len=12 default-len=5 notice=warn layers=hud:1/reliable:1/info:1/warn:1 notice-len=4"
         ));
         assert!(frame.contains(
-            "RUNTIME-CHAT: srv=7 last-srv=server_text chat=8 last-chat=[cyan]hello raw=hello sender=404"
+            "RUNTIME-CHAT: chat:srv7@server_text:msg8@[cyan]hello:rawhello:s404"
         ));
         assert!(frame.contains(
-            "RUNTIME-CHAT-DETAIL: server-len=11 chat-len=11 raw-len=5 formatted-eq-raw=0 sender=404"
+            "RUNTIME-CHAT-DETAIL: chatd:s11:c11:r5:eq0:sid404"
         ));
         assert!(frame.contains(
             "RUNTIME-STACK: front=input prompt=2@input>menu notice=warn@hud>reliable>info>warn chat=1 groups=3 total=7 tin=404 sender=404"
