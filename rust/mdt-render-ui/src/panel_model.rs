@@ -1905,25 +1905,10 @@ pub fn build_build_config_panel(
     max_entries: usize,
 ) -> Option<BuildConfigPanelModel> {
     let build_ui = hud.build_ui.as_ref()?;
-    let mut entries = build_ui.inspector_entries.iter().collect::<Vec<_>>();
-    entries.sort_by(|left, right| {
-        right
-            .tracked_count
-            .cmp(&left.tracked_count)
-            .then_with(|| left.family.cmp(&right.family))
-            .then_with(|| left.sample.cmp(&right.sample))
-    });
+    let entries = sorted_build_config_panel_entries(build_ui);
     let tracked_family_count = entries.len();
     let tracked_sample_count = entries.iter().map(|entry| entry.tracked_count).sum();
-    let capped_entries = entries
-        .into_iter()
-        .take(max_entries)
-        .map(|entry| BuildConfigPanelEntryModel {
-            family: entry.family.clone(),
-            tracked_count: entry.tracked_count,
-            sample: entry.sample.clone(),
-        })
-        .collect::<Vec<_>>();
+    let capped_entries = entries.into_iter().take(max_entries).collect::<Vec<_>>();
     Some(BuildConfigPanelModel {
         selected_block_id: build_ui.selected_block_id,
         selected_rotation: build_ui.selected_rotation,
@@ -1970,6 +1955,35 @@ pub fn build_build_config_panel(
         },
         entries: capped_entries,
     })
+}
+
+pub(crate) fn build_build_config_entry_breakdown(
+    hud: &HudModel,
+) -> Option<Vec<BuildConfigPanelEntryModel>> {
+    let build_ui = hud.build_ui.as_ref()?;
+    Some(sorted_build_config_panel_entries(build_ui))
+}
+
+fn sorted_build_config_panel_entries(
+    build_ui: &crate::BuildUiObservability,
+) -> Vec<BuildConfigPanelEntryModel> {
+    let mut entries = build_ui
+        .inspector_entries
+        .iter()
+        .map(|entry| BuildConfigPanelEntryModel {
+            family: entry.family.clone(),
+            tracked_count: entry.tracked_count,
+            sample: entry.sample.clone(),
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        right
+            .tracked_count
+            .cmp(&left.tracked_count)
+            .then_with(|| left.family.cmp(&right.family))
+            .then_with(|| left.sample.cmp(&right.sample))
+    });
+    entries
 }
 
 pub fn build_build_interaction_panel(hud: &HudModel) -> Option<BuildInteractionPanelModel> {
@@ -2121,12 +2135,8 @@ fn build_interaction_authority_label(value: BuildInteractionAuthorityState) -> &
         BuildInteractionAuthorityState::Cleared => "cleared",
         BuildInteractionAuthorityState::Rollback => "rollback",
         BuildInteractionAuthorityState::RejectedMissingBuilding => "rejected-missing-building",
-        BuildInteractionAuthorityState::RejectedMissingBlockMetadata => {
-            "rejected-missing-metadata"
-        }
-        BuildInteractionAuthorityState::RejectedUnsupportedBlock => {
-            "rejected-unsupported-block"
-        }
+        BuildInteractionAuthorityState::RejectedMissingBlockMetadata => "rejected-missing-metadata",
+        BuildInteractionAuthorityState::RejectedUnsupportedBlock => "rejected-unsupported-block",
         BuildInteractionAuthorityState::RejectedUnsupportedConfigType => {
             "rejected-unsupported-config"
         }
@@ -2945,12 +2955,13 @@ fn clamp_hud_view_window_to_map(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
+        build_build_config_entry_breakdown, build_build_config_panel,
+        build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
-        build_runtime_bootstrap_panel,
-        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
-        build_runtime_command_mode_panel, build_runtime_core_binding_panel,
-        build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+        build_runtime_admin_panel, build_runtime_bootstrap_panel, build_runtime_chat_panel,
+        build_runtime_choice_panel, build_runtime_command_mode_panel,
+        build_runtime_core_binding_panel, build_runtime_dialog_panel,
+        build_runtime_dialog_stack_panel, build_runtime_kick_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
@@ -2964,15 +2975,15 @@ mod tests {
     };
     use crate::{
         hud_model::{
-            HudSummary, RuntimeCommandControlGroupObservability, RuntimeCommandModeObservability,
-            RuntimeCommandRectObservability, RuntimeCommandSelectionObservability,
-            RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
-            RuntimeCommandUnitRefObservability, RuntimeCoreBindingKindObservability,
-            RuntimeCoreBindingObservability, RuntimeReconnectObservability,
-            RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
-            RuntimeBootstrapObservability, RuntimeResourceDeltaObservability,
-            RuntimeSessionObservability,
-            RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+            HudSummary, RuntimeBootstrapObservability, RuntimeCommandControlGroupObservability,
+            RuntimeCommandModeObservability, RuntimeCommandRectObservability,
+            RuntimeCommandSelectionObservability, RuntimeCommandStanceObservability,
+            RuntimeCommandTargetObservability, RuntimeCommandUnitRefObservability,
+            RuntimeCoreBindingKindObservability, RuntimeCoreBindingObservability,
+            RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
+            RuntimeReconnectReasonKind, RuntimeResourceDeltaObservability,
+            RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+            RuntimeWorldReloadObservability,
         },
         BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
         BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
@@ -3399,6 +3410,51 @@ mod tests {
             panel.detail_label(),
             "selected=257 rot=2 building=1 queued=1 inflight=2 pending=3 finished=3 removed=4 orphan=5 head=flight@10:11:place:b301:r1 align=split last=23:45 outcome=applied pm=mismatch source=constructFinish block=power-node families=3 samples=5 shown=2 more=1"
         );
+    }
+
+    #[test]
+    fn builds_build_config_entry_breakdown_with_full_sorted_entries() {
+        let hud = HudModel {
+            build_ui: Some(BuildUiObservability {
+                inspector_entries: vec![
+                    BuildConfigInspectorEntryObservability {
+                        family: "gamma".to_string(),
+                        tracked_count: 2,
+                        sample: "g2".to_string(),
+                    },
+                    BuildConfigInspectorEntryObservability {
+                        family: "alpha".to_string(),
+                        tracked_count: 4,
+                        sample: "a4".to_string(),
+                    },
+                    BuildConfigInspectorEntryObservability {
+                        family: "beta".to_string(),
+                        tracked_count: 4,
+                        sample: "b4".to_string(),
+                    },
+                    BuildConfigInspectorEntryObservability {
+                        family: "delta".to_string(),
+                        tracked_count: 1,
+                        sample: "d1".to_string(),
+                    },
+                ],
+                ..BuildUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+
+        let breakdown = build_build_config_entry_breakdown(&hud).expect("expected breakdown");
+        assert_eq!(breakdown.len(), 4);
+        assert_eq!(breakdown[0].family, "alpha");
+        assert_eq!(breakdown[1].family, "beta");
+        assert_eq!(breakdown[2].family, "gamma");
+        assert_eq!(breakdown[3].family, "delta");
+
+        let panel = build_build_config_panel(&hud, 2).expect("expected panel");
+        assert_eq!(panel.entries.len(), 2);
+        assert_eq!(panel.entries[0].family, "alpha");
+        assert_eq!(panel.entries[1].family, "beta");
+        assert_eq!(panel.truncated_family_count, 2);
     }
 
     #[test]
@@ -4255,26 +4311,11 @@ mod tests {
                 y_bits: 33.0f32.to_bits(),
             })
         );
-        assert_eq!(
-            panel.local_owned_unit_entity_id,
-            Some(202)
-        );
-        assert_eq!(
-            panel.local_owned_unit_payload_count,
-            Some(2)
-        );
-        assert_eq!(
-            panel.local_owned_unit_payload_class_id,
-            Some(5)
-        );
-        assert_eq!(
-            panel.local_owned_unit_payload_revision,
-            Some(7)
-        );
-        assert_eq!(
-            panel.local_owned_unit_payload_body_len,
-            Some(12)
-        );
+        assert_eq!(panel.local_owned_unit_entity_id, Some(202));
+        assert_eq!(panel.local_owned_unit_payload_count, Some(2));
+        assert_eq!(panel.local_owned_unit_payload_class_id, Some(5));
+        assert_eq!(panel.local_owned_unit_payload_revision, Some(7));
+        assert_eq!(panel.local_owned_unit_payload_body_len, Some(12));
         assert_eq!(
             panel.local_owned_unit_payload_sha256.as_deref(),
             Some("0123456789abcdef0123456789abcdef")
@@ -4283,34 +4324,16 @@ mod tests {
             panel.local_owned_unit_payload_nested_descendant_count,
             Some(2)
         );
-        assert_eq!(
-            panel.local_owned_carried_item_id,
-            Some(6)
-        );
-        assert_eq!(
-            panel.local_owned_carried_item_amount,
-            Some(4)
-        );
-        assert_eq!(
-            panel.local_owned_controller_type,
-            Some(4)
-        );
-        assert_eq!(
-            panel.local_owned_controller_value,
-            Some(101)
-        );
+        assert_eq!(panel.local_owned_carried_item_id, Some(6));
+        assert_eq!(panel.local_owned_carried_item_amount, Some(4));
+        assert_eq!(panel.local_owned_controller_type, Some(4));
+        assert_eq!(panel.local_owned_controller_value, Some(101));
         assert_eq!(
             panel.local_owned_unit_payload_label(),
             "payload=count=2:unit=5/r7/l12:s0123456789ab"
         );
-        assert_eq!(
-            panel.local_owned_unit_nested_label(),
-            "nested=2"
-        );
-        assert_eq!(
-            panel.local_owned_unit_stack_label(),
-            "stack=6x4"
-        );
+        assert_eq!(panel.local_owned_unit_nested_label(), "nested=2");
+        assert_eq!(panel.local_owned_unit_stack_label(), "stack=6x4");
         assert_eq!(
             panel.local_owned_unit_controller_label(),
             "controller=4/101"

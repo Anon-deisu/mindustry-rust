@@ -2,12 +2,12 @@ use crate::{
     build_user_flow::build_build_user_flow_panel,
     minimap_user_flow::build_minimap_user_flow_panel,
     panel_model::{
-        build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
-        build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_bootstrap_panel, build_runtime_chat_panel,
-        build_runtime_choice_panel, build_runtime_command_mode_panel,
-        build_runtime_core_binding_panel, build_runtime_dialog_panel,
-        build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+        build_build_config_entry_breakdown, build_build_config_panel,
+        build_build_interaction_panel, build_build_minimap_assist_panel, build_hud_status_panel,
+        build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
+        build_runtime_bootstrap_panel, build_runtime_chat_panel, build_runtime_choice_panel,
+        build_runtime_command_mode_panel, build_runtime_core_binding_panel,
+        build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
@@ -1596,7 +1596,8 @@ fn compose_frame_panel_lines(
     if let Some(minimap_window_kinds_text) = compose_minimap_window_kind_status_text(scene, hud) {
         lines.push(format!("MINIMAP-WINDOW-KINDS: {minimap_window_kinds_text}"));
     }
-    if let Some(minimap_window_text) = compose_minimap_window_distribution_line_status_text(scene, hud)
+    if let Some(minimap_window_text) =
+        compose_minimap_window_distribution_line_status_text(scene, hud)
     {
         lines.push(format!("MINIMAP-WINDOW: {minimap_window_text}"));
     }
@@ -1678,8 +1679,7 @@ fn compose_frame_panel_lines(
     if let Some(build_interaction_text) = compose_build_interaction_status_text(hud) {
         lines.push(format!("BUILD-INTERACTION: {build_interaction_text}"));
     }
-    if let Some(build_interaction_detail_text) = compose_build_interaction_detail_status_text(hud)
-    {
+    if let Some(build_interaction_detail_text) = compose_build_interaction_detail_status_text(hud) {
         lines.push(format!(
             "BUILD-INTERACTION-DETAIL: {build_interaction_detail_text}"
         ));
@@ -1720,7 +1720,8 @@ fn compose_frame_panel_lines(
     if let Some(build_route_text) = compose_build_route_status_text(scene, hud, window) {
         lines.push(format!("BUILD-ROUTE: {build_route_text}"));
     }
-    if let Some(build_route_detail_text) = compose_build_route_detail_status_text(scene, hud, window)
+    if let Some(build_route_detail_text) =
+        compose_build_route_detail_status_text(scene, hud, window)
     {
         lines.push(format!("BUILD-ROUTE-DETAIL: {build_route_detail_text}"));
     }
@@ -1850,14 +1851,15 @@ fn compose_frame_panel_lines(
     if let Some(runtime_bootstrap_text) = compose_runtime_bootstrap_status_text(hud) {
         lines.push(format!("RUNTIME-BOOTSTRAP: {runtime_bootstrap_text}"));
     }
-    if let Some(runtime_bootstrap_detail_text) = compose_runtime_bootstrap_detail_status_text(hud)
-    {
+    if let Some(runtime_bootstrap_detail_text) = compose_runtime_bootstrap_detail_status_text(hud) {
         lines.push(format!(
             "RUNTIME-BOOTSTRAP-DETAIL: {runtime_bootstrap_detail_text}"
         ));
     }
     if let Some(runtime_resource_delta_text) = compose_runtime_resource_delta_status_text(hud) {
-        lines.push(format!("RUNTIME-RESOURCE-DELTA: {runtime_resource_delta_text}"));
+        lines.push(format!(
+            "RUNTIME-RESOURCE-DELTA: {runtime_resource_delta_text}"
+        ));
     }
     if let Some(runtime_resource_delta_detail_text) =
         compose_runtime_resource_delta_detail_status_text(hud)
@@ -2120,15 +2122,8 @@ fn compose_render_line_detail_status_text(
     });
 
     let mut parts = vec![format!("count={}", line_primitives.len())];
-    for (
-        layer,
-        label,
-        start_tile_x,
-        start_tile_y,
-        end_tile_x,
-        end_tile_y,
-        payload,
-    ) in line_primitives
+    for (layer, label, start_tile_x, start_tile_y, end_tile_x, end_tile_y, payload) in
+        line_primitives
     {
         parts.push(format!(
             "{label}@{layer}:{start_tile_x}:{start_tile_y}->{end_tile_x}:{end_tile_y} {}",
@@ -2202,11 +2197,7 @@ fn compose_render_text_detail_status_text(
         .into_iter()
         .filter_map(|primitive| match &primitive {
             RenderPrimitive::Text {
-                kind,
-                layer,
-                x,
-                y,
-                ..
+                kind, layer, x, y, ..
             } => {
                 let Some((tile_x, tile_y)) = finite_tile_coords(*x, *y) else {
                     return None;
@@ -4071,7 +4062,7 @@ fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
                     compact_runtime_ui_text(panel.authority_block_name.as_deref()),
                 )
             })
-        .unwrap_or(("none", "none", "none", "none".to_string()));
+            .unwrap_or(("none", "none", "none", "none".to_string()));
     let entries = panel
         .entries
         .iter()
@@ -4118,19 +4109,20 @@ fn compose_build_config_detail_status_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_build_config_entry_status_lines(hud: &HudModel) -> Vec<String> {
-    let Some(panel) = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP) else {
+    let Some(entries) = build_build_config_entry_breakdown(hud) else {
         return Vec::new();
     };
 
-    panel
-        .entries
+    let entry_count = entries.len();
+
+    entries
         .iter()
         .enumerate()
         .map(|(index, entry)| {
             format!(
                 "cfgentry:{}/{}:{}#{}@{}",
                 index + 1,
-                panel.tracked_family_count,
+                entry_count,
                 compact_runtime_ui_text(Some(entry.family.as_str())),
                 entry.tracked_count,
                 compact_build_inspector_text(
@@ -5741,9 +5733,7 @@ fn window_minimap_viewport_color(
         || density_deficit >= 10
     {
         COLOR_MINIMAP_INSET_VIEWPORT_WARN
-    } else if window_coverage_percent <= 50
-        || outside_object_percent >= 30
-        || density_deficit >= 4
+    } else if window_coverage_percent <= 50 || outside_object_percent >= 30 || density_deficit >= 4
     {
         COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL
     } else {
@@ -6580,9 +6570,9 @@ mod tests {
         COLOR_ICON_RUNTIME_HEALTH, COLOR_ICON_RUNTIME_LOGIC_EXPLOSION, COLOR_ICON_RUNTIME_SOUND_AT,
         COLOR_ICON_RUNTIME_TILE_ACTION, COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER,
         COLOR_MINIMAP_INSET_VIEWPORT, COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL,
-        COLOR_MINIMAP_INSET_VIEWPORT_WARN, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME,
-        COLOR_TERRAIN, COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT,
-        WINDOW_HUD_BAR_PADDING_X, WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
+        COLOR_MINIMAP_INSET_VIEWPORT_WARN, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
+        COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
+        WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
         hud_model::{
@@ -8970,10 +8960,7 @@ mod tests {
             &frame.panel_lines,
             "RENDER-PIPELINE: pipe:tot5:vis3:clip2:ly3:span0..40:f1,1:w0,0+2x2:players=1 markers=1 plans=0 blocks=0 runtime=0 terrain=1 unknown=0",
         );
-        assert_frame_line_contains(
-            &frame.panel_lines,
-            "RENDER-PIPELINE-DETAIL: marker-line:1",
-        );
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-PIPELINE-DETAIL: marker-line:1");
         assert_frame_line_contains(
             &frame.panel_lines,
             "RENDER-LAYER: lay:1/3:l0:o1@pl0:mk0:pn0:bk0:rt0:tr1:uk0",
@@ -10124,6 +10111,48 @@ mod tests {
     }
 
     #[test]
+    fn build_config_entry_status_lines_emit_full_sorted_breakdown() {
+        let hud = HudModel {
+            build_ui: Some(BuildUiObservability {
+                inspector_entries: vec![
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "gamma".to_string(),
+                        tracked_count: 2,
+                        sample: "g2".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "alpha".to_string(),
+                        tracked_count: 4,
+                        sample: "a4".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "beta".to_string(),
+                        tracked_count: 4,
+                        sample: "b4".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "delta".to_string(),
+                        tracked_count: 1,
+                        sample: "d1".to_string(),
+                    },
+                ],
+                ..BuildUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+
+        assert_eq!(
+            super::compose_build_config_entry_status_lines(&hud),
+            vec![
+                "cfgentry:1/4:alpha#4@a4".to_string(),
+                "cfgentry:2/4:beta#4@b4".to_string(),
+                "cfgentry:3/4:gamma#2@g2".to_string(),
+                "cfgentry:4/4:delta#1@d1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn build_ui_inspector_status_text_keeps_extended_samples() {
         let sample = "abcdefghijklmnopqrstuvwxyz".repeat(3);
         let expected_sample = format!(
@@ -10438,7 +10467,9 @@ mod tests {
         let world_reload_detail_index = frame
             .panel_lines
             .iter()
-            .position(|line| line == "RUNTIME-WORLD-RELOAD-DETAIL: reloadd:lw1:cl0:rd1:cc0:p4:d5:r6")
+            .position(|line| {
+                line == "RUNTIME-WORLD-RELOAD-DETAIL: reloadd:lw1:cl0:rd1:cc0:p4:d5:r6"
+            })
             .unwrap();
         assert!(loading_detail_index < world_reload_index);
         assert!(world_reload_index < world_reload_detail_index);
@@ -11133,14 +11164,8 @@ mod tests {
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         assert_frame_line_contains(&frame.panel_lines, "RENDER-RECT: count=3");
-        assert_frame_line_contains(
-            &frame.panel_lines,
-            "runtime-command-rect@29:8:16:24:32",
-        );
-        assert_frame_line_contains(
-            &frame.panel_lines,
-            "runtime-break-rect@30:32:40:40:48",
-        );
+        assert_frame_line_contains(&frame.panel_lines, "runtime-command-rect@29:8:16:24:32");
+        assert_frame_line_contains(&frame.panel_lines, "runtime-break-rect@30:32:40:40:48");
         assert_frame_line_contains(&frame.panel_lines, "more=1");
         assert_frame_line_contains(&frame.panel_lines, "RENDER-RECT-DETAIL: count=3");
         assert_frame_line_contains(

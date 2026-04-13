@@ -1,17 +1,18 @@
 use crate::build_user_flow::build_build_user_flow_panel;
 use crate::minimap_user_flow::build_minimap_user_flow_panel;
 use crate::panel_model::{
-    build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
-    build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
-    build_runtime_admin_panel, build_runtime_bootstrap_panel, build_runtime_chat_panel,
-    build_runtime_choice_panel, build_runtime_command_mode_panel, build_runtime_core_binding_panel,
-    build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
-    build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
-    build_runtime_marker_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
-    build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
-    build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
-    build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
-    RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
+    build_build_config_entry_breakdown, build_build_config_panel, build_build_interaction_panel,
+    build_build_minimap_assist_panel, build_hud_status_panel, build_hud_visibility_panel,
+    build_minimap_panel, build_runtime_admin_panel, build_runtime_bootstrap_panel,
+    build_runtime_chat_panel, build_runtime_choice_panel, build_runtime_command_mode_panel,
+    build_runtime_core_binding_panel, build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
+    build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+    build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
+    build_runtime_notice_state_panel, build_runtime_prompt_panel, build_runtime_reconnect_panel,
+    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+    build_runtime_ui_stack_panel, build_runtime_world_label_panel, MinimapPanelModel,
+    PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+    RuntimeUiNoticePanelModel,
 };
 use crate::presenter_view::{
     crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
@@ -230,7 +231,8 @@ impl AsciiScenePresenter {
         if let Some(render_pipeline_text) = compose_render_pipeline_text(scene, window) {
             out.push_str(&format!("RENDER-PIPELINE: {render_pipeline_text}\n"));
         }
-        if let Some(render_pipeline_detail_text) = compose_render_pipeline_detail_text(scene, window)
+        if let Some(render_pipeline_detail_text) =
+            compose_render_pipeline_detail_text(scene, window)
         {
             out.push_str(&format!(
                 "RENDER-PIPELINE-DETAIL: {render_pipeline_detail_text}\n"
@@ -285,7 +287,8 @@ impl AsciiScenePresenter {
         if let Some(build_config_rollback_text) = compose_build_config_rollback_text(hud) {
             out.push_str(&format!("BUILD-ROLLBACK: {build_config_rollback_text}\n"));
         }
-        if let Some(build_config_rollback_detail_text) = compose_build_config_rollback_detail_text(hud)
+        if let Some(build_config_rollback_detail_text) =
+            compose_build_config_rollback_detail_text(hud)
         {
             out.push_str(&format!(
                 "BUILD-ROLLBACK-DETAIL: {build_config_rollback_detail_text}\n"
@@ -303,9 +306,7 @@ impl AsciiScenePresenter {
             out.push_str(&format!("BUILD-QUEUE: {build_queue_text}\n"));
         }
         if let Some(build_queue_detail_text) = compose_build_ui_queue_detail_text(hud) {
-            out.push_str(&format!(
-                "BUILD-QUEUE-DETAIL: {build_queue_detail_text}\n"
-            ));
+            out.push_str(&format!("BUILD-QUEUE-DETAIL: {build_queue_detail_text}\n"));
         }
         if let Some(build_minimap_aux_text) = compose_build_minimap_aux_text(scene, hud, window) {
             out.push_str(&format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}\n"));
@@ -313,8 +314,7 @@ impl AsciiScenePresenter {
         if let Some(build_minimap_diag_text) = compose_build_minimap_diag_text(scene, hud, window) {
             out.push_str(&format!("BUILD-MINIMAP-DIAG: {build_minimap_diag_text}\n"));
         }
-        if let Some(build_minimap_flow_text) = compose_build_minimap_flow_text(scene, hud, window)
-        {
+        if let Some(build_minimap_flow_text) = compose_build_minimap_flow_text(scene, hud, window) {
             out.push_str(&format!("BUILD-MINIMAP-FLOW: {build_minimap_flow_text}\n"));
         }
         if let Some(build_minimap_detail_text) =
@@ -361,7 +361,9 @@ impl AsciiScenePresenter {
             out.push_str(&format!("RUNTIME-NOTICE: {runtime_ui_notice_text}\n"));
         }
         if let Some(runtime_notice_state_text) = compose_runtime_notice_state_panel_text(hud) {
-            out.push_str(&format!("RUNTIME-NOTICE-STATE: {runtime_notice_state_text}\n"));
+            out.push_str(&format!(
+                "RUNTIME-NOTICE-STATE: {runtime_notice_state_text}\n"
+            ));
         }
         if let Some(runtime_notice_state_detail_text) =
             compose_runtime_notice_state_detail_text(hud)
@@ -1046,15 +1048,8 @@ fn compose_render_line_detail_text(
     });
 
     let mut parts = vec![format!("count={}", line_primitives.len())];
-    for (
-        layer,
-        label,
-        start_tile_x,
-        start_tile_y,
-        end_tile_x,
-        end_tile_y,
-        payload,
-    ) in line_primitives
+    for (layer, label, start_tile_x, start_tile_y, end_tile_x, end_tile_y, payload) in
+        line_primitives
     {
         parts.push(format!(
             "{label}@{layer}:{start_tile_x}:{start_tile_y}->{end_tile_x}:{end_tile_y} payload[{}]",
@@ -1410,7 +1405,9 @@ fn compose_render_text_detail_text(
         .primitives()
         .into_iter()
         .filter_map(|primitive| match &primitive {
-            RenderPrimitive::Text { kind, layer, x, y, .. } => {
+            RenderPrimitive::Text {
+                kind, layer, x, y, ..
+            } => {
                 let Some((tile_x, tile_y)) = finite_world_tile(*x, *y) else {
                     return None;
                 };
@@ -1418,7 +1415,13 @@ fn compose_render_text_detail_text(
                     return None;
                 }
                 let payload = primitive.payload()?;
-                Some((kind.detail_label().unwrap_or("text"), *layer, *x as i32, *y as i32, payload))
+                Some((
+                    kind.detail_label().unwrap_or("text"),
+                    *layer,
+                    *x as i32,
+                    *y as i32,
+                    payload,
+                ))
             }
             _ => None,
         })
@@ -2545,7 +2548,10 @@ fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_session_panel(hud)?;
     if !panel.kick.is_empty() {
-        return Some(format!("KICK {}", compose_runtime_kick_panel_text(&panel.kick)));
+        return Some(format!(
+            "KICK {}",
+            compose_runtime_kick_panel_text(&panel.kick)
+        ));
     }
     if !panel.loading.is_empty() {
         return Some(format!(
@@ -2675,7 +2681,10 @@ fn compose_runtime_resource_delta_detail_compact_text(
 
 fn compose_runtime_loading_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_loading_panel(hud)?;
-    Some(format!("loading:{}", compose_runtime_loading_panel_text(&panel)))
+    Some(format!(
+        "loading:{}",
+        compose_runtime_loading_panel_text(&panel)
+    ))
 }
 
 fn compose_runtime_kick_detail_text(hud: &HudModel) -> Option<String> {
@@ -2756,7 +2765,10 @@ fn compose_runtime_reconnect_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_live_entity_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_entity_panel(hud)?;
-    Some(format!("liveent:{}", compose_live_entity_panel_text(&panel)))
+    Some(format!(
+        "liveent:{}",
+        compose_live_entity_panel_text(&panel)
+    ))
 }
 
 fn compose_runtime_live_entity_detail_row_text(hud: &HudModel) -> Option<String> {
@@ -3209,20 +3221,20 @@ fn compose_build_config_authority_summary_text(
 ) -> String {
     let (authority_state, authority_pending_match, authority_source, authority_block_name) =
         interaction
-        .map(|panel| {
-            (
-                panel.authority_state,
-                panel.authority_pending_match,
-                panel.authority_source,
-                panel.authority_block_name.as_deref(),
-            )
-        })
-        .unwrap_or((
-            crate::panel_model::BuildInteractionAuthorityState::None,
-            None,
-            None,
-            None,
-        ));
+            .map(|panel| {
+                (
+                    panel.authority_state,
+                    panel.authority_pending_match,
+                    panel.authority_source,
+                    panel.authority_block_name.as_deref(),
+                )
+            })
+            .unwrap_or((
+                crate::panel_model::BuildInteractionAuthorityState::None,
+                None,
+                None,
+                None,
+            ));
     format!(
         "auth={} pending={} src={} block={}",
         build_interaction_authority_text(authority_state),
@@ -3233,18 +3245,20 @@ fn compose_build_config_authority_summary_text(
 }
 
 fn compose_build_config_entry_lines(hud: &HudModel) -> Vec<String> {
-    let Some(panel) = build_build_config_panel(hud, 3) else {
+    let Some(entries) = build_build_config_entry_breakdown(hud) else {
         return Vec::new();
     };
-    panel
-        .entries
+
+    let entry_count = entries.len();
+
+    entries
         .iter()
         .enumerate()
         .map(|(index, entry)| {
             format!(
                 "cfgentry:{}/{}:{}#{}@{}",
                 index + 1,
-                panel.tracked_family_count,
+                entry_count,
                 compact_runtime_ui_text(Some(entry.family.as_str())),
                 entry.tracked_count,
                 compact_build_inspector_text(entry.sample.as_str(), 56),
@@ -3268,7 +3282,11 @@ fn compose_build_config_rollback_text(hud: &HudModel) -> Option<String> {
         build_config_tile_text(strip.last_build_tile),
         build_config_rollback_source_compact_text(strip.last_source),
         if strip.last_business_applied { 1 } else { 0 },
-        if strip.last_cleared_pending_local { 1 } else { 0 },
+        if strip.last_cleared_pending_local {
+            1
+        } else {
+            0
+        },
         if strip.last_was_rollback { 1 } else { 0 },
         build_config_pending_match_text(strip.last_pending_local_match),
         build_config_outcome_compact_text(strip.last_configured_outcome),
@@ -3529,7 +3547,9 @@ fn compact_build_inspector_text(value: &str, limit: usize) -> String {
     }
 }
 
-fn compose_build_strip_queue_text(panel: &crate::panel_model::BuildInteractionPanelModel) -> String {
+fn compose_build_strip_queue_text(
+    panel: &crate::panel_model::BuildInteractionPanelModel,
+) -> String {
     if let Some(head) = panel.head.as_ref() {
         build_strip_queue_stage_text(head.stage, panel.pending_count)
     } else {
@@ -4532,7 +4552,7 @@ mod tests {
         panel_model::PresenterViewWindow,
         project_scene_models, project_scene_models_with_view_window,
         render_model::{RenderIconPrimitiveFamily, RenderObjectSemanticKind, RenderPrimitive},
-        HudModel, RenderModel, RenderObject, RuntimeAdminObservability,
+        BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeAdminObservability,
         RuntimeHudTextObservability, RuntimeMenuObservability, RuntimeRulesObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
         RuntimeWorldLabelObservability, ScenePresenter, Viewport,
@@ -5175,9 +5195,7 @@ mod tests {
                 .expect("minimap panel"),
             )
         )));
-        assert!(frame.contains(
-            "MINIMAP-WINDOW: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"
-        ));
+        assert!(frame.contains("MINIMAP-WINDOW: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0"));
         assert!(frame.contains(
             "MINIMAP-WINDOW-KINDS: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
         ));
@@ -5393,18 +5411,14 @@ mod tests {
         assert!(frame.contains(
             "RENDER-PIPELINE: total=5 visible=3 clipped=2 layers=3 span=0..40 focus=1:1 window=0:0+2x2 kinds=players=1 markers=1 plans=0 blocks=0 runtime=0 terrain=1 unknown=0"
         ));
-        assert!(frame.contains(
-            "RENDER-PIPELINE-DETAIL: marker-line:1"
-        ));
+        assert!(frame.contains("RENDER-PIPELINE-DETAIL: marker-line:1"));
         assert!(frame.contains(
             "RENDER-LAYER: 1/3 layer=0 objects=1 player=0 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=0"
         ));
         assert!(frame.contains(
             "RENDER-LAYER: 2/3 layer=30 objects=1 player=0 marker=1 plan=0 block=0 runtime=0 terrain=0 unknown=0"
         ));
-        assert!(frame.contains(
-            "RENDER-LAYER-DETAIL: 2/3 layer=30 detail=marker-line:1"
-        ));
+        assert!(frame.contains("RENDER-LAYER-DETAIL: 2/3 layer=30 detail=marker-line:1"));
         assert!(frame.contains(
             "RENDER-LAYER: 3/3 layer=40 objects=1 player=1 marker=0 plan=0 block=0 runtime=0 terrain=0 unknown=0"
         ));
@@ -5886,9 +5900,7 @@ mod tests {
         assert!(frame.contains(
             "VIS-MINIMAP: overlay=1 fog=1 known=144(3%) vis=120(83%/2%) hid=24(16%/0%) map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1"
         ));
-        assert!(frame.contains(
-            "MINIMAP-VIS-DETAIL: minivisd:v=mixed:c=offscreen:md0:wd400:od0"
-        ));
+        assert!(frame.contains("MINIMAP-VIS-DETAIL: minivisd:v=mixed:c=offscreen:md0:wd400:od0"));
         assert!(frame.contains(
             "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
         ));
@@ -5935,7 +5947,9 @@ mod tests {
             "BUILD-CONFIG-DETAIL: selected=257 rot=2 building=1 queued=1 inflight=2 pending=3 finished=3 removed=4 orphan=1 head=flight@100:99:place:b301:r1 align=split last=23:45 outcome=applied pm=mismatch source=constructFinish block=power-node families=2 samples=2 shown=2 more=0"
         ));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:1/2:message#1@18:40:len=5:text=hello"));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:2/2:power-node#1@23:45:links=24:46|25:47"));
+        assert!(
+            frame.contains("BUILD-CONFIG-ENTRY: cfgentry:2/2:power-node#1@23:45:links=24:46|25:47")
+        );
         assert!(frame.contains(
             "BUILD-ROLLBACK: cfgstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node"
         ));
@@ -5953,8 +5967,9 @@ mod tests {
             "BUILD-STRIP-DETAIL: selected=257 rot=2 available=1 families=2 samples=2 top=message head=flight@100:99:place:b301:r1 authority=rollback pending=mismatch source=constructFinish tile=23:45 block=power-node orphan=1"
         ));
         assert!(frame.contains("BUILD-QUEUE: bqueue:q1:i2:f3:r4:o1:h=flight@100:99:place:b301:r1"));
-        assert!(frame
-            .contains("BUILD-QUEUE-DETAIL: q=1 i=2 f=3 r=4 o=1 h=flight@100:99:place:b301:r1"));
+        assert!(
+            frame.contains("BUILD-QUEUE-DETAIL: q=1 i=2 f=3 r=4 o=1 h=flight@100:99:place:b301:r1")
+        );
         assert!(frame.contains(
             "BUILD-INSPECTOR: message#1@18:40:len=5:text=hello;power-node#1@23:45:links=24:46|25:47"
         ));
@@ -5980,27 +5995,21 @@ mod tests {
             "RUNTIME-MENU-DETAIL: menud:a1:fo0:m40:4:4:2:3:fm41:6:4:1:2:hid41:tin53:id404:tDigits:d5:n1:e1"
         ));
         assert!(frame.contains("RUNTIME-CHOICE: choice:mc29@404/2:tir30@405/ok123"));
-        assert!(frame.contains(
-            "RUNTIME-CHOICE-DETAIL: choiced:mid404:opt2:rid405:rlen5"
-        ));
+        assert!(frame.contains("RUNTIME-CHOICE-DETAIL: choiced:mid404:opt2:rid405:rlen5"));
         assert!(frame.contains(
             "RUNTIME-DIALOG: dialog:p=input:a1:m16/f17/h18:tin53@404:Digits/Only_numbers/12345#16:n1:e1:n=warn@warn:c48"
         ));
         assert!(frame.contains(
             "RUNTIME-DIALOG-DETAIL: dialogd:p=input:a1:m1:fo0:tin53:msg12:def5:n=warn:h1:r1:i1:w1:l4"
         ));
-        assert!(frame.contains(
-            "RUNTIME-CHAT: chat:srv7@server_text:msg8@[cyan]hello:rawhello:s404"
-        ));
-        assert!(frame.contains(
-            "RUNTIME-CHAT-DETAIL: chatd:s11:c11:r5:eq0:sid404"
-        ));
+        assert!(
+            frame.contains("RUNTIME-CHAT: chat:srv7@server_text:msg8@[cyan]hello:rawhello:s404")
+        );
+        assert!(frame.contains("RUNTIME-CHAT-DETAIL: chatd:s11:c11:r5:eq0:sid404"));
         assert!(frame.contains(
             "RUNTIME-STACK: stack:f=input:p2@input>menu:n=warn@hud>reliable>info>warn:c1:g3:t7:tin404:s404"
         ));
-        assert!(frame.contains(
-            "RUNTIME-STACK-DEPTH: stackdepth:p2:n4:c1:m2:h4:d7:g3:t7"
-        ));
+        assert!(frame.contains("RUNTIME-STACK-DEPTH: stackdepth:p2:n4:c1:m2:h4:d7:g3:t7"));
         assert!(frame.contains(
             "RUNTIME-STACK-DETAIL: stackd:f=input:g3:t7:p=input:m1:fo0:i53:n=warn:h1:r1:i1:w1:c1:7/8:sid404"
         ));
@@ -6014,27 +6023,22 @@ mod tests {
             "RUNTIME-COMMAND-DETAIL: cmdd:sample11,22,33:grp2#3@11,4#1@99:bld327686:rect-3:4:12:18:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
         ));
         assert!(frame.contains("RUNTIME-ADMIN: admin:t56@123456:f76:dbg57/58@12:f231"));
-        assert!(frame.contains(
-            "RUNTIME-ADMIN-DETAIL: admind:tr56/76@123456:dbg57/77:udbg58/78:last12"
-        ));
-        assert!(frame.contains(
-            "RUNTIME-RULES: rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"
-        ));
-        assert!(frame.contains(
-            "RUNTIME-RULES-DETAIL: rulesd:set67:obj69:rule71:clr73:done74"
-        ));
+        assert!(
+            frame.contains("RUNTIME-ADMIN-DETAIL: admind:tr56/76@123456:dbg57/77:udbg58/78:last12")
+        );
+        assert!(frame
+            .contains("RUNTIME-RULES: rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"));
+        assert!(frame.contains("RUNTIME-RULES-DETAIL: rulesd:set67:obj69:rule71:clr73:done74"));
         assert!(frame.contains(
             "RUNTIME-WORLD-LABEL: wlabel:set19:rel20:rm21:tot60:act2:inact1:last904:f3:fs1094713344@12.0:z1082130432@4.0:pos40.0:60.0:txtworld_label:l1:n11"
         ));
         assert!(frame.contains(
             "RUNTIME-WORLD-LABEL-DETAIL: wlabeld:set19:rel20:rm21:act2:in1:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0"
         ));
-        assert!(frame.contains(
-            "RUNTIME-MARKER: marker:cr54:rm55:up56:txt57:tex58:f2:last808:ctlflushText"
-        ));
-        assert!(frame.contains(
-            "RUNTIME-MARKER-DETAIL: markerd:tot280:mut165:txt57:tex58:f2:last808:c9"
-        ));
+        assert!(frame
+            .contains("RUNTIME-MARKER: marker:cr54:rm55:up56:txt57:tex58:f2:last808:ctlflushText"));
+        assert!(frame
+            .contains("RUNTIME-MARKER-DETAIL: markerd:tot280:mut165:txt57:tex58:f2:last808:c9"));
         assert!(frame.contains(
             "RUNTIME-SESSION: sess:bootstrap=rules=rules-hash-1:tags=tags-hash-2:locales=locales-hash-3:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7;cb=core:first-core-per-team:a1@1:m1@4;rd=resd:tile80/81/82/83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3@to_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1;k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
         ));
@@ -6063,9 +6067,8 @@ mod tests {
         ));
         assert!(frame.contains("RUNTIME-WORLD-RELOAD-DETAIL: reloadd:lw1:cl0:rd1:cc0:p4:d5:r6"));
         assert!(frame.contains("RUNTIME-CORE-BINDING: core:first-core-per-team:a1@1:m1@4"));
-        assert!(frame.contains(
-            "RUNTIME-CORE-BINDING-DETAIL: cored:first-core-per-team:a1:s1@1:m1:s1@4"
-        ));
+        assert!(frame
+            .contains("RUNTIME-CORE-BINDING-DETAIL: cored:first-core-per-team:a1:s1@1:m1:s1@4"));
         assert!(frame.contains(
             "RUNTIME-RECONNECT: reconnect:attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
         ));
@@ -6351,8 +6354,60 @@ mod tests {
         assert!(frame.contains(
             "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match src=tileConfig block=alpha head=10,12"
         ));
-        assert!(frame
-            .contains("BUILD-QUEUE-DETAIL: q=2 i=1 f=4 r=5 o=6 h=queued@10:12:place:b301:r1"));
+        assert!(
+            frame.contains("BUILD-QUEUE-DETAIL: q=2 i=1 f=4 r=5 o=6 h=queued@10:12:place:b301:r1")
+        );
+    }
+
+    #[test]
+    fn ascii_presenter_emits_full_build_config_entry_breakdown() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let hud = HudModel {
+            build_ui: Some(BuildUiObservability {
+                inspector_entries: vec![
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "gamma".to_string(),
+                        tracked_count: 2,
+                        sample: "g2".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "alpha".to_string(),
+                        tracked_count: 4,
+                        sample: "a4".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "beta".to_string(),
+                        tracked_count: 4,
+                        sample: "b4".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "delta".to_string(),
+                        tracked_count: 1,
+                        sample: "d1".to_string(),
+                    },
+                ],
+                ..BuildUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:1/4:alpha#4@a4"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:2/4:beta#4@b4"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:3/4:gamma#2@g2"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: cfgentry:4/4:delta#1@d1"));
+        assert!(!frame.contains("cfgentry:1/3"));
     }
 
     #[test]
@@ -6544,9 +6599,7 @@ mod tests {
         presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
 
         let frame = presenter.last_frame();
-        assert!(frame.contains(
-            "RUNTIME-NOTICE-STATE: notice-state:n=warn@warn:c4:h1:r1:i1:w1"
-        ));
+        assert!(frame.contains("RUNTIME-NOTICE-STATE: notice-state:n=warn@warn:c4:h1:r1:i1:w1"));
     }
 
     #[test]
@@ -6711,12 +6764,10 @@ mod tests {
         presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
 
         let frame = presenter.last_frame();
-        assert!(frame.contains(
-            "RUNTIME-STACK: stack:f=chat:p0@none:n=none@none:c1:g1:t1:tin404:s42"
-        ));
-        assert!(frame.contains(
-            "RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:m0:h0:d1:g1:t1"
-        ));
+        assert!(
+            frame.contains("RUNTIME-STACK: stack:f=chat:p0@none:n=none@none:c1:g1:t1:tin404:s42")
+        );
+        assert!(frame.contains("RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:m0:h0:d1:g1:t1"));
         assert!(frame.contains(
             "RUNTIME-STACK-DETAIL: stackd:f=chat:g1:t1:p=none:m0:fo0:i1:n=none:h0:r0:i0:w0:c1:1/2:sid42"
         ));
@@ -7018,9 +7069,7 @@ mod tests {
             .expect("render rect line");
         let render_icon_pos = frame
             .lines()
-            .position(|line| {
-                line.starts_with("RENDER-ICON: count=1 runtime-health/health@32:1:0")
-            })
+            .position(|line| line.starts_with("RENDER-ICON: count=1 runtime-health/health@32:1:0"))
             .expect("render icon line");
 
         assert!(render_pipeline_pos < render_layer_pos);
