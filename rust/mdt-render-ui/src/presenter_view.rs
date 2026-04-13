@@ -591,6 +591,52 @@ pub(crate) fn format_runtime_dialog_detail_text(
     )
 }
 
+pub(crate) fn format_runtime_notice_state_panel_text(
+    panel: &RuntimeNoticeStatePanelModel,
+) -> String {
+    let notice_text = format!(
+        "{}@{}",
+        format_runtime_dialog_notice_text(panel.kind),
+        compact_runtime_ui_text(panel.text.as_deref())
+    );
+    let layers = panel.layer_labels();
+    let source = layers.last().copied().unwrap_or("none");
+    let active_layers = if layers.is_empty() {
+        "none".to_string()
+    } else {
+        layers.join(">")
+    };
+    format!(
+        "notice-state:n={}:src={}:layers={}:c{}",
+        notice_text, source, active_layers, panel.count
+    )
+}
+
+pub(crate) fn format_runtime_notice_state_detail_text(
+    panel: &RuntimeNoticeStatePanelModel,
+) -> String {
+    let notice_text = format!(
+        "{}@{}",
+        format_runtime_dialog_notice_text(panel.kind),
+        compact_runtime_ui_text(panel.text.as_deref())
+    );
+    let layers = panel.layer_labels().join(">");
+    let source = panel.layer_labels().last().copied().unwrap_or("none");
+    format!(
+        "nstated:n={}:src={}:c{}:d{}:l{}:layers={}",
+        notice_text,
+        source,
+        panel.count,
+        panel.depth(),
+        panel.text_len(),
+        if layers.is_empty() {
+            "none"
+        } else {
+            layers.as_str()
+        },
+    )
+}
+
 pub(crate) fn format_runtime_command_i32_list_text(values: &[i32]) -> String {
     if values.is_empty() {
         "none".to_string()
@@ -882,6 +928,7 @@ mod tests {
         format_runtime_command_group_lines,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
         format_runtime_command_mode_detail_text, format_runtime_command_mode_panel_text,
+        format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_command_rect_text, format_runtime_command_stance_text,
         format_runtime_command_target_text, format_runtime_command_unit_ref_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
@@ -1095,6 +1142,42 @@ mod tests {
         assert_eq!(
             format_runtime_dialog_detail_text(&panel, &prompt, &notice),
             "dialogd:p=input:a1:m1:fo0:tin53:msg12:def5:n=warn:h1:r1:i1:w1:l4"
+        );
+    }
+
+    #[test]
+    fn format_runtime_notice_state_panel_text_preserves_field_order() {
+        let panel = RuntimeNoticeStatePanelModel {
+            kind: Some(RuntimeDialogNoticeKind::ToastWarning),
+            text: Some("warn".to_string()),
+            count: 48,
+            hud_active: true,
+            reliable_hud_active: true,
+            toast_info_active: true,
+            toast_warning_active: true,
+        };
+
+        assert_eq!(
+            format_runtime_notice_state_panel_text(&panel),
+            "notice-state:n=warn@warn:src=warn:layers=hud>reliable>info>warn:c48"
+        );
+    }
+
+    #[test]
+    fn format_runtime_notice_state_detail_text_preserves_field_order() {
+        let panel = RuntimeNoticeStatePanelModel {
+            kind: Some(RuntimeDialogNoticeKind::ToastWarning),
+            text: Some("warn".to_string()),
+            count: 48,
+            hud_active: true,
+            reliable_hud_active: true,
+            toast_info_active: true,
+            toast_warning_active: true,
+        };
+
+        assert_eq!(
+            format_runtime_notice_state_detail_text(&panel),
+            "nstated:n=warn@warn:src=warn:c48:d4:l4:layers=hud>reliable>info>warn"
         );
     }
 

@@ -22,6 +22,7 @@ use crate::presenter_view::{
     format_counted_detail_text, format_counted_preview_text,
     format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
     format_runtime_command_mode_panel_text, format_runtime_command_unit_ref_text,
+    format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
     format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
     format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
     format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
@@ -1813,53 +1814,12 @@ fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_notice_state_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_notice_state_panel(hud)?;
-    let notice_text = format!(
-        "{}@{}",
-        format_runtime_dialog_notice_text(panel.kind),
-        compact_runtime_ui_text(panel.text.as_deref())
-    );
-    let layers = panel.layer_labels();
-    let source = layers.last().copied().unwrap_or("none");
-    let active_layers = if layers.is_empty() {
-        "none".to_string()
-    } else {
-        layers.join(">")
-    };
-    Some(format!(
-        "notice-state:n={}:src={}:layers={}:c{}",
-        notice_text,
-        source,
-        active_layers,
-        panel.count,
-    ))
+    Some(format_runtime_notice_state_panel_text(&panel))
 }
 
 fn compose_runtime_notice_state_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_notice_state_panel(hud)?;
-    let notice_text = format!(
-        "{}@{}",
-        format_runtime_dialog_notice_text(panel.kind),
-        compact_runtime_ui_text(panel.text.as_deref())
-    );
-    let layers = panel.layer_labels().join(">");
-    let source = panel
-        .layer_labels()
-        .last()
-        .copied()
-        .unwrap_or("none");
-    Some(format!(
-        "nstated:n={}:src={}:c{}:d{}:l{}:layers={}",
-        notice_text,
-        source,
-        panel.count,
-        panel.depth(),
-        panel.text_len(),
-        if layers.is_empty() {
-            "none"
-        } else {
-            layers.as_str()
-        },
-    ))
+    Some(format_runtime_notice_state_detail_text(&panel))
 }
 
 fn compose_runtime_rules_panel_text(hud: &HudModel) -> Option<String> {
