@@ -169,6 +169,9 @@ impl AsciiScenePresenter {
         if let Some(visibility_text) = compose_hud_visibility_text(hud) {
             out.push_str(&format!("HUD-VIS: {visibility_text}\n"));
         }
+        if let Some(visibility_detail_text) = compose_hud_visibility_detail_text(hud) {
+            out.push_str(&format!("HUD-VIS-DETAIL: {visibility_detail_text}\n"));
+        }
         if let Some(detail_text) = compose_hud_detail_text(hud) {
             out.push_str(&format!("HUD-DETAIL: {detail_text}\n"));
         }
@@ -1720,6 +1723,25 @@ fn compose_hud_visibility_text(hud: &HudModel) -> Option<String> {
         visibility.unknown_tile_percent,
         visibility.visible_map_percent(),
         visibility.hidden_map_percent(),
+    ))
+}
+
+fn compose_hud_visibility_detail_text(hud: &HudModel) -> Option<String> {
+    let summary = hud.summary.as_ref()?;
+    let visibility = build_hud_visibility_panel(hud)?;
+    Some(format!(
+        "hudvisd:s={}:ov={}:fg={}:k={}/{}:v={}/{}:h={}/{}:u={}/{}",
+        summary.visibility_label(),
+        summary.overlay_label(),
+        summary.fog_label(),
+        visibility.known_tile_count,
+        summary.map_tile_count(),
+        visibility.visible_tile_count,
+        visibility.known_tile_count,
+        visibility.hidden_tile_count,
+        visibility.known_tile_count,
+        visibility.unknown_tile_count,
+        summary.map_tile_count(),
     ))
 }
 
@@ -5288,6 +5310,49 @@ mod tests {
                     .to_string()
             )
         );
+        assert_eq!(
+            super::compose_hud_visibility_detail_text(&hud),
+            Some(
+                "hudvisd:s=mixed:ov=on:fg=on:k=144/4800:v=120/144:h=24/144:u=4656/4800"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn ascii_presenter_surfaces_hud_visibility_detail_semantics() {
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: true,
+                visible_tile_count: 120,
+                hidden_tile_count: 24,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((0, 0)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 1,
+                        height: 1,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&RenderModel::default(), &hud);
+
+        assert!(presenter.last_frame().contains(
+            "HUD-VIS-DETAIL: hudvisd:s=mixed:ov=on:fg=on:k=144/4800:v=120/144:h=24/144:u=4656/4800"
+        ));
     }
 
     #[test]

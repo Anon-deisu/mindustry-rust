@@ -1566,6 +1566,9 @@ fn compose_frame_panel_lines(
     if let Some(visibility_text) = compose_hud_visibility_status_text(hud) {
         lines.push(format!("HUD-VIS: {visibility_text}"));
     }
+    if let Some(visibility_detail_text) = compose_hud_visibility_detail_status_text(hud) {
+        lines.push(format!("HUD-VIS-DETAIL: {visibility_detail_text}"));
+    }
     if let Some(detail_text) = compose_hud_detail_status_text(hud) {
         lines.push(format!("HUD-DETAIL: {detail_text}"));
     }
@@ -2688,6 +2691,25 @@ fn compose_hud_visibility_status_text(hud: &HudModel) -> Option<String> {
         visibility.unknown_tile_percent,
         visibility.visible_map_percent(),
         visibility.hidden_map_percent(),
+    ))
+}
+
+fn compose_hud_visibility_detail_status_text(hud: &HudModel) -> Option<String> {
+    let summary = hud.summary.as_ref()?;
+    let visibility = build_hud_visibility_panel(hud)?;
+    Some(format!(
+        "hudvisd:s={}:ov={}:fg={}:k={}/{}:v={}/{}:h={}/{}:u={}/{}",
+        summary.visibility_label(),
+        summary.overlay_label(),
+        summary.fog_label(),
+        visibility.known_tile_count,
+        summary.map_tile_count(),
+        visibility.visible_tile_count,
+        visibility.known_tile_count,
+        visibility.hidden_tile_count,
+        visibility.known_tile_count,
+        visibility.unknown_tile_count,
+        summary.map_tile_count(),
     ))
 }
 
@@ -8156,6 +8178,10 @@ mod tests {
             super::compose_hud_detail_status_text(&hud),
             Some("huddet:p=operator#8:sel=payload-rout~#14:t4800:vm2:hm0:ov1:fg1:mini=f0:0:w0:0+1x1:a1".to_string())
         );
+        assert_eq!(
+            super::compose_hud_visibility_detail_status_text(&hud),
+            Some("hudvisd:s=mixed:ov=on:fg=on:k=144/4800:v=120/144:h=24/144:u=4656/4800".to_string())
+        );
     }
 
     #[test]
@@ -9840,6 +9866,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "HUD-VIS: hudvis:ov1:fg1:k144p3:v120p83:h24p16:u4656p97",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "HUD-VIS-DETAIL: hudvisd:s=mixed:ov=on:fg=on:k=144/4800:v=120/144:h=24/144:u=4656/4800",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
