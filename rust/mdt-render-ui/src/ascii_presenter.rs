@@ -1961,7 +1961,7 @@ fn compose_runtime_notice_state_detail_text(hud: &HudModel) -> Option<String> {
         .copied()
         .unwrap_or("none");
     Some(format!(
-        "notice-stated:n={}:src={}:c{}:d{}:l{}:layers={}",
+        "nstated:n={}:src={}:c{}:d{}:l{}:layers={}",
         notice_text,
         source,
         panel.count,
@@ -6764,7 +6764,7 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains(
-            "RUNTIME-NOTICE-STATE-DETAIL: notice-stated:n=warn@warn:src=warn:c4:d4:l4:layers=hud>reliable>info>warn"
+            "RUNTIME-NOTICE-STATE-DETAIL: nstated:n=warn@warn:src=warn:c4:d4:l4:layers=hud>reliable>info>warn"
         ));
     }
 
