@@ -168,12 +168,36 @@ pub(crate) fn world_tile_coords(x: f32, y: f32, tile_size: f32) -> Option<(i32, 
     ))
 }
 
+pub(crate) fn world_rect_tile_coords(
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+    tile_size: f32,
+) -> Option<(i32, i32, i32, i32)> {
+    if !left.is_finite()
+        || !top.is_finite()
+        || !right.is_finite()
+        || !bottom.is_finite()
+        || !tile_size.is_finite()
+        || tile_size <= 0.0
+    {
+        return None;
+    }
+    Some((
+        world_to_tile_index_floor(left, tile_size),
+        world_to_tile_index_floor(top, tile_size),
+        world_to_tile_index_floor(right, tile_size),
+        world_to_tile_index_floor(bottom, tile_size),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         crop_origin, crop_window, crop_window_to_focus, normalize_zoom, projected_window,
-        visible_window_tile, world_tile_coords, world_to_tile_index_floor, zoomed_view_tile_span,
-        CropWindowMode,
+        visible_window_tile, world_rect_tile_coords, world_tile_coords,
+        world_to_tile_index_floor, zoomed_view_tile_span, CropWindowMode,
     };
     use crate::{RenderModel, RenderObject, Viewport};
 
@@ -371,6 +395,23 @@ mod tests {
         assert_eq!(world_tile_coords(f32::NAN, 24.0, TILE_SIZE), None);
         assert_eq!(world_tile_coords(40.0, f32::INFINITY, TILE_SIZE), None);
         assert_eq!(world_tile_coords(40.0, 24.0, 0.0), None);
+    }
+
+    #[test]
+    fn world_rect_tile_coords_rejects_non_finite_positions_and_invalid_tile_size() {
+        assert_eq!(
+            world_rect_tile_coords(8.0, 16.0, 24.0, 32.0, TILE_SIZE),
+            Some((1, 2, 3, 4))
+        );
+        assert_eq!(
+            world_rect_tile_coords(f32::NAN, 16.0, 24.0, 32.0, TILE_SIZE),
+            None
+        );
+        assert_eq!(
+            world_rect_tile_coords(8.0, 16.0, 24.0, f32::NEG_INFINITY, TILE_SIZE),
+            None
+        );
+        assert_eq!(world_rect_tile_coords(8.0, 16.0, 24.0, 32.0, 0.0), None);
     }
 
     #[test]

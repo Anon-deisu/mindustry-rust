@@ -17,7 +17,8 @@ use crate::{
         RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
     },
     presenter_view::{
-        crop_window, visible_window_tile, world_tile_coords, CropWindowMode,
+        crop_window, visible_window_tile, world_rect_tile_coords, world_tile_coords,
+        CropWindowMode,
     },
     render_model::{
         RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -1296,15 +1297,7 @@ fn finite_rect_tile_coords(
     right: f32,
     bottom: f32,
 ) -> Option<(i32, i32, i32, i32)> {
-    if !left.is_finite() || !top.is_finite() || !right.is_finite() || !bottom.is_finite() {
-        return None;
-    }
-    Some((
-        crate::presenter_view::world_to_tile_index_floor(left, TILE_SIZE),
-        crate::presenter_view::world_to_tile_index_floor(top, TILE_SIZE),
-        crate::presenter_view::world_to_tile_index_floor(right, TILE_SIZE),
-        crate::presenter_view::world_to_tile_index_floor(bottom, TILE_SIZE),
-    ))
+    world_rect_tile_coords(left, top, right, bottom, TILE_SIZE)
 }
 
 fn window_world_object_tile(object: &RenderObject) -> Option<(i32, i32)> {
