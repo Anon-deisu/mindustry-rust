@@ -14,13 +14,18 @@ use crate::{
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
-        RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
+        RuntimeUiNoticePanelModel,
     },
     presenter_view::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
         format_counted_detail_text, format_counted_preview_text,
+        format_runtime_command_control_group_operation_text,
+        format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
+        format_runtime_command_rect_text, format_runtime_command_stance_text,
+        format_runtime_command_target_text, format_runtime_command_unit_ref_text,
+        format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
         format_live_effect_ttl_text,
         format_live_effect_position_source_text, format_render_icon_signature,
@@ -2720,7 +2725,7 @@ fn compose_runtime_notice_state_panel_status_text(hud: &HudModel) -> Option<Stri
     let panel = build_runtime_notice_state_panel(hud)?;
     let notice_text = format!(
         "{}@{}",
-        runtime_dialog_notice_status_text(panel.kind),
+        format_runtime_dialog_notice_text(panel.kind),
         compact_runtime_ui_text(panel.text.as_deref())
     );
     let layers = panel.layer_labels();
@@ -2743,7 +2748,7 @@ fn compose_runtime_notice_state_detail_status_text(hud: &HudModel) -> Option<Str
     let panel = build_runtime_notice_state_panel(hud)?;
     let notice_text = format!(
         "{}@{}",
-        runtime_dialog_notice_status_text(panel.kind),
+        format_runtime_dialog_notice_text(panel.kind),
         compact_runtime_ui_text(panel.text.as_deref())
     );
     let layers = panel.layer_labels().join(">");
@@ -2901,7 +2906,7 @@ fn compose_runtime_prompt_panel_status_text(hud: &HudModel) -> Option<String> {
     let layers = panel.layer_labels().join(">");
     Some(format!(
         "prompt:k={}:a{}:d{}:l={}:m{}:fo{}:tin{}@{}:{}/{}/{}#{}:n{}:e{}",
-        runtime_dialog_prompt_status_text(panel.kind),
+        format_runtime_dialog_prompt_text(panel.kind),
         if panel.is_active() { 1 } else { 0 },
         panel.depth(),
         if layers.is_empty() {
@@ -2947,7 +2952,7 @@ fn compose_runtime_dialog_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_dialog_panel(hud)?;
     Some(format!(
         "dialog:p={}:a{}:m{}/f{}/h{}:tin{}@{}:{}/{}/{}#{}:n{}:e{}:n={}@{}:c{}",
-        runtime_dialog_prompt_status_text(panel.prompt_kind),
+        format_runtime_dialog_prompt_text(panel.prompt_kind),
         if panel.prompt_active { 1 } else { 0 },
         panel.menu_open_count,
         panel.follow_up_menu_open_count,
@@ -2960,7 +2965,7 @@ fn compose_runtime_dialog_panel_status_text(hud: &HudModel) -> Option<String> {
         panel.text_input_last_length.unwrap_or_default(),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
-        runtime_dialog_notice_status_text(panel.notice_kind),
+        format_runtime_dialog_notice_text(panel.notice_kind),
         compact_runtime_ui_text(panel.notice_text.as_deref()),
         panel.notice_count,
     ))
@@ -2975,14 +2980,14 @@ fn compose_runtime_dialog_detail_status_text(hud: &HudModel) -> Option<String> {
     }
     Some(format!(
         "dialogd:p={}:a{}:m{}:fo{}:tin{}:msg{}:def{}:n={}:h{}:r{}:i{}:w{}:l{}",
-        runtime_dialog_prompt_status_text(prompt.kind),
+        format_runtime_dialog_prompt_text(prompt.kind),
         if prompt.is_active() { 1 } else { 0 },
         if prompt.menu_active() { 1 } else { 0 },
         panel.outstanding_follow_up_count(),
         prompt.text_input_open_count,
         panel.prompt_message_len(),
         panel.default_text_len(),
-        runtime_dialog_notice_status_text(notice.kind),
+        format_runtime_dialog_notice_text(notice.kind),
         if notice.hud_active { 1 } else { 0 },
         if notice.reliable_hud_active { 1 } else { 0 },
         if notice.toast_info_active { 1 } else { 0 },
@@ -3035,7 +3040,7 @@ fn compose_runtime_stack_panel_status_text(hud: &HudModel) -> Option<String> {
         } else {
             prompt_layers.as_str()
         },
-        runtime_dialog_notice_status_text(panel.notice_kind),
+        format_runtime_dialog_notice_text(panel.notice_kind),
         if notice_layers.is_empty() {
             "none"
         } else {
@@ -3059,11 +3064,11 @@ fn compose_runtime_stack_detail_status_text(hud: &HudModel) -> Option<String> {
         panel.foreground_label(),
         panel.active_group_count(),
         panel.total_depth(),
-        runtime_dialog_prompt_status_text(panel.prompt.kind),
+        format_runtime_dialog_prompt_text(panel.prompt.kind),
         if panel.prompt.menu_active() { 1 } else { 0 },
         panel.prompt.outstanding_follow_up_count(),
         panel.prompt.text_input_open_count,
-        runtime_dialog_notice_status_text(panel.notice.kind),
+        format_runtime_dialog_notice_text(panel.notice.kind),
         if panel.notice.hud_active { 1 } else { 0 },
         if panel.notice.reliable_hud_active {
             1
@@ -3144,19 +3149,19 @@ fn compose_runtime_command_mode_panel_status_text(hud: &HudModel) -> Option<Stri
         "cmd:act{}:sel{}@{}:bld{}@{}:rect{}:grp{}:op{}:t{}:c{}:s{}",
         if panel.active { 1 } else { 0 },
         panel.selected_unit_count,
-        command_i32_status_text(&panel.selected_unit_sample),
+        format_runtime_command_i32_list_text(&panel.selected_unit_sample),
         panel.command_building_count,
         optional_i32_label(panel.first_command_building),
-        command_rect_status_text(panel.command_rect),
-        command_control_groups_status_text(&panel.control_groups),
-        command_control_group_operation_status_text(panel.last_control_group_operation),
-        command_target_status_text(panel.last_target),
+        format_runtime_command_rect_text(panel.command_rect),
+        format_runtime_command_control_groups_text(&panel.control_groups),
+        format_runtime_command_control_group_operation_text(panel.last_control_group_operation),
+        format_runtime_command_target_text(panel.last_target),
         optional_u8_label(
             panel
                 .last_command_selection
                 .and_then(|selection| selection.command_id)
         ),
-        command_stance_status_text(panel.last_stance_selection),
+        format_runtime_command_stance_text(panel.last_stance_selection),
     ))
 }
 
@@ -3164,18 +3169,18 @@ fn compose_runtime_command_mode_detail_status_text(hud: &HudModel) -> Option<Str
     let panel = build_runtime_command_mode_panel(hud)?;
     Some(format!(
         "cmdd:sample{}:grp{}:op{}:bld{}:rect{}:t{}:c{}:s{}",
-        command_i32_status_text(&panel.selected_unit_sample),
-        command_control_groups_status_text(&panel.control_groups),
-        command_control_group_operation_status_text(panel.last_control_group_operation),
+        format_runtime_command_i32_list_text(&panel.selected_unit_sample),
+        format_runtime_command_control_groups_text(&panel.control_groups),
+        format_runtime_command_control_group_operation_text(panel.last_control_group_operation),
         optional_i32_label(panel.first_command_building),
-        command_rect_status_text(panel.command_rect),
-        command_target_status_text(panel.last_target),
+        format_runtime_command_rect_text(panel.command_rect),
+        format_runtime_command_target_text(panel.last_target),
         optional_u8_label(
             panel
                 .last_command_selection
                 .and_then(|selection| selection.command_id)
         ),
-        command_stance_status_text(panel.last_stance_selection),
+        format_runtime_command_stance_text(panel.last_stance_selection),
     ))
 }
 
@@ -3199,12 +3204,6 @@ fn compose_runtime_command_group_status_lines(hud: &HudModel) -> Vec<String> {
             )
         })
         .collect()
-}
-
-fn command_control_group_operation_status_text(
-    value: Option<crate::RuntimeCommandRecentControlGroupOperationObservability>,
-) -> &'static str {
-    value.map(|operation| operation.label()).unwrap_or("none")
 }
 
 fn compose_runtime_admin_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -3473,7 +3472,7 @@ fn compose_runtime_resource_delta_panel_status_text(
         optional_i16_label(resource_delta.last_item_id),
         optional_i32_label(resource_delta.last_amount),
         optional_i32_label(resource_delta.last_build_pos),
-        command_unit_ref_status_text(resource_delta.last_unit),
+        format_runtime_command_unit_ref_text(resource_delta.last_unit),
         optional_i32_label(resource_delta.last_to_entity_id),
         resource_delta.build_count,
         resource_delta.build_stack_count,
@@ -3513,7 +3512,7 @@ fn compose_runtime_resource_delta_detail_panel_status_text(
         optional_i16_label(resource_delta.last_item_id),
         optional_i32_label(resource_delta.last_amount),
         optional_i32_label(resource_delta.last_build_pos),
-        command_unit_ref_status_text(resource_delta.last_unit),
+        format_runtime_command_unit_ref_text(resource_delta.last_unit),
         optional_i32_label(resource_delta.last_to_entity_id),
         resource_delta.build_count,
         resource_delta.build_stack_count,
@@ -5117,101 +5116,6 @@ fn bool_flag(value: bool) -> char {
     } else {
         '0'
     }
-}
-
-fn runtime_dialog_prompt_status_text(kind: Option<RuntimeDialogPromptKind>) -> &'static str {
-    match kind {
-        Some(RuntimeDialogPromptKind::Menu) => "menu",
-        Some(RuntimeDialogPromptKind::FollowUpMenu) => "follow",
-        Some(RuntimeDialogPromptKind::TextInput) => "input",
-        None => "none",
-    }
-}
-
-fn runtime_dialog_notice_status_text(kind: Option<RuntimeDialogNoticeKind>) -> &'static str {
-    match kind {
-        Some(RuntimeDialogNoticeKind::Hud) => "hud",
-        Some(RuntimeDialogNoticeKind::HudReliable) => "hud-rel",
-        Some(RuntimeDialogNoticeKind::ToastInfo) => "toast",
-        Some(RuntimeDialogNoticeKind::ToastWarning) => "warn",
-        None => "none",
-    }
-}
-
-fn command_i32_status_text(values: &[i32]) -> String {
-    if values.is_empty() {
-        "none".to_string()
-    } else {
-        values
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(",")
-    }
-}
-
-fn command_rect_status_text(value: Option<crate::RuntimeCommandRectObservability>) -> String {
-    value
-        .map(|rect| format!("{}:{}:{}:{}", rect.x0, rect.y0, rect.x1, rect.y1))
-        .unwrap_or_else(|| "none".to_string())
-}
-
-fn command_control_groups_status_text(
-    groups: &[crate::panel_model::RuntimeCommandControlGroupPanelModel],
-) -> String {
-    if groups.is_empty() {
-        return "none".to_string();
-    }
-    groups
-        .iter()
-        .map(|group| {
-            format!(
-                "{}#{}@{}",
-                group.index,
-                group.unit_count,
-                optional_i32_label(group.first_unit_id)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
-fn command_target_status_text(value: Option<crate::RuntimeCommandTargetObservability>) -> String {
-    let Some(value) = value else {
-        return "none".to_string();
-    };
-    let unit_target = command_unit_ref_status_text(value.unit_target);
-    let position_target = value
-        .position_target
-        .map(|position| format!("0x{:08x}:0x{:08x}", position.x_bits, position.y_bits))
-        .unwrap_or_else(|| "none".to_string());
-    format!(
-        "b{}:u{}:p{}:r{}",
-        optional_i32_label(value.build_target),
-        unit_target,
-        position_target,
-        command_rect_status_text(value.rect_target)
-    )
-}
-
-fn command_unit_ref_status_text(
-    value: Option<crate::RuntimeCommandUnitRefObservability>,
-) -> String {
-    value
-        .map(|unit| format!("{}:{}", unit.kind, unit.value))
-        .unwrap_or_else(|| "none".to_string())
-}
-
-fn command_stance_status_text(value: Option<crate::RuntimeCommandStanceObservability>) -> String {
-    value
-        .map(|stance| {
-            format!(
-                "{}/{}",
-                optional_u8_label(stance.stance_id),
-                if stance.enabled { 1 } else { 0 }
-            )
-        })
-        .unwrap_or_else(|| "none".to_string())
 }
 
 fn scaled_surface_metrics(

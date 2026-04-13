@@ -1,7 +1,13 @@
 use crate::{
-    panel_model::{MinimapPanelModel, PresenterViewWindow},
+    panel_model::{
+        MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
+        RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+    },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
-    BuildQueueHeadStage, RenderModel, RenderObject, RuntimeLiveEffectPositionSource,
+    BuildQueueHeadStage, RenderModel, RenderObject,
+    RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
+    RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
+    RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
     RuntimeWorldPositionObservability,
 };
 
@@ -436,6 +442,129 @@ pub(crate) fn format_world_position_status_text(
     }
 }
 
+pub(crate) fn format_runtime_dialog_prompt_text(
+    kind: Option<RuntimeDialogPromptKind>,
+) -> &'static str {
+    match kind {
+        Some(RuntimeDialogPromptKind::Menu) => "menu",
+        Some(RuntimeDialogPromptKind::FollowUpMenu) => "follow",
+        Some(RuntimeDialogPromptKind::TextInput) => "input",
+        None => "none",
+    }
+}
+
+pub(crate) fn format_runtime_dialog_notice_text(
+    kind: Option<RuntimeDialogNoticeKind>,
+) -> &'static str {
+    match kind {
+        Some(RuntimeDialogNoticeKind::Hud) => "hud",
+        Some(RuntimeDialogNoticeKind::HudReliable) => "hud-rel",
+        Some(RuntimeDialogNoticeKind::ToastInfo) => "toast",
+        Some(RuntimeDialogNoticeKind::ToastWarning) => "warn",
+        None => "none",
+    }
+}
+
+pub(crate) fn format_runtime_command_i32_list_text(values: &[i32]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
+pub(crate) fn format_runtime_command_rect_text(
+    value: Option<RuntimeCommandRectObservability>,
+) -> String {
+    value
+        .map(|rect| format!("{}:{}:{}:{}", rect.x0, rect.y0, rect.x1, rect.y1))
+        .unwrap_or_else(|| "none".to_string())
+}
+
+pub(crate) fn format_runtime_command_control_groups_text(
+    groups: &[RuntimeCommandControlGroupPanelModel],
+) -> String {
+    if groups.is_empty() {
+        return "none".to_string();
+    }
+    groups
+        .iter()
+        .map(|group| {
+            format!(
+                "{}#{}@{}",
+                group.index,
+                group.unit_count,
+                format_optional_i32_text(group.first_unit_id)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+pub(crate) fn format_runtime_command_control_group_operation_text(
+    value: Option<RuntimeCommandRecentControlGroupOperationObservability>,
+) -> &'static str {
+    value.map(|operation| operation.label()).unwrap_or("none")
+}
+
+pub(crate) fn format_runtime_command_unit_ref_text(
+    value: Option<RuntimeCommandUnitRefObservability>,
+) -> String {
+    value
+        .map(|unit| format!("{}:{}", unit.kind, unit.value))
+        .unwrap_or_else(|| "none".to_string())
+}
+
+pub(crate) fn format_runtime_command_target_text(
+    value: Option<RuntimeCommandTargetObservability>,
+) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    let unit_target = format_runtime_command_unit_ref_text(value.unit_target);
+    let position_target = value
+        .position_target
+        .map(|position| format!("0x{:08x}:0x{:08x}", position.x_bits, position.y_bits))
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "b{}:u{}:p{}:r{}",
+        format_optional_i32_text(value.build_target),
+        unit_target,
+        position_target,
+        format_runtime_command_rect_text(value.rect_target)
+    )
+}
+
+pub(crate) fn format_runtime_command_stance_text(
+    value: Option<RuntimeCommandStanceObservability>,
+) -> String {
+    value
+        .map(|stance| {
+            format!(
+                "{}/{}",
+                format_optional_u8_text(stance.stance_id),
+                if stance.enabled { 1 } else { 0 }
+            )
+        })
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn format_optional_i32_text(value: Option<i32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn format_optional_u8_text(value: Option<u8>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
 pub(crate) fn format_live_effect_position_source_text(
     source: Option<RuntimeLiveEffectPositionSource>,
 ) -> &'static str {
@@ -551,6 +680,11 @@ mod tests {
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
         format_counted_detail_text, format_counted_preview_text,
+        format_runtime_command_control_group_operation_text,
+        format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
+        format_runtime_command_rect_text, format_runtime_command_stance_text,
+        format_runtime_command_target_text, format_runtime_command_unit_ref_text,
+        format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
         format_live_effect_ttl_text,
         format_live_effect_position_source_text, format_render_icon_signature,
@@ -564,9 +698,15 @@ mod tests {
         world_to_tile_index_floor, zoomed_view_tile_span, CropWindowMode,
     };
     use crate::{
-        panel_model::{MinimapPanelModel, PresenterViewWindow},
+        panel_model::{
+            MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
+            RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        },
         render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
-        BuildQueueHeadStage, RenderModel, RenderObject, RuntimeLiveEffectPositionSource,
+        BuildQueueHeadStage, RenderModel, RenderObject,
+        RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
+        RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
+        RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
         RuntimeWorldPositionObservability, Viewport,
     };
     use std::collections::BTreeMap;
@@ -639,6 +779,126 @@ mod tests {
         assert_eq!(cropped.origin_y, 1);
         assert_eq!(cropped.width, 4);
         assert_eq!(cropped.height, 4);
+    }
+
+    #[test]
+    fn format_runtime_dialog_text_helpers_map_variants() {
+        assert_eq!(
+            format_runtime_dialog_prompt_text(Some(RuntimeDialogPromptKind::Menu)),
+            "menu"
+        );
+        assert_eq!(
+            format_runtime_dialog_prompt_text(Some(RuntimeDialogPromptKind::FollowUpMenu)),
+            "follow"
+        );
+        assert_eq!(
+            format_runtime_dialog_prompt_text(Some(RuntimeDialogPromptKind::TextInput)),
+            "input"
+        );
+        assert_eq!(format_runtime_dialog_prompt_text(None), "none");
+
+        assert_eq!(
+            format_runtime_dialog_notice_text(Some(RuntimeDialogNoticeKind::Hud)),
+            "hud"
+        );
+        assert_eq!(
+            format_runtime_dialog_notice_text(Some(RuntimeDialogNoticeKind::HudReliable)),
+            "hud-rel"
+        );
+        assert_eq!(
+            format_runtime_dialog_notice_text(Some(RuntimeDialogNoticeKind::ToastInfo)),
+            "toast"
+        );
+        assert_eq!(
+            format_runtime_dialog_notice_text(Some(RuntimeDialogNoticeKind::ToastWarning)),
+            "warn"
+        );
+        assert_eq!(format_runtime_dialog_notice_text(None), "none");
+    }
+
+    #[test]
+    fn format_runtime_command_leaf_text_helpers_format_expected_payloads() {
+        assert_eq!(format_runtime_command_i32_list_text(&[]), "none");
+        assert_eq!(format_runtime_command_i32_list_text(&[11, 22, 33]), "11,22,33");
+
+        assert_eq!(format_runtime_command_rect_text(None), "none");
+        assert_eq!(
+            format_runtime_command_rect_text(Some(RuntimeCommandRectObservability {
+                x0: -3,
+                y0: 4,
+                x1: 12,
+                y1: 18,
+            })),
+            "-3:4:12:18"
+        );
+
+        assert_eq!(
+            format_runtime_command_control_groups_text(&[
+                RuntimeCommandControlGroupPanelModel {
+                    index: 2,
+                    unit_count: 3,
+                    first_unit_id: Some(11),
+                },
+                RuntimeCommandControlGroupPanelModel {
+                    index: 4,
+                    unit_count: 1,
+                    first_unit_id: Some(99),
+                },
+            ]),
+            "2#3@11,4#1@99"
+        );
+        assert_eq!(
+            format_runtime_command_control_group_operation_text(Some(
+                RuntimeCommandRecentControlGroupOperationObservability::Recall
+            )),
+            "group-recall"
+        );
+        assert_eq!(
+            format_runtime_command_control_group_operation_text(None),
+            "none"
+        );
+    }
+
+    #[test]
+    fn format_runtime_command_target_text_formats_all_optional_fields() {
+        assert_eq!(format_runtime_command_target_text(None), "none");
+        assert_eq!(
+            format_runtime_command_target_text(Some(RuntimeCommandTargetObservability {
+                build_target: Some(589834),
+                unit_target: Some(RuntimeCommandUnitRefObservability { kind: 2, value: 808 }),
+                position_target: Some(RuntimeWorldPositionObservability {
+                    x_bits: 0x4240_0000,
+                    y_bits: 0x42c0_0000,
+                }),
+                rect_target: Some(RuntimeCommandRectObservability {
+                    x0: 1,
+                    y0: 2,
+                    x1: 3,
+                    y1: 4,
+                }),
+            })),
+            "b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4"
+        );
+    }
+
+    #[test]
+    fn format_runtime_command_unit_and_stance_text_handle_missing_values() {
+        assert_eq!(format_runtime_command_unit_ref_text(None), "none");
+        assert_eq!(
+            format_runtime_command_unit_ref_text(Some(RuntimeCommandUnitRefObservability {
+                kind: 2,
+                value: 808,
+            })),
+            "2:808"
+        );
+        assert_eq!(format_runtime_command_stance_text(None), "none");
+        assert_eq!(
+            format_runtime_command_stance_text(Some(RuntimeCommandStanceObservability {
+                stance_id: Some(7),
+                enabled: false,
+            })),
+            "7/0"
+        );
     }
 
     #[test]
