@@ -2866,14 +2866,19 @@ fn compose_runtime_notice_state_panel_status_text(hud: &HudModel) -> Option<Stri
         runtime_dialog_notice_status_text(panel.kind),
         compact_runtime_ui_text(panel.text.as_deref())
     );
+    let layers = panel.layer_labels();
+    let source = layers.last().copied().unwrap_or("none");
+    let active_layers = if layers.is_empty() {
+        "none".to_string()
+    } else {
+        layers.join(">")
+    };
     Some(format!(
-        "notice-state:n={}:c{}:h{}:r{}:i{}:w{}",
+        "notice-state:n={}:src={}:layers={}:c{}",
         notice_text,
+        source,
+        active_layers,
         panel.count,
-        if panel.hud_active { 1 } else { 0 },
-        if panel.reliable_hud_active { 1 } else { 0 },
-        if panel.toast_info_active { 1 } else { 0 },
-        if panel.toast_warning_active { 1 } else { 0 },
     ))
 }
 
@@ -2885,9 +2890,15 @@ fn compose_runtime_notice_state_detail_status_text(hud: &HudModel) -> Option<Str
         compact_runtime_ui_text(panel.text.as_deref())
     );
     let layers = panel.layer_labels().join(">");
+    let source = panel
+        .layer_labels()
+        .last()
+        .copied()
+        .unwrap_or("none");
     Some(format!(
-        "notice-stated:n={}:c{}:d{}:l{}:layers={}",
+        "notice-stated:n={}:src={}:c{}:d{}:l{}:layers={}",
         notice_text,
+        source,
         panel.count,
         panel.depth(),
         panel.text_len(),
@@ -10545,7 +10556,7 @@ mod tests {
         let frame = backend.frames.last().unwrap();
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-NOTICE-STATE: notice-state:n=warn@warn:c4:h1:r1:i1:w1",
+            "RUNTIME-NOTICE-STATE: notice-state:n=warn@warn:src=warn:layers=hud>reliable>info>warn:c4",
         );
     }
 
@@ -10572,7 +10583,7 @@ mod tests {
         let frame = backend.frames.last().unwrap();
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-NOTICE-STATE-DETAIL: notice-stated:n=warn@warn:c4:d4:l4:layers=hud>reliable>info>warn",
+            "RUNTIME-NOTICE-STATE-DETAIL: notice-stated:n=warn@warn:src=warn:c4:d4:l4:layers=hud>reliable>info>warn",
         );
     }
 
