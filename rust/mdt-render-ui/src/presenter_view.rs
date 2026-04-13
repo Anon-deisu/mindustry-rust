@@ -1,7 +1,8 @@
 use crate::{
     panel_model::{
         MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
-        RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
+        RuntimeCommandModePanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        RuntimeUiNoticePanelModel,
     },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     BuildQueueHeadStage, RenderModel, RenderObject,
@@ -632,6 +633,70 @@ pub(crate) fn format_runtime_command_stance_text(
         .unwrap_or_else(|| "none".to_string())
 }
 
+pub(crate) fn format_runtime_command_mode_panel_text(
+    panel: &RuntimeCommandModePanelModel,
+) -> String {
+    format!(
+        "cmd:act{}:sel{}@{}:bld{}@{}:rect{}:grp{}:op{}:t{}:c{}:s{}",
+        if panel.active { 1 } else { 0 },
+        panel.selected_unit_count,
+        format_runtime_command_i32_list_text(&panel.selected_unit_sample),
+        panel.command_building_count,
+        format_optional_i32_text(panel.first_command_building),
+        format_runtime_command_rect_text(panel.command_rect),
+        format_runtime_command_control_groups_text(&panel.control_groups),
+        format_runtime_command_control_group_operation_text(panel.last_control_group_operation),
+        format_runtime_command_target_text(panel.last_target),
+        format_optional_u8_text(
+            panel
+                .last_command_selection
+                .and_then(|selection| selection.command_id),
+        ),
+        format_runtime_command_stance_text(panel.last_stance_selection),
+    )
+}
+
+pub(crate) fn format_runtime_command_mode_detail_text(
+    panel: &RuntimeCommandModePanelModel,
+) -> String {
+    format!(
+        "cmdd:sample{}:grp{}:op{}:bld{}:rect{}:t{}:c{}:s{}",
+        format_runtime_command_i32_list_text(&panel.selected_unit_sample),
+        format_runtime_command_control_groups_text(&panel.control_groups),
+        format_runtime_command_control_group_operation_text(panel.last_control_group_operation),
+        format_optional_i32_text(panel.first_command_building),
+        format_runtime_command_rect_text(panel.command_rect),
+        format_runtime_command_target_text(panel.last_target),
+        format_optional_u8_text(
+            panel
+                .last_command_selection
+                .and_then(|selection| selection.command_id),
+        ),
+        format_runtime_command_stance_text(panel.last_stance_selection),
+    )
+}
+
+pub(crate) fn format_runtime_command_group_lines(
+    panel: &RuntimeCommandModePanelModel,
+) -> Vec<String> {
+    let group_count = panel.control_groups.len();
+    panel
+        .control_groups
+        .iter()
+        .enumerate()
+        .map(|(index, group)| {
+            format!(
+                "cmdg:{}/{}:g{}#{}@{}",
+                index + 1,
+                group_count,
+                group.index,
+                group.unit_count,
+                format_optional_i32_text(group.first_unit_id)
+            )
+        })
+        .collect()
+}
+
 fn format_optional_i32_text(value: Option<i32>) -> String {
     value
         .map(|value| value.to_string())
@@ -760,7 +825,9 @@ mod tests {
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
         format_counted_detail_text, format_counted_preview_text,
         format_runtime_command_control_group_operation_text,
+        format_runtime_command_group_lines,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
+        format_runtime_command_mode_detail_text, format_runtime_command_mode_panel_text,
         format_runtime_command_rect_text, format_runtime_command_stance_text,
         format_runtime_command_target_text, format_runtime_command_unit_ref_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
@@ -779,11 +846,12 @@ mod tests {
     use crate::{
         panel_model::{
             MinimapPanelModel, PresenterViewWindow, RuntimeCommandControlGroupPanelModel,
-            RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+            RuntimeCommandModePanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
         },
         render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
         BuildQueueHeadStage, RenderModel, RenderObject,
         RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
+        RuntimeCommandSelectionObservability,
         RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
         RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
         RuntimeWorldPositionObservability, Viewport,
@@ -977,6 +1045,158 @@ mod tests {
                 enabled: false,
             })),
             "7/0"
+        );
+    }
+
+    #[test]
+    fn format_runtime_command_mode_panel_text_preserves_field_order() {
+        let panel = RuntimeCommandModePanelModel {
+            active: true,
+            selected_unit_count: 4,
+            selected_unit_sample: vec![11, 22, 33],
+            command_building_count: 2,
+            first_command_building: Some(327686),
+            command_rect: Some(RuntimeCommandRectObservability {
+                x0: -3,
+                y0: 4,
+                x1: 12,
+                y1: 18,
+            }),
+            control_groups: vec![
+                RuntimeCommandControlGroupPanelModel {
+                    index: 2,
+                    unit_count: 3,
+                    first_unit_id: Some(11),
+                },
+                RuntimeCommandControlGroupPanelModel {
+                    index: 4,
+                    unit_count: 1,
+                    first_unit_id: Some(99),
+                },
+            ],
+            last_control_group_operation: Some(
+                RuntimeCommandRecentControlGroupOperationObservability::Recall,
+            ),
+            last_target: Some(RuntimeCommandTargetObservability {
+                build_target: Some(589834),
+                unit_target: Some(RuntimeCommandUnitRefObservability { kind: 2, value: 808 }),
+                position_target: Some(RuntimeWorldPositionObservability {
+                    x_bits: 0x4240_0000,
+                    y_bits: 0x42c0_0000,
+                }),
+                rect_target: Some(RuntimeCommandRectObservability {
+                    x0: 1,
+                    y0: 2,
+                    x1: 3,
+                    y1: 4,
+                }),
+            }),
+            last_command_selection: Some(RuntimeCommandSelectionObservability {
+                command_id: Some(5),
+            }),
+            last_stance_selection: Some(RuntimeCommandStanceObservability {
+                stance_id: Some(7),
+                enabled: false,
+            }),
+        };
+
+        assert_eq!(
+            format_runtime_command_mode_panel_text(&panel),
+            "cmd:act1:sel4@11,22,33:bld2@327686:rect-3:4:12:18:grp2#3@11,4#1@99:opgroup-recall:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
+        );
+    }
+
+    #[test]
+    fn format_runtime_command_mode_detail_text_preserves_field_order() {
+        let panel = RuntimeCommandModePanelModel {
+            active: false,
+            selected_unit_count: 0,
+            selected_unit_sample: vec![11, 22, 33],
+            command_building_count: 0,
+            first_command_building: Some(327686),
+            command_rect: Some(RuntimeCommandRectObservability {
+                x0: -3,
+                y0: 4,
+                x1: 12,
+                y1: 18,
+            }),
+            control_groups: vec![
+                RuntimeCommandControlGroupPanelModel {
+                    index: 2,
+                    unit_count: 3,
+                    first_unit_id: Some(11),
+                },
+                RuntimeCommandControlGroupPanelModel {
+                    index: 4,
+                    unit_count: 1,
+                    first_unit_id: Some(99),
+                },
+            ],
+            last_control_group_operation: Some(
+                RuntimeCommandRecentControlGroupOperationObservability::Recall,
+            ),
+            last_target: Some(RuntimeCommandTargetObservability {
+                build_target: Some(589834),
+                unit_target: Some(RuntimeCommandUnitRefObservability { kind: 2, value: 808 }),
+                position_target: Some(RuntimeWorldPositionObservability {
+                    x_bits: 0x4240_0000,
+                    y_bits: 0x42c0_0000,
+                }),
+                rect_target: Some(RuntimeCommandRectObservability {
+                    x0: 1,
+                    y0: 2,
+                    x1: 3,
+                    y1: 4,
+                }),
+            }),
+            last_command_selection: Some(RuntimeCommandSelectionObservability {
+                command_id: Some(5),
+            }),
+            last_stance_selection: Some(RuntimeCommandStanceObservability {
+                stance_id: Some(7),
+                enabled: false,
+            }),
+        };
+
+        assert_eq!(
+            format_runtime_command_mode_detail_text(&panel),
+            "cmdd:sample11,22,33:grp2#3@11,4#1@99:opgroup-recall:bld327686:rect-3:4:12:18:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
+        );
+    }
+
+    #[test]
+    fn format_runtime_command_group_lines_preserves_order_and_group_count() {
+        let panel = RuntimeCommandModePanelModel {
+            active: false,
+            selected_unit_count: 0,
+            selected_unit_sample: Vec::new(),
+            command_building_count: 0,
+            first_command_building: None,
+            command_rect: None,
+            control_groups: vec![
+                RuntimeCommandControlGroupPanelModel {
+                    index: 2,
+                    unit_count: 3,
+                    first_unit_id: Some(11),
+                },
+                RuntimeCommandControlGroupPanelModel {
+                    index: 4,
+                    unit_count: 1,
+                    first_unit_id: Some(99),
+                },
+            ],
+            last_control_group_operation: None,
+            last_target: None,
+            last_command_selection: None,
+            last_stance_selection: None,
+        };
+
+        assert_eq!(
+            format_runtime_command_group_lines(&panel),
+            vec![
+                "cmdg:1/2:g2#3@11".to_string(),
+                "cmdg:2/2:g4#1@99".to_string(),
+            ]
         );
     }
 

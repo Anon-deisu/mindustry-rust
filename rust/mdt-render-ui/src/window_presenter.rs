@@ -22,10 +22,8 @@ use crate::{
         compact_runtime_ui_text, runtime_ui_notice_panel_is_empty, runtime_ui_text_len,
         runtime_ui_uri_scheme,
         format_counted_detail_text, format_counted_preview_text,
-        format_runtime_command_control_group_operation_text,
-        format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
-        format_runtime_command_rect_text, format_runtime_command_stance_text,
-        format_runtime_command_target_text, format_runtime_command_unit_ref_text,
+        format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
+        format_runtime_command_mode_panel_text, format_runtime_command_unit_ref_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
         format_live_effect_ttl_text,
@@ -3146,65 +3144,19 @@ fn compose_runtime_dialog_stack_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_command_mode_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_command_mode_panel(hud)?;
-    Some(format!(
-        "cmd:act{}:sel{}@{}:bld{}@{}:rect{}:grp{}:op{}:t{}:c{}:s{}",
-        if panel.active { 1 } else { 0 },
-        panel.selected_unit_count,
-        format_runtime_command_i32_list_text(&panel.selected_unit_sample),
-        panel.command_building_count,
-        optional_i32_label(panel.first_command_building),
-        format_runtime_command_rect_text(panel.command_rect),
-        format_runtime_command_control_groups_text(&panel.control_groups),
-        format_runtime_command_control_group_operation_text(panel.last_control_group_operation),
-        format_runtime_command_target_text(panel.last_target),
-        optional_u8_label(
-            panel
-                .last_command_selection
-                .and_then(|selection| selection.command_id)
-        ),
-        format_runtime_command_stance_text(panel.last_stance_selection),
-    ))
+    Some(format_runtime_command_mode_panel_text(&panel))
 }
 
 fn compose_runtime_command_mode_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_command_mode_panel(hud)?;
-    Some(format!(
-        "cmdd:sample{}:grp{}:op{}:bld{}:rect{}:t{}:c{}:s{}",
-        format_runtime_command_i32_list_text(&panel.selected_unit_sample),
-        format_runtime_command_control_groups_text(&panel.control_groups),
-        format_runtime_command_control_group_operation_text(panel.last_control_group_operation),
-        optional_i32_label(panel.first_command_building),
-        format_runtime_command_rect_text(panel.command_rect),
-        format_runtime_command_target_text(panel.last_target),
-        optional_u8_label(
-            panel
-                .last_command_selection
-                .and_then(|selection| selection.command_id)
-        ),
-        format_runtime_command_stance_text(panel.last_stance_selection),
-    ))
+    Some(format_runtime_command_mode_detail_text(&panel))
 }
 
 fn compose_runtime_command_group_status_lines(hud: &HudModel) -> Vec<String> {
     let Some(panel) = build_runtime_command_mode_panel(hud) else {
         return Vec::new();
     };
-    let group_count = panel.control_groups.len();
-    panel
-        .control_groups
-        .iter()
-        .enumerate()
-        .map(|(index, group)| {
-            format!(
-                "cmdg:{}/{}:g{}#{}@{}",
-                index + 1,
-                group_count,
-                group.index,
-                group.unit_count,
-                optional_i32_label(group.first_unit_id)
-            )
-        })
-        .collect()
+    format_runtime_command_group_lines(&panel)
 }
 
 fn compose_runtime_admin_panel_status_text(hud: &HudModel) -> Option<String> {
