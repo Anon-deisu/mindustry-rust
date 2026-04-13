@@ -2004,9 +2004,10 @@ fn compose_render_text_status_text(
         return None;
     }
 
+    let total = text_primitives.len();
     text_primitives.sort_by_key(|(_, layer, _, _, _)| *layer);
 
-    let mut parts = vec![format!("count={}", text_primitives.len())];
+    let mut parts = vec![format!("count={total}")];
     for (kind, layer, x, y, text) in text_primitives.into_iter().take(2) {
         let kind_text = kind.detail_label().unwrap_or("text");
         parts.push(format!(
@@ -2015,6 +2016,9 @@ fn compose_render_text_status_text(
             y as i32,
             compact_runtime_ui_text(Some(text.as_str()))
         ));
+    }
+    if total > 2 {
+        parts.push(format!("more={}", total - 2));
     }
 
     Some(parts.join(" "))
@@ -10133,6 +10137,60 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "marker-text@30:8:0 marker-text{text=Marker}",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-world-label@39:0:0 runtime-world-label{text=Hello}",
+        );
+    }
+
+    #[test]
+    fn present_once_reports_render_text_overflow_count() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "world-label:7:text:48656c6c6f".to_string(),
+                    layer: 39,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:text:8:text:4d61726b6572".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:shape-text:9:text:5368617065".to_string(),
+                    layer: 31,
+                    x: 16.0,
+                    y: 0.0,
+                },
+            ],
+        };
+
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-TEXT: count=3");
+        assert_frame_line_contains(&frame.panel_lines, "marker-text@30:8:0=Marker");
+        assert_frame_line_contains(&frame.panel_lines, "marker-shape-text@31:16:0=Shape");
+        assert_frame_line_contains(&frame.panel_lines, "more=1");
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-TEXT-DETAIL: count=3");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "marker-shape-text@31:16:0 marker-shape-text{text=Shape}",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

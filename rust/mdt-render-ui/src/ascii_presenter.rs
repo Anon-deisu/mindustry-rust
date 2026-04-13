@@ -1207,8 +1207,9 @@ fn compose_render_text_status_text(
         return None;
     }
 
+    let total = text_primitives.len();
     text_primitives.sort_by_key(|(_, layer, _, _, _)| *layer);
-    let mut parts = vec![format!("count={}", text_primitives.len())];
+    let mut parts = vec![format!("count={total}")];
     for (kind, layer, x, y, text) in text_primitives.into_iter().take(2) {
         let kind_text = kind.detail_label().unwrap_or("text");
         parts.push(format!(
@@ -1217,6 +1218,9 @@ fn compose_render_text_status_text(
             y as i32,
             compact_runtime_ui_text(Some(text.as_str()))
         ));
+    }
+    if total > 2 {
+        parts.push(format!("more={}", total - 2));
     }
     Some(parts.join(" "))
 }
@@ -6396,6 +6400,50 @@ mod tests {
         assert!(frame.contains("runtime-world-label@39:0:0=Hello"));
         assert!(frame.contains("RENDER-TEXT-DETAIL: count=2"));
         assert!(frame.contains("marker-text@30:8:0 payload[text=Marker]"));
+        assert!(frame.contains("runtime-world-label@39:0:0 payload[text=Hello]"));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_render_text_overflow_count() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "world-label:7:text:48656c6c6f".to_string(),
+                    layer: 39,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:text:8:text:4d61726b6572".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:shape-text:9:text:5368617065".to_string(),
+                    layer: 31,
+                    x: 16.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RENDER-TEXT: count=3"));
+        assert!(frame.contains("marker-text@30:8:0=Marker"));
+        assert!(frame.contains("marker-shape-text@31:16:0=Shape"));
+        assert!(frame.contains("more=1"));
+        assert!(frame.contains("RENDER-TEXT-DETAIL: count=3"));
+        assert!(frame.contains("marker-shape-text@31:16:0 payload[text=Shape]"));
         assert!(frame.contains("runtime-world-label@39:0:0 payload[text=Hello]"));
     }
 
