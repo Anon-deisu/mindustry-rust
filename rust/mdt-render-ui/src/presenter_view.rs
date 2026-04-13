@@ -1,7 +1,7 @@
 use crate::{
     hud_model::{RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
     panel_model::{
-        MinimapPanelModel, PresenterViewWindow, RuntimeChatPanelModel,
+        MinimapPanelModel, PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
         RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
@@ -752,6 +752,33 @@ pub(crate) fn format_runtime_chat_detail_text(panel: &RuntimeChatPanelModel) -> 
     )
 }
 
+pub(crate) fn format_runtime_admin_panel_text(panel: &RuntimeAdminPanelModel) -> String {
+    format!(
+        "admin:t{}@{}:f{}:dbg{}/{}@{}:f{}",
+        panel.trace_info_count,
+        format_optional_i32_text(panel.last_trace_info_player_id),
+        panel.trace_info_parse_fail_count,
+        panel.debug_status_client_count,
+        panel.debug_status_client_unreliable_count,
+        format_optional_i32_text(panel.last_debug_status_value),
+        panel.parse_fail_count,
+    )
+}
+
+pub(crate) fn format_runtime_admin_detail_text(panel: &RuntimeAdminPanelModel) -> String {
+    format!(
+        "admind:tr{}/{}@{}:dbg{}/{}:udbg{}/{}:last{}",
+        panel.trace_info_count,
+        panel.trace_info_parse_fail_count,
+        format_optional_i32_text(panel.last_trace_info_player_id),
+        panel.debug_status_client_count,
+        panel.debug_status_client_parse_fail_count,
+        panel.debug_status_client_unreliable_count,
+        panel.debug_status_client_unreliable_parse_fail_count,
+        format_optional_i32_text(panel.last_debug_status_value),
+    )
+}
+
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
     format!(
         "sdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
@@ -1100,6 +1127,7 @@ mod tests {
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
+        format_runtime_admin_detail_text, format_runtime_admin_panel_text,
         format_runtime_stack_depth_text, format_runtime_stack_detail_text,
         format_runtime_stack_panel_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
@@ -1120,7 +1148,8 @@ mod tests {
             RuntimeUiStackDepthSummary, RuntimeUiStackForegroundSummaryKind, RuntimeUiStackSummary,
         },
         panel_model::{
-            MinimapPanelModel, PresenterViewWindow, RuntimeChatPanelModel,
+            MinimapPanelModel, PresenterViewWindow, RuntimeAdminPanelModel,
+            RuntimeChatPanelModel,
             RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
             RuntimeDialogStackPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
@@ -1437,6 +1466,46 @@ mod tests {
         assert_eq!(
             format_runtime_chat_detail_text(&panel),
             "chatd:s11:c11:r5:eq0:sid404"
+        );
+    }
+
+    #[test]
+    fn format_runtime_admin_panel_text_preserves_field_order() {
+        let panel = RuntimeAdminPanelModel {
+            trace_info_count: 11,
+            trace_info_parse_fail_count: 3,
+            last_trace_info_player_id: Some(404),
+            debug_status_client_count: 7,
+            debug_status_client_parse_fail_count: 2,
+            debug_status_client_unreliable_count: 5,
+            debug_status_client_unreliable_parse_fail_count: 1,
+            last_debug_status_value: Some(9),
+            parse_fail_count: 4,
+        };
+
+        assert_eq!(
+            format_runtime_admin_panel_text(&panel),
+            "admin:t11@404:f3:dbg7/5@9:f4"
+        );
+    }
+
+    #[test]
+    fn format_runtime_admin_detail_text_preserves_field_order() {
+        let panel = RuntimeAdminPanelModel {
+            trace_info_count: 11,
+            trace_info_parse_fail_count: 3,
+            last_trace_info_player_id: Some(404),
+            debug_status_client_count: 7,
+            debug_status_client_parse_fail_count: 2,
+            debug_status_client_unreliable_count: 5,
+            debug_status_client_unreliable_parse_fail_count: 1,
+            last_debug_status_value: Some(9),
+            parse_fail_count: 4,
+        };
+
+        assert_eq!(
+            format_runtime_admin_detail_text(&panel),
+            "admind:tr11/3@404:dbg7/2:udbg5/1:last9"
         );
     }
 

@@ -20,6 +20,7 @@ use crate::presenter_view::{
     compact_runtime_ui_text, runtime_ui_notice_panel_is_empty, runtime_ui_text_len,
     runtime_ui_uri_scheme,
     format_counted_detail_text, format_counted_preview_text,
+    format_runtime_admin_detail_text, format_runtime_admin_panel_text,
     format_runtime_chat_detail_text, format_runtime_chat_panel_text,
     format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
     format_runtime_command_mode_panel_text, format_runtime_command_unit_ref_text,
@@ -2047,16 +2048,7 @@ fn compose_runtime_command_group_lines(hud: &HudModel) -> Vec<String> {
 
 fn compose_runtime_admin_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_admin_panel(hud)?;
-    Some(format!(
-        "admin:t{}@{}:f{}:dbg{}/{}@{}:f{}",
-        panel.trace_info_count,
-        optional_i32_label(panel.last_trace_info_player_id),
-        panel.trace_info_parse_fail_count,
-        panel.debug_status_client_count,
-        panel.debug_status_client_unreliable_count,
-        optional_i32_label(panel.last_debug_status_value),
-        panel.parse_fail_count,
-    ))
+    Some(format_runtime_admin_panel_text(&panel))
 }
 
 fn compose_runtime_admin_detail_text(hud: &HudModel) -> Option<String> {
@@ -2064,17 +2056,7 @@ fn compose_runtime_admin_detail_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    Some(format!(
-        "admind:tr{}/{}@{}:dbg{}/{}:udbg{}/{}:last{}",
-        panel.trace_info_count,
-        panel.trace_info_parse_fail_count,
-        optional_i32_label(panel.last_trace_info_player_id),
-        panel.debug_status_client_count,
-        panel.debug_status_client_parse_fail_count,
-        panel.debug_status_client_unreliable_count,
-        panel.debug_status_client_unreliable_parse_fail_count,
-        optional_i32_label(panel.last_debug_status_value),
-    ))
+    Some(format_runtime_admin_detail_text(&panel))
 }
 
 fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
