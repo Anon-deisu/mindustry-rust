@@ -6494,7 +6494,7 @@ mod tests {
             "BUILD-ROUTE-DETAIL: next=resolve minimap=survey blockers=resolve+survey route=resolve+survey+commit"
         ));
         assert!(frame.contains(
-            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match src=tileConfig block=alpha head=10,12"
+            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi route=resolve+survey+commit authority=rejected-missing-building pending=match blockers=resolve+survey src=tileConfig block=alpha head=10,12"
         ));
         assert!(
             frame.contains("BUILD-QUEUE-DETAIL: q=2 i=1 f=4 r=5 o=6 h=queued@10:12:place:b301:r1")

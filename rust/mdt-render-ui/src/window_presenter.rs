@@ -10345,7 +10345,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi blockers=resolve+survey route=resolve+survey+commit authority=rejected-missing-building pending=match src=tileConfig block=gamma head=10,12",
+            "BUILD-FLOW-DETAIL: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi route=resolve+survey+commit authority=rejected-missing-building pending=match blockers=resolve+survey src=tileConfig block=gamma head=10,12",
         );
     }
 

@@ -112,17 +112,17 @@ impl BuildUserFlowPanelModel {
             .map_or_else(|| "none".to_string(), |(x, y)| format!("{x},{y}"));
 
         format!(
-            "next={} minimap={} focus={} pan={} target={} scope={} blockers={} route={} authority={} pending={} src={} block={} head={}",
+            "next={} minimap={} focus={} pan={} target={} scope={} route={} authority={} pending={} blockers={} src={} block={} head={}",
             self.next_action,
             self.minimap_next_action,
             self.focus_state.label(),
             self.pan_label(),
             self.target_kind.label(),
             self.config_scope,
-            blockers,
             route,
             self.authority_state_label(),
             self.authority_pending_match_label(),
+            blockers,
             self.authority_source_label(),
             self.authority_block_name
                 .as_deref()
@@ -483,7 +483,7 @@ mod tests {
         );
         assert_eq!(
             panel.detail_label(),
-            "next=realign minimap=pan focus=outside pan=right+down target=plan scope=multi blockers=realign+resolve+refocus+survey route=realign+resolve+refocus+survey+commit authority=rollback pending=mismatch src=none block=power-node head=12,18"
+            "next=realign minimap=pan focus=outside pan=right+down target=plan scope=multi route=realign+resolve+refocus+survey+commit authority=rollback pending=mismatch blockers=realign+resolve+refocus+survey src=none block=power-node head=12,18"
         );
         assert_eq!(
             panel.route_detail_label(),
@@ -660,7 +660,7 @@ mod tests {
         assert_eq!(panel.authority_block_name.as_deref(), Some("message"));
         assert_eq!(
             panel.detail_label(),
-            "next=resolve minimap=inspect focus=inside pan=hold target=marker scope=single blockers=resolve route=resolve+commit authority=applied pending=mismatch src=none block=message head=4,6"
+            "next=resolve minimap=inspect focus=inside pan=hold target=marker scope=single route=resolve+commit authority=applied pending=mismatch blockers=resolve src=none block=message head=4,6"
         );
         assert_eq!(
             panel.route_detail_label(),
@@ -1084,7 +1084,7 @@ mod tests {
         );
         assert_eq!(
             panel.detail_label(),
-            "next=missing minimap=missing focus=missing pan=hold target=none scope=single blockers=missing route=missing authority=applied pending=match src=none block=none head=none"
+            "next=missing minimap=missing focus=missing pan=hold target=none scope=single route=missing authority=applied pending=match blockers=missing src=none block=none head=none"
         );
         assert_eq!(
             panel.route_detail_label(),
