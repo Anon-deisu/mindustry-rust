@@ -5653,6 +5653,7 @@ fn overlay_window_minimap_inset(
             inset.map_width,
             inset.map_height,
             player_tile,
+            window_minimap_tile_in_window(inset.window, player_tile),
         );
     }
     if let Some(focus_tile) = inset.focus_tile {
@@ -5808,6 +5809,7 @@ fn draw_window_minimap_player(
     map_width: usize,
     map_height: usize,
     tile: (usize, usize),
+    player_in_window: bool,
 ) {
     let Some((pixel_x, pixel_y)) = project_window_minimap_point(
         tile,
@@ -5827,7 +5829,7 @@ fn draw_window_minimap_player(
         map_start_y.saturating_add(pixel_y).saturating_sub(radius),
         radius * 2 + 1,
         radius * 2 + 1,
-        COLOR_PLAYER,
+        window_minimap_player_color(player_in_window),
     );
 }
 
@@ -5889,6 +5891,27 @@ fn window_minimap_focus_color(focus_in_window: Option<bool>) -> u32 {
         Some(false) => COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL,
         _ => COLOR_MARKER,
     }
+}
+
+fn window_minimap_player_color(player_in_window: bool) -> u32 {
+    if player_in_window {
+        COLOR_PLAYER
+    } else {
+        COLOR_MINIMAP_INSET_VIEWPORT_WARN
+    }
+}
+
+fn window_minimap_tile_in_window(window: PresenterViewWindow, tile: (usize, usize)) -> bool {
+    let window_last_x = window
+        .origin_x
+        .saturating_add(window.width.saturating_sub(1));
+    let window_last_y = window
+        .origin_y
+        .saturating_add(window.height.saturating_sub(1));
+    tile.0 >= window.origin_x
+        && tile.0 <= window_last_x
+        && tile.1 >= window.origin_y
+        && tile.1 <= window_last_y
 }
 
 fn draw_window_minimap_ping(
@@ -7463,6 +7486,61 @@ mod tests {
     }
 
     #[test]
+    fn scale_frame_pixels_colors_player_marker_by_window_membership() {
+        let make_frame = |player_tile| WindowFrame {
+            frame_id: 0,
+            title: "demo".to_string(),
+            wave_text: None,
+            session_banner_text: None,
+            status_text: String::new(),
+            build_strip_text: None,
+            build_strip_detail_text: None,
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 24,
+            height: 18,
+            minimap_inset: Some(WindowMinimapInset {
+                map_width: 80,
+                map_height: 60,
+                window: crate::panel_model::PresenterViewWindow {
+                    origin_x: 16,
+                    origin_y: 12,
+                    width: 24,
+                    height: 18,
+                },
+                window_coverage_percent: 51,
+                map_object_density_percent: 0,
+                window_object_density_percent: 0,
+                outside_object_percent: 0,
+                focus_tile: None,
+                focus_in_window: None,
+                player_tile: Some(player_tile),
+                ping_tile: None,
+                unit_assembler_tiles: Vec::new(),
+                tile_action_tiles: Vec::new(),
+                command_tiles: Vec::new(),
+                command_rects: Vec::new(),
+                runtime_break_rects: Vec::new(),
+                unit_assembler_rects: Vec::new(),
+                world_label_tiles: Vec::new(),
+                runtime_overlay_tiles: Vec::new(),
+            }),
+            pixels: vec![COLOR_EMPTY; 24 * 18],
+        };
+
+        let inside_pixels = scale_frame_pixels(&make_frame((20, 18)), 4);
+        let outside_pixels = scale_frame_pixels(&make_frame((60, 50)), 4);
+
+        assert!(inside_pixels.contains(&COLOR_PLAYER));
+        assert!(!inside_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_WARN));
+        assert!(outside_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_WARN));
+        assert!(!outside_pixels.contains(&COLOR_PLAYER));
+    }
+
+    #[test]
     fn window_minimap_viewport_color_tracks_coverage_density_and_visibility_bands() {
         assert_eq!(super::window_minimap_viewport_band(0, 2, 11, 50), "warn");
         assert_eq!(super::window_minimap_viewport_band(11, 2, 2, 29), "partial");
@@ -7503,6 +7581,29 @@ mod tests {
             super::window_minimap_viewport_color(100, 10, 10, 10),
             COLOR_MINIMAP_INSET_VIEWPORT
         );
+        assert_eq!(super::window_minimap_player_color(true), COLOR_PLAYER);
+        assert_eq!(
+            super::window_minimap_player_color(false),
+            COLOR_MINIMAP_INSET_VIEWPORT_WARN
+        );
+        assert!(super::window_minimap_tile_in_window(
+            crate::panel_model::PresenterViewWindow {
+                origin_x: 16,
+                origin_y: 12,
+                width: 24,
+                height: 18,
+            },
+            (20, 18)
+        ));
+        assert!(!super::window_minimap_tile_in_window(
+            crate::panel_model::PresenterViewWindow {
+                origin_x: 16,
+                origin_y: 12,
+                width: 24,
+                height: 18,
+            },
+            (60, 50)
+        ));
     }
 
     #[test]
