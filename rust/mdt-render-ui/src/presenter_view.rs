@@ -1,4 +1,4 @@
-use crate::{panel_model::PresenterViewWindow, RenderModel, RenderObject};
+use crate::{panel_model::PresenterViewWindow, BuildQueueHeadStage, RenderModel, RenderObject};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CropWindowMode {
@@ -240,15 +240,43 @@ pub(crate) fn tile_local_coords(
     Some((tile_x - window.origin_x, tile_y - window.origin_y))
 }
 
+pub(crate) fn format_build_strip_queue_status_text(
+    head_stage: Option<BuildQueueHeadStage>,
+    pending_count: usize,
+    idle_queue_text: Option<String>,
+) -> String {
+    if let Some(stage) = head_stage {
+        format_build_queue_stage_text(stage, pending_count)
+    } else if let Some(queue_text) = idle_queue_text {
+        format!("{queue_text}/p{pending_count}")
+    } else {
+        format!("queued@{pending_count}")
+    }
+}
+
+fn format_build_queue_stage_text(stage: BuildQueueHeadStage, pending_count: usize) -> String {
+    let stage_text = match stage {
+        BuildQueueHeadStage::Queued => "queued",
+        BuildQueueHeadStage::InFlight => "flight",
+        BuildQueueHeadStage::Finished => "finish",
+        BuildQueueHeadStage::Removed => "remove",
+    };
+    format!("{stage_text}@{pending_count}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         crop_origin, crop_window, crop_window_to_focus, normalize_zoom, projected_window,
-        render_line_is_visible, render_rect_detail_is_visible, tile_local_coords,
-        visible_window_tile, world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
+        format_build_strip_queue_status_text, render_line_is_visible,
+        render_rect_detail_is_visible, tile_local_coords, visible_window_tile,
+        world_rect_tile_coords, world_tile_coords, world_to_tile_index_floor,
         zoomed_view_tile_span, CropWindowMode,
     };
-    use crate::{panel_model::PresenterViewWindow, RenderModel, RenderObject, Viewport};
+    use crate::{
+        panel_model::PresenterViewWindow, BuildQueueHeadStage, RenderModel, RenderObject,
+        Viewport,
+    };
 
     const TILE_SIZE: f32 = 8.0;
 
@@ -503,6 +531,30 @@ mod tests {
         assert_eq!(tile_local_coords(5, 5, window), Some((3, 2)));
         assert_eq!(tile_local_coords(6, 3, window), None);
         assert_eq!(tile_local_coords(-1, 3, window), None);
+    }
+
+    #[test]
+    fn format_build_strip_queue_status_text_prefers_head_stage() {
+        assert_eq!(
+            format_build_strip_queue_status_text(
+                Some(BuildQueueHeadStage::InFlight),
+                3,
+                Some("idle".to_string())
+            ),
+            "flight@3"
+        );
+    }
+
+    #[test]
+    fn format_build_strip_queue_status_text_handles_idle_and_fallback_states() {
+        assert_eq!(
+            format_build_strip_queue_status_text(None, 4, Some("armed".to_string())),
+            "armed/p4"
+        );
+        assert_eq!(
+            format_build_strip_queue_status_text(None, 2, None),
+            "queued@2"
+        );
     }
 
     #[test]

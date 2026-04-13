@@ -19,7 +19,7 @@ use crate::{
     presenter_view::{
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
-        CropWindowMode,
+        format_build_strip_queue_status_text, CropWindowMode,
     },
     render_model::{
         RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -5093,33 +5093,19 @@ fn build_queue_head_status_text(head: Option<&BuildQueueHeadObservability>) -> S
 fn compose_build_strip_queue_text(
     panel: &crate::panel_model::BuildInteractionPanelModel,
 ) -> String {
-    if let Some(head) = panel.head.as_ref() {
-        build_queue_head_stage_status_text(head.stage, panel.pending_count)
-    } else {
-        format!(
-            "{}/p{}",
-            build_interaction_queue_status_text(panel.queue_state),
-            panel.pending_count
-        )
-    }
+    format_build_strip_queue_status_text(
+        panel.head.as_ref().map(|head| head.stage),
+        panel.pending_count,
+        Some(build_interaction_queue_status_text(panel.queue_state).to_string()),
+    )
 }
 
 fn compose_build_strip_queue_fallback_text(build_ui: &BuildUiObservability) -> String {
-    if let Some(head) = build_ui.head.as_ref() {
-        build_queue_head_stage_status_text(head.stage, build_ui.queued_count)
-    } else {
-        format!("queued@{}", build_ui.queued_count)
-    }
-}
-
-fn build_queue_head_stage_status_text(stage: BuildQueueHeadStage, pending_count: usize) -> String {
-    let stage_text = match stage {
-        BuildQueueHeadStage::Queued => "queued",
-        BuildQueueHeadStage::InFlight => "flight",
-        BuildQueueHeadStage::Finished => "finish",
-        BuildQueueHeadStage::Removed => "remove",
-    };
-    format!("{stage_text}@{pending_count}")
+    format_build_strip_queue_status_text(
+        build_ui.head.as_ref().map(|head| head.stage),
+        build_ui.queued_count,
+        None,
+    )
 }
 
 fn compact_runtime_ui_text(value: Option<&str>) -> String {
