@@ -2059,7 +2059,7 @@ fn compose_runtime_dialog_stack_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_command_mode_panel(hud)?;
     Some(format!(
-        "act={} sel={}@{} bld={}@{} rect={} groups={} target={} cmd={} stance={}",
+        "cmd:act{}:sel{}@{}:bld{}@{}:rect{}:grp{}:t{}:c{}:s{}",
         if panel.active { 1 } else { 0 },
         panel.selected_unit_count,
         command_i32_sample_text(&panel.selected_unit_sample),
@@ -2080,7 +2080,7 @@ fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_command_mode_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_command_mode_panel(hud)?;
     Some(format!(
-        "sample={} groups={} first-building={} rect={} target={} command={} stance={}",
+        "cmdd:sample{}:grp{}:bld{}:rect{}:t{}:c{}:s{}",
         command_i32_sample_text(&panel.selected_unit_sample),
         command_control_groups_text(&panel.control_groups),
         optional_i32_label(panel.first_command_building),
@@ -5641,10 +5641,10 @@ mod tests {
             "RUNTIME-DIALOG-STACK: stackx:f=input:p=input@input>menu:m16:fo0:i53:n=warn@hud>reliable>info>warn:md2:hd4:c1:7/8:tin404:s404:dd7:t7"
         ));
         assert!(frame.contains(
-            "RUNTIME-COMMAND: act=1 sel=4@11,22,33 bld=2@327686 rect=-3:4:12:18 groups=2#3@11,4#1@99 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 cmd=5 stance=7/0"
+            "RUNTIME-COMMAND: cmd:act1:sel4@11,22,33:bld2@327686:rect-3:4:12:18:grp2#3@11,4#1@99:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
         ));
         assert!(frame.contains(
-            "RUNTIME-COMMAND-DETAIL: sample=11,22,33 groups=2#3@11,4#1@99 first-building=327686 rect=-3:4:12:18 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 command=5 stance=7/0"
+            "RUNTIME-COMMAND-DETAIL: cmdd:sample11,22,33:grp2#3@11,4#1@99:bld327686:rect-3:4:12:18:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
         ));
         assert!(frame.contains("RUNTIME-ADMIN: admin:t56@123456:f76:dbg57/58@12:f231"));
         assert!(frame.contains(
