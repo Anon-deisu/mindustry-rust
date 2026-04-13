@@ -57,6 +57,9 @@ const COLOR_ICON_RUNTIME_TILE_ACTION: u32 = 0x9CCC65;
 const COLOR_WINDOW_HUD_BAR: u32 = 0x091018;
 const COLOR_WINDOW_HUD_TEXT: u32 = 0xE8EEF2;
 const COLOR_MINIMAP_INSET_BORDER: u32 = 0x90A4AE;
+const COLOR_MINIMAP_INSET_BACKGROUND: u32 = COLOR_TERRAIN;
+const COLOR_MINIMAP_INSET_BACKGROUND_PARTIAL: u32 = 0x2F3D45;
+const COLOR_MINIMAP_INSET_BACKGROUND_WARN: u32 = 0x3A2E2A;
 const COLOR_MINIMAP_INSET_VIEWPORT: u32 = 0xECEFF1;
 const COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL: u32 = 0xFFF59D;
 const COLOR_MINIMAP_INSET_VIEWPORT_WARN: u32 = 0xFFAB91;
@@ -5516,7 +5519,12 @@ fn overlay_window_minimap_inset(
         map_start_y,
         map_pixel_width,
         map_pixel_height,
-        COLOR_TERRAIN,
+        window_minimap_background_color(
+            inset.window_coverage_percent,
+            inset.map_object_density_percent,
+            inset.window_object_density_percent,
+            inset.outside_object_percent,
+        ),
     );
 
     draw_window_minimap_viewport(
@@ -5795,6 +5803,24 @@ fn window_minimap_viewport_color(
         "warn" => COLOR_MINIMAP_INSET_VIEWPORT_WARN,
         "partial" => COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL,
         _ => COLOR_MINIMAP_INSET_VIEWPORT,
+    }
+}
+
+fn window_minimap_background_color(
+    window_coverage_percent: usize,
+    map_object_density_percent: usize,
+    window_object_density_percent: usize,
+    outside_object_percent: usize,
+) -> u32 {
+    match window_minimap_viewport_band(
+        window_coverage_percent,
+        map_object_density_percent,
+        window_object_density_percent,
+        outside_object_percent,
+    ) {
+        "warn" => COLOR_MINIMAP_INSET_BACKGROUND_WARN,
+        "partial" => COLOR_MINIMAP_INSET_BACKGROUND_PARTIAL,
+        _ => COLOR_MINIMAP_INSET_BACKGROUND,
     }
 }
 
@@ -6647,11 +6673,13 @@ mod tests {
         COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK, COLOR_ICON_RUNTIME_BULLET,
         COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_EFFECT_MARKER,
         COLOR_ICON_RUNTIME_HEALTH, COLOR_ICON_RUNTIME_LOGIC_EXPLOSION, COLOR_ICON_RUNTIME_SOUND_AT,
-        COLOR_ICON_RUNTIME_TILE_ACTION, COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER,
-        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL,
-        COLOR_MINIMAP_INSET_VIEWPORT_WARN, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
-        COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
-        WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
+        COLOR_ICON_RUNTIME_TILE_ACTION, COLOR_ICON_RUNTIME_UNIT_ASSEMBLER,
+        COLOR_MARKER, COLOR_MINIMAP_INSET_BACKGROUND, COLOR_MINIMAP_INSET_BACKGROUND_PARTIAL,
+        COLOR_MINIMAP_INSET_BACKGROUND_WARN, COLOR_MINIMAP_INSET_VIEWPORT,
+        COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL, COLOR_MINIMAP_INSET_VIEWPORT_WARN, COLOR_PLAN,
+        COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR,
+        COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X, WINDOW_HUD_BAR_PADDING_Y,
+        WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
         hud_model::{
@@ -7353,7 +7381,7 @@ mod tests {
             }
         }
 
-        assert!(top_right_pixels.contains(&COLOR_TERRAIN));
+        assert!(top_right_pixels.contains(&COLOR_MINIMAP_INSET_BACKGROUND_WARN));
         assert!(top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_WARN));
         assert!(top_right_pixels.contains(&COLOR_PLAYER));
         assert!(top_right_pixels.contains(&COLOR_MARKER));
@@ -7425,7 +7453,7 @@ mod tests {
             }
         }
 
-        assert!(top_right_pixels.contains(&COLOR_TERRAIN));
+        assert!(top_right_pixels.contains(&COLOR_MINIMAP_INSET_BACKGROUND_PARTIAL));
         assert!(top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL));
         assert!(!top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT_WARN));
     }
@@ -7580,6 +7608,18 @@ mod tests {
         assert_eq!(
             super::window_minimap_viewport_color(100, 10, 10, 10),
             COLOR_MINIMAP_INSET_VIEWPORT
+        );
+        assert_eq!(
+            super::window_minimap_background_color(0, 2, 11, 50),
+            COLOR_MINIMAP_INSET_BACKGROUND_WARN
+        );
+        assert_eq!(
+            super::window_minimap_background_color(11, 2, 2, 29),
+            COLOR_MINIMAP_INSET_BACKGROUND_PARTIAL
+        );
+        assert_eq!(
+            super::window_minimap_background_color(100, 10, 10, 10),
+            COLOR_MINIMAP_INSET_BACKGROUND
         );
         assert_eq!(super::window_minimap_player_color(true), COLOR_PLAYER);
         assert_eq!(
