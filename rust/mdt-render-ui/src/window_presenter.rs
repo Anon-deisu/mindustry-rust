@@ -1794,10 +1794,15 @@ fn compose_frame_panel_lines(
             "RUNTIME-CHOICE-DETAIL: {runtime_choice_detail_text}"
         ));
     }
-    if let Some(runtime_prompt_text) = compose_runtime_prompt_panel_status_text(hud) {
+    if let Some(runtime_prompt_text) =
+        compose_runtime_prompt_text_from_hud(hud, format_runtime_prompt_panel_text_if_nonempty)
+    {
         lines.push(format!("RUNTIME-PROMPT: {runtime_prompt_text}"));
     }
-    if let Some(runtime_prompt_detail_text) = compose_runtime_prompt_detail_status_text(hud) {
+    if let Some(runtime_prompt_detail_text) = compose_runtime_prompt_text_from_hud(
+        hud,
+        format_runtime_prompt_detail_text_if_nonempty,
+    ) {
         lines.push(format!(
             "RUNTIME-PROMPT-DETAIL: {runtime_prompt_detail_text}"
         ));
@@ -2706,14 +2711,6 @@ fn compose_runtime_choice_panel_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_choice_detail_status_text(hud: &HudModel) -> Option<String> {
     compose_runtime_choice_text_from_hud(hud, format_runtime_choice_detail_text_if_nonempty)
-}
-
-fn compose_runtime_prompt_panel_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_prompt_text_from_hud(hud, format_runtime_prompt_panel_text_if_nonempty)
-}
-
-fn compose_runtime_prompt_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_prompt_text_from_hud(hud, format_runtime_prompt_detail_text_if_nonempty)
 }
 
 fn compose_runtime_dialog_panel_status_text(hud: &HudModel) -> Option<String> {
