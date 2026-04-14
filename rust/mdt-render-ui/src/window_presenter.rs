@@ -1942,11 +1942,13 @@ fn compose_frame_panel_lines(
             "RUNTIME-RECONNECT-DETAIL: {runtime_reconnect_detail_text}"
         ));
     }
-    if let Some(runtime_live_entity_text) = compose_runtime_live_entity_panel_status_text(hud) {
+    if let Some(runtime_live_entity_text) =
+        compose_runtime_live_entity_text_from_hud(hud, format_runtime_live_entity_panel_text)
+    {
         lines.push(format!("RUNTIME-LIVE-ENTITY: {runtime_live_entity_text}"));
     }
     if let Some(runtime_live_entity_detail_text) =
-        compose_runtime_live_entity_detail_status_text(hud)
+        compose_runtime_live_entity_text_from_hud(hud, format_runtime_live_entity_detail_text)
     {
         lines.push(format!(
             "RUNTIME-LIVE-ENTITY-DETAIL: {runtime_live_entity_detail_text}"
@@ -2842,14 +2844,6 @@ fn compose_runtime_reconnect_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_reconnect_detail_status_text(hud: &HudModel) -> Option<String> {
     compose_runtime_reconnect_text_from_hud(hud, format_runtime_reconnect_detail_text_if_nonempty)
-}
-
-fn compose_runtime_live_entity_panel_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_live_entity_text_from_hud(hud, format_runtime_live_entity_panel_text)
-}
-
-fn compose_runtime_live_entity_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_live_entity_text_from_hud(hud, format_runtime_live_entity_detail_text)
 }
 
 fn compose_runtime_live_effect_panel_status_text(hud: &HudModel) -> Option<String> {
