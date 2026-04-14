@@ -83,6 +83,22 @@ pub enum ReconnectReasonKind {
     ManualConnect,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KickReasonHintCategory {
+    Banned,
+    ClientOutdated,
+    CustomClientRejected,
+    IdInUse,
+    NameEmpty,
+    NameInUse,
+    PlayerLimit,
+    RecentKick,
+    ServerOutdated,
+    ServerRestarting,
+    TypeMismatch,
+    WhitelistRequired,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ReconnectProjection {
     pub phase: ReconnectPhaseProjection,
@@ -6197,6 +6213,11 @@ pub struct SessionState {
     pub last_reset_kind: Option<SessionResetKind>,
     pub last_world_reload: Option<WorldReloadProjection>,
     pub reconnect_projection: ReconnectProjection,
+    pub last_kick_reason_text: Option<String>,
+    pub last_kick_reason_ordinal: Option<i32>,
+    pub last_kick_duration_ms: Option<u64>,
+    pub last_kick_hint_category: Option<KickReasonHintCategory>,
+    pub last_kick_hint_text: Option<&'static str>,
     pub received_snapshot_count: u64,
     pub last_snapshot_packet_id: Option<u8>,
     pub last_snapshot_method: Option<HighFrequencyRemoteMethod>,
@@ -6793,6 +6814,11 @@ impl SessionState {
         let received_connect_redirect_count = self.received_connect_redirect_count;
         let last_connect_redirect_ip = self.last_connect_redirect_ip.clone();
         let last_connect_redirect_port = self.last_connect_redirect_port;
+        let last_kick_reason_text = self.last_kick_reason_text.clone();
+        let last_kick_reason_ordinal = self.last_kick_reason_ordinal;
+        let last_kick_duration_ms = self.last_kick_duration_ms;
+        let last_kick_hint_category = self.last_kick_hint_category;
+        let last_kick_hint_text = self.last_kick_hint_text;
 
         *self = Self::default();
         self.last_timeout = last_timeout;
@@ -6808,6 +6834,11 @@ impl SessionState {
         self.received_connect_redirect_count = received_connect_redirect_count;
         self.last_connect_redirect_ip = last_connect_redirect_ip;
         self.last_connect_redirect_port = last_connect_redirect_port;
+        self.last_kick_reason_text = last_kick_reason_text;
+        self.last_kick_reason_ordinal = last_kick_reason_ordinal;
+        self.last_kick_duration_ms = last_kick_duration_ms;
+        self.last_kick_hint_category = last_kick_hint_category;
+        self.last_kick_hint_text = last_kick_hint_text;
     }
 
     pub fn clear_last_effect_runtime_binding_states(&mut self) {
@@ -8425,7 +8456,7 @@ mod tests {
     }
 
     #[test]
-    fn session_state_reset_for_reconnect_keeps_only_reconnect_state() {
+    fn session_state_reset_for_reconnect_keeps_reconnect_and_last_kick_state() {
         let mut state = SessionState::default();
         state.session_id = Some(42);
         state.connect_packet_sent = true;
@@ -8455,6 +8486,11 @@ mod tests {
         state.received_connect_redirect_count = 23;
         state.last_connect_redirect_ip = Some("127.0.0.1".to_string());
         state.last_connect_redirect_port = Some(6567);
+        state.last_kick_reason_text = Some("serverRestarting".to_string());
+        state.last_kick_reason_ordinal = Some(15);
+        state.last_kick_duration_ms = Some(2_500);
+        state.last_kick_hint_category = Some(KickReasonHintCategory::ServerRestarting);
+        state.last_kick_hint_text = Some("server is restarting; retry connection shortly.");
         state.reconnect_projection.phase = ReconnectPhaseProjection::Attempting;
         state.reconnect_projection.phase_transition_count = 7;
         state.reconnect_projection.reason_kind = Some(ReconnectReasonKind::Timeout);
@@ -8499,6 +8535,20 @@ mod tests {
         assert_eq!(state.last_connect_redirect_ip.as_deref(), Some("127.0.0.1"));
         assert_eq!(state.last_connect_redirect_port, Some(6567));
         assert_eq!(
+            state.last_kick_reason_text.as_deref(),
+            Some("serverRestarting")
+        );
+        assert_eq!(state.last_kick_reason_ordinal, Some(15));
+        assert_eq!(state.last_kick_duration_ms, Some(2_500));
+        assert_eq!(
+            state.last_kick_hint_category,
+            Some(KickReasonHintCategory::ServerRestarting)
+        );
+        assert_eq!(
+            state.last_kick_hint_text,
+            Some("server is restarting; retry connection shortly.")
+        );
+        assert_eq!(
             state.reconnect_projection,
             ReconnectProjection {
                 phase: ReconnectPhaseProjection::Attempting,
@@ -8519,6 +8569,11 @@ mod tests {
         state.reset_count = 11;
         state.reconnect_reset_count = 13;
         state.last_reset_kind = Some(SessionResetKind::Reconnect);
+        state.last_kick_reason_text = Some("bye".to_string());
+        state.last_kick_reason_ordinal = Some(7);
+        state.last_kick_duration_ms = Some(30_000);
+        state.last_kick_hint_category = Some(KickReasonHintCategory::IdInUse);
+        state.last_kick_hint_text = Some("uuid or usid is already in use.");
         state.reconnect_projection.phase = ReconnectPhaseProjection::Succeeded;
         state.reconnect_projection.phase_transition_count = 4;
         state.reconnect_projection.reason_text = Some("kept".to_string());
@@ -8530,6 +8585,11 @@ mod tests {
         assert_eq!(state.reset_count, 0);
         assert_eq!(state.reconnect_reset_count, 0);
         assert_eq!(state.last_reset_kind, None);
+        assert_eq!(state.last_kick_reason_text, None);
+        assert_eq!(state.last_kick_reason_ordinal, None);
+        assert_eq!(state.last_kick_duration_ms, None);
+        assert_eq!(state.last_kick_hint_category, None);
+        assert_eq!(state.last_kick_hint_text, None);
     }
 
     #[test]

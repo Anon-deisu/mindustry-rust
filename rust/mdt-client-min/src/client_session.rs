@@ -37,7 +37,8 @@ use crate::session_state::{
     MassDriverRuntimeProjection, PayloadDroppedProjection, PayloadLoaderRuntimeProjection,
     PayloadMassDriverRuntimeProjection, PayloadRouterPayloadKind, PayloadRouterRuntimeProjection,
     PayloadSourceRuntimeProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
-    ReconnectPhaseProjection, ReconnectReasonKind, ReconstructorRuntimeProjection,
+    KickReasonHintCategory, ReconnectPhaseProjection, ReconnectReasonKind,
+    ReconstructorRuntimeProjection,
     RemotePlanSnapshotFirstPlanProjection, RepairTurretRuntimeProjection, SessionResetKind,
     SessionState, SessionTimeoutKind, SessionTimeoutProjection, ShieldProjectorRuntimeProjection,
     SorterRuntimeProjection, TakeItemsProjection, TileConfigAuthoritySource,
@@ -249,22 +250,6 @@ fn is_power_generator_block_name(block_name: Option<&str>) -> bool {
 
 fn is_power_reactor_block_name(block_name: Option<&str>) -> bool {
     block_name.is_some_and(|name| POWER_REACTOR_BLOCK_NAMES.contains(&name))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KickReasonHintCategory {
-    Banned,
-    ClientOutdated,
-    CustomClientRejected,
-    IdInUse,
-    NameEmpty,
-    NameInUse,
-    PlayerLimit,
-    RecentKick,
-    ServerOutdated,
-    WhitelistRequired,
-    TypeMismatch,
-    ServerRestarting,
 }
 
 fn kick_reason_hint_from(
@@ -502,11 +487,6 @@ pub struct ClientSession {
     last_remote_ping_at_ms: Option<u64>,
     last_remote_ping_rtt_ms: Option<u64>,
     kicked: bool,
-    last_kick_reason_text: Option<String>,
-    last_kick_reason_ordinal: Option<i32>,
-    last_kick_duration_ms: Option<u64>,
-    last_kick_hint_category: Option<KickReasonHintCategory>,
-    last_kick_hint_text: Option<&'static str>,
     next_client_snapshot_id: i32,
     timed_out: bool,
     pending_world_stream: Option<WorldStreamAssembler>,
@@ -1217,11 +1197,6 @@ impl ClientSession {
             last_remote_ping_at_ms: None,
             last_remote_ping_rtt_ms: None,
             kicked: false,
-            last_kick_reason_text: None,
-            last_kick_reason_ordinal: None,
-            last_kick_duration_ms: None,
-            last_kick_hint_category: None,
-            last_kick_hint_text: None,
             next_client_snapshot_id: 1,
             timed_out: false,
             pending_world_stream: None,
@@ -1264,23 +1239,23 @@ impl ClientSession {
     }
 
     pub fn last_kick_reason_text(&self) -> Option<&str> {
-        self.last_kick_reason_text.as_deref()
+        self.state.last_kick_reason_text.as_deref()
     }
 
     pub fn last_kick_reason_ordinal(&self) -> Option<i32> {
-        self.last_kick_reason_ordinal
+        self.state.last_kick_reason_ordinal
     }
 
     pub fn last_kick_duration_ms(&self) -> Option<u64> {
-        self.last_kick_duration_ms
+        self.state.last_kick_duration_ms
     }
 
     pub fn last_kick_hint_category(&self) -> Option<KickReasonHintCategory> {
-        self.last_kick_hint_category
+        self.state.last_kick_hint_category
     }
 
     pub fn last_kick_hint_text(&self) -> Option<&'static str> {
-        self.last_kick_hint_text
+        self.state.last_kick_hint_text
     }
 
     pub fn reconnect_phase(&self) -> ReconnectPhaseProjection {
@@ -6978,15 +6953,15 @@ impl ClientSession {
             kick_reason_hint_from(reason_text.as_deref(), reason_ordinal)
                 .map(|(category, text)| (Some(category), Some(text)))
                 .unwrap_or((None, None));
-        self.last_kick_reason_text = reason_text;
-        self.last_kick_reason_ordinal = reason_ordinal;
-        self.last_kick_duration_ms = duration_ms;
-        self.last_kick_hint_category = hint_category;
-        self.last_kick_hint_text = hint_text;
+        self.state.last_kick_reason_text = reason_text;
+        self.state.last_kick_reason_ordinal = reason_ordinal;
+        self.state.last_kick_duration_ms = duration_ms;
+        self.state.last_kick_hint_category = hint_category;
+        self.state.last_kick_hint_text = hint_text;
         self.state.record_reconnect_projection(
             reconnect_phase_from_kick_hint(hint_category),
             Some(ReconnectReasonKind::Kick),
-            self.last_kick_reason_text.clone(),
+            self.state.last_kick_reason_text.clone(),
             reason_ordinal,
             hint_text.map(str::to_string),
         );
@@ -9143,19 +9118,6 @@ impl ClientSession {
     }
 
     fn quiet_reset_for_reconnect(&mut self) {
-        let last_timeout = self.state.last_timeout;
-        let timeout_count = self.state.timeout_count;
-        let connect_or_loading_timeout_count = self.state.connect_or_loading_timeout_count;
-        let ready_snapshot_timeout_count = self.state.ready_snapshot_timeout_count;
-        let reset_count = self.state.reset_count;
-        let reconnect_reset_count = self.state.reconnect_reset_count;
-        let world_reload_count = self.state.world_reload_count;
-        let kick_reset_count = self.state.kick_reset_count;
-        let last_world_reload = self.state.last_world_reload.clone();
-        let reconnect_projection = self.state.reconnect_projection.clone();
-        let received_connect_redirect_count = self.state.received_connect_redirect_count;
-        let last_connect_redirect_ip = self.state.last_connect_redirect_ip.clone();
-        let last_connect_redirect_port = self.state.last_connect_redirect_port;
         self.pending_packets.clear();
         self.deferred_inbound_packets.clear();
         self.replayed_loading_events.clear();
@@ -9170,11 +9132,6 @@ impl ClientSession {
         self.last_remote_ping_at_ms = None;
         self.last_remote_ping_rtt_ms = None;
         self.kicked = false;
-        self.last_kick_reason_text = None;
-        self.last_kick_reason_ordinal = None;
-        self.last_kick_duration_ms = None;
-        self.last_kick_hint_category = None;
-        self.last_kick_hint_text = None;
         self.next_client_snapshot_id = 1;
         self.timed_out = false;
         self.snapshot_input = ClientSnapshotInputState::default();
@@ -9182,21 +9139,8 @@ impl ClientSession {
         self.separator_runtime_by_build_pos.borrow_mut().clear();
         self.shielded_wall_runtime_by_build_pos.borrow_mut().clear();
         self.power_reactor_runtime_by_build_pos.borrow_mut().clear();
-        self.state = SessionState::default();
+        self.state.reset_for_reconnect();
         self.stats = NetLoopStats::default();
-        self.state.last_timeout = last_timeout;
-        self.state.timeout_count = timeout_count;
-        self.state.connect_or_loading_timeout_count = connect_or_loading_timeout_count;
-        self.state.ready_snapshot_timeout_count = ready_snapshot_timeout_count;
-        self.state.reset_count = reset_count;
-        self.state.reconnect_reset_count = reconnect_reset_count;
-        self.state.world_reload_count = world_reload_count;
-        self.state.kick_reset_count = kick_reset_count;
-        self.state.last_world_reload = last_world_reload;
-        self.state.reconnect_projection = reconnect_projection;
-        self.state.received_connect_redirect_count = received_connect_redirect_count;
-        self.state.last_connect_redirect_ip = last_connect_redirect_ip;
-        self.state.last_connect_redirect_port = last_connect_redirect_port;
         if self.state.reconnect_projection.reason_kind.is_none() {
             self.state.record_reconnect_projection(
                 ReconnectPhaseProjection::Attempting,
@@ -9469,11 +9413,11 @@ impl ClientSession {
         self.last_remote_ping_at_ms = None;
         self.last_remote_ping_rtt_ms = None;
         self.kicked = false;
-        self.last_kick_reason_text = None;
-        self.last_kick_reason_ordinal = None;
-        self.last_kick_duration_ms = None;
-        self.last_kick_hint_category = None;
-        self.last_kick_hint_text = None;
+        self.state.last_kick_reason_text = None;
+        self.state.last_kick_reason_ordinal = None;
+        self.state.last_kick_duration_ms = None;
+        self.state.last_kick_hint_category = None;
+        self.state.last_kick_hint_text = None;
         self.snapshot_input.unit_id = None;
         self.snapshot_input.dead = true;
         self.snapshot_input.position = None;
@@ -56364,6 +56308,11 @@ mod tests {
         session.state.connection_timed_out = true;
         session.kicked = true;
         session.timed_out = true;
+        session.state.last_kick_reason_text = Some("serverRestarting".to_string());
+        session.state.last_kick_reason_ordinal = Some(KICK_REASON_SERVER_RESTARTING_ORDINAL);
+        session.state.last_kick_duration_ms = Some(2_500);
+        session.state.last_kick_hint_category = Some(KickReasonHintCategory::ServerRestarting);
+        session.state.last_kick_hint_text = Some("server is restarting; retry connection shortly.");
         session.state.timeout_count = 2;
         session.state.connect_or_loading_timeout_count = 1;
         session.state.ready_snapshot_timeout_count = 1;
@@ -56475,6 +56424,20 @@ mod tests {
         assert_eq!(session.state().world_reload_count, 2);
         assert_eq!(session.state().kick_reset_count, 1);
         assert_eq!(session.state().last_world_reload, Some(world_reload));
+        assert_eq!(session.last_kick_reason_text(), Some("serverRestarting"));
+        assert_eq!(
+            session.last_kick_reason_ordinal(),
+            Some(KICK_REASON_SERVER_RESTARTING_ORDINAL)
+        );
+        assert_eq!(session.last_kick_duration_ms(), Some(2_500));
+        assert_eq!(
+            session.last_kick_hint_category(),
+            Some(KickReasonHintCategory::ServerRestarting)
+        );
+        assert_eq!(
+            session.last_kick_hint_text(),
+            Some("server is restarting; retry connection shortly.")
+        );
         assert_eq!(
             session.reconnect_phase(),
             ReconnectPhaseProjection::Attempting
