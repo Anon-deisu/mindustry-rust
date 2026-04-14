@@ -1,8 +1,8 @@
 use crate::{
     hud_model::{HudModel, HudSummary, RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
     panel_model::{
-        build_runtime_session_panel, HudVisibilityPanelModel, MinimapPanelModel,
-        PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
+        build_runtime_live_entity_panel, build_runtime_session_panel, HudVisibilityPanelModel,
+        MinimapPanelModel, PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
         RuntimeCoreBindingPanelModel,
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
@@ -1799,6 +1799,17 @@ where
 {
     let panel = build_runtime_session_panel(hud)?;
     formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_live_entity_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeLiveEntityPanelModel) -> String,
+{
+    let panel = build_runtime_live_entity_panel(hud)?;
+    Some(formatter(&panel))
 }
 
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {

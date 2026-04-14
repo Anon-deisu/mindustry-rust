@@ -8,8 +8,8 @@ use crate::{
         build_runtime_bootstrap_panel, build_runtime_chat_panel, build_runtime_choice_panel,
         build_runtime_command_mode_panel, build_runtime_core_binding_panel,
         build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
-        build_runtime_live_effect_panel, build_runtime_live_entity_panel,
-        build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
+        build_runtime_live_effect_panel, build_runtime_loading_panel, build_runtime_marker_panel,
+        build_runtime_menu_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
@@ -49,7 +49,7 @@ use crate::{
         format_runtime_reconnect_detail_text_if_nonempty, format_runtime_reconnect_panel_text,
         format_runtime_resource_delta_detail_text_if_nonempty,
         format_runtime_resource_delta_panel_text_if_nonempty,
-        compose_runtime_session_text_from_hud,
+        compose_runtime_live_entity_text_from_hud, compose_runtime_session_text_from_hud,
         format_runtime_session_banner_text, format_runtime_session_detail_text,
         format_runtime_session_panel_text,
         format_runtime_world_label_detail_text_if_nonempty, format_runtime_world_label_panel_text,
@@ -2946,13 +2946,11 @@ fn compose_runtime_reconnect_detail_status_text(hud: &HudModel) -> Option<String
 }
 
 fn compose_runtime_live_entity_panel_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_live_entity_panel(hud)?;
-    Some(format_runtime_live_entity_panel_text(&panel))
+    compose_runtime_live_entity_text_from_hud(hud, format_runtime_live_entity_panel_text)
 }
 
 fn compose_runtime_live_entity_detail_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_live_entity_panel(hud)?;
-    Some(format_runtime_live_entity_detail_text(&panel))
+    compose_runtime_live_entity_text_from_hud(hud, format_runtime_live_entity_detail_text)
 }
 
 fn compose_runtime_live_effect_panel_status_text(hud: &HudModel) -> Option<String> {
