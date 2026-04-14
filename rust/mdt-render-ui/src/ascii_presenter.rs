@@ -77,7 +77,8 @@ use crate::presenter_view::{
     format_render_rect_detail_fields, format_render_rect_signature,
     format_render_text_signature,
     render_rect_detail_payload_fields,
-    format_build_strip_queue_status_text, CropWindowMode,
+    format_build_strip_queue_fallback_text_from_build_ui,
+    format_build_strip_queue_panel_text_with, CropWindowMode,
 };
 use crate::render_model::{
     RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -2620,19 +2621,11 @@ fn compact_build_inspector_text(value: &str, limit: usize) -> String {
 fn compose_build_strip_queue_text(
     panel: &crate::panel_model::BuildInteractionPanelModel,
 ) -> String {
-    format_build_strip_queue_status_text(
-        panel.head.as_ref().map(|head| head.stage),
-        panel.pending_count,
-        Some(build_interaction_queue_text(panel.queue_state).to_string()),
-    )
+    format_build_strip_queue_panel_text_with(panel, build_interaction_queue_text)
 }
 
 fn compose_build_strip_queue_fallback_text(build_ui: &crate::BuildUiObservability) -> String {
-    format_build_strip_queue_status_text(
-        build_ui.head.as_ref().map(|head| head.stage),
-        build_ui.queued_count,
-        None,
-    )
+    format_build_strip_queue_fallback_text_from_build_ui(build_ui)
 }
 
 fn compose_build_ui_queue_summary_text(build_ui: &crate::BuildUiObservability) -> String {

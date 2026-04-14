@@ -80,7 +80,8 @@ use crate::{
         render_rect_detail_payload_fields,
         format_render_rect_detail_fields, format_render_rect_signature,
         format_render_text_signature,
-        format_build_strip_queue_status_text, CropWindowMode,
+        format_build_strip_queue_fallback_text_from_build_ui,
+        format_build_strip_queue_panel_text_with, CropWindowMode,
     },
     render_model::{
         RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -3761,19 +3762,11 @@ fn build_queue_head_status_text(head: Option<&BuildQueueHeadObservability>) -> S
 fn compose_build_strip_queue_text(
     panel: &crate::panel_model::BuildInteractionPanelModel,
 ) -> String {
-    format_build_strip_queue_status_text(
-        panel.head.as_ref().map(|head| head.stage),
-        panel.pending_count,
-        Some(build_interaction_queue_status_text(panel.queue_state).to_string()),
-    )
+    format_build_strip_queue_panel_text_with(panel, build_interaction_queue_status_text)
 }
 
 fn compose_build_strip_queue_fallback_text(build_ui: &BuildUiObservability) -> String {
-    format_build_strip_queue_status_text(
-        build_ui.head.as_ref().map(|head| head.stage),
-        build_ui.queued_count,
-        None,
-    )
+    format_build_strip_queue_fallback_text_from_build_ui(build_ui)
 }
 
 fn optional_i32_label(value: Option<i32>) -> String {

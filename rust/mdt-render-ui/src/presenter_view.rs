@@ -18,7 +18,7 @@ use crate::{
         build_runtime_reconnect_panel,
         build_runtime_rules_panel,
         build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
-        HudVisibilityPanelModel,
+        BuildInteractionPanelModel, BuildInteractionQueueState, HudVisibilityPanelModel,
         MinimapPanelModel,
         PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
         RuntimeChoicePanelModel,
@@ -35,7 +35,7 @@ use crate::{
         RuntimeWorldReloadPanelModel,
     },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue, RenderSemanticDetailCount},
-    BuildQueueHeadStage, RenderModel, RenderObject,
+    BuildQueueHeadStage, BuildUiObservability, RenderModel, RenderObject,
     RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
     RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
     RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
@@ -298,6 +298,30 @@ pub(crate) fn format_build_strip_queue_status_text(
     } else {
         format!("queued@{pending_count}")
     }
+}
+
+pub(crate) fn format_build_strip_queue_panel_text_with<F>(
+    panel: &BuildInteractionPanelModel,
+    queue_formatter: F,
+) -> String
+where
+    F: FnOnce(BuildInteractionQueueState) -> &'static str,
+{
+    format_build_strip_queue_status_text(
+        panel.head.as_ref().map(|head| head.stage),
+        panel.pending_count,
+        Some(queue_formatter(panel.queue_state).to_string()),
+    )
+}
+
+pub(crate) fn format_build_strip_queue_fallback_text_from_build_ui(
+    build_ui: &BuildUiObservability,
+) -> String {
+    format_build_strip_queue_status_text(
+        build_ui.head.as_ref().map(|head| head.stage),
+        build_ui.queued_count,
+        None,
+    )
 }
 
 fn format_build_queue_stage_text(stage: BuildQueueHeadStage, pending_count: usize) -> String {
