@@ -1333,6 +1333,12 @@ pub(crate) fn format_runtime_admin_detail_text(panel: &RuntimeAdminPanelModel) -
     )
 }
 
+pub(crate) fn format_runtime_admin_detail_text_if_nonempty(
+    panel: &RuntimeAdminPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_admin_detail_text(panel))
+}
+
 pub(crate) fn format_runtime_world_label_panel_text(
     panel: &RuntimeWorldLabelPanelModel,
 ) -> String {
@@ -2265,7 +2271,8 @@ mod tests {
         format_runtime_prompt_panel_text, format_runtime_prompt_panel_text_if_nonempty,
         format_runtime_chat_detail_text, format_runtime_chat_detail_text_if_nonempty,
         format_runtime_chat_panel_text,
-        format_runtime_admin_detail_text, format_runtime_admin_panel_text,
+        format_runtime_admin_detail_text, format_runtime_admin_detail_text_if_nonempty,
+        format_runtime_admin_panel_text,
         format_optional_i16_text, format_optional_u8_text, format_optional_bool_flag,
         format_runtime_stack_depth_text, format_runtime_stack_detail_text,
         format_runtime_stack_panel_text,
@@ -4261,6 +4268,40 @@ mod tests {
         assert_eq!(
             format_runtime_admin_detail_text(&panel),
             "admind:tr11/3@404:dbg7/2:udbg5/1:last9"
+        );
+    }
+
+    #[test]
+    fn format_runtime_admin_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        assert_eq!(
+            format_runtime_admin_detail_text_if_nonempty(&RuntimeAdminPanelModel {
+                trace_info_count: 0,
+                trace_info_parse_fail_count: 0,
+                last_trace_info_player_id: None,
+                debug_status_client_count: 0,
+                debug_status_client_parse_fail_count: 0,
+                debug_status_client_unreliable_count: 0,
+                debug_status_client_unreliable_parse_fail_count: 0,
+                last_debug_status_value: None,
+                parse_fail_count: 0,
+            }),
+            None
+        );
+
+        let panel = RuntimeAdminPanelModel {
+            trace_info_count: 11,
+            trace_info_parse_fail_count: 3,
+            last_trace_info_player_id: Some(404),
+            debug_status_client_count: 7,
+            debug_status_client_parse_fail_count: 2,
+            debug_status_client_unreliable_count: 5,
+            debug_status_client_unreliable_parse_fail_count: 1,
+            last_debug_status_value: Some(9),
+            parse_fail_count: 4,
+        };
+        assert_eq!(
+            format_runtime_admin_detail_text_if_nonempty(&panel),
+            Some("admind:tr11/3@404:dbg7/2:udbg5/1:last9".to_string())
         );
     }
 
