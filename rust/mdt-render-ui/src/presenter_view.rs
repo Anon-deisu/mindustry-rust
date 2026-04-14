@@ -1,7 +1,8 @@
 use crate::{
-    hud_model::{HudSummary, RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
+    hud_model::{HudModel, HudSummary, RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
     panel_model::{
-        HudVisibilityPanelModel, MinimapPanelModel, PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
+        build_runtime_session_panel, HudVisibilityPanelModel, MinimapPanelModel,
+        PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
         RuntimeCoreBindingPanelModel,
         RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
@@ -1733,6 +1734,17 @@ pub(crate) fn format_runtime_session_banner_text(
         ));
     }
     (!segments.is_empty()).then(|| segments.join(" | "))
+}
+
+pub(crate) fn compose_runtime_session_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeSessionPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_session_panel(hud)?;
+    formatter(&panel)
 }
 
 pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSummary) -> String {
