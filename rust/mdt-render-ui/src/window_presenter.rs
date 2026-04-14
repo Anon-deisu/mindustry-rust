@@ -1906,19 +1906,25 @@ fn compose_frame_panel_lines(
     if let Some(runtime_kick_detail_text) = compose_runtime_kick_detail_status_text(hud) {
         lines.push(format!("RUNTIME-KICK-DETAIL: {runtime_kick_detail_text}"));
     }
-    if let Some(runtime_loading_text) = compose_runtime_loading_status_text(hud) {
+    if let Some(runtime_loading_text) = compose_runtime_loading_text_from_hud(hud, |panel| {
+        Some(format_runtime_loading_row_text(panel))
+    }) {
         lines.push(format!("RUNTIME-LOADING: {runtime_loading_text}"));
     }
-    if let Some(runtime_loading_detail_text) = compose_runtime_loading_detail_status_text(hud) {
+    if let Some(runtime_loading_detail_text) =
+        compose_runtime_loading_text_from_hud(hud, format_runtime_loading_detail_text_if_nonempty)
+    {
         lines.push(format!(
             "RUNTIME-LOADING-DETAIL: {runtime_loading_detail_text}"
         ));
     }
-    if let Some(runtime_world_reload_text) = compose_runtime_world_reload_status_text(hud) {
+    if let Some(runtime_world_reload_text) =
+        compose_runtime_loading_text_from_hud(hud, format_runtime_world_reload_text_if_loading_nonempty)
+    {
         lines.push(format!("RUNTIME-WORLD-RELOAD: {runtime_world_reload_text}"));
     }
     if let Some(runtime_world_reload_detail_text) =
-        compose_runtime_world_reload_detail_status_text(hud)
+        compose_runtime_loading_text_from_hud(hud, format_runtime_world_reload_detail_text_from_loading)
     {
         lines.push(format!(
             "RUNTIME-WORLD-RELOAD-DETAIL: {runtime_world_reload_detail_text}"
@@ -2814,20 +2820,8 @@ fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> 
     compose_runtime_session_text_from_hud(hud, format_runtime_session_detail_text_if_nonempty)
 }
 
-fn compose_runtime_loading_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_loading_text_from_hud(hud, |panel| Some(format_runtime_loading_row_text(panel)))
-}
-
 fn compose_runtime_kick_detail_status_text(hud: &HudModel) -> Option<String> {
     compose_runtime_kick_text_from_hud(hud, format_runtime_kick_detail_text_if_nonempty)
-}
-
-fn compose_runtime_loading_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_loading_text_from_hud(hud, format_runtime_loading_detail_text_if_nonempty)
-}
-
-fn compose_runtime_world_reload_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_loading_text_from_hud(hud, format_runtime_world_reload_text_if_loading_nonempty)
 }
 
 fn compose_runtime_core_binding_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -3585,10 +3579,6 @@ fn compact_build_inspector_text(value: &str, limit: usize) -> String {
     } else {
         compact
     }
-}
-
-fn compose_runtime_world_reload_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_loading_text_from_hud(hud, format_runtime_world_reload_detail_text_from_loading)
 }
 
 fn compose_overlay_semantics_status_text(scene: &RenderModel) -> Option<String> {
