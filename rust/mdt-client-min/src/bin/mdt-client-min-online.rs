@@ -357,18 +357,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &mut session,
                             &args.runtime_custom_packet_relays,
                         );
-                        relative_build_plans_applied = false;
-                        auto_build_plans_applied = false;
-                        ascii_scene_printed = false;
-                        final_runtime_view_center = None;
-                        world_stream_dumped = false;
-                        render_runtime_adapter = RenderRuntimeAdapter::default();
-                        reset_runtime_command_mode_from_cli_ops(
+                        reset_runtime_loop_state_after_reconnect(
+                            &args,
                             &mut runtime_command_mode,
-                            &args.command_mode_ops,
+                            &mut live_intent_mapper,
+                            &mut relative_build_plans_applied,
+                            &mut auto_build_plans_applied,
+                            &mut ascii_scene_printed,
+                            &mut final_runtime_view_center,
+                            &mut world_stream_dumped,
+                            &mut render_runtime_adapter,
+                            &mut last_runtime_input,
                         );
-                        reset_live_intent_mapper(&args, &mut live_intent_mapper);
-                        last_runtime_input = None;
                         reconnect_executor.note_attempt_success();
                         let tcp_local_addr = driver.tcp_local_addr()?;
                         let udp_local_addr = driver.udp_local_addr()?;
@@ -1532,6 +1532,29 @@ fn reset_live_intent_mapper(
     live_intent_mapper: &mut Option<LiveIntentMapperController>,
 ) {
     *live_intent_mapper = build_live_intent_mapper(args);
+}
+
+fn reset_runtime_loop_state_after_reconnect(
+    args: &CliArgs,
+    runtime_command_mode: &mut CommandModeState,
+    live_intent_mapper: &mut Option<LiveIntentMapperController>,
+    relative_build_plans_applied: &mut bool,
+    auto_build_plans_applied: &mut bool,
+    ascii_scene_printed: &mut bool,
+    final_runtime_view_center: &mut Option<(f32, f32)>,
+    world_stream_dumped: &mut bool,
+    render_runtime_adapter: &mut RenderRuntimeAdapter,
+    last_runtime_input: &mut Option<(Option<i32>, bool, Option<(u32, u32)>)>,
+) {
+    *relative_build_plans_applied = false;
+    *auto_build_plans_applied = false;
+    *ascii_scene_printed = false;
+    *final_runtime_view_center = None;
+    *world_stream_dumped = false;
+    *render_runtime_adapter = RenderRuntimeAdapter::default();
+    reset_runtime_command_mode_from_cli_ops(runtime_command_mode, &args.command_mode_ops);
+    reset_live_intent_mapper(args, live_intent_mapper);
+    *last_runtime_input = None;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -11711,6 +11734,96 @@ mod tests {
                     index: 2,
                     unit_ids: vec![11, 22],
                 }],
+                last_control_group_operation: Some(
+                    mdt_input::command_mode::CommandModeRecentControlGroupOperation::Recall,
+                ),
+                last_target: Some(mdt_input::CommandModeTargetProjection {
+                    build_target: Some(808),
+                    unit_target: Some(mdt_input::CommandUnitRef {
+                        kind: 2,
+                        value: 909,
+                    }),
+                    position_target: Some(mdt_input::CommandModePositionTarget {
+                        x_bits: 1.5f32.to_bits(),
+                        y_bits: (-2.25f32).to_bits(),
+                    }),
+                    rect_target: None,
+                }),
+                last_command_selection: None,
+                last_stance_selection: None,
+            }
+        );
+    }
+
+    #[test]
+    fn reset_runtime_loop_state_after_reconnect_replays_cli_state_and_clears_transients() {
+        let args = parse_args(sample_args(&[
+            "--intent-live-sampling",
+            "--command-mode-bind-group",
+            "2@11,22,11",
+            "--command-mode-recall-group",
+            "2",
+            "--command-mode-target",
+            "808@unit:909@1.5:-2.25",
+        ]))
+        .unwrap();
+        let mut runtime_command_mode = CommandModeState::default();
+        runtime_command_mode.bind_control_group(7, &[99]);
+        runtime_command_mode.record_building_control_select(Some(404));
+        let mut live_intent_mapper = None;
+        let mut relative_build_plans_applied = true;
+        let mut auto_build_plans_applied = true;
+        let mut ascii_scene_printed = true;
+        let mut final_runtime_view_center = Some((3.0, 4.0));
+        let mut world_stream_dumped = true;
+        let mut render_runtime_adapter = RenderRuntimeAdapter::default();
+        render_runtime_adapter.observe_events(&[ClientSessionEvent::Kicked {
+            reason_text: Some("bye".to_string()),
+            reason_ordinal: None,
+            duration_ms: None,
+        }]);
+        let mut last_runtime_input = Some((Some(77), false, Some((1, 2))));
+
+        assert_ne!(render_runtime_adapter, RenderRuntimeAdapter::default());
+
+        reset_runtime_loop_state_after_reconnect(
+            &args,
+            &mut runtime_command_mode,
+            &mut live_intent_mapper,
+            &mut relative_build_plans_applied,
+            &mut auto_build_plans_applied,
+            &mut ascii_scene_printed,
+            &mut final_runtime_view_center,
+            &mut world_stream_dumped,
+            &mut render_runtime_adapter,
+            &mut last_runtime_input,
+        );
+
+        assert!(!relative_build_plans_applied);
+        assert!(!auto_build_plans_applied);
+        assert!(!ascii_scene_printed);
+        assert_eq!(final_runtime_view_center, None);
+        assert!(!world_stream_dumped);
+        assert_eq!(render_runtime_adapter, RenderRuntimeAdapter::default());
+        assert_eq!(last_runtime_input, None);
+        assert!(live_intent_mapper.is_some());
+        assert_eq!(
+            runtime_command_mode.projection(),
+            mdt_input::CommandModeProjection {
+                active: true,
+                selected_units: vec![11, 22],
+                command_buildings: Vec::new(),
+                command_rect: None,
+                control_groups: vec![
+                    mdt_input::CommandModeControlGroupProjection {
+                        index: 2,
+                        unit_ids: vec![11, 22],
+                    },
+                    mdt_input::CommandModeControlGroupProjection {
+                        index: 7,
+                        unit_ids: vec![99],
+                    },
+                ],
                 last_control_group_operation: Some(
                     mdt_input::command_mode::CommandModeRecentControlGroupOperation::Recall,
                 ),
