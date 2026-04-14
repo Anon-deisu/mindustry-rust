@@ -1767,12 +1767,16 @@ fn compose_frame_panel_lines(
     }) {
         lines.push(format!("RUNTIME-NOTICE: {runtime_ui_notice_text}"));
     }
-    if let Some(runtime_notice_state_text) = compose_runtime_notice_state_panel_status_text(hud) {
+    if let Some(runtime_notice_state_text) = compose_runtime_notice_state_text_from_hud(
+        hud,
+        |panel| Some(format_runtime_notice_state_panel_text(panel)),
+    ) {
         lines.push(format!("RUNTIME-NOTICE-STATE: {runtime_notice_state_text}"));
     }
-    if let Some(runtime_notice_state_detail_text) =
-        compose_runtime_notice_state_detail_status_text(hud)
-    {
+    if let Some(runtime_notice_state_detail_text) = compose_runtime_notice_state_text_from_hud(
+        hud,
+        |panel| Some(format_runtime_notice_state_detail_text(panel)),
+    ) {
         lines.push(format!(
             "RUNTIME-NOTICE-STATE-DETAIL: {runtime_notice_state_detail_text}"
         ));
@@ -2682,18 +2686,6 @@ fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String
         format_runtime_live_entity_summary_text(&live.entity),
         format_runtime_live_effect_summary_text(&live.effect),
     )
-}
-
-fn compose_runtime_notice_state_panel_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_notice_state_text_from_hud(hud, |panel| {
-        Some(format_runtime_notice_state_panel_text(panel))
-    })
-}
-
-fn compose_runtime_notice_state_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_notice_state_text_from_hud(hud, |panel| {
-        Some(format_runtime_notice_state_detail_text(panel))
-    })
 }
 
 fn compose_runtime_menu_panel_status_text(hud: &HudModel) -> Option<String> {
