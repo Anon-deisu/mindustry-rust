@@ -1057,6 +1057,12 @@ pub(crate) fn format_runtime_stack_panel_text(panel: &RuntimeUiStackPanelModel) 
     )
 }
 
+pub(crate) fn format_runtime_stack_panel_text_if_nonempty(
+    panel: &RuntimeUiStackPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_stack_panel_text(panel))
+}
+
 pub(crate) fn format_runtime_stack_detail_text(panel: &RuntimeDialogStackPanelModel) -> String {
     format!(
         "stackd:f={}:g{}:t{}:p={}:m{}:fo{}:i{}:n={}:h{}:r{}:i{}:w{}:c{}:{}/{}:sid{}",
@@ -1077,6 +1083,12 @@ pub(crate) fn format_runtime_stack_detail_text(panel: &RuntimeDialogStackPanelMo
         panel.chat.chat_message_count,
         format_optional_i32_text(panel.chat.last_chat_sender_entity_id),
     )
+}
+
+pub(crate) fn format_runtime_stack_detail_text_if_nonempty(
+    panel: &RuntimeDialogStackPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_stack_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_live_entity_summary_text(
@@ -1779,6 +1791,12 @@ pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSumma
     )
 }
 
+pub(crate) fn format_runtime_stack_depth_text_if_nonempty(
+    summary: &RuntimeUiStackDepthSummary,
+) -> Option<String> {
+    (!summary.is_empty()).then(|| format_runtime_stack_depth_text(summary))
+}
+
 pub(crate) fn format_runtime_dialog_stack_summary_text(
     summary: &RuntimeUiStackSummary,
 ) -> String {
@@ -1812,6 +1830,12 @@ pub(crate) fn format_runtime_dialog_stack_summary_text(
         summary.dialog_depth(),
         summary.total_depth(),
     )
+}
+
+pub(crate) fn format_runtime_dialog_stack_summary_text_if_nonempty(
+    summary: &RuntimeUiStackSummary,
+) -> Option<String> {
+    (!summary.is_empty()).then(|| format_runtime_dialog_stack_summary_text(summary))
 }
 
 pub(crate) fn format_runtime_command_i32_list_text(values: &[i32]) -> String {

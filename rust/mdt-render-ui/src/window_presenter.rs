@@ -34,7 +34,7 @@ use crate::{
         format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
         format_runtime_command_mode_panel_text,
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
-        format_runtime_dialog_stack_summary_text,
+        format_runtime_dialog_stack_summary_text_if_nonempty,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_core_binding_detail_text_if_nonempty,
         format_runtime_core_binding_panel_text_if_nonempty,
@@ -55,8 +55,9 @@ use crate::{
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
         format_runtime_prompt_detail_text_if_nonempty, format_runtime_prompt_panel_text_if_nonempty,
-        format_runtime_stack_depth_text, format_runtime_stack_detail_text,
-        format_runtime_stack_panel_text, format_render_icon_signature,
+        format_runtime_stack_depth_text_if_nonempty,
+        format_runtime_stack_detail_text_if_nonempty,
+        format_runtime_stack_panel_text_if_nonempty, format_render_icon_signature,
         format_render_line_signature,
         format_render_primitive_payload_fields_with,
         format_render_primitive_payload_value_with,
@@ -2795,34 +2796,22 @@ fn compose_runtime_chat_detail_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_stack_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_ui_stack_panel(hud)?;
-    if panel.is_empty() {
-        return None;
-    }
-    Some(format_runtime_stack_panel_text(&panel))
+    format_runtime_stack_panel_text_if_nonempty(&panel)
 }
 
 fn compose_runtime_stack_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_dialog_stack_panel(hud)?;
-    if panel.is_empty() {
-        return None;
-    }
-    Some(format_runtime_stack_detail_text(&panel))
+    format_runtime_stack_detail_text_if_nonempty(&panel)
 }
 
 fn compose_runtime_stack_depth_status_text(hud: &HudModel) -> Option<String> {
     let summary = hud.runtime_ui_stack_depth_summary()?;
-    if summary.is_empty() {
-        return None;
-    }
-    Some(format_runtime_stack_depth_text(&summary))
+    format_runtime_stack_depth_text_if_nonempty(&summary)
 }
 
 fn compose_runtime_dialog_stack_status_text(hud: &HudModel) -> Option<String> {
     let summary = hud.runtime_ui_stack_summary()?;
-    if summary.is_empty() {
-        return None;
-    }
-    Some(format_runtime_dialog_stack_summary_text(&summary))
+    format_runtime_dialog_stack_summary_text_if_nonempty(&summary)
 }
 
 fn compose_runtime_command_mode_panel_status_text(hud: &HudModel) -> Option<String> {
