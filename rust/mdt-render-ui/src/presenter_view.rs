@@ -6,6 +6,7 @@ use crate::{
         build_runtime_bootstrap_panel,
         build_runtime_command_mode_panel,
         build_runtime_core_binding_panel,
+        build_runtime_dialog_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_kick_panel,
         build_runtime_loading_panel,
@@ -2128,6 +2129,27 @@ pub(crate) fn compose_runtime_command_group_lines_from_hud(hud: &HudModel) -> Ve
         return Vec::new();
     };
     format_runtime_command_group_lines(&panel)
+}
+
+pub(crate) fn compose_runtime_dialog_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeDialogPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_dialog_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_dialog_detail_text_from_hud(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_dialog_panel(hud)?;
+    let prompt = build_runtime_prompt_panel(hud)?;
+    let notice = build_runtime_notice_state_panel(hud)?;
+    if panel.is_empty() && !notice.is_active() && notice.count == 0 && notice.text.is_none() {
+        return None;
+    }
+    Some(format_runtime_dialog_detail_text(&panel, &prompt, &notice))
 }
 
 pub(crate) fn compose_runtime_loading_text_from_hud<F>(

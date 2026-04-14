@@ -5,8 +5,7 @@ use crate::panel_model::{
     build_build_minimap_assist_panel, build_hud_status_panel, build_hud_visibility_panel,
     build_minimap_panel,
     build_runtime_choice_panel,
-    build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
-    build_runtime_notice_state_panel, build_runtime_prompt_panel,
+    build_runtime_dialog_stack_panel,
     build_runtime_ui_stack_panel, MinimapPanelModel,
     PresenterViewWindow,
 };
@@ -32,7 +31,7 @@ use crate::presenter_view::{
     format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
     format_runtime_choice_panel_text_if_nonempty, format_runtime_choice_detail_text_if_nonempty,
     format_runtime_dialog_stack_summary_text_if_nonempty,
-    format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
+    format_runtime_dialog_panel_text,
     format_runtime_core_binding_detail_text_if_nonempty,
     format_runtime_core_binding_panel_text_if_nonempty,
     format_runtime_live_effect_detail_text,
@@ -58,6 +57,7 @@ use crate::presenter_view::{
     compose_runtime_notice_state_text_from_hud,
     compose_runtime_chat_text_from_hud,
     compose_runtime_command_group_lines_from_hud, compose_runtime_command_mode_text_from_hud,
+    compose_runtime_dialog_detail_text_from_hud, compose_runtime_dialog_text_from_hud,
     compose_runtime_prompt_text_from_hud,
     compose_runtime_ui_notice_text_from_hud,
     compose_runtime_resource_delta_text_from_hud, compose_runtime_world_label_text_from_hud,
@@ -1780,18 +1780,11 @@ fn compose_runtime_prompt_detail_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_dialog_panel(hud)?;
-    Some(format_runtime_dialog_panel_text(&panel))
+    compose_runtime_dialog_text_from_hud(hud, |panel| Some(format_runtime_dialog_panel_text(panel)))
 }
 
 fn compose_runtime_dialog_detail_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_dialog_panel(hud)?;
-    let prompt = build_runtime_prompt_panel(hud)?;
-    let notice = build_runtime_notice_state_panel(hud)?;
-    if panel.is_empty() && !notice.is_active() && notice.count == 0 && notice.text.is_none() {
-        return None;
-    }
-    Some(format_runtime_dialog_detail_text(&panel, &prompt, &notice))
+    compose_runtime_dialog_detail_text_from_hud(hud)
 }
 
 fn compose_runtime_chat_panel_text(hud: &HudModel) -> Option<String> {
