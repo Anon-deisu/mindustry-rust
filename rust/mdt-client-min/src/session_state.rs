@@ -7162,6 +7162,17 @@ impl SessionState {
         self.objectives_projection.complete_by_index(index);
     }
 
+    pub fn record_payload_dropped(
+        &mut self,
+        projection: &PayloadDroppedProjection,
+        drop_tile: Option<i32>,
+    ) {
+        self.received_payload_dropped_count =
+            self.received_payload_dropped_count.saturating_add(1);
+        self.last_payload_dropped = Some(projection.clone());
+        self.record_payload_lifecycle_drop(projection.unit, drop_tile);
+    }
+
     pub fn record_destroy_payload(&mut self, projection: &DestroyPayloadProjection) {
         self.received_destroy_payload_count =
             self.received_destroy_payload_count.saturating_add(1);
@@ -15172,6 +15183,48 @@ mod tests {
                 drop_tile: None,
                 on_ground: Some(false),
                 removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+    }
+
+    #[test]
+    fn record_payload_dropped_tracks_projection_and_lifecycle_drop() {
+        let mut state = SessionState::default();
+        let projection = PayloadDroppedProjection {
+            unit: Some(UnitRefProjection { kind: 2, value: 41 }),
+            x_bits: 8.0f32.to_bits(),
+            y_bits: 16.0f32.to_bits(),
+        };
+        let carrier = UnitRefProjection { kind: 2, value: 41 };
+        state.payload_lifecycle_projection.by_carrier.insert(
+            carrier,
+            PayloadLifecycleCarrierProjection {
+                carrier,
+                target_unit: Some(UnitRefProjection { kind: 2, value: 99 }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+
+        state.record_payload_dropped(&projection, Some(pack_point2(1, 2)));
+
+        assert_eq!(state.received_payload_dropped_count, 1);
+        assert_eq!(state.last_payload_dropped, Some(projection));
+        assert_eq!(
+            state.payload_lifecycle_projection.by_carrier.get(&carrier),
+            Some(&PayloadLifecycleCarrierProjection {
+                carrier,
+                target_unit: Some(UnitRefProjection { kind: 2, value: 99 }),
+                target_build: None,
+                drop_tile: Some(pack_point2(1, 2)),
+                on_ground: Some(true),
+                removed_target_unit: false,
                 removed_target_build: false,
                 removed_carrier: false,
             })

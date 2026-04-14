@@ -5205,11 +5205,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.payload_dropped_packet_id => {
                 if let Some(projection) = decode_payload_dropped_payload(&packet.payload) {
-                    self.state.received_payload_dropped_count =
-                        self.state.received_payload_dropped_count.saturating_add(1);
-                    self.state.last_payload_dropped = Some(projection.clone());
-                    self.state.record_payload_lifecycle_drop(
-                        projection.unit,
+                    self.state.record_payload_dropped(
+                        &projection,
                         world_coords_to_tile_pos(projection.x_bits, projection.y_bits),
                     );
                     Ok(ClientSessionEvent::PayloadDropped { projection })
