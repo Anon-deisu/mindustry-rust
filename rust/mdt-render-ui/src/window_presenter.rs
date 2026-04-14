@@ -1633,7 +1633,18 @@ fn compose_frame_panel_lines(
             "MINIMAP-VIS-DETAIL: {minimap_visibility_detail_text}"
         ));
     }
-    if let Some(minimap_flow_text) = compose_minimap_flow_status_text(scene, hud, window) {
+    if let Some(minimap_flow_text) = build_minimap_user_flow_panel(scene, hud, window).map(|panel| {
+        format!(
+            "miniflow:n={}:f={}:p={}:v={}:c={}:t={}:o{}",
+            panel.next_action,
+            panel.focus_state.label(),
+            panel.pan_label(),
+            panel.visibility_label(),
+            panel.coverage_label(),
+            panel.target_kind.label(),
+            panel.overlay_target_count,
+        )
+    }) {
         lines.push(format!("MINIMAP-FLOW: {minimap_flow_text}"));
     }
     if let Some(minimap_flow_detail_text) =
@@ -1641,10 +1652,32 @@ fn compose_frame_panel_lines(
     {
         lines.push(format!("MINIMAP-FLOW-DETAIL: {minimap_flow_detail_text}"));
     }
-    if let Some(minimap_kind_text) = compose_minimap_kind_status_text(scene, hud) {
+    if let Some(minimap_kind_text) = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    )
+    .map(|panel| format_minimap_kind_text(&panel))
+    {
         lines.push(format!("MINIMAP-KINDS: {minimap_kind_text}"));
     }
-    if let Some(minimap_kind_detail_text) = compose_minimap_kind_detail_status_text(scene, hud) {
+    if let Some(minimap_kind_detail_text) = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    )
+    .and_then(|panel| format_semantic_detail_text(&panel.detail_counts))
+    {
         lines.push(format!("MINIMAP-KINDS-DETAIL: {minimap_kind_detail_text}"));
     }
     if let Some(minimap_window_kinds_text) = build_minimap_panel(
@@ -1675,10 +1708,16 @@ fn compose_frame_panel_lines(
     {
         lines.push(format!("MINIWIN: {minimap_window_text}"));
     }
-    if let Some(minimap_legend_text) = compose_minimap_legend_status_text(hud) {
+    if let Some(minimap_legend_text) = hud
+        .summary
+        .as_ref()
+        .map(|summary| format_minimap_legend_text(summary))
+    {
         lines.push(format!("MINIMAP-LEGEND: {minimap_legend_text}"));
     }
-    if let Some(minimap_edge_text) = compose_minimap_edge_status_text(scene, hud, window) {
+    if let Some(minimap_edge_text) = build_minimap_panel(scene, hud, window)
+        .map(|panel| compose_minimap_edge_summary_status_text(&panel))
+    {
         lines.push(format!("MINIMAP-EDGE: {minimap_edge_text}"));
     }
     if let Some(minimap_edge_detail_text) = build_minimap_panel(scene, hud, window)
@@ -2879,66 +2918,6 @@ fn compose_visibility_minimap_status_text(
     let visibility = build_hud_visibility_panel(hud)?;
     let minimap = build_minimap_panel(scene, hud, window)?;
     Some(format_visibility_minimap_text(&visibility, &minimap))
-}
-
-fn compose_minimap_flow_status_text(
-    scene: &RenderModel,
-    hud: &HudModel,
-    window: PresenterViewWindow,
-) -> Option<String> {
-    let panel = build_minimap_user_flow_panel(scene, hud, window)?;
-    Some(format!(
-        "miniflow:n={}:f={}:p={}:v={}:c={}:t={}:o{}",
-        panel.next_action,
-        panel.focus_state.label(),
-        panel.pan_label(),
-        panel.visibility_label(),
-        panel.coverage_label(),
-        panel.target_kind.label(),
-        panel.overlay_target_count,
-    ))
-}
-
-fn compose_minimap_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Option<String> {
-    let panel = build_minimap_panel(
-        scene,
-        hud,
-        PresenterViewWindow {
-            origin_x: 0,
-            origin_y: 0,
-            width: 0,
-            height: 0,
-        },
-    )?;
-    Some(format_minimap_kind_text(&panel))
-}
-
-fn compose_minimap_kind_detail_status_text(scene: &RenderModel, hud: &HudModel) -> Option<String> {
-    let panel = build_minimap_panel(
-        scene,
-        hud,
-        PresenterViewWindow {
-            origin_x: 0,
-            origin_y: 0,
-            width: 0,
-            height: 0,
-        },
-    )?;
-    format_semantic_detail_text(&panel.detail_counts)
-}
-
-fn compose_minimap_legend_status_text(hud: &HudModel) -> Option<String> {
-    let summary = hud.summary.as_ref()?;
-    Some(format_minimap_legend_text(summary))
-}
-
-fn compose_minimap_edge_status_text(
-    scene: &RenderModel,
-    hud: &HudModel,
-    window: PresenterViewWindow,
-) -> Option<String> {
-    let panel = build_minimap_panel(scene, hud, window)?;
-    Some(compose_minimap_edge_summary_status_text(&panel))
 }
 
 fn compose_minimap_edge_summary_status_text(panel: &MinimapPanelModel) -> String {
