@@ -13,6 +13,8 @@ use crate::{
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
         compact_runtime_ui_text,
         format_build_config_alignment_text,
+        format_build_queue_head_text,
+        format_build_ui_queue_detail_text, format_build_ui_queue_summary_text,
         format_minimap_detail_lines, format_minimap_edge_detail_text,
         format_hud_visibility_detail_text, format_hud_visibility_status_text,
         format_minimap_kind_text, format_minimap_legend_text,
@@ -49,7 +51,8 @@ use crate::{
         format_runtime_resource_delta_detail_text_if_nonempty,
         format_runtime_resource_delta_panel_text_if_nonempty,
         compose_runtime_admin_text_from_hud, compose_runtime_bootstrap_text_from_hud,
-        compose_build_interaction_text_from_hud, compose_hud_detail_text_from_hud,
+        compose_build_interaction_text_from_hud, compose_build_ui_queue_text_from_hud,
+        compose_hud_detail_text_from_hud,
         compose_hud_status_text_from_hud, compose_hud_visibility_detail_text_from_hud,
         compose_hud_visibility_text_from_hud, compose_runtime_core_binding_text_from_hud,
         compose_runtime_kick_row_text_from_hud,
@@ -91,8 +94,8 @@ use crate::{
         RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
         RenderPrimitive, RenderPrimitivePayload, RenderPrimitivePayloadValue,
     },
-    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
-    RenderObject, RuntimeUiObservability, ScenePresenter,
+    BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel, RenderObject,
+    RuntimeUiObservability, ScenePresenter,
 };
 use minifb::{Scale, Window, WindowOptions};
 use std::collections::{BTreeMap, BTreeSet};
@@ -2868,7 +2871,7 @@ fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
         build_ui.finished_count,
         build_ui.removed_count,
         build_ui.orphan_authoritative_count,
-        build_queue_head_status_text(build_ui.head.as_ref()),
+        format_build_queue_head_text(build_ui.head.as_ref()),
         build_ui.inspector_entries.len(),
     )
 }
@@ -3250,29 +3253,11 @@ fn compose_build_interaction_detail_status_text(hud: &HudModel) -> Option<String
 }
 
 fn compose_build_ui_queue_status_text(hud: &HudModel) -> Option<String> {
-    let build_ui = hud.build_ui.as_ref()?;
-    Some(format!(
-        "bqueue:q{}:i{}:f{}:r{}:o{}:h={}",
-        build_ui.queued_count,
-        build_ui.inflight_count,
-        build_ui.finished_count,
-        build_ui.removed_count,
-        build_ui.orphan_authoritative_count,
-        build_queue_head_status_text(build_ui.head.as_ref()),
-    ))
+    compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_summary_text)
 }
 
 fn compose_build_ui_queue_detail_status_text(hud: &HudModel) -> Option<String> {
-    let build_ui = hud.build_ui.as_ref()?;
-    Some(format!(
-        "q={} i={} f={} r={} o={} h={}",
-        build_ui.queued_count,
-        build_ui.inflight_count,
-        build_ui.finished_count,
-        build_ui.removed_count,
-        build_ui.orphan_authoritative_count,
-        build_queue_head_status_text(build_ui.head.as_ref()),
-    ))
+    compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_detail_text)
 }
 
 fn compose_build_minimap_aux_status_text(
@@ -3740,27 +3725,6 @@ fn render_pipeline_summary(
             height: window.height,
         },
     ))
-}
-
-fn build_queue_head_status_text(head: Option<&BuildQueueHeadObservability>) -> String {
-    let Some(head) = head else {
-        return "none".to_string();
-    };
-
-    let stage = match head.stage {
-        BuildQueueHeadStage::Queued => "queued",
-        BuildQueueHeadStage::InFlight => "flight",
-        BuildQueueHeadStage::Finished => "finish",
-        BuildQueueHeadStage::Removed => "remove",
-    };
-    let mode = if head.breaking { "break" } else { "place" };
-    format!(
-        "{stage}@{}:{}:{mode}:b{}:r{}",
-        head.x,
-        head.y,
-        format_optional_i16_text(head.block_id),
-        format_optional_u8_text(head.rotation),
-    )
 }
 
 fn compose_build_strip_queue_text(

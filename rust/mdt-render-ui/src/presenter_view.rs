@@ -40,7 +40,8 @@ use crate::{
         RuntimeWorldReloadPanelModel,
     },
     render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue, RenderSemanticDetailCount},
-    BuildQueueHeadStage, BuildUiObservability, RenderModel, RenderObject,
+    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, RenderModel,
+    RenderObject,
     RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
     RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
     RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
@@ -326,6 +327,51 @@ pub(crate) fn format_build_strip_queue_fallback_text_from_build_ui(
         build_ui.head.as_ref().map(|head| head.stage),
         build_ui.queued_count,
         None,
+    )
+}
+
+pub(crate) fn format_build_queue_head_text(head: Option<&BuildQueueHeadObservability>) -> String {
+    let Some(head) = head else {
+        return "none".to_string();
+    };
+
+    let stage = match head.stage {
+        BuildQueueHeadStage::Queued => "queued",
+        BuildQueueHeadStage::InFlight => "flight",
+        BuildQueueHeadStage::Finished => "finish",
+        BuildQueueHeadStage::Removed => "remove",
+    };
+    let mode = if head.breaking { "break" } else { "place" };
+    format!(
+        "{stage}@{}:{}:{mode}:b{}:r{}",
+        head.x,
+        head.y,
+        format_optional_i16_text(head.block_id),
+        format_optional_u8_text(head.rotation),
+    )
+}
+
+pub(crate) fn format_build_ui_queue_summary_text(build_ui: &BuildUiObservability) -> String {
+    format!(
+        "bqueue:q{}:i{}:f{}:r{}:o{}:h={}",
+        build_ui.queued_count,
+        build_ui.inflight_count,
+        build_ui.finished_count,
+        build_ui.removed_count,
+        build_ui.orphan_authoritative_count,
+        format_build_queue_head_text(build_ui.head.as_ref()),
+    )
+}
+
+pub(crate) fn format_build_ui_queue_detail_text(build_ui: &BuildUiObservability) -> String {
+    format!(
+        "q={} i={} f={} r={} o={} h={}",
+        build_ui.queued_count,
+        build_ui.inflight_count,
+        build_ui.finished_count,
+        build_ui.removed_count,
+        build_ui.orphan_authoritative_count,
+        format_build_queue_head_text(build_ui.head.as_ref()),
     )
 }
 
@@ -2046,6 +2092,14 @@ where
     formatter(&panel)
 }
 
+pub(crate) fn compose_build_ui_queue_text_from_hud<F>(hud: &HudModel, formatter: F) -> Option<String>
+where
+    F: FnOnce(&BuildUiObservability) -> String,
+{
+    let build_ui = hud.build_ui.as_ref()?;
+    Some(formatter(build_ui))
+}
+
 pub(crate) fn compose_hud_status_text_from_hud<F>(hud: &HudModel, formatter: F) -> Option<String>
 where
     F: FnOnce(&HudStatusPanelModel) -> Option<String>,
@@ -2791,8 +2845,10 @@ pub(crate) fn format_render_rect_detail_fields(
 mod tests {
     use super::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
-        crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
-        format_build_config_alignment_text,
+        compose_build_ui_queue_text_from_hud, crop_origin, crop_window, crop_window_to_focus,
+        format_build_queue_head_text, format_build_strip_queue_status_text,
+        format_build_config_alignment_text, format_build_ui_queue_detail_text,
+        format_build_ui_queue_summary_text,
         format_counted_detail_text, format_counted_preview_text,
         format_minimap_detail_lines, format_minimap_edge_detail_text,
         format_hud_visibility_detail_text, format_hud_visibility_status_text,
@@ -6107,6 +6163,87 @@ mod tests {
         assert_eq!(
             compose_minimap_window_distribution_text(&panel),
             "miniwin:tracked=12:outside=5:player=1:marker=2:plan=3:block=4:runtime=5:terrain=6:unknown=7"
+        );
+    }
+
+    #[test]
+    fn format_build_queue_head_text_handles_none_and_preserves_field_order() {
+        let head = crate::BuildQueueHeadObservability {
+            x: 10,
+            y: 12,
+            breaking: false,
+            block_id: Some(301),
+            rotation: Some(1),
+            stage: crate::BuildQueueHeadStage::Queued,
+        };
+
+        assert_eq!(
+            format_build_queue_head_text(Some(&head)),
+            "queued@10:12:place:b301:r1"
+        );
+        assert_eq!(format_build_queue_head_text(None), "none");
+    }
+
+    #[test]
+    fn format_build_ui_queue_texts_preserve_field_order() {
+        let build_ui = crate::BuildUiObservability {
+            queued_count: 2,
+            inflight_count: 1,
+            finished_count: 4,
+            removed_count: 5,
+            orphan_authoritative_count: 6,
+            head: Some(crate::BuildQueueHeadObservability {
+                x: 10,
+                y: 12,
+                breaking: false,
+                block_id: Some(301),
+                rotation: Some(1),
+                stage: crate::BuildQueueHeadStage::Queued,
+            }),
+            ..crate::BuildUiObservability::default()
+        };
+
+        assert_eq!(
+            format_build_ui_queue_summary_text(&build_ui),
+            "bqueue:q2:i1:f4:r5:o6:h=queued@10:12:place:b301:r1"
+        );
+        assert_eq!(
+            format_build_ui_queue_detail_text(&build_ui),
+            "q=2 i=1 f=4 r=5 o=6 h=queued@10:12:place:b301:r1"
+        );
+    }
+
+    #[test]
+    fn compose_build_ui_queue_text_from_hud_handles_missing_and_present_build_ui() {
+        let empty_hud = crate::HudModel::default();
+        assert_eq!(
+            compose_build_ui_queue_text_from_hud(&empty_hud, format_build_ui_queue_summary_text),
+            None
+        );
+
+        let hud = crate::HudModel {
+            build_ui: Some(crate::BuildUiObservability {
+                queued_count: 2,
+                inflight_count: 1,
+                finished_count: 4,
+                removed_count: 5,
+                orphan_authoritative_count: 6,
+                head: Some(crate::BuildQueueHeadObservability {
+                    x: 10,
+                    y: 12,
+                    breaking: false,
+                    block_id: Some(301),
+                    rotation: Some(1),
+                    stage: crate::BuildQueueHeadStage::Queued,
+                }),
+                ..crate::BuildUiObservability::default()
+            }),
+            ..crate::HudModel::default()
+        };
+
+        assert_eq!(
+            compose_build_ui_queue_text_from_hud(&hud, format_build_ui_queue_summary_text),
+            Some("bqueue:q2:i1:f4:r5:o6:h=queued@10:12:place:b301:r1".to_string())
         );
     }
 

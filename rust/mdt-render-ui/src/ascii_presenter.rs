@@ -13,6 +13,7 @@ use crate::presenter_view::{
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
     compact_runtime_ui_text,
     format_build_config_alignment_text,
+    format_build_ui_queue_detail_text, format_build_ui_queue_summary_text,
     format_minimap_detail_lines, format_minimap_edge_detail_text,
     format_hud_visibility_detail_text, format_hud_visibility_text,
     format_minimap_kind_text, format_minimap_legend_text,
@@ -48,7 +49,8 @@ use crate::presenter_view::{
     format_runtime_resource_delta_detail_text_if_nonempty,
     format_runtime_resource_delta_panel_text_if_nonempty,
     compose_runtime_admin_text_from_hud, compose_runtime_bootstrap_text_from_hud,
-    compose_build_interaction_text_from_hud, compose_hud_detail_text_from_hud,
+    compose_build_interaction_text_from_hud, compose_build_ui_queue_text_from_hud,
+    compose_hud_detail_text_from_hud,
     compose_hud_status_text_from_hud, compose_hud_visibility_detail_text_from_hud,
     compose_hud_visibility_text_from_hud, compose_runtime_core_binding_text_from_hud,
     compose_runtime_kick_row_text_from_hud,
@@ -1995,21 +1997,11 @@ fn compose_build_strip_detail_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_build_ui_queue_text(hud: &HudModel) -> Option<String> {
-    let build_ui = hud.build_ui.as_ref()?;
-    Some(compose_build_ui_queue_summary_text(build_ui))
+    compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_summary_text)
 }
 
 fn compose_build_ui_queue_detail_text(hud: &HudModel) -> Option<String> {
-    let build_ui = hud.build_ui.as_ref()?;
-    Some(format!(
-        "q={} i={} f={} r={} o={} h={}",
-        build_ui.queued_count,
-        build_ui.inflight_count,
-        build_ui.finished_count,
-        build_ui.removed_count,
-        build_ui.orphan_authoritative_count,
-        build_queue_head_text(build_ui.head.as_ref()),
-    ))
+    compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_detail_text)
 }
 
 fn compose_minimap_panel_text(
@@ -2633,18 +2625,6 @@ fn compose_build_strip_queue_fallback_text(build_ui: &crate::BuildUiObservabilit
     format_build_strip_queue_fallback_text_from_build_ui(build_ui)
 }
 
-fn compose_build_ui_queue_summary_text(build_ui: &crate::BuildUiObservability) -> String {
-    format!(
-        "bqueue:q{}:i{}:f{}:r{}:o{}:h={}",
-        build_ui.queued_count,
-        build_ui.inflight_count,
-        build_ui.finished_count,
-        build_ui.removed_count,
-        build_ui.orphan_authoritative_count,
-        build_queue_head_text(build_ui.head.as_ref()),
-    )
-}
-
 fn build_config_head_text(head: Option<&crate::panel_model::BuildConfigHeadModel>) -> String {
     let Some(head) = head else {
         return "none".to_string();
@@ -2933,27 +2913,6 @@ fn compose_render_pipeline_detail_text(
 ) -> Option<String> {
     let summary = render_pipeline_summary(scene, window)?;
     summary.visible_semantics.detail_text()
-}
-
-fn build_queue_head_text(head: Option<&crate::BuildQueueHeadObservability>) -> String {
-    let Some(head) = head else {
-        return "none".to_string();
-    };
-
-    let stage = match head.stage {
-        crate::BuildQueueHeadStage::Queued => "queued",
-        crate::BuildQueueHeadStage::InFlight => "flight",
-        crate::BuildQueueHeadStage::Finished => "finish",
-        crate::BuildQueueHeadStage::Removed => "remove",
-    };
-    let mode = if head.breaking { "break" } else { "place" };
-    format!(
-        "{stage}@{}:{}:{mode}:b{}:r{}",
-        head.x,
-        head.y,
-        format_optional_i16_text(head.block_id),
-        format_optional_u8_text(head.rotation),
-    )
 }
 
 fn optional_i32_label(value: Option<i32>) -> String {
