@@ -48,6 +48,7 @@ use crate::{
         format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
         format_runtime_kick_detail_text_if_nonempty, format_runtime_kick_panel_text,
         format_runtime_loading_detail_text_if_nonempty, format_runtime_loading_panel_text,
+        format_runtime_menu_panel_text,
         format_runtime_menu_detail_text_if_nonempty,
         format_runtime_marker_detail_text_if_nonempty, format_runtime_marker_panel_text_if_nonempty,
         format_runtime_reconnect_detail_text_if_nonempty, format_runtime_reconnect_panel_text,
@@ -2652,30 +2653,7 @@ fn compose_runtime_rules_detail_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_menu_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_menu_panel(hud)?;
-    Some(format!(
-        "menu:m{}@{}:{}/{}#{}:{}:fm{}@{}:{}/{}#{}:{}:h{}@{}:tin{}@{}:{}/{}#{}:n{}:e{}",
-        panel.menu_open_count,
-        optional_i32_label(panel.last_menu_open_id),
-        compact_runtime_ui_text(panel.last_menu_open_title.as_deref()),
-        compact_runtime_ui_text(panel.last_menu_open_message.as_deref()),
-        panel.last_menu_open_option_rows,
-        panel.last_menu_open_first_row_len,
-        panel.follow_up_menu_open_count,
-        optional_i32_label(panel.last_follow_up_menu_open_id),
-        compact_runtime_ui_text(panel.last_follow_up_menu_open_title.as_deref()),
-        compact_runtime_ui_text(panel.last_follow_up_menu_open_message.as_deref()),
-        panel.last_follow_up_menu_open_option_rows,
-        panel.last_follow_up_menu_open_first_row_len,
-        panel.hide_follow_up_menu_count,
-        optional_i32_label(panel.last_hide_follow_up_menu_id),
-        panel.text_input_open_count,
-        optional_i32_label(panel.text_input_last_id),
-        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
-        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
-        panel.text_input_last_length.unwrap_or_default(),
-        format_optional_bool_flag(panel.text_input_last_numeric),
-        format_optional_bool_flag(panel.text_input_last_allow_empty),
-    ))
+    Some(format_runtime_menu_panel_text(&panel))
 }
 
 fn compose_runtime_menu_detail_status_text(hud: &HudModel) -> Option<String> {
