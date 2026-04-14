@@ -544,7 +544,10 @@ impl AsciiScenePresenter {
                 "RUNTIME-STACK-DETAIL: {runtime_stack_detail_text}\n"
             ));
         }
-        if let Some(runtime_dialog_stack_text) = compose_runtime_dialog_stack_text(hud) {
+        if let Some(runtime_dialog_stack_text) = compose_runtime_dialog_stack_summary_text_from_hud(
+            hud,
+            format_runtime_dialog_stack_summary_text_if_nonempty,
+        ) {
             out.push_str(&format!(
                 "RUNTIME-DIALOG-STACK: {runtime_dialog_stack_text}\n"
             ));
@@ -1809,13 +1812,6 @@ fn compose_runtime_menu_detail_text(hud: &HudModel) -> Option<String> {
     compose_runtime_menu_text_from_hud(hud, format_runtime_menu_detail_text_if_nonempty)
 }
 
-
-fn compose_runtime_dialog_stack_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_dialog_stack_summary_text_from_hud(
-        hud,
-        format_runtime_dialog_stack_summary_text_if_nonempty,
-    )
-}
 
 fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
     compose_runtime_command_mode_text_from_hud(hud, |panel| {
