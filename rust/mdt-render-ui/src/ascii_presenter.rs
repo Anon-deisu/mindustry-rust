@@ -240,13 +240,30 @@ impl AsciiScenePresenter {
             out.push_str(&format!("SESSION-BANNER: {session_banner_text}\n"));
         }
         out.push_str(&format!("STATUS: {}\n", hud.status_text));
-        if let Some(summary_text) = compose_hud_summary_text(hud) {
+        if let Some(summary_text) = compose_hud_status_text_from_hud(hud, |summary| {
+            Some(format!(
+                "player={} team={} selected={} plans={} markers={} map={}x{}",
+                compact_runtime_ui_text(Some(summary.player_name.as_str())),
+                summary.team_id,
+                compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+                summary.plan_count,
+                summary.marker_count,
+                summary.map_width,
+                summary.map_height,
+            ))
+        }) {
             out.push_str(&format!("SUMMARY: {summary_text}\n"));
         }
-        if let Some(visibility_text) = compose_hud_visibility_text(hud) {
+        if let Some(visibility_text) = compose_hud_visibility_text_from_hud(hud, |visibility| {
+            Some(format_hud_visibility_text(visibility))
+        }) {
             out.push_str(&format!("HUD-VIS: {visibility_text}\n"));
         }
-        if let Some(visibility_detail_text) = compose_hud_visibility_detail_text(hud) {
+        if let Some(visibility_detail_text) =
+            compose_hud_visibility_detail_text_from_hud(hud, |summary, visibility| {
+                Some(format_hud_visibility_detail_text(summary, visibility))
+            })
+        {
             out.push_str(&format!("HUD-VIS-DETAIL: {visibility_detail_text}\n"));
         }
         if let Some(detail_text) = compose_hud_detail_text(hud) {
@@ -353,7 +370,7 @@ impl AsciiScenePresenter {
         if let Some(build_config_text) = compose_build_config_panel_text(hud) {
             out.push_str(&format!("BUILD-CONFIG: {build_config_text}\n"));
         }
-        if let Some(build_config_detail_text) = compose_build_config_detail_text(hud) {
+        if let Some(build_config_detail_text) = build_build_config_panel(hud, 3).map(|panel| panel.detail_label()) {
             out.push_str(&format!(
                 "BUILD-CONFIG-DETAIL: {build_config_detail_text}\n"
             ));
@@ -381,10 +398,14 @@ impl AsciiScenePresenter {
                 "BUILD-INTERACTION-DETAIL: {build_interaction_detail_text}\n"
             ));
         }
-        if let Some(build_queue_text) = compose_build_ui_queue_text(hud) {
+        if let Some(build_queue_text) =
+            compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_summary_text)
+        {
             out.push_str(&format!("BUILD-QUEUE: {build_queue_text}\n"));
         }
-        if let Some(build_queue_detail_text) = compose_build_ui_queue_detail_text(hud) {
+        if let Some(build_queue_detail_text) =
+            compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_detail_text)
+        {
             out.push_str(&format!("BUILD-QUEUE-DETAIL: {build_queue_detail_text}\n"));
         }
         if let Some(build_minimap_aux_text) = compose_build_minimap_aux_text(scene, hud, window) {
@@ -421,7 +442,7 @@ impl AsciiScenePresenter {
         if let Some(build_text) = compose_build_ui_text(hud) {
             out.push_str(&format!("BUILD: {build_text}\n"));
         }
-        if let Some(build_strip_detail_text) = compose_build_strip_detail_text(hud) {
+        if let Some(build_strip_detail_text) = build_build_interaction_panel(hud).map(|panel| panel.detail_label()) {
             out.push_str(&format!("BUILD-STRIP-DETAIL: {build_strip_detail_text}\n"));
         }
         for inspector_line in compose_build_ui_inspector_lines(hud) {
@@ -620,10 +641,14 @@ impl AsciiScenePresenter {
                 "RUNTIME-WORLD-LABEL-DETAIL: {runtime_world_label_detail_text}\n"
             ));
         }
-        if let Some(runtime_marker_text) = compose_runtime_marker_panel_text(hud) {
+        if let Some(runtime_marker_text) =
+            compose_runtime_marker_text_from_hud(hud, format_runtime_marker_panel_text_if_nonempty)
+        {
             out.push_str(&format!("RUNTIME-MARKER: {runtime_marker_text}\n"));
         }
-        if let Some(runtime_marker_detail_text) = compose_runtime_marker_detail_text(hud) {
+        if let Some(runtime_marker_detail_text) =
+            compose_runtime_marker_text_from_hud(hud, format_runtime_marker_detail_text_if_nonempty)
+        {
             out.push_str(&format!(
                 "RUNTIME-MARKER-DETAIL: {runtime_marker_detail_text}\n"
             ));
@@ -653,13 +678,19 @@ impl AsciiScenePresenter {
                 "RUNTIME-BOOTSTRAP-DETAIL: {runtime_bootstrap_detail_text}\n"
             ));
         }
-        if let Some(runtime_resource_delta_text) = compose_runtime_resource_delta_row_text(hud) {
+        if let Some(runtime_resource_delta_text) = compose_runtime_resource_delta_text_from_hud(
+            hud,
+            format_runtime_resource_delta_panel_text_if_nonempty,
+        ) {
             out.push_str(&format!(
                 "RUNTIME-RESOURCE-DELTA: {runtime_resource_delta_text}\n"
             ));
         }
         if let Some(runtime_resource_delta_detail_text) =
-            compose_runtime_resource_delta_detail_text(hud)
+            compose_runtime_resource_delta_text_from_hud(
+                hud,
+                format_runtime_resource_delta_detail_text_if_nonempty,
+            )
         {
             out.push_str(&format!(
                 "RUNTIME-RESOURCE-DELTA-DETAIL: {runtime_resource_delta_detail_text}\n"
@@ -1735,33 +1766,6 @@ fn ascii_sprite_for_icon(family: RenderIconPrimitiveFamily) -> char {
     }
 }
 
-fn compose_hud_summary_text(hud: &HudModel) -> Option<String> {
-    compose_hud_status_text_from_hud(hud, |summary| {
-        Some(format!(
-            "player={} team={} selected={} plans={} markers={} map={}x{}",
-            compact_runtime_ui_text(Some(summary.player_name.as_str())),
-            summary.team_id,
-            compact_runtime_ui_text(Some(summary.selected_block.as_str())),
-            summary.plan_count,
-            summary.marker_count,
-            summary.map_width,
-            summary.map_height,
-        ))
-    })
-}
-
-fn compose_hud_visibility_text(hud: &HudModel) -> Option<String> {
-    compose_hud_visibility_text_from_hud(hud, |visibility| {
-        Some(format_hud_visibility_text(visibility))
-    })
-}
-
-fn compose_hud_visibility_detail_text(hud: &HudModel) -> Option<String> {
-    compose_hud_visibility_detail_text_from_hud(hud, |summary, visibility| {
-        Some(format_hud_visibility_detail_text(summary, visibility))
-    })
-}
-
 fn compose_visibility_minimap_text(
     scene: &RenderModel,
     hud: &HudModel,
@@ -1831,28 +1835,6 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
-fn compose_runtime_marker_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_marker_text_from_hud(hud, format_runtime_marker_panel_text_if_nonempty)
-}
-
-fn compose_runtime_marker_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_marker_text_from_hud(hud, format_runtime_marker_detail_text_if_nonempty)
-}
-
-fn compose_runtime_resource_delta_row_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_resource_delta_text_from_hud(
-        hud,
-        format_runtime_resource_delta_panel_text_if_nonempty,
-    )
-}
-
-fn compose_runtime_resource_delta_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_resource_delta_text_from_hud(
-        hud,
-        format_runtime_resource_delta_detail_text_if_nonempty,
-    )
-}
-
 fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
     let interaction_panel = build_build_interaction_panel(hud);
     let build_ui = hud.build_ui.as_ref();
@@ -1887,19 +1869,6 @@ fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
         queue_text,
         authority_text,
     ))
-}
-
-fn compose_build_strip_detail_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_interaction_panel(hud)?;
-    Some(panel.detail_label())
-}
-
-fn compose_build_ui_queue_text(hud: &HudModel) -> Option<String> {
-    compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_summary_text)
-}
-
-fn compose_build_ui_queue_detail_text(hud: &HudModel) -> Option<String> {
-    compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_detail_text)
 }
 
 fn compose_minimap_panel_text(
@@ -2177,11 +2146,6 @@ fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
             entries
         },
     ))
-}
-
-fn compose_build_config_detail_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_config_panel(hud, 3)?;
-    Some(panel.detail_label())
 }
 
 #[cfg(test)]
@@ -3532,14 +3496,18 @@ mod tests {
         };
 
         assert_eq!(
-            super::compose_hud_visibility_text(&hud),
+            super::compose_hud_visibility_text_from_hud(&hud, |visibility| {
+                Some(super::format_hud_visibility_text(visibility))
+            }),
             Some(
                 "overlay=1 fog=1 known=144(3%) vis=120(83%) hid=24(16%) unseen=4656(97%) vis-map=2% hid-map=0%"
                     .to_string()
             )
         );
         assert_eq!(
-            super::compose_hud_visibility_detail_text(&hud),
+            super::compose_hud_visibility_detail_text_from_hud(&hud, |summary, visibility| {
+                Some(super::format_hud_visibility_detail_text(summary, visibility))
+            }),
             Some(
                 "hudvisd:s=mixed:ov=on:fg=on:k=144/4800:v=120/144:h=24/144:u=4656/4800"
                     .to_string()

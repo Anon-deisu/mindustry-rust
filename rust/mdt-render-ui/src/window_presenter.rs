@@ -597,7 +597,8 @@ fn compose_frame(
         ),
         status_text: compose_frame_status_text(scene, hud, window),
         build_strip_text: compose_frame_build_strip_text(hud),
-        build_strip_detail_text: compose_frame_build_strip_detail_text(hud),
+        build_strip_detail_text: build_build_interaction_panel(hud)
+            .map(|panel| format!("BUILD-STRIP-DETAIL: {}", panel.detail_label())),
         panel_lines: compose_frame_panel_lines(scene, hud, window),
         overlay_lines: compose_frame_overlay_lines(scene, hud),
         overlay_summary_text: hud.overlay_summary_text.clone(),
@@ -1537,10 +1538,22 @@ fn compose_frame_status_text(
     if !hud.status_text.is_empty() {
         parts.push(hud.status_text.clone());
     }
-    if let Some(summary_text) = compose_hud_summary_status_text(hud) {
+    if let Some(summary_text) = compose_hud_status_text_from_hud(hud, |summary| {
+        Some(format!(
+            "hud:team={} sel={} plans={} mk={} map={}x{}",
+            summary.team_id,
+            compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+            summary.plan_count,
+            summary.marker_count,
+            summary.map_width,
+            summary.map_height,
+        ))
+    }) {
         parts.push(summary_text);
     }
-    if let Some(visibility_text) = compose_hud_visibility_status_text(hud) {
+    if let Some(visibility_text) = compose_hud_visibility_text_from_hud(hud, |visibility| {
+        Some(format_hud_visibility_status_text(visibility))
+    }) {
         parts.push(visibility_text);
     }
     if let Some(minimap_window_text) = compose_minimap_window_status_text(scene, hud, window) {
@@ -1572,13 +1585,29 @@ fn compose_frame_panel_lines(
     window: PresenterViewWindow,
 ) -> Vec<String> {
     let mut lines = Vec::new();
-    if let Some(summary_text) = compose_hud_summary_status_text(hud) {
+    if let Some(summary_text) = compose_hud_status_text_from_hud(hud, |summary| {
+        Some(format!(
+            "hud:team={} sel={} plans={} mk={} map={}x{}",
+            summary.team_id,
+            compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+            summary.plan_count,
+            summary.marker_count,
+            summary.map_width,
+            summary.map_height,
+        ))
+    }) {
         lines.push(format!("HUD: {summary_text}"));
     }
-    if let Some(visibility_text) = compose_hud_visibility_status_text(hud) {
+    if let Some(visibility_text) = compose_hud_visibility_text_from_hud(hud, |visibility| {
+        Some(format_hud_visibility_status_text(visibility))
+    }) {
         lines.push(format!("HUD-VIS: {visibility_text}"));
     }
-    if let Some(visibility_detail_text) = compose_hud_visibility_detail_status_text(hud) {
+    if let Some(visibility_detail_text) =
+        compose_hud_visibility_detail_text_from_hud(hud, |summary, visibility| {
+            Some(format_hud_visibility_detail_text(summary, visibility))
+        })
+    {
         lines.push(format!("HUD-VIS-DETAIL: {visibility_detail_text}"));
     }
     if let Some(detail_text) = compose_hud_detail_status_text(hud) {
@@ -1683,7 +1712,9 @@ fn compose_frame_panel_lines(
     if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
         lines.push(format!("BUILD-CONFIG: {build_panel_text}"));
     }
-    if let Some(build_config_detail_text) = compose_build_config_detail_status_text(hud) {
+    if let Some(build_config_detail_text) = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP)
+        .map(|panel| panel.detail_label())
+    {
         lines.push(format!("BUILD-CONFIG-DETAIL: {build_config_detail_text}"));
     }
     for build_entry_text in compose_build_config_entry_status_lines(hud) {
@@ -1709,10 +1740,14 @@ fn compose_frame_panel_lines(
             "BUILD-INTERACTION-DETAIL: {build_interaction_detail_text}"
         ));
     }
-    if let Some(build_queue_text) = compose_build_ui_queue_status_text(hud) {
+    if let Some(build_queue_text) =
+        compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_summary_text)
+    {
         lines.push(format!("BUILD-QUEUE: {build_queue_text}"));
     }
-    if let Some(build_queue_detail_text) = compose_build_ui_queue_detail_status_text(hud) {
+    if let Some(build_queue_detail_text) =
+        compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_detail_text)
+    {
         lines.push(format!("BUILD-QUEUE-DETAIL: {build_queue_detail_text}"));
     }
     if let Some(build_minimap_aux_text) = compose_build_minimap_aux_status_text(scene, hud, window)
@@ -1925,10 +1960,14 @@ fn compose_frame_panel_lines(
             "RUNTIME-WORLD-LABEL-DETAIL: {runtime_world_label_detail_text}"
         ));
     }
-    if let Some(runtime_marker_text) = compose_runtime_marker_panel_status_text(hud) {
+    if let Some(runtime_marker_text) =
+        compose_runtime_marker_text_from_hud(hud, format_runtime_marker_panel_text_if_nonempty)
+    {
         lines.push(format!("RUNTIME-MARKER: {runtime_marker_text}"));
     }
-    if let Some(runtime_marker_detail_text) = compose_runtime_marker_detail_status_text(hud) {
+    if let Some(runtime_marker_detail_text) =
+        compose_runtime_marker_text_from_hud(hud, format_runtime_marker_detail_text_if_nonempty)
+    {
         lines.push(format!(
             "RUNTIME-MARKER-DETAIL: {runtime_marker_detail_text}"
         ));
@@ -1958,13 +1997,19 @@ fn compose_frame_panel_lines(
             "RUNTIME-BOOTSTRAP-DETAIL: {runtime_bootstrap_detail_text}"
         ));
     }
-    if let Some(runtime_resource_delta_text) = compose_runtime_resource_delta_status_text(hud) {
+    if let Some(runtime_resource_delta_text) = compose_runtime_resource_delta_text_from_hud(
+        hud,
+        format_runtime_resource_delta_panel_text_if_nonempty,
+    ) {
         lines.push(format!(
             "RUNTIME-RESOURCE-DELTA: {runtime_resource_delta_text}"
         ));
     }
     if let Some(runtime_resource_delta_detail_text) =
-        compose_runtime_resource_delta_detail_status_text(hud)
+        compose_runtime_resource_delta_text_from_hud(
+            hud,
+            format_runtime_resource_delta_detail_text_if_nonempty,
+        )
     {
         lines.push(format!(
             "RUNTIME-RESOURCE-DELTA-DETAIL: {runtime_resource_delta_detail_text}"
@@ -2091,11 +2136,6 @@ fn compose_frame_build_strip_text(hud: &HudModel) -> Option<String> {
         queue_text,
         authority_text,
     ))
-}
-
-fn compose_frame_build_strip_detail_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_interaction_panel(hud)?;
-    Some(format!("BUILD-STRIP-DETAIL: {}", panel.detail_label()))
 }
 
 fn compose_frame_overlay_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
@@ -2643,32 +2683,6 @@ fn format_render_primitive_payload_value(
     )
 }
 
-fn compose_hud_summary_status_text(hud: &HudModel) -> Option<String> {
-    compose_hud_status_text_from_hud(hud, |summary| {
-        Some(format!(
-            "hud:team={} sel={} plans={} mk={} map={}x{}",
-            summary.team_id,
-            compact_runtime_ui_text(Some(summary.selected_block.as_str())),
-            summary.plan_count,
-            summary.marker_count,
-            summary.map_width,
-            summary.map_height,
-        ))
-    })
-}
-
-fn compose_hud_visibility_status_text(hud: &HudModel) -> Option<String> {
-    compose_hud_visibility_text_from_hud(hud, |visibility| {
-        Some(format_hud_visibility_status_text(visibility))
-    })
-}
-
-fn compose_hud_visibility_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_hud_visibility_detail_text_from_hud(hud, |summary, visibility| {
-        Some(format_hud_visibility_detail_text(summary, visibility))
-    })
-}
-
 fn compose_hud_detail_status_text(hud: &HudModel) -> Option<String> {
     compose_hud_detail_text_from_hud(hud, |hud_summary, summary, visibility| {
         Some(format!(
@@ -2727,28 +2741,6 @@ fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String
         format_optional_bool_flag(text_input.last_allow_empty),
         format_runtime_live_entity_summary_text(&live.entity),
         format_runtime_live_effect_summary_text(&live.effect),
-    )
-}
-
-fn compose_runtime_marker_panel_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_marker_text_from_hud(hud, format_runtime_marker_panel_text_if_nonempty)
-}
-
-fn compose_runtime_marker_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_marker_text_from_hud(hud, format_runtime_marker_detail_text_if_nonempty)
-}
-
-fn compose_runtime_resource_delta_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_resource_delta_text_from_hud(
-        hud,
-        format_runtime_resource_delta_panel_text_if_nonempty,
-    )
-}
-
-fn compose_runtime_resource_delta_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_resource_delta_text_from_hud(
-        hud,
-        format_runtime_resource_delta_detail_text_if_nonempty,
     )
 }
 
@@ -3054,11 +3046,6 @@ fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
-fn compose_build_config_detail_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP)?;
-    Some(panel.detail_label())
-}
-
 fn compose_build_config_entry_status_lines(hud: &HudModel) -> Vec<String> {
     let Some(entries) = build_build_config_entry_breakdown(hud) else {
         return Vec::new();
@@ -3137,14 +3124,6 @@ fn compose_build_interaction_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_build_interaction_detail_status_text(hud: &HudModel) -> Option<String> {
     compose_build_interaction_text_from_hud(hud, |panel| Some(panel.detail_label()))
-}
-
-fn compose_build_ui_queue_status_text(hud: &HudModel) -> Option<String> {
-    compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_summary_text)
-}
-
-fn compose_build_ui_queue_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_build_ui_queue_text_from_hud(hud, format_build_ui_queue_detail_text)
 }
 
 fn compose_build_minimap_aux_status_text(
@@ -6351,7 +6330,9 @@ mod tests {
         };
 
         assert_eq!(
-            super::compose_hud_visibility_status_text(&hud),
+            super::compose_hud_visibility_text_from_hud(&hud, |visibility| {
+                Some(super::format_hud_visibility_status_text(visibility))
+            }),
             Some("hudvis:ov1:fg1:k144p3:v120p83:h24p16:u4656p97:vm2:hm0".to_string())
         );
     }
@@ -6389,7 +6370,9 @@ mod tests {
             Some("huddet:p=operator#8:sel=payload-rout~#14:t4800:vm2:hm0:ov1:fg1:mini=f0:0:w0:0+1x1:a1".to_string())
         );
         assert_eq!(
-            super::compose_hud_visibility_detail_status_text(&hud),
+            super::compose_hud_visibility_detail_text_from_hud(&hud, |summary, visibility| {
+                Some(super::format_hud_visibility_detail_text(summary, visibility))
+            }),
             Some("hudvisd:s=mixed:ov=on:fg=on:k=144/4800:v=120/144:h=24/144:u=4656/4800".to_string())
         );
     }
