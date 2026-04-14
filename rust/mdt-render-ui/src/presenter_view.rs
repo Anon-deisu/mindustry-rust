@@ -2366,10 +2366,6 @@ where
     formatter(&panel)
 }
 
-pub(crate) fn compose_runtime_kick_row_text_from_hud(hud: &HudModel) -> Option<String> {
-    compose_runtime_kick_text_from_hud(hud, |panel| Some(format_runtime_kick_row_text(panel)))
-}
-
 pub(crate) fn compose_runtime_core_binding_text_from_hud<F>(
     hud: &HudModel,
     formatter: F,

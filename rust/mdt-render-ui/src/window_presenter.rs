@@ -39,7 +39,7 @@ use crate::{
         format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
         format_runtime_live_entity_summary_text,
         format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
-        format_runtime_kick_detail_text_if_nonempty,
+        format_runtime_kick_detail_text_if_nonempty, format_runtime_kick_row_text,
         format_runtime_loading_detail_text_if_nonempty, format_runtime_loading_row_text,
         format_runtime_menu_panel_text,
         format_runtime_menu_detail_text_if_nonempty,
@@ -54,7 +54,6 @@ use crate::{
         compose_hud_detail_text_from_hud,
         compose_hud_status_text_from_hud, compose_hud_visibility_detail_text_from_hud,
         compose_hud_visibility_text_from_hud, compose_runtime_core_binding_text_from_hud,
-        compose_runtime_kick_row_text_from_hud,
         compose_runtime_kick_text_from_hud,
         compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
         compose_runtime_loading_text_from_hud, compose_runtime_marker_text_from_hud,
@@ -2107,7 +2106,9 @@ fn compose_frame_panel_lines(
             "RUNTIME-RESOURCE-DELTA-DETAIL: {runtime_resource_delta_detail_text}"
         ));
     }
-    if let Some(runtime_kick_text) = compose_runtime_kick_row_text_from_hud(hud) {
+    if let Some(runtime_kick_text) =
+        compose_runtime_kick_text_from_hud(hud, |panel| Some(format_runtime_kick_row_text(panel)))
+    {
         lines.push(format!("RUNTIME-KICK: {runtime_kick_text}"));
     }
     if let Some(runtime_kick_detail_text) =
