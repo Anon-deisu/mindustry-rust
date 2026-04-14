@@ -1314,6 +1314,32 @@ impl MinimapPanelModel {
         minimap_coverage_label(self.window_coverage_percent)
     }
 
+    pub fn visibility_detail_label(&self) -> String {
+        format!(
+            "vis={}:map={}/{}({}%):hidden={}/{}({}%):unknown={}/{}({}%)",
+            self.visibility_label(),
+            self.visible_tile_count,
+            self.map_tile_count,
+            self.visible_map_percent(),
+            self.hidden_tile_count,
+            self.map_tile_count,
+            self.hidden_map_percent(),
+            self.unknown_tile_count,
+            self.map_tile_count,
+            self.unknown_tile_percent,
+        )
+    }
+
+    pub fn coverage_detail_label(&self) -> String {
+        format!(
+            "cover={}:window={}/{}({}%)",
+            self.coverage_label(),
+            self.window_tile_count,
+            self.map_tile_count,
+            self.window_coverage_percent,
+        )
+    }
+
     pub fn viewport_band(&self) -> &'static str {
         minimap_viewport_band(
             self.window_coverage_percent,

@@ -854,13 +854,15 @@ pub(crate) fn format_hud_visibility_status_text(visibility: &HudVisibilityPanelM
 
 pub(crate) fn format_minimap_visibility_detail_text(minimap: &MinimapPanelModel) -> String {
     format!(
-        "minivisd:v={}:c={}:md{}:wd{}:od{}:vp={}",
+        "minivisd:v={}:c={}:md{}:wd{}:od{}:vp={}:visd={}:covd={}",
         minimap.visibility_label(),
         minimap.coverage_label(),
         minimap.map_object_density_percent(),
         minimap.window_object_density_percent(),
         minimap.outside_object_percent(),
         minimap.viewport_band(),
+        minimap.visibility_detail_label(),
+        minimap.coverage_detail_label(),
     )
 }
 
@@ -2852,7 +2854,7 @@ mod tests {
         format_minimap_density_visibility_text,
         format_minimap_legend_text, format_semantic_detail_text,
         format_optional_focus_tile_text, format_optional_signed_tile_text,
-        format_visibility_minimap_text,
+        format_minimap_visibility_detail_text, format_visibility_minimap_text,
         format_runtime_command_control_group_operation_text,
         format_runtime_command_group_lines,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
@@ -4797,6 +4799,23 @@ mod tests {
         assert_eq!(
             format_visibility_minimap_text(&visibility, &minimap),
             "overlay=1 fog=0 known=120(60%) vis=80(67%/40%) hid=40(33%/20%) map=20x10 window=1:2->8:7 size=8x6 cover=48/200(24%) focus=4:5 in-window=1"
+        );
+    }
+
+    #[test]
+    fn format_minimap_visibility_detail_text_preserves_field_order() {
+        let mut minimap = sample_minimap_panel();
+        minimap.map_tile_count = 200;
+        minimap.visible_tile_count = 80;
+        minimap.hidden_tile_count = 40;
+        minimap.unknown_tile_count = 80;
+        minimap.unknown_tile_percent = 40;
+        minimap.window_tile_count = 48;
+        minimap.window_coverage_percent = 24;
+
+        assert_eq!(
+            format_minimap_visibility_detail_text(&minimap),
+            "minivisd:v=mixed:c=partial:md0:wd25:od0:vp=partial:visd=vis=mixed:map=80/200(40%):hidden=40/200(20%):unknown=80/200(40%):covd=cover=partial:window=48/200(24%)"
         );
     }
 
