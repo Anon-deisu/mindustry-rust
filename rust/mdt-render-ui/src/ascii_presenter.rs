@@ -56,6 +56,7 @@ use crate::presenter_view::{
     compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
     compose_runtime_loading_text_from_hud, compose_runtime_marker_text_from_hud,
     compose_runtime_menu_text_from_hud,
+    compose_runtime_notice_state_text_from_hud,
     compose_runtime_ui_notice_text_from_hud,
     compose_runtime_resource_delta_text_from_hud, compose_runtime_world_label_text_from_hud,
     compose_runtime_reconnect_text_from_hud, compose_runtime_rules_text_from_hud,
@@ -1727,13 +1728,15 @@ fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_notice_state_panel_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_notice_state_panel(hud)?;
-    Some(format_runtime_notice_state_panel_text(&panel))
+    compose_runtime_notice_state_text_from_hud(hud, |panel| {
+        Some(format_runtime_notice_state_panel_text(panel))
+    })
 }
 
 fn compose_runtime_notice_state_detail_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_notice_state_panel(hud)?;
-    Some(format_runtime_notice_state_detail_text(&panel))
+    compose_runtime_notice_state_text_from_hud(hud, |panel| {
+        Some(format_runtime_notice_state_detail_text(panel))
+    })
 }
 
 fn compose_runtime_rules_panel_text(hud: &HudModel) -> Option<String> {
