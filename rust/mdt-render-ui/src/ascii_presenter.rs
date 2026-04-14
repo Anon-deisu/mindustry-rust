@@ -538,10 +538,14 @@ impl AsciiScenePresenter {
                 "RUNTIME-ADMIN-DETAIL: {runtime_admin_detail_text}\n"
             ));
         }
-        if let Some(runtime_rules_text) = compose_runtime_rules_panel_text(hud) {
+        if let Some(runtime_rules_text) = compose_runtime_rules_text_from_hud(hud, |panel| {
+            Some(format_runtime_rules_panel_text(panel))
+        }) {
             out.push_str(&format!("RUNTIME-RULES: {runtime_rules_text}\n"));
         }
-        if let Some(runtime_rules_detail_text) = compose_runtime_rules_detail_text(hud) {
+        if let Some(runtime_rules_detail_text) =
+            compose_runtime_rules_text_from_hud(hud, format_runtime_rules_detail_text_if_nonempty)
+        {
             out.push_str(&format!(
                 "RUNTIME-RULES-DETAIL: {runtime_rules_detail_text}\n"
             ));
@@ -1779,16 +1783,6 @@ fn compose_runtime_notice_state_detail_text(hud: &HudModel) -> Option<String> {
     compose_runtime_notice_state_text_from_hud(hud, |panel| {
         Some(format_runtime_notice_state_detail_text(panel))
     })
-}
-
-fn compose_runtime_rules_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_rules_text_from_hud(hud, |panel| {
-        Some(format_runtime_rules_panel_text(panel))
-    })
-}
-
-fn compose_runtime_rules_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_rules_text_from_hud(hud, format_runtime_rules_detail_text_if_nonempty)
 }
 
 fn compose_runtime_menu_panel_text(hud: &HudModel) -> Option<String> {
