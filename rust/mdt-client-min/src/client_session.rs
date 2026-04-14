@@ -5190,11 +5190,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.transfer_item_effect_packet_id => {
                 if let Some(projection) = decode_transfer_item_effect_payload(&packet.payload) {
-                    self.state.received_transfer_item_effect_count = self
-                        .state
-                        .received_transfer_item_effect_count
-                        .saturating_add(1);
-                    self.state.last_transfer_item_effect = Some(projection.clone());
+                    self.state.record_transfer_item_effect(&projection);
                     Ok(ClientSessionEvent::TransferItemEffect { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {

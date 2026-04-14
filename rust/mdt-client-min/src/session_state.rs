@@ -7162,6 +7162,12 @@ impl SessionState {
         self.objectives_projection.complete_by_index(index);
     }
 
+    pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
+        self.received_transfer_item_effect_count =
+            self.received_transfer_item_effect_count.saturating_add(1);
+        self.last_transfer_item_effect = Some(projection.clone());
+    }
+
     pub fn record_payload_dropped(
         &mut self,
         projection: &PayloadDroppedProjection,
@@ -15212,6 +15218,22 @@ mod tests {
                 removed_carrier: false,
             })
         );
+    }
+
+    #[test]
+    fn record_transfer_item_effect_tracks_projection() {
+        let mut state = SessionState::default();
+        let projection = TransferItemEffectProjection {
+            item_id: Some(6),
+            x_bits: 18.5f32.to_bits(),
+            y_bits: (-7.25f32).to_bits(),
+            to_entity_id: Some(1234),
+        };
+
+        state.record_transfer_item_effect(&projection);
+
+        assert_eq!(state.received_transfer_item_effect_count, 1);
+        assert_eq!(state.last_transfer_item_effect, Some(projection));
     }
 
     #[test]
