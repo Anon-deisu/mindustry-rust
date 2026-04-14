@@ -10,7 +10,8 @@ use crate::{
         RuntimeDialogPromptKind, RuntimeDialogStackPanelModel, RuntimeKickPanelModel,
         RuntimeBootstrapPanelModel, RuntimeLoadingPanelModel, RuntimeLiveEffectPanelModel,
         RuntimeLiveEntityPanelModel,
-        RuntimeMarkerPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
+        RuntimeMarkerPanelModel, RuntimeMenuPanelModel, RuntimeNoticeStatePanelModel,
+        RuntimePromptPanelModel,
         RuntimeReconnectPanelModel, RuntimeResourceDeltaPanelModel,
         RuntimeRulesPanelModel, RuntimeSessionPanelModel,
         RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
@@ -1353,6 +1354,44 @@ pub(crate) fn format_runtime_choice_detail_text_if_nonempty(
     (!panel.is_empty()).then(|| format_runtime_choice_detail_text(panel))
 }
 
+pub(crate) fn format_runtime_menu_detail_text(panel: &RuntimeMenuPanelModel) -> String {
+    format!(
+        "menud:a{}:fo{}:m{}:{}:{}:{}:{}:fm{}:{}:{}:{}:{}:hid{}:tin{}:id{}:t{}:d{}:n{}:e{}",
+        if panel.text_input_open_count > 0
+            || panel.menu_open_count > 0
+            || panel.outstanding_follow_up_count() > 0
+        {
+            1
+        } else {
+            0
+        },
+        panel.outstanding_follow_up_count(),
+        format_optional_i32_text(panel.last_menu_open_id),
+        panel.menu_title_len(),
+        panel.menu_message_len(),
+        panel.last_menu_open_option_rows,
+        panel.last_menu_open_first_row_len,
+        format_optional_i32_text(panel.last_follow_up_menu_open_id),
+        panel.follow_up_title_len(),
+        panel.follow_up_message_len(),
+        panel.last_follow_up_menu_open_option_rows,
+        panel.last_follow_up_menu_open_first_row_len,
+        format_optional_i32_text(panel.last_hide_follow_up_menu_id),
+        panel.text_input_open_count,
+        format_optional_i32_text(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        panel.default_text_len(),
+        format_optional_bool_flag(panel.text_input_last_numeric),
+        format_optional_bool_flag(panel.text_input_last_allow_empty),
+    )
+}
+
+pub(crate) fn format_runtime_menu_detail_text_if_nonempty(
+    panel: &RuntimeMenuPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_menu_detail_text(panel))
+}
+
 pub(crate) fn format_runtime_rules_panel_text(panel: &RuntimeRulesPanelModel) -> String {
     format!(
         "rules:mut{}:fail{}:wv{}:pvp{}:obj{}:q{}:par{}:fg{}:oor{}:last{}",
@@ -2357,6 +2396,7 @@ mod tests {
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
         format_runtime_choice_panel_text, format_runtime_choice_panel_text_if_nonempty,
         format_runtime_choice_detail_text, format_runtime_choice_detail_text_if_nonempty,
+        format_runtime_menu_detail_text, format_runtime_menu_detail_text_if_nonempty,
         format_runtime_rules_panel_text,
         format_runtime_rules_detail_text, format_runtime_rules_detail_text_if_nonempty,
         format_runtime_world_label_sample_text,
@@ -2427,7 +2467,7 @@ mod tests {
             RuntimeDialogStackPanelModel, RuntimeKickPanelModel, RuntimeLoadingPanelModel,
             RuntimeLiveEffectPanelModel,
             RuntimeLiveEntityPanelModel,
-            RuntimeMarkerPanelModel,
+            RuntimeMarkerPanelModel, RuntimeMenuPanelModel,
             RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
             RuntimeReconnectPanelModel, RuntimeRulesPanelModel,
             RuntimeResourceDeltaPanelModel, RuntimeSessionPanelModel, RuntimeBootstrapPanelModel,
@@ -4592,6 +4632,99 @@ mod tests {
                 text_input_result_count: 0,
                 last_text_input_result_id: None,
                 last_text_input_result_text: None,
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn format_runtime_menu_detail_text_preserves_field_order() {
+        let panel = RuntimeMenuPanelModel {
+            menu_open_count: 16,
+            follow_up_menu_open_count: 17,
+            hide_follow_up_menu_count: 18,
+            last_menu_open_id: Some(40),
+            last_menu_open_title: Some("main".to_string()),
+            last_menu_open_message: Some("pick".to_string()),
+            last_menu_open_option_rows: 2,
+            last_menu_open_first_row_len: 3,
+            last_follow_up_menu_open_id: Some(41),
+            last_follow_up_menu_open_title: Some("follow".to_string()),
+            last_follow_up_menu_open_message: Some("next".to_string()),
+            last_follow_up_menu_open_option_rows: 1,
+            last_follow_up_menu_open_first_row_len: 2,
+            last_hide_follow_up_menu_id: Some(41),
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            text_input_last_title: Some("Digits".to_string()),
+            text_input_last_default_text: Some("12345".to_string()),
+            text_input_last_length: Some(16),
+            text_input_last_numeric: Some(true),
+            text_input_last_allow_empty: Some(true),
+        };
+
+        assert_eq!(
+            format_runtime_menu_detail_text(&panel),
+            "menud:a1:fo0:m40:4:4:2:3:fm41:6:4:1:2:hid41:tin53:id404:tDigits:d5:n1:e1"
+        );
+    }
+
+    #[test]
+    fn format_runtime_menu_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeMenuPanelModel {
+            menu_open_count: 16,
+            follow_up_menu_open_count: 17,
+            hide_follow_up_menu_count: 18,
+            last_menu_open_id: Some(40),
+            last_menu_open_title: Some("main".to_string()),
+            last_menu_open_message: Some("pick".to_string()),
+            last_menu_open_option_rows: 2,
+            last_menu_open_first_row_len: 3,
+            last_follow_up_menu_open_id: Some(41),
+            last_follow_up_menu_open_title: Some("follow".to_string()),
+            last_follow_up_menu_open_message: Some("next".to_string()),
+            last_follow_up_menu_open_option_rows: 1,
+            last_follow_up_menu_open_first_row_len: 2,
+            last_hide_follow_up_menu_id: Some(41),
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            text_input_last_title: Some("Digits".to_string()),
+            text_input_last_default_text: Some("12345".to_string()),
+            text_input_last_length: Some(16),
+            text_input_last_numeric: Some(true),
+            text_input_last_allow_empty: Some(true),
+        };
+
+        assert_eq!(
+            format_runtime_menu_detail_text_if_nonempty(&panel),
+            Some(
+                "menud:a1:fo0:m40:4:4:2:3:fm41:6:4:1:2:hid41:tin53:id404:tDigits:d5:n1:e1"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            format_runtime_menu_detail_text_if_nonempty(&RuntimeMenuPanelModel {
+                menu_open_count: 0,
+                follow_up_menu_open_count: 0,
+                hide_follow_up_menu_count: 0,
+                last_menu_open_id: None,
+                last_menu_open_title: None,
+                last_menu_open_message: None,
+                last_menu_open_option_rows: 0,
+                last_menu_open_first_row_len: 0,
+                last_follow_up_menu_open_id: None,
+                last_follow_up_menu_open_title: None,
+                last_follow_up_menu_open_message: None,
+                last_follow_up_menu_open_option_rows: 0,
+                last_follow_up_menu_open_first_row_len: 0,
+                last_hide_follow_up_menu_id: None,
+                text_input_open_count: 0,
+                text_input_last_id: None,
+                text_input_last_title: None,
+                text_input_last_default_text: None,
+                text_input_last_length: None,
+                text_input_last_numeric: None,
+                text_input_last_allow_empty: None,
             }),
             None
         );
