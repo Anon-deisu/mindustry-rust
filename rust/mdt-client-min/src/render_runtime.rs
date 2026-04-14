@@ -3227,6 +3227,10 @@ pub(crate) fn runtime_reconnect_redirect_hint_text(ip: &str, port: i32) -> Strin
     format!("server requested redirect to {ip}:{port}.")
 }
 
+pub(crate) fn runtime_reconnect_connect_redirect_reason_text() -> &'static str {
+    "connectRedirect"
+}
+
 pub(crate) fn runtime_manual_connect_reason_text() -> &'static str {
     "manualConnect"
 }

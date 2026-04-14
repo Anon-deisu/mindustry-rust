@@ -18,7 +18,8 @@ use crate::packet_registry::{
 };
 use crate::render_runtime::{
     runtime_manual_connect_hint_text, runtime_manual_connect_reason_text,
-    runtime_reconnect_redirect_hint_text, runtime_reconnect_timeout_hint_text,
+    runtime_reconnect_connect_redirect_reason_text, runtime_reconnect_redirect_hint_text,
+    runtime_reconnect_timeout_hint_text,
     runtime_reconnect_timeout_reason_text,
 };
 use crate::session_state::{
@@ -3072,7 +3073,7 @@ impl ClientSession {
                     self.state.record_reconnect_projection(
                         ReconnectPhaseProjection::Scheduled,
                         Some(ReconnectReasonKind::ConnectRedirect),
-                        Some("connectRedirect".to_string()),
+                        Some(runtime_reconnect_connect_redirect_reason_text().to_string()),
                         None,
                         Some(runtime_reconnect_redirect_hint_text(&ip, port)),
                     );
