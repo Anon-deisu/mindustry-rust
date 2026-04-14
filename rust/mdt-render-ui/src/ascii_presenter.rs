@@ -463,10 +463,15 @@ impl AsciiScenePresenter {
                 "RUNTIME-MENU-DETAIL: {runtime_menu_detail_text}\n"
             ));
         }
-        if let Some(runtime_choice_text) = compose_runtime_choice_panel_text(hud) {
+        if let Some(runtime_choice_text) =
+            compose_runtime_choice_text_from_hud(hud, format_runtime_choice_panel_text_if_nonempty)
+        {
             out.push_str(&format!("RUNTIME-CHOICE: {runtime_choice_text}\n"));
         }
-        if let Some(runtime_choice_detail_text) = compose_runtime_choice_detail_text(hud) {
+        if let Some(runtime_choice_detail_text) = compose_runtime_choice_text_from_hud(
+            hud,
+            format_runtime_choice_detail_text_if_nonempty,
+        ) {
             out.push_str(&format!(
                 "RUNTIME-CHOICE-DETAIL: {runtime_choice_detail_text}\n"
             ));
@@ -1800,13 +1805,6 @@ fn compose_runtime_menu_detail_text(hud: &HudModel) -> Option<String> {
     compose_runtime_menu_text_from_hud(hud, format_runtime_menu_detail_text_if_nonempty)
 }
 
-fn compose_runtime_choice_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_choice_text_from_hud(hud, format_runtime_choice_panel_text_if_nonempty)
-}
-
-fn compose_runtime_choice_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_choice_text_from_hud(hud, format_runtime_choice_detail_text_if_nonempty)
-}
 
 fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
     compose_runtime_dialog_text_from_hud(hud, |panel| Some(format_runtime_dialog_panel_text(panel)))
