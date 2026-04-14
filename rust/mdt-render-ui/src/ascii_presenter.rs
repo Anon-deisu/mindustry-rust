@@ -673,13 +673,15 @@ impl AsciiScenePresenter {
                 "RUNTIME-LIVE-ENTITY-DETAIL: {runtime_live_entity_detail_text}\n"
             ));
         }
-        if let Some(runtime_live_effect_text) = compose_runtime_live_effect_panel_text(hud) {
+        if let Some(runtime_live_effect_text) =
+            compose_runtime_live_effect_text_from_hud(hud, format_runtime_live_effect_panel_text)
+        {
             out.push_str(&format!(
                 "RUNTIME-LIVE-EFFECT: {runtime_live_effect_text}\n"
             ));
         }
         if let Some(runtime_live_effect_detail_text) =
-            compose_runtime_live_effect_detail_row_text(hud)
+            compose_runtime_live_effect_text_from_hud(hud, format_runtime_live_effect_detail_text)
         {
             out.push_str(&format!(
                 "RUNTIME-LIVE-EFFECT-DETAIL: {runtime_live_effect_detail_text}\n"
@@ -1932,14 +1934,6 @@ fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_kick_detail_text(hud: &HudModel) -> Option<String> {
     compose_runtime_kick_text_from_hud(hud, format_runtime_kick_detail_text_if_nonempty)
-}
-
-fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_live_effect_text_from_hud(hud, format_runtime_live_effect_panel_text)
-}
-
-fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_live_effect_text_from_hud(hud, format_runtime_live_effect_detail_text)
 }
 
 fn compose_build_ui_text(hud: &HudModel) -> Option<String> {

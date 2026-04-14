@@ -1970,11 +1970,13 @@ fn compose_frame_panel_lines(
             "RUNTIME-LIVE-ENTITY-DETAIL: {runtime_live_entity_detail_text}"
         ));
     }
-    if let Some(runtime_live_effect_text) = compose_runtime_live_effect_panel_status_text(hud) {
+    if let Some(runtime_live_effect_text) =
+        compose_runtime_live_effect_text_from_hud(hud, format_runtime_live_effect_panel_text)
+    {
         lines.push(format!("RUNTIME-LIVE-EFFECT: {runtime_live_effect_text}"));
     }
     if let Some(runtime_live_effect_detail_text) =
-        compose_runtime_live_effect_detail_status_text(hud)
+        compose_runtime_live_effect_text_from_hud(hud, format_runtime_live_effect_detail_text)
     {
         lines.push(format!(
             "RUNTIME-LIVE-EFFECT-DETAIL: {runtime_live_effect_detail_text}"
@@ -2832,14 +2834,6 @@ fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> 
 
 fn compose_runtime_kick_detail_status_text(hud: &HudModel) -> Option<String> {
     compose_runtime_kick_text_from_hud(hud, format_runtime_kick_detail_text_if_nonempty)
-}
-
-fn compose_runtime_live_effect_panel_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_live_effect_text_from_hud(hud, format_runtime_live_effect_panel_text)
-}
-
-fn compose_runtime_live_effect_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_live_effect_text_from_hud(hud, format_runtime_live_effect_detail_text)
 }
 
 fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
