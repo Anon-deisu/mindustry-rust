@@ -5,7 +5,6 @@ use crate::{
         build_build_config_entry_breakdown, build_build_config_panel,
         build_build_interaction_panel, build_build_minimap_assist_panel, build_hud_status_panel,
         build_hud_visibility_panel, build_minimap_panel,
-        build_runtime_choice_panel,
         build_runtime_dialog_stack_panel,
         build_runtime_ui_stack_panel,
         MinimapPanelModel, PresenterViewWindow,
@@ -57,6 +56,7 @@ use crate::{
         compose_runtime_loading_text_from_hud, compose_runtime_marker_text_from_hud,
         compose_runtime_menu_text_from_hud, compose_runtime_notice_state_text_from_hud,
         compose_runtime_chat_text_from_hud,
+        compose_runtime_choice_text_from_hud,
         compose_runtime_command_group_lines_from_hud, compose_runtime_command_mode_text_from_hud,
         compose_runtime_dialog_detail_text_from_hud, compose_runtime_dialog_text_from_hud,
         compose_runtime_prompt_text_from_hud,
@@ -2671,13 +2671,11 @@ fn compose_runtime_menu_detail_status_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_choice_panel_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_choice_panel(hud)?;
-    format_runtime_choice_panel_text_if_nonempty(&panel)
+    compose_runtime_choice_text_from_hud(hud, format_runtime_choice_panel_text_if_nonempty)
 }
 
 fn compose_runtime_choice_detail_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_choice_panel(hud)?;
-    format_runtime_choice_detail_text_if_nonempty(&panel)
+    compose_runtime_choice_text_from_hud(hud, format_runtime_choice_detail_text_if_nonempty)
 }
 
 fn compose_runtime_prompt_panel_status_text(hud: &HudModel) -> Option<String> {

@@ -6,6 +6,7 @@ use crate::{
         build_runtime_bootstrap_panel,
         build_runtime_command_mode_panel,
         build_runtime_core_binding_panel,
+        build_runtime_choice_panel,
         build_runtime_dialog_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_kick_panel,
@@ -2150,6 +2151,17 @@ pub(crate) fn compose_runtime_dialog_detail_text_from_hud(hud: &HudModel) -> Opt
         return None;
     }
     Some(format_runtime_dialog_detail_text(&panel, &prompt, &notice))
+}
+
+pub(crate) fn compose_runtime_choice_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeChoicePanelModel) -> Option<String>,
+{
+    let panel = build_runtime_choice_panel(hud)?;
+    formatter(&panel)
 }
 
 pub(crate) fn compose_runtime_loading_text_from_hud<F>(
