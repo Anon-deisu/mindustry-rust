@@ -1435,6 +1435,12 @@ pub(crate) fn format_runtime_marker_panel_text(panel: &RuntimeMarkerPanelModel) 
     )
 }
 
+pub(crate) fn format_runtime_marker_panel_text_if_nonempty(
+    panel: &RuntimeMarkerPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_marker_panel_text(panel))
+}
+
 pub(crate) fn format_runtime_marker_detail_text(panel: &RuntimeMarkerPanelModel) -> String {
     format!(
         "markerd:tot{}:mut{}:txt{}:tex{}:f{}:last{}:c{}",
@@ -2258,6 +2264,7 @@ mod tests {
         format_runtime_kick_detail_text, format_runtime_kick_detail_text_if_nonempty,
         format_runtime_kick_panel_text, format_runtime_marker_detail_text,
         format_runtime_marker_detail_text_if_nonempty, format_runtime_marker_panel_text,
+        format_runtime_marker_panel_text_if_nonempty,
         format_runtime_reconnect_detail_text,
         format_runtime_reconnect_detail_text_if_nonempty,
         format_runtime_reconnect_panel_text,
@@ -2864,6 +2871,38 @@ mod tests {
         assert_eq!(
             format_runtime_marker_panel_text(&panel),
             "marker:cr11:rm12:up13:txt7:tex8:f2:last904:ctllogic_contro~"
+        );
+    }
+
+    #[test]
+    fn format_runtime_marker_panel_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeMarkerPanelModel {
+            create_count: 11,
+            remove_count: 12,
+            update_count: 13,
+            update_text_count: 7,
+            update_texture_count: 8,
+            decode_fail_count: 2,
+            last_marker_id: Some(904),
+            last_control_name: Some("logic control".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_marker_panel_text_if_nonempty(&panel),
+            Some("marker:cr11:rm12:up13:txt7:tex8:f2:last904:ctllogic_contro~".to_string())
+        );
+        assert_eq!(
+            format_runtime_marker_panel_text_if_nonempty(&RuntimeMarkerPanelModel {
+                create_count: 0,
+                remove_count: 0,
+                update_count: 0,
+                update_text_count: 0,
+                update_texture_count: 0,
+                decode_fail_count: 0,
+                last_marker_id: None,
+                last_control_name: None,
+            }),
+            None
         );
     }
 
