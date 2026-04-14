@@ -1477,6 +1477,12 @@ pub(crate) fn format_runtime_resource_delta_panel_text(
     )
 }
 
+pub(crate) fn format_runtime_resource_delta_panel_text_if_nonempty(
+    resource_delta: &RuntimeResourceDeltaPanelModel,
+) -> Option<String> {
+    (!resource_delta.is_empty()).then(|| format_runtime_resource_delta_panel_text(resource_delta))
+}
+
 pub(crate) fn format_runtime_resource_delta_detail_text(
     resource_delta: &RuntimeResourceDeltaPanelModel,
 ) -> String {
@@ -1515,6 +1521,12 @@ pub(crate) fn format_runtime_resource_delta_detail_text(
         format_optional_i16_text(resource_delta.last_changed_item_id),
         format_optional_i32_text(resource_delta.last_changed_amount),
     )
+}
+
+pub(crate) fn format_runtime_resource_delta_detail_text_if_nonempty(
+    resource_delta: &RuntimeResourceDeltaPanelModel,
+) -> Option<String> {
+    (!resource_delta.is_empty()).then(|| format_runtime_resource_delta_detail_text(resource_delta))
 }
 
 pub(crate) fn format_runtime_reconnect_panel_text(
@@ -2174,7 +2186,10 @@ mod tests {
         format_runtime_kick_panel_text, format_runtime_marker_detail_text,
         format_runtime_marker_detail_text_if_nonempty, format_runtime_marker_panel_text,
         format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
-        format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
+        format_runtime_resource_delta_detail_text,
+        format_runtime_resource_delta_detail_text_if_nonempty,
+        format_runtime_resource_delta_panel_text,
+        format_runtime_resource_delta_panel_text_if_nonempty,
         format_runtime_session_banner_text,
         format_runtime_session_detail_text, format_runtime_session_panel_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
@@ -2410,6 +2425,80 @@ mod tests {
             hidden_known_percent: 33,
             unknown_tile_count: 80,
             unknown_tile_percent: 40,
+        }
+    }
+
+    fn sample_runtime_resource_delta_panel() -> RuntimeResourceDeltaPanelModel {
+        RuntimeResourceDeltaPanelModel {
+            remove_tile_count: 1,
+            set_tile_count: 2,
+            set_floor_count: 3,
+            set_overlay_count: 4,
+            set_item_count: 5,
+            set_items_count: 6,
+            set_liquid_count: 7,
+            set_liquids_count: 8,
+            clear_items_count: 9,
+            clear_liquids_count: 10,
+            set_tile_items_count: 11,
+            set_tile_liquids_count: 12,
+            take_items_count: 13,
+            transfer_item_to_count: 14,
+            transfer_item_to_unit_count: 15,
+            last_kind: Some("to unit".to_string()),
+            last_item_id: Some(16),
+            last_amount: Some(17),
+            last_build_pos: Some(18),
+            last_unit: Some(RuntimeCommandUnitRefObservability { kind: 2, value: 19 }),
+            last_to_entity_id: Some(20),
+            build_count: 21,
+            build_stack_count: 22,
+            entity_count: 23,
+            authoritative_build_update_count: 24,
+            delta_apply_count: 25,
+            delta_skip_count: 26,
+            delta_conflict_count: 27,
+            last_changed_build_pos: Some(28),
+            last_changed_entity_id: Some(29),
+            last_changed_item_id: Some(30),
+            last_changed_amount: Some(31),
+        }
+    }
+
+    fn empty_runtime_resource_delta_panel() -> RuntimeResourceDeltaPanelModel {
+        RuntimeResourceDeltaPanelModel {
+            remove_tile_count: 0,
+            set_tile_count: 0,
+            set_floor_count: 0,
+            set_overlay_count: 0,
+            set_item_count: 0,
+            set_items_count: 0,
+            set_liquid_count: 0,
+            set_liquids_count: 0,
+            clear_items_count: 0,
+            clear_liquids_count: 0,
+            set_tile_items_count: 0,
+            set_tile_liquids_count: 0,
+            take_items_count: 0,
+            transfer_item_to_count: 0,
+            transfer_item_to_unit_count: 0,
+            last_kind: None,
+            last_item_id: None,
+            last_amount: None,
+            last_build_pos: None,
+            last_unit: None,
+            last_to_entity_id: None,
+            build_count: 0,
+            build_stack_count: 0,
+            entity_count: 0,
+            authoritative_build_update_count: 0,
+            delta_apply_count: 0,
+            delta_skip_count: 0,
+            delta_conflict_count: 0,
+            last_changed_build_pos: None,
+            last_changed_entity_id: None,
+            last_changed_item_id: None,
+            last_changed_amount: None,
         }
     }
 
@@ -2760,40 +2849,7 @@ mod tests {
 
     #[test]
     fn format_runtime_resource_delta_panel_text_preserves_field_order() {
-        let panel = RuntimeResourceDeltaPanelModel {
-            remove_tile_count: 1,
-            set_tile_count: 2,
-            set_floor_count: 3,
-            set_overlay_count: 4,
-            set_item_count: 5,
-            set_items_count: 6,
-            set_liquid_count: 7,
-            set_liquids_count: 8,
-            clear_items_count: 9,
-            clear_liquids_count: 10,
-            set_tile_items_count: 11,
-            set_tile_liquids_count: 12,
-            take_items_count: 13,
-            transfer_item_to_count: 14,
-            transfer_item_to_unit_count: 15,
-            last_kind: Some("to unit".to_string()),
-            last_item_id: Some(16),
-            last_amount: Some(17),
-            last_build_pos: Some(18),
-            last_unit: Some(RuntimeCommandUnitRefObservability { kind: 2, value: 19 }),
-            last_to_entity_id: Some(20),
-            build_count: 21,
-            build_stack_count: 22,
-            entity_count: 23,
-            authoritative_build_update_count: 24,
-            delta_apply_count: 25,
-            delta_skip_count: 26,
-            delta_conflict_count: 27,
-            last_changed_build_pos: Some(28),
-            last_changed_entity_id: Some(29),
-            last_changed_item_id: Some(30),
-            last_changed_amount: Some(31),
-        };
+        let panel = sample_runtime_resource_delta_panel();
 
         assert_eq!(
             format_runtime_resource_delta_panel_text(&panel),
@@ -2802,45 +2858,42 @@ mod tests {
     }
 
     #[test]
+    fn format_runtime_resource_delta_panel_text_if_nonempty_handles_empty_and_nonempty() {
+        assert_eq!(
+            format_runtime_resource_delta_panel_text_if_nonempty(&sample_runtime_resource_delta_panel()),
+            Some(
+                "resd:tile1/2/3/4:set5/6/7/8:clr9/10:tile11/12:flow13/14/15@to_unit:16:17:18:2:19:20:proj21/22/23:au24:d25/26/27:chg28/29/30/31"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            format_runtime_resource_delta_panel_text_if_nonempty(&empty_runtime_resource_delta_panel()),
+            None
+        );
+    }
+
+    #[test]
     fn format_runtime_resource_delta_detail_text_preserves_field_order() {
-        let panel = RuntimeResourceDeltaPanelModel {
-            remove_tile_count: 1,
-            set_tile_count: 2,
-            set_floor_count: 3,
-            set_overlay_count: 4,
-            set_item_count: 5,
-            set_items_count: 6,
-            set_liquid_count: 7,
-            set_liquids_count: 8,
-            clear_items_count: 9,
-            clear_liquids_count: 10,
-            set_tile_items_count: 11,
-            set_tile_liquids_count: 12,
-            take_items_count: 13,
-            transfer_item_to_count: 14,
-            transfer_item_to_unit_count: 15,
-            last_kind: Some("to unit".to_string()),
-            last_item_id: Some(16),
-            last_amount: Some(17),
-            last_build_pos: Some(18),
-            last_unit: Some(RuntimeCommandUnitRefObservability { kind: 2, value: 19 }),
-            last_to_entity_id: Some(20),
-            build_count: 21,
-            build_stack_count: 22,
-            entity_count: 23,
-            authoritative_build_update_count: 24,
-            delta_apply_count: 25,
-            delta_skip_count: 26,
-            delta_conflict_count: 27,
-            last_changed_build_pos: Some(28),
-            last_changed_entity_id: Some(29),
-            last_changed_item_id: Some(30),
-            last_changed_amount: Some(31),
-        };
+        let panel = sample_runtime_resource_delta_panel();
 
         assert_eq!(
             format_runtime_resource_delta_detail_text(&panel),
             "resdd:rm1:st2:sf3:so4:set5/6/7/8:clr9/10:tile11/12:flow13/14/15:lastto_unit:16:17:18:2:19:20:proj21/22/23:au24:d25/26/27:chg28/29/30/31"
+        );
+    }
+
+    #[test]
+    fn format_runtime_resource_delta_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        assert_eq!(
+            format_runtime_resource_delta_detail_text_if_nonempty(&sample_runtime_resource_delta_panel()),
+            Some(
+                "resdd:rm1:st2:sf3:so4:set5/6/7/8:clr9/10:tile11/12:flow13/14/15:lastto_unit:16:17:18:2:19:20:proj21/22/23:au24:d25/26/27:chg28/29/30/31"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            format_runtime_resource_delta_detail_text_if_nonempty(&empty_runtime_resource_delta_panel()),
+            None
         );
     }
 

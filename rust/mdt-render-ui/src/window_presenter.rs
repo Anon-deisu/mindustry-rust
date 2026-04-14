@@ -47,7 +47,8 @@ use crate::{
         format_runtime_loading_detail_text, format_runtime_loading_panel_text,
         format_runtime_marker_detail_text_if_nonempty, format_runtime_marker_panel_text,
         format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
-        format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
+        format_runtime_resource_delta_detail_text_if_nonempty,
+        format_runtime_resource_delta_panel_text_if_nonempty,
         format_runtime_session_banner_text, format_runtime_session_detail_text,
         format_runtime_session_panel_text,
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
@@ -2923,18 +2924,12 @@ fn compose_runtime_bootstrap_detail_status_text(hud: &HudModel) -> Option<String
 
 fn compose_runtime_resource_delta_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_session_panel(hud)?;
-    if panel.resource_delta.is_empty() {
-        return None;
-    }
-    Some(format_runtime_resource_delta_panel_text(&panel.resource_delta))
+    format_runtime_resource_delta_panel_text_if_nonempty(&panel.resource_delta)
 }
 
 fn compose_runtime_resource_delta_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_session_panel(hud)?;
-    if panel.resource_delta.is_empty() {
-        return None;
-    }
-    Some(format_runtime_resource_delta_detail_text(&panel.resource_delta))
+    format_runtime_resource_delta_detail_text_if_nonempty(&panel.resource_delta)
 }
 
 fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {
