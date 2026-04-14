@@ -1405,6 +1405,12 @@ pub(crate) fn format_runtime_marker_detail_text(panel: &RuntimeMarkerPanelModel)
     )
 }
 
+pub(crate) fn format_runtime_marker_detail_text_if_nonempty(
+    panel: &RuntimeMarkerPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_marker_detail_text(panel))
+}
+
 pub(crate) fn format_runtime_kick_panel_text(kick: &RuntimeKickPanelModel) -> String {
     format!(
         "{}@{}:{}:{}",
@@ -1423,6 +1429,12 @@ pub(crate) fn format_runtime_kick_detail_text(kick: &RuntimeKickPanelModel) -> S
         runtime_ui_text_len(kick.hint_category.as_deref()),
         runtime_ui_text_len(kick.hint_text.as_deref()),
     )
+}
+
+pub(crate) fn format_runtime_kick_detail_text_if_nonempty(
+    kick: &RuntimeKickPanelModel,
+) -> Option<String> {
+    (!kick.is_empty()).then(|| format_runtime_kick_detail_text(kick))
 }
 
 pub(crate) fn format_runtime_resource_delta_panel_text(
@@ -2143,8 +2155,9 @@ mod tests {
         format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
         format_runtime_live_entity_summary_text,
         format_runtime_loading_detail_text, format_runtime_loading_panel_text,
-        format_runtime_kick_detail_text, format_runtime_kick_panel_text,
-        format_runtime_marker_detail_text, format_runtime_marker_panel_text,
+        format_runtime_kick_detail_text, format_runtime_kick_detail_text_if_nonempty,
+        format_runtime_kick_panel_text, format_runtime_marker_detail_text,
+        format_runtime_marker_detail_text_if_nonempty, format_runtime_marker_panel_text,
         format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
         format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
         format_runtime_session_banner_text,
@@ -2645,6 +2658,38 @@ mod tests {
     }
 
     #[test]
+    fn format_runtime_marker_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeMarkerPanelModel {
+            create_count: 11,
+            remove_count: 12,
+            update_count: 13,
+            update_text_count: 7,
+            update_texture_count: 8,
+            decode_fail_count: 2,
+            last_marker_id: Some(904),
+            last_control_name: Some("logic control".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_marker_detail_text_if_nonempty(&panel),
+            Some("markerd:tot51:mut36:txt7:tex8:f2:last904:c13".to_string())
+        );
+        assert_eq!(
+            format_runtime_marker_detail_text_if_nonempty(&RuntimeMarkerPanelModel {
+                create_count: 0,
+                remove_count: 0,
+                update_count: 0,
+                update_text_count: 0,
+                update_texture_count: 0,
+                decode_fail_count: 0,
+                last_marker_id: None,
+                last_control_name: None,
+            }),
+            None
+        );
+    }
+
+    #[test]
     fn format_runtime_kick_panel_text_preserves_field_order() {
         let panel = RuntimeKickPanelModel {
             reason_text: Some("manual reconnect".to_string()),
@@ -2671,6 +2716,30 @@ mod tests {
         assert_eq!(
             format_runtime_kick_detail_text(&panel),
             "kickd:r16:o7:c7:h9"
+        );
+    }
+
+    #[test]
+    fn format_runtime_kick_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeKickPanelModel {
+            reason_text: Some("manual reconnect".to_string()),
+            reason_ordinal: Some(7),
+            hint_category: Some("network".to_string()),
+            hint_text: Some("check vpn".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_kick_detail_text_if_nonempty(&panel),
+            Some("kickd:r16:o7:c7:h9".to_string())
+        );
+        assert_eq!(
+            format_runtime_kick_detail_text_if_nonempty(&RuntimeKickPanelModel {
+                reason_text: None,
+                reason_ordinal: None,
+                hint_category: None,
+                hint_text: None,
+            }),
+            None
         );
     }
 

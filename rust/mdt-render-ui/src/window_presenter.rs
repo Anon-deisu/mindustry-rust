@@ -42,9 +42,9 @@ use crate::{
         format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
         format_runtime_live_entity_summary_text,
         format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
-        format_runtime_kick_detail_text, format_runtime_kick_panel_text,
+        format_runtime_kick_detail_text_if_nonempty, format_runtime_kick_panel_text,
         format_runtime_loading_detail_text, format_runtime_loading_panel_text,
-        format_runtime_marker_detail_text, format_runtime_marker_panel_text,
+        format_runtime_marker_detail_text_if_nonempty, format_runtime_marker_panel_text,
         format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
         format_runtime_resource_delta_detail_text, format_runtime_resource_delta_panel_text,
         format_runtime_session_banner_text, format_runtime_session_detail_text,
@@ -2896,10 +2896,7 @@ fn compose_runtime_marker_panel_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_marker_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_marker_panel(hud)?;
-    if panel.is_empty() {
-        return None;
-    }
-    Some(format_runtime_marker_detail_text(&panel))
+    format_runtime_marker_detail_text_if_nonempty(&panel)
 }
 
 fn compose_runtime_kick_status_text(hud: &HudModel) -> Option<String> {
@@ -2962,7 +2959,7 @@ fn compose_runtime_loading_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_kick_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_kick_panel(hud)?;
-    (!panel.is_empty()).then(|| format_runtime_kick_detail_text(&panel))
+    format_runtime_kick_detail_text_if_nonempty(&panel)
 }
 
 fn compose_runtime_loading_detail_status_text(hud: &HudModel) -> Option<String> {
