@@ -5252,13 +5252,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.unit_entered_payload_packet_id => {
                 if let Some(projection) = decode_unit_entered_payload(&packet.payload) {
-                    self.state.received_unit_entered_payload_count = self
-                        .state
-                        .received_unit_entered_payload_count
-                        .saturating_add(1);
-                    self.state.last_unit_entered_payload = Some(projection.clone());
-                    self.state
-                        .record_remove_resource_delta_entity(projection.unit);
+                    self.state.record_unit_entered_payload(&projection);
                     let removed_entity_projection =
                         remove_entity_projection_for_unit_ref(&mut self.state, projection.unit);
                     Ok(ClientSessionEvent::UnitEnteredPayload {

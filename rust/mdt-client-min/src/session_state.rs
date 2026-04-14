@@ -7191,6 +7191,13 @@ impl SessionState {
         self.record_picked_unit_payload_lifecycle(projection.unit, projection.target);
     }
 
+    pub fn record_unit_entered_payload(&mut self, projection: &UnitEnteredPayloadProjection) {
+        self.received_unit_entered_payload_count =
+            self.received_unit_entered_payload_count.saturating_add(1);
+        self.last_unit_entered_payload = Some(projection.clone());
+        self.record_remove_resource_delta_entity(projection.unit);
+    }
+
     pub fn record_destroy_payload(&mut self, projection: &DestroyPayloadProjection) {
         self.received_destroy_payload_count =
             self.received_destroy_payload_count.saturating_add(1);
@@ -15333,6 +15340,31 @@ mod tests {
                 removed_carrier: false,
             })
         );
+    }
+
+    #[test]
+    fn record_unit_entered_payload_tracks_projection_and_resource_delta() {
+        let mut state = SessionState::default();
+        let projection = UnitEnteredPayloadProjection {
+            unit: Some(UnitRefProjection { kind: 2, value: 77 }),
+            build_pos: Some(pack_point2(3, 4)),
+        };
+        state.resource_delta_projection.entity_item_stack_by_entity_id.insert(
+            77,
+            ResourceUnitItemStack {
+                item_id: Some(4),
+                amount: 7,
+            },
+        );
+
+        state.record_unit_entered_payload(&projection);
+
+        assert_eq!(state.received_unit_entered_payload_count, 1);
+        assert_eq!(state.last_unit_entered_payload, Some(projection));
+        assert!(!state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .contains_key(&77));
     }
 
     #[test]
