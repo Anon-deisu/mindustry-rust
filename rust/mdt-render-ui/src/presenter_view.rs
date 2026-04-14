@@ -11,7 +11,7 @@ use crate::{
         RuntimeLiveEntityPanelModel,
         RuntimeMarkerPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
         RuntimeReconnectPanelModel, RuntimeResourceDeltaPanelModel,
-        RuntimeSessionPanelModel,
+        RuntimeRulesPanelModel, RuntimeSessionPanelModel,
         RuntimeUiNoticePanelModel, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
         RuntimeWorldReloadPanelModel,
     },
@@ -1318,6 +1318,23 @@ pub(crate) fn format_runtime_bootstrap_detail_text_if_nonempty(
     (!panel.is_empty()).then(|| panel.detail_label())
 }
 
+pub(crate) fn format_runtime_rules_detail_text(panel: &RuntimeRulesPanelModel) -> String {
+    format!(
+        "rulesd:set{}:obj{}:rule{}:clr{}:done{}",
+        panel.set_rules_count,
+        panel.set_objectives_count,
+        panel.set_rule_count,
+        panel.clear_objectives_count,
+        panel.complete_objective_count,
+    )
+}
+
+pub(crate) fn format_runtime_rules_detail_text_if_nonempty(
+    panel: &RuntimeRulesPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_rules_detail_text(panel))
+}
+
 pub(crate) fn format_runtime_admin_panel_text(panel: &RuntimeAdminPanelModel) -> String {
     format!(
         "admin:t{}@{}:f{}:dbg{}/{}@{}:f{}",
@@ -2287,6 +2304,7 @@ mod tests {
         format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
+        format_runtime_rules_detail_text, format_runtime_rules_detail_text_if_nonempty,
         format_runtime_world_label_sample_text,
         format_runtime_world_label_scalar_text,
         format_runtime_world_label_detail_text, format_runtime_world_label_detail_text_if_nonempty,
@@ -2356,7 +2374,7 @@ mod tests {
             RuntimeLiveEntityPanelModel,
             RuntimeMarkerPanelModel,
             RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
-            RuntimeReconnectPanelModel,
+            RuntimeReconnectPanelModel, RuntimeRulesPanelModel,
             RuntimeResourceDeltaPanelModel, RuntimeSessionPanelModel, RuntimeBootstrapPanelModel,
             RuntimeUiNoticePanelModel,
             RuntimeUiStackForegroundKind, RuntimeUiStackPanelModel, RuntimeWorldLabelPanelModel,
@@ -4430,6 +4448,78 @@ mod tests {
         );
         assert_eq!(
             format_runtime_bootstrap_detail_text_if_nonempty(&RuntimeBootstrapPanelModel::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn format_runtime_rules_detail_text_preserves_field_order() {
+        let panel = RuntimeRulesPanelModel {
+            mutation_count: 64,
+            parse_fail_count: 65,
+            set_rules_count: 67,
+            set_objectives_count: 69,
+            set_rule_count: 71,
+            clear_objectives_count: 73,
+            complete_objective_count: 74,
+            waves: Some(true),
+            pvp: Some(false),
+            objective_count: 11,
+            qualified_objective_count: 7,
+            objective_parent_edge_count: 13,
+            objective_flag_count: 17,
+            complete_out_of_range_count: 19,
+            last_completed_index: Some(23),
+        };
+
+        assert_eq!(
+            format_runtime_rules_detail_text(&panel),
+            "rulesd:set67:obj69:rule71:clr73:done74"
+        );
+    }
+
+    #[test]
+    fn format_runtime_rules_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeRulesPanelModel {
+            mutation_count: 64,
+            parse_fail_count: 65,
+            set_rules_count: 67,
+            set_objectives_count: 69,
+            set_rule_count: 71,
+            clear_objectives_count: 73,
+            complete_objective_count: 74,
+            waves: Some(true),
+            pvp: Some(false),
+            objective_count: 11,
+            qualified_objective_count: 7,
+            objective_parent_edge_count: 13,
+            objective_flag_count: 17,
+            complete_out_of_range_count: 19,
+            last_completed_index: Some(23),
+        };
+
+        assert_eq!(
+            format_runtime_rules_detail_text_if_nonempty(&panel),
+            Some("rulesd:set67:obj69:rule71:clr73:done74".to_string())
+        );
+        assert_eq!(
+            format_runtime_rules_detail_text_if_nonempty(&RuntimeRulesPanelModel {
+                mutation_count: 0,
+                parse_fail_count: 0,
+                set_rules_count: 0,
+                set_objectives_count: 0,
+                set_rule_count: 0,
+                clear_objectives_count: 0,
+                complete_objective_count: 0,
+                waves: None,
+                pvp: None,
+                objective_count: 0,
+                qualified_objective_count: 0,
+                objective_parent_edge_count: 0,
+                objective_flag_count: 0,
+                complete_out_of_range_count: 0,
+                last_completed_index: None,
+            }),
             None
         );
     }
