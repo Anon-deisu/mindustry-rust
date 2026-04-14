@@ -9,6 +9,7 @@ use crate::{
         build_runtime_core_binding_panel,
         build_runtime_choice_panel,
         build_runtime_dialog_panel,
+        build_runtime_dialog_stack_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_kick_panel,
         build_runtime_loading_panel,
@@ -19,6 +20,7 @@ use crate::{
         build_runtime_reconnect_panel,
         build_runtime_rules_panel,
         build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
+        build_runtime_ui_stack_panel,
         BuildInteractionPanelModel, BuildInteractionQueueState, HudVisibilityPanelModel,
         MinimapPanelModel,
         PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
@@ -2191,6 +2193,50 @@ pub(crate) fn compose_runtime_dialog_detail_text_from_hud(hud: &HudModel) -> Opt
         return None;
     }
     Some(format_runtime_dialog_detail_text(&panel, &prompt, &notice))
+}
+
+pub(crate) fn compose_runtime_stack_panel_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeUiStackPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_ui_stack_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_stack_detail_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeDialogStackPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_dialog_stack_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_stack_depth_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeUiStackDepthSummary) -> Option<String>,
+{
+    let summary = hud.runtime_ui_stack_depth_summary()?;
+    formatter(&summary)
+}
+
+pub(crate) fn compose_runtime_dialog_stack_summary_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeUiStackSummary) -> Option<String>,
+{
+    let summary = hud.runtime_ui_stack_summary()?;
+    formatter(&summary)
 }
 
 pub(crate) fn compose_runtime_choice_text_from_hud<F>(

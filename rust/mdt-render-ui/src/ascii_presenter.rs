@@ -4,8 +4,7 @@ use crate::panel_model::{
     build_build_config_entry_breakdown, build_build_config_panel, build_build_interaction_panel,
     build_build_minimap_assist_panel, build_hud_status_panel, build_hud_visibility_panel,
     build_minimap_panel,
-    build_runtime_dialog_stack_panel,
-    build_runtime_ui_stack_panel, MinimapPanelModel,
+    MinimapPanelModel,
     PresenterViewWindow,
 };
 use crate::presenter_view::{
@@ -59,8 +58,11 @@ use crate::presenter_view::{
     compose_runtime_chat_text_from_hud,
     compose_runtime_choice_text_from_hud,
     compose_runtime_command_group_lines_from_hud, compose_runtime_command_mode_text_from_hud,
+    compose_runtime_dialog_stack_summary_text_from_hud,
     compose_runtime_dialog_detail_text_from_hud, compose_runtime_dialog_text_from_hud,
     compose_runtime_prompt_text_from_hud,
+    compose_runtime_stack_depth_text_from_hud, compose_runtime_stack_detail_text_from_hud,
+    compose_runtime_stack_panel_text_from_hud,
     compose_runtime_ui_notice_text_from_hud,
     compose_runtime_resource_delta_text_from_hud, compose_runtime_world_label_text_from_hud,
     compose_runtime_reconnect_text_from_hud, compose_runtime_rules_text_from_hud,
@@ -1797,23 +1799,22 @@ fn compose_runtime_chat_detail_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_stack_panel_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_ui_stack_panel(hud)?;
-    format_runtime_stack_panel_text_if_nonempty(&panel)
+    compose_runtime_stack_panel_text_from_hud(hud, format_runtime_stack_panel_text_if_nonempty)
 }
 
 fn compose_runtime_stack_detail_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_dialog_stack_panel(hud)?;
-    format_runtime_stack_detail_text_if_nonempty(&panel)
+    compose_runtime_stack_detail_text_from_hud(hud, format_runtime_stack_detail_text_if_nonempty)
 }
 
 fn compose_runtime_stack_depth_text(hud: &HudModel) -> Option<String> {
-    let summary = hud.runtime_ui_stack_depth_summary()?;
-    format_runtime_stack_depth_text_if_nonempty(&summary)
+    compose_runtime_stack_depth_text_from_hud(hud, format_runtime_stack_depth_text_if_nonempty)
 }
 
 fn compose_runtime_dialog_stack_text(hud: &HudModel) -> Option<String> {
-    let summary = hud.runtime_ui_stack_summary()?;
-    format_runtime_dialog_stack_summary_text_if_nonempty(&summary)
+    compose_runtime_dialog_stack_summary_text_from_hud(
+        hud,
+        format_runtime_dialog_stack_summary_text_if_nonempty,
+    )
 }
 
 fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
