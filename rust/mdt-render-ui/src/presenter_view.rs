@@ -6,7 +6,8 @@ use crate::{
         build_runtime_kick_panel,
         build_runtime_loading_panel,
         build_runtime_reconnect_panel,
-        build_runtime_session_panel, HudVisibilityPanelModel, MinimapPanelModel,
+        build_runtime_session_panel, build_runtime_world_label_panel, HudVisibilityPanelModel,
+        MinimapPanelModel,
         PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
         RuntimeChoicePanelModel,
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
@@ -1986,6 +1987,17 @@ where
     F: FnOnce(&RuntimeSessionPanelModel) -> Option<String>,
 {
     let panel = build_runtime_session_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_world_label_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeWorldLabelPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_world_label_panel(hud)?;
     formatter(&panel)
 }
 

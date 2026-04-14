@@ -9,7 +9,7 @@ use crate::panel_model::{
     build_runtime_marker_panel, build_runtime_menu_panel,
     build_runtime_notice_state_panel, build_runtime_prompt_panel,
     build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
-    build_runtime_ui_stack_panel, build_runtime_world_label_panel, MinimapPanelModel,
+    build_runtime_ui_stack_panel, MinimapPanelModel,
     PresenterViewWindow,
 };
 use crate::presenter_view::{
@@ -55,7 +55,7 @@ use crate::presenter_view::{
     format_runtime_resource_delta_panel_text_if_nonempty,
     compose_runtime_core_binding_text_from_hud, compose_runtime_kick_text_from_hud,
     compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
-    compose_runtime_loading_text_from_hud,
+    compose_runtime_loading_text_from_hud, compose_runtime_world_label_text_from_hud,
     compose_runtime_reconnect_text_from_hud, compose_runtime_session_text_from_hud,
     format_runtime_session_banner_text, format_runtime_session_detail_text_if_nonempty,
     format_runtime_session_panel_text_if_nonempty,
@@ -1846,13 +1846,16 @@ fn compose_runtime_admin_detail_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_world_label_panel(hud)?;
-    Some(format_runtime_world_label_panel_text(&panel))
+    compose_runtime_world_label_text_from_hud(hud, |panel| {
+        Some(format_runtime_world_label_panel_text(panel))
+    })
 }
 
 fn compose_runtime_world_label_detail_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_world_label_panel(hud)?;
-    format_runtime_world_label_detail_text_if_nonempty(&panel)
+    compose_runtime_world_label_text_from_hud(
+        hud,
+        format_runtime_world_label_detail_text_if_nonempty,
+    )
 }
 
 fn compose_runtime_marker_panel_text(hud: &HudModel) -> Option<String> {
