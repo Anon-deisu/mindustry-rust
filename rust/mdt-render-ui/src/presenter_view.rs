@@ -1,6 +1,7 @@
 use crate::{
     hud_model::{HudModel, HudSummary, RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
     panel_model::{
+        build_runtime_chat_panel,
         build_runtime_admin_panel,
         build_runtime_bootstrap_panel,
         build_runtime_core_binding_panel,
@@ -2096,6 +2097,17 @@ where
     F: FnOnce(&RuntimePromptPanelModel) -> Option<String>,
 {
     let panel = build_runtime_prompt_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_chat_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeChatPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_chat_panel(hud)?;
     formatter(&panel)
 }
 

@@ -4,7 +4,7 @@ use crate::{
     panel_model::{
         build_build_config_entry_breakdown, build_build_config_panel,
         build_build_interaction_panel, build_build_minimap_assist_panel, build_hud_status_panel,
-        build_hud_visibility_panel, build_minimap_panel, build_runtime_chat_panel,
+        build_hud_visibility_panel, build_minimap_panel,
         build_runtime_choice_panel,
         build_runtime_command_mode_panel,
         build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
@@ -59,6 +59,7 @@ use crate::{
         compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
         compose_runtime_loading_text_from_hud, compose_runtime_marker_text_from_hud,
         compose_runtime_menu_text_from_hud, compose_runtime_notice_state_text_from_hud,
+        compose_runtime_chat_text_from_hud,
         compose_runtime_prompt_text_from_hud,
         compose_runtime_ui_notice_text_from_hud,
         compose_runtime_resource_delta_text_from_hud, compose_runtime_world_label_text_from_hud,
@@ -2704,13 +2705,11 @@ fn compose_runtime_dialog_detail_status_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_chat_panel_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_chat_panel(hud)?;
-    Some(format_runtime_chat_panel_text(&panel))
+    compose_runtime_chat_text_from_hud(hud, |panel| Some(format_runtime_chat_panel_text(panel)))
 }
 
 fn compose_runtime_chat_detail_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_chat_panel(hud)?;
-    format_runtime_chat_detail_text_if_nonempty(&panel)
+    compose_runtime_chat_text_from_hud(hud, format_runtime_chat_detail_text_if_nonempty)
 }
 
 fn compose_runtime_stack_panel_status_text(hud: &HudModel) -> Option<String> {
