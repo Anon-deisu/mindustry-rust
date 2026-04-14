@@ -735,6 +735,30 @@ pub(crate) fn format_minimap_density_visibility_text(panel: &MinimapPanelModel) 
     )
 }
 
+pub(crate) fn format_minimap_detail_lines(panel: &MinimapPanelModel) -> Vec<String> {
+    let detail_count = panel.detail_counts.len();
+    let mut lines = panel
+        .detail_counts
+        .iter()
+        .enumerate()
+        .map(|(index, detail)| {
+            format!(
+                "minid:{}/{}:{}={}",
+                index + 1,
+                detail_count,
+                detail.label,
+                detail.count
+            )
+        })
+        .collect::<Vec<_>>();
+    lines.push(format_minimap_density_visibility_text(panel));
+    lines
+}
+
+pub(crate) fn format_minimap_edge_detail_text(panel: &MinimapPanelModel) -> String {
+    panel.edge_detail_label()
+}
+
 pub(crate) fn format_semantic_detail_text(
     detail_counts: &[RenderSemanticDetailCount],
 ) -> Option<String> {
@@ -2012,6 +2036,7 @@ mod tests {
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
         format_counted_detail_text, format_counted_preview_text,
+        format_minimap_detail_lines, format_minimap_edge_detail_text,
         format_hud_visibility_detail_text, format_minimap_kind_text,
         format_minimap_density_visibility_text,
         format_minimap_legend_text, format_semantic_detail_text,
@@ -4291,6 +4316,66 @@ mod tests {
         assert_eq!(
             format_minimap_density_visibility_text(&panel),
             "minidv:ov1:fg0:cov24:mapd10:wind25:out25"
+        );
+    }
+
+    #[test]
+    fn format_minimap_detail_lines_preserves_order_and_appends_density_line() {
+        let mut panel = sample_minimap_panel();
+        panel.overlay_visible = true;
+        panel.fog_enabled = false;
+        panel.window_coverage_percent = 24;
+        panel.tracked_object_count = 20;
+        panel.map_tile_count = 200;
+        panel.window_tracked_object_count = 12;
+        panel.window_tile_count = 48;
+        panel.outside_window_count = 5;
+        panel.detail_counts = vec![
+            RenderSemanticDetailCount {
+                label: "player",
+                count: 1,
+            },
+            RenderSemanticDetailCount {
+                label: "runtime",
+                count: 2,
+            },
+        ];
+
+        assert_eq!(
+            format_minimap_detail_lines(&panel),
+            vec![
+                "minid:1/2:player=1".to_string(),
+                "minid:2/2:runtime=2".to_string(),
+                "minidv:ov1:fg0:cov24:mapd10:wind25:out25".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn format_minimap_edge_detail_text_preserves_field_order() {
+        let mut panel = sample_minimap_panel();
+        panel.window = PresenterViewWindow {
+            origin_x: 1,
+            origin_y: 2,
+            width: 8,
+            height: 6,
+        };
+        panel.window_last_x = 8;
+        panel.window_last_y = 7;
+        panel.window_coverage_percent = 24;
+        panel.focus_tile = Some((4, 5));
+        panel.focus_in_window = Some(true);
+        panel.focus_offset_x = Some(-2);
+        panel.focus_offset_y = Some(3);
+        panel.window_clamped_left = true;
+        panel.window_clamped_bottom = true;
+        panel.outside_window_count = 5;
+        panel.tracked_object_count = 20;
+        panel.window_tracked_object_count = 12;
+
+        assert_eq!(
+            format_minimap_edge_detail_text(&panel),
+            "origin=1:2 last=8:7 size=8x6 cover=24% focus=4:5 in-window=1 drift=-2:3 clamp=left+bottom outside=5/20 window=12/20"
         );
     }
 

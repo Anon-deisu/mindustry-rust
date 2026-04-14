@@ -20,8 +20,8 @@ use crate::{
         crop_window, render_line_is_visible, render_rect_detail_is_visible,
         tile_local_coords, visible_window_tile, world_rect_tile_coords, world_tile_coords,
         compact_runtime_ui_text,
+        format_minimap_detail_lines, format_minimap_edge_detail_text,
         format_hud_visibility_detail_text, format_minimap_kind_text, format_minimap_legend_text,
-        format_minimap_density_visibility_text,
         format_optional_focus_tile_text, format_optional_signed_tile_text,
         format_semantic_detail_text,
         format_minimap_visibility_detail_text, format_visibility_minimap_text,
@@ -3225,28 +3225,7 @@ fn compose_minimap_detail_status_lines(
     let Some(panel) = build_minimap_panel(scene, hud, window) else {
         return Vec::new();
     };
-
-    let detail_count = panel.detail_counts.len();
-    let mut lines = panel
-        .detail_counts
-        .iter()
-        .enumerate()
-        .map(|(index, detail)| {
-            format!(
-                "minid:{}/{}:{}={}",
-                index + 1,
-                detail_count,
-                detail.label,
-                detail.count
-            )
-        })
-        .collect::<Vec<_>>();
-    lines.push(compose_minimap_density_visibility_status_text(&panel));
-    lines
-}
-
-fn compose_minimap_density_visibility_status_text(panel: &MinimapPanelModel) -> String {
-    format_minimap_density_visibility_text(panel)
+    format_minimap_detail_lines(&panel)
 }
 
 fn compose_minimap_edge_status_text(
@@ -3264,7 +3243,7 @@ fn compose_minimap_edge_detail_status_text(
     window: PresenterViewWindow,
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
-    Some(panel.edge_detail_label())
+    Some(format_minimap_edge_detail_text(&panel))
 }
 
 fn compose_minimap_edge_summary_status_text(panel: &MinimapPanelModel) -> String {
@@ -6636,7 +6615,7 @@ mod tests {
             &frame.panel_lines,
             &format!(
                 "MINIMAP-DETAIL: {}",
-                super::compose_minimap_density_visibility_status_text(&panel)
+                crate::presenter_view::format_minimap_density_visibility_text(&panel)
             ),
         );
         assert_eq!(inset.focus_tile, Some((7, 6)));
@@ -6851,7 +6830,7 @@ mod tests {
             &frame.panel_lines,
             &format!(
                 "MINIMAP-DETAIL: {}",
-                super::compose_minimap_density_visibility_status_text(&panel)
+                crate::presenter_view::format_minimap_density_visibility_text(&panel)
             ),
         );
     }
@@ -7721,7 +7700,7 @@ mod tests {
             &frame.panel_lines,
             &format!(
                 "MINIMAP-DETAIL: {}",
-                super::compose_minimap_density_visibility_status_text(&panel)
+                crate::presenter_view::format_minimap_density_visibility_text(&panel)
             ),
         );
         assert_frame_line_contains(
