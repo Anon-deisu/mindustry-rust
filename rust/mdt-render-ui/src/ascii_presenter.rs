@@ -526,10 +526,14 @@ impl AsciiScenePresenter {
                 "RUNTIME-COMMAND-GROUP: {runtime_command_group_text}\n"
             ));
         }
-        if let Some(runtime_admin_text) = compose_runtime_admin_panel_text(hud) {
+        if let Some(runtime_admin_text) =
+            compose_runtime_admin_text_from_hud(hud, |panel| Some(format_runtime_admin_panel_text(panel)))
+        {
             out.push_str(&format!("RUNTIME-ADMIN: {runtime_admin_text}\n"));
         }
-        if let Some(runtime_admin_detail_text) = compose_runtime_admin_detail_text(hud) {
+        if let Some(runtime_admin_detail_text) =
+            compose_runtime_admin_text_from_hud(hud, format_runtime_admin_detail_text_if_nonempty)
+        {
             out.push_str(&format!(
                 "RUNTIME-ADMIN-DETAIL: {runtime_admin_detail_text}\n"
             ));
@@ -1862,16 +1866,6 @@ fn compose_runtime_command_mode_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_command_group_lines(hud: &HudModel) -> Vec<String> {
     compose_runtime_command_group_lines_from_hud(hud)
-}
-
-fn compose_runtime_admin_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_admin_text_from_hud(hud, |panel| {
-        Some(format_runtime_admin_panel_text(panel))
-    })
-}
-
-fn compose_runtime_admin_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_admin_text_from_hud(hud, format_runtime_admin_detail_text_if_nonempty)
 }
 
 fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {

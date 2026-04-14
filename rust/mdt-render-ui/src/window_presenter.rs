@@ -1842,10 +1842,14 @@ fn compose_frame_panel_lines(
             "RUNTIME-COMMAND-GROUP: {runtime_command_group_text}"
         ));
     }
-    if let Some(runtime_admin_text) = compose_runtime_admin_panel_status_text(hud) {
+    if let Some(runtime_admin_text) =
+        compose_runtime_admin_text_from_hud(hud, |panel| Some(format_runtime_admin_panel_text(panel)))
+    {
         lines.push(format!("RUNTIME-ADMIN: {runtime_admin_text}"));
     }
-    if let Some(runtime_admin_detail_text) = compose_runtime_admin_detail_status_text(hud) {
+    if let Some(runtime_admin_detail_text) =
+        compose_runtime_admin_text_from_hud(hud, format_runtime_admin_detail_text_if_nonempty)
+    {
         lines.push(format!("RUNTIME-ADMIN-DETAIL: {runtime_admin_detail_text}"));
     }
     if let Some(runtime_rules_text) = compose_runtime_rules_panel_status_text(hud) {
@@ -2767,16 +2771,6 @@ fn compose_runtime_command_mode_detail_status_text(hud: &HudModel) -> Option<Str
 
 fn compose_runtime_command_group_status_lines(hud: &HudModel) -> Vec<String> {
     compose_runtime_command_group_lines_from_hud(hud)
-}
-
-fn compose_runtime_admin_panel_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_admin_text_from_hud(hud, |panel| {
-        Some(format_runtime_admin_panel_text(panel))
-    })
-}
-
-fn compose_runtime_admin_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_admin_text_from_hud(hud, format_runtime_admin_detail_text_if_nonempty)
 }
 
 fn compose_runtime_world_label_panel_status_text(hud: &HudModel) -> Option<String> {
