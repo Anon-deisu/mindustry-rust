@@ -10,6 +10,7 @@ use crate::{
         build_runtime_menu_panel,
         build_runtime_marker_panel,
         build_runtime_notice_state_panel,
+        build_runtime_prompt_panel,
         build_runtime_reconnect_panel,
         build_runtime_rules_panel,
         build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
@@ -2084,6 +2085,17 @@ where
     F: FnOnce(&RuntimeNoticeStatePanelModel) -> Option<String>,
 {
     let panel = build_runtime_notice_state_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_prompt_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimePromptPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_prompt_panel(hud)?;
     formatter(&panel)
 }
 
