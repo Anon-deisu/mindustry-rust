@@ -22,7 +22,8 @@ use crate::{
         compact_runtime_ui_text,
         format_build_config_alignment_text,
         format_minimap_detail_lines, format_minimap_edge_detail_text,
-        format_hud_visibility_detail_text, format_minimap_kind_text, format_minimap_legend_text,
+        format_hud_visibility_detail_text, format_hud_visibility_status_text,
+        format_minimap_kind_text, format_minimap_legend_text,
         format_optional_bool_flag, format_optional_i16_text, format_optional_u8_text,
         format_optional_focus_tile_text, format_optional_signed_tile_text,
         format_semantic_detail_text,
@@ -2538,21 +2539,7 @@ fn compose_hud_summary_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_hud_visibility_status_text(hud: &HudModel) -> Option<String> {
     let visibility = build_hud_visibility_panel(hud)?;
-    Some(format!(
-        "hudvis:ov{}:fg{}:k{}p{}:v{}p{}:h{}p{}:u{}p{}:vm{}:hm{}",
-        if visibility.overlay_visible { 1 } else { 0 },
-        if visibility.fog_enabled { 1 } else { 0 },
-        visibility.known_tile_count,
-        visibility.known_tile_percent,
-        visibility.visible_tile_count,
-        visibility.visible_known_percent,
-        visibility.hidden_tile_count,
-        visibility.hidden_known_percent,
-        visibility.unknown_tile_count,
-        visibility.unknown_tile_percent,
-        visibility.visible_map_percent(),
-        visibility.hidden_map_percent(),
-    ))
+    Some(format_hud_visibility_status_text(&visibility))
 }
 
 fn compose_hud_visibility_detail_status_text(hud: &HudModel) -> Option<String> {

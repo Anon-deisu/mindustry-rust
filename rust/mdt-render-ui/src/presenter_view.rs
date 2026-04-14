@@ -687,6 +687,76 @@ pub(crate) fn format_hud_visibility_detail_text(
     )
 }
 
+struct HudVisibilityMetrics {
+    overlay_visible: u8,
+    fog_enabled: u8,
+    known_tile_count: usize,
+    known_tile_percent: usize,
+    visible_tile_count: usize,
+    visible_known_percent: usize,
+    hidden_tile_count: usize,
+    hidden_known_percent: usize,
+    unknown_tile_count: usize,
+    unknown_tile_percent: usize,
+    visible_map_percent: usize,
+    hidden_map_percent: usize,
+}
+
+fn hud_visibility_metrics(visibility: &HudVisibilityPanelModel) -> HudVisibilityMetrics {
+    HudVisibilityMetrics {
+        overlay_visible: u8::from(visibility.overlay_visible),
+        fog_enabled: u8::from(visibility.fog_enabled),
+        known_tile_count: visibility.known_tile_count,
+        known_tile_percent: visibility.known_tile_percent,
+        visible_tile_count: visibility.visible_tile_count,
+        visible_known_percent: visibility.visible_known_percent,
+        hidden_tile_count: visibility.hidden_tile_count,
+        hidden_known_percent: visibility.hidden_known_percent,
+        unknown_tile_count: visibility.unknown_tile_count,
+        unknown_tile_percent: visibility.unknown_tile_percent,
+        visible_map_percent: visibility.visible_map_percent(),
+        hidden_map_percent: visibility.hidden_map_percent(),
+    }
+}
+
+pub(crate) fn format_hud_visibility_text(visibility: &HudVisibilityPanelModel) -> String {
+    let metrics = hud_visibility_metrics(visibility);
+    format!(
+        "overlay={} fog={} known={}({}%) vis={}({}%) hid={}({}%) unseen={}({}%) vis-map={}% hid-map={}%",
+        metrics.overlay_visible,
+        metrics.fog_enabled,
+        metrics.known_tile_count,
+        metrics.known_tile_percent,
+        metrics.visible_tile_count,
+        metrics.visible_known_percent,
+        metrics.hidden_tile_count,
+        metrics.hidden_known_percent,
+        metrics.unknown_tile_count,
+        metrics.unknown_tile_percent,
+        metrics.visible_map_percent,
+        metrics.hidden_map_percent,
+    )
+}
+
+pub(crate) fn format_hud_visibility_status_text(visibility: &HudVisibilityPanelModel) -> String {
+    let metrics = hud_visibility_metrics(visibility);
+    format!(
+        "hudvis:ov{}:fg{}:k{}p{}:v{}p{}:h{}p{}:u{}p{}:vm{}:hm{}",
+        metrics.overlay_visible,
+        metrics.fog_enabled,
+        metrics.known_tile_count,
+        metrics.known_tile_percent,
+        metrics.visible_tile_count,
+        metrics.visible_known_percent,
+        metrics.hidden_tile_count,
+        metrics.hidden_known_percent,
+        metrics.unknown_tile_count,
+        metrics.unknown_tile_percent,
+        metrics.visible_map_percent,
+        metrics.hidden_map_percent,
+    )
+}
+
 pub(crate) fn format_minimap_visibility_detail_text(minimap: &MinimapPanelModel) -> String {
     format!(
         "minivisd:v={}:c={}:md{}:wd{}:od{}:vp={}",
@@ -2046,7 +2116,8 @@ mod tests {
         format_build_config_alignment_text,
         format_counted_detail_text, format_counted_preview_text,
         format_minimap_detail_lines, format_minimap_edge_detail_text,
-        format_hud_visibility_detail_text, format_minimap_kind_text,
+        format_hud_visibility_detail_text, format_hud_visibility_status_text,
+        format_hud_visibility_text, format_minimap_kind_text,
         format_minimap_density_visibility_text,
         format_minimap_legend_text, format_semantic_detail_text,
         format_optional_focus_tile_text, format_optional_signed_tile_text,
@@ -3413,6 +3484,26 @@ mod tests {
         assert_eq!(
             format_hud_visibility_detail_text(&summary, &visibility),
             "hudvisd:s=mixed:ov=on:fg=off:k=120/200:v=80/120:h=40/120:u=80/200"
+        );
+    }
+
+    #[test]
+    fn format_hud_visibility_text_preserves_field_order() {
+        let visibility = sample_hud_visibility_panel();
+
+        assert_eq!(
+            format_hud_visibility_text(&visibility),
+            "overlay=1 fog=0 known=120(60%) vis=80(67%) hid=40(33%) unseen=80(40%) vis-map=40% hid-map=20%"
+        );
+    }
+
+    #[test]
+    fn format_hud_visibility_status_text_preserves_field_order() {
+        let visibility = sample_hud_visibility_panel();
+
+        assert_eq!(
+            format_hud_visibility_status_text(&visibility),
+            "hudvis:ov1:fg0:k120p60:v80p67:h40p33:u80p40:vm40:hm20"
         );
     }
 
