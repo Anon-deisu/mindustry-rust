@@ -1563,6 +1563,12 @@ pub(crate) fn format_runtime_reconnect_detail_text(
     )
 }
 
+pub(crate) fn format_runtime_reconnect_detail_text_if_nonempty(
+    reconnect: &RuntimeReconnectPanelModel,
+) -> Option<String> {
+    (!reconnect.is_empty()).then(|| format_runtime_reconnect_detail_text(reconnect))
+}
+
 pub(crate) fn format_runtime_core_binding_panel_text(
     panel: &RuntimeCoreBindingPanelModel,
 ) -> String {
@@ -2185,7 +2191,9 @@ mod tests {
         format_runtime_kick_detail_text, format_runtime_kick_detail_text_if_nonempty,
         format_runtime_kick_panel_text, format_runtime_marker_detail_text,
         format_runtime_marker_detail_text_if_nonempty, format_runtime_marker_panel_text,
-        format_runtime_reconnect_detail_text, format_runtime_reconnect_panel_text,
+        format_runtime_reconnect_detail_text,
+        format_runtime_reconnect_detail_text_if_nonempty,
+        format_runtime_reconnect_panel_text,
         format_runtime_resource_delta_detail_text,
         format_runtime_resource_delta_detail_text_if_nonempty,
         format_runtime_resource_delta_panel_text,
@@ -2934,6 +2942,40 @@ mod tests {
         assert_eq!(
             format_runtime_reconnect_detail_text(&panel),
             "reconnectd:attempt#3:manual:r6@7:h5:rd4@1.2.3.4:6567"
+        );
+    }
+
+    #[test]
+    fn format_runtime_reconnect_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeReconnectPanelModel {
+            phase: RuntimeReconnectPhaseObservability::Attempting,
+            phase_transition_count: 3,
+            reason_kind: Some(RuntimeReconnectReasonKind::ManualConnect),
+            reason_text: Some("manual".to_string()),
+            reason_ordinal: Some(7),
+            hint_text: Some("retry".to_string()),
+            redirect_count: 4,
+            last_redirect_ip: Some("1.2.3.4".to_string()),
+            last_redirect_port: Some(6567),
+        };
+
+        assert_eq!(
+            format_runtime_reconnect_detail_text_if_nonempty(&panel),
+            Some("reconnectd:attempt#3:manual:r6@7:h5:rd4@1.2.3.4:6567".to_string())
+        );
+        assert_eq!(
+            format_runtime_reconnect_detail_text_if_nonempty(&RuntimeReconnectPanelModel {
+                phase: RuntimeReconnectPhaseObservability::Idle,
+                phase_transition_count: 0,
+                reason_kind: None,
+                reason_text: None,
+                reason_ordinal: None,
+                hint_text: None,
+                redirect_count: 0,
+                last_redirect_ip: None,
+                last_redirect_port: None,
+            }),
+            None
         );
     }
 
