@@ -234,7 +234,9 @@ impl AsciiScenePresenter {
         if let Some(wave_text) = hud.wave_text.as_deref().filter(|text| !text.is_empty()) {
             out.push_str(&format!("WAVE: {wave_text}\n"));
         }
-        if let Some(session_banner_text) = compose_runtime_session_banner_text(hud) {
+        if let Some(session_banner_text) =
+            compose_runtime_session_text_from_hud(hud, format_runtime_session_banner_text)
+        {
             out.push_str(&format!("SESSION-BANNER: {session_banner_text}\n"));
         }
         out.push_str(&format!("STATUS: {}\n", hud.status_text));
@@ -608,10 +610,14 @@ impl AsciiScenePresenter {
                 "RUNTIME-MARKER-DETAIL: {runtime_marker_detail_text}\n"
             ));
         }
-        if let Some(runtime_session_text) = compose_runtime_session_row_text(hud) {
+        if let Some(runtime_session_text) =
+            compose_runtime_session_text_from_hud(hud, format_runtime_session_panel_text_if_nonempty)
+        {
             out.push_str(&format!("RUNTIME-SESSION: {runtime_session_text}\n"));
         }
-        if let Some(runtime_session_detail_text) = compose_runtime_session_detail_text(hud) {
+        if let Some(runtime_session_detail_text) =
+            compose_runtime_session_text_from_hud(hud, format_runtime_session_detail_text_if_nonempty)
+        {
             out.push_str(&format!(
                 "RUNTIME-SESSION-DETAIL: {runtime_session_detail_text}\n"
             ));
@@ -1870,18 +1876,6 @@ fn compose_runtime_resource_delta_detail_text(hud: &HudModel) -> Option<String> 
         hud,
         format_runtime_resource_delta_detail_text_if_nonempty,
     )
-}
-
-fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_session_text_from_hud(hud, format_runtime_session_panel_text_if_nonempty)
-}
-
-fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_session_text_from_hud(hud, format_runtime_session_banner_text)
-}
-
-fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_session_text_from_hud(hud, format_runtime_session_detail_text_if_nonempty)
 }
 
 fn compose_build_ui_text(hud: &HudModel) -> Option<String> {

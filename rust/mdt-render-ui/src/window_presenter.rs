@@ -591,7 +591,10 @@ fn compose_frame(
         frame_id,
         title: hud.title.clone(),
         wave_text: hud.wave_text.clone(),
-        session_banner_text: compose_frame_session_banner_text(hud),
+        session_banner_text: compose_runtime_session_text_from_hud(
+            hud,
+            format_runtime_session_banner_text,
+        ),
         status_text: compose_frame_status_text(scene, hud, window),
         build_strip_text: compose_frame_build_strip_text(hud),
         build_strip_detail_text: compose_frame_build_strip_detail_text(hud),
@@ -1563,10 +1566,6 @@ fn compose_zoom_status_text(scene: &RenderModel) -> Option<String> {
     (zoom != 1.0).then(|| format!("zoom={zoom:.2}"))
 }
 
-fn compose_frame_session_banner_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_session_text_from_hud(hud, format_runtime_session_banner_text)
-}
-
 fn compose_frame_panel_lines(
     scene: &RenderModel,
     hud: &HudModel,
@@ -1918,10 +1917,14 @@ fn compose_frame_panel_lines(
             "RUNTIME-MARKER-DETAIL: {runtime_marker_detail_text}"
         ));
     }
-    if let Some(runtime_session_text) = compose_runtime_session_status_text(hud) {
+    if let Some(runtime_session_text) =
+        compose_runtime_session_text_from_hud(hud, format_runtime_session_panel_text_if_nonempty)
+    {
         lines.push(format!("RUNTIME-SESSION: {runtime_session_text}"));
     }
-    if let Some(runtime_session_detail_text) = compose_runtime_session_detail_status_text(hud) {
+    if let Some(runtime_session_detail_text) =
+        compose_runtime_session_text_from_hud(hud, format_runtime_session_detail_text_if_nonempty)
+    {
         lines.push(format!(
             "RUNTIME-SESSION-DETAIL: {runtime_session_detail_text}"
         ));
@@ -2774,14 +2777,6 @@ fn compose_runtime_resource_delta_detail_status_text(hud: &HudModel) -> Option<S
         hud,
         format_runtime_resource_delta_detail_text_if_nonempty,
     )
-}
-
-fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_session_text_from_hud(hud, format_runtime_session_panel_text_if_nonempty)
-}
-
-fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_session_text_from_hud(hud, format_runtime_session_detail_text_if_nonempty)
 }
 
 fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
