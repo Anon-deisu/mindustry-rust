@@ -9,7 +9,7 @@ use crate::{
         build_runtime_command_mode_panel,
         build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
-        build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
+        build_runtime_ui_stack_panel,
         MinimapPanelModel, PresenterViewWindow,
     },
     presenter_view::{
@@ -59,6 +59,7 @@ use crate::{
         compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
         compose_runtime_loading_text_from_hud, compose_runtime_marker_text_from_hud,
         compose_runtime_menu_text_from_hud,
+        compose_runtime_ui_notice_text_from_hud,
         compose_runtime_resource_delta_text_from_hud, compose_runtime_world_label_text_from_hud,
         compose_runtime_reconnect_text_from_hud, compose_runtime_rules_text_from_hud,
         compose_runtime_session_text_from_hud,
@@ -2627,13 +2628,13 @@ fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String
 }
 
 fn compose_runtime_ui_notice_panel_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_ui_notice_panel(hud)?;
-    Some(format_runtime_ui_notice_panel_text(&panel))
+    compose_runtime_ui_notice_text_from_hud(hud, |panel| {
+        Some(format_runtime_ui_notice_panel_text(panel))
+    })
 }
 
 fn compose_runtime_ui_notice_detail_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_ui_notice_panel(hud)?;
-    format_runtime_ui_notice_detail_text(&panel)
+    compose_runtime_ui_notice_text_from_hud(hud, format_runtime_ui_notice_detail_text)
 }
 
 fn compose_runtime_notice_state_panel_status_text(hud: &HudModel) -> Option<String> {
