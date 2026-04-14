@@ -1637,7 +1637,7 @@ fn compose_frame_panel_lines(
         lines.push(format!("MINIMAP-FLOW: {minimap_flow_text}"));
     }
     if let Some(minimap_flow_detail_text) =
-        compose_minimap_flow_detail_status_text(scene, hud, window)
+        build_minimap_user_flow_panel(scene, hud, window).map(|panel| panel.detail_label())
     {
         lines.push(format!("MINIMAP-FLOW-DETAIL: {minimap_flow_detail_text}"));
     }
@@ -1735,7 +1735,9 @@ fn compose_frame_panel_lines(
     if let Some(build_interaction_text) = compose_build_interaction_status_text(hud) {
         lines.push(format!("BUILD-INTERACTION: {build_interaction_text}"));
     }
-    if let Some(build_interaction_detail_text) = compose_build_interaction_detail_status_text(hud) {
+    if let Some(build_interaction_detail_text) =
+        compose_build_interaction_text_from_hud(hud, |panel| Some(panel.detail_label()))
+    {
         lines.push(format!(
             "BUILD-INTERACTION-DETAIL: {build_interaction_detail_text}"
         ));
@@ -1750,7 +1752,35 @@ fn compose_frame_panel_lines(
     {
         lines.push(format!("BUILD-QUEUE-DETAIL: {build_queue_detail_text}"));
     }
-    if let Some(build_minimap_aux_text) = compose_build_minimap_aux_status_text(scene, hud, window)
+    if let Some(build_minimap_aux_text) =
+        build_build_minimap_assist_panel(scene, hud, window).map(|panel| {
+            let window_tile_count = window.width.saturating_mul(window.height);
+            format!(
+                "bmaux:m={}:s={}:q={}:r{}:c={}/{}@{}:a={}:p={}:h={}:t={}:x={}:b={}:f={}@{}:v{}:u{}:w{}:d{}:o{}:rt{}:rs{}",
+                build_interaction_mode_status_text(panel.mode),
+                build_interaction_selection_status_text(panel.selection_state),
+                build_interaction_queue_status_text(panel.queue_state),
+                if panel.place_ready { 1 } else { 0 },
+                panel.config_family_count,
+                panel.config_sample_count,
+                compact_runtime_ui_text(panel.top_config_family.as_deref()),
+                build_interaction_authority_status_text(panel.authority_state),
+                build_config_pending_match_status_text(panel.authority_pending_match),
+                optional_build_tile_status_text(panel.head_tile),
+                build_config_tile_status_text(panel.authority_tile),
+                build_config_rollback_source_status_text(panel.authority_source),
+                compact_runtime_ui_text(panel.authority_block_name.as_deref()),
+                format_optional_focus_tile_text(panel.focus_tile),
+                format_optional_bool_flag(panel.focus_in_window),
+                panel.visible_map_percent,
+                panel.unknown_tile_percent,
+                panel.window_coverage_percent,
+                panel.window_object_density_percent(window_tile_count),
+                panel.tracked_object_count,
+                panel.runtime_count,
+                panel.runtime_share_percent(),
+            )
+        })
     {
         lines.push(format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}"));
     }
@@ -1773,7 +1803,7 @@ fn compose_frame_panel_lines(
         lines.push(format!("BUILD-FLOW: {build_flow_text}"));
     }
     if let Some(build_flow_summary_text) =
-        compose_build_flow_summary_status_text(scene, hud, window)
+        build_build_user_flow_panel(scene, hud, window).map(|panel| panel.summary_label())
     {
         lines.push(format!("BUILD-FLOW-SUMMARY: {build_flow_summary_text}"));
     }
@@ -1781,11 +1811,12 @@ fn compose_frame_panel_lines(
         lines.push(format!("BUILD-ROUTE: {build_route_text}"));
     }
     if let Some(build_route_detail_text) =
-        compose_build_route_detail_status_text(scene, hud, window)
+        build_build_user_flow_panel(scene, hud, window).map(|panel| panel.route_detail_label())
     {
         lines.push(format!("BUILD-ROUTE-DETAIL: {build_route_detail_text}"));
     }
-    if let Some(build_flow_detail_text) = compose_build_flow_detail_status_text(scene, hud, window)
+    if let Some(build_flow_detail_text) =
+        build_build_user_flow_panel(scene, hud, window).map(|panel| panel.detail_label())
     {
         lines.push(format!("BUILD-FLOW-DETAIL: {build_flow_detail_text}"));
     }
@@ -2846,15 +2877,6 @@ fn compose_minimap_flow_status_text(
     ))
 }
 
-fn compose_minimap_flow_detail_status_text(
-    scene: &RenderModel,
-    hud: &HudModel,
-    window: PresenterViewWindow,
-) -> Option<String> {
-    let panel = build_minimap_user_flow_panel(scene, hud, window)?;
-    Some(panel.detail_label())
-}
-
 fn compose_minimap_visibility_detail_status_text(
     scene: &RenderModel,
     hud: &HudModel,
@@ -3122,44 +3144,6 @@ fn compose_build_interaction_status_text(hud: &HudModel) -> Option<String> {
     })
 }
 
-fn compose_build_interaction_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_build_interaction_text_from_hud(hud, |panel| Some(panel.detail_label()))
-}
-
-fn compose_build_minimap_aux_status_text(
-    scene: &RenderModel,
-    hud: &HudModel,
-    window: PresenterViewWindow,
-) -> Option<String> {
-    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
-    let window_tile_count = window.width.saturating_mul(window.height);
-    Some(format!(
-        "bmaux:m={}:s={}:q={}:r{}:c={}/{}@{}:a={}:p={}:h={}:t={}:x={}:b={}:f={}@{}:v{}:u{}:w{}:d{}:o{}:rt{}:rs{}",
-        build_interaction_mode_status_text(panel.mode),
-        build_interaction_selection_status_text(panel.selection_state),
-        build_interaction_queue_status_text(panel.queue_state),
-        if panel.place_ready { 1 } else { 0 },
-        panel.config_family_count,
-        panel.config_sample_count,
-        compact_runtime_ui_text(panel.top_config_family.as_deref()),
-        build_interaction_authority_status_text(panel.authority_state),
-        build_config_pending_match_status_text(panel.authority_pending_match),
-        optional_build_tile_status_text(panel.head_tile),
-        build_config_tile_status_text(panel.authority_tile),
-        build_config_rollback_source_status_text(panel.authority_source),
-        compact_runtime_ui_text(panel.authority_block_name.as_deref()),
-        format_optional_focus_tile_text(panel.focus_tile),
-        format_optional_bool_flag(panel.focus_in_window),
-        panel.visible_map_percent,
-        panel.unknown_tile_percent,
-        panel.window_coverage_percent,
-        panel.window_object_density_percent(window_tile_count),
-        panel.tracked_object_count,
-        panel.runtime_count,
-        panel.runtime_share_percent(),
-    ))
-}
-
 fn compose_build_minimap_diag_status_text(
     scene: &RenderModel,
     hud: &HudModel,
@@ -3241,24 +3225,6 @@ fn compose_build_flow_status_text(
     ))
 }
 
-fn compose_build_flow_detail_status_text(
-    scene: &RenderModel,
-    hud: &HudModel,
-    window: PresenterViewWindow,
-) -> Option<String> {
-    let panel = build_build_user_flow_panel(scene, hud, window)?;
-    Some(panel.detail_label())
-}
-
-fn compose_build_flow_summary_status_text(
-    scene: &RenderModel,
-    hud: &HudModel,
-    window: PresenterViewWindow,
-) -> Option<String> {
-    let panel = build_build_user_flow_panel(scene, hud, window)?;
-    Some(panel.summary_label())
-}
-
 fn compose_build_route_status_text(
     scene: &RenderModel,
     hud: &HudModel,
@@ -3280,15 +3246,6 @@ fn compose_build_route_status_text(
         panel.route_count(),
         route.as_str(),
     ))
-}
-
-fn compose_build_route_detail_status_text(
-    scene: &RenderModel,
-    hud: &HudModel,
-    window: PresenterViewWindow,
-) -> Option<String> {
-    let panel = build_build_user_flow_panel(scene, hud, window)?;
-    Some(panel.route_detail_label())
 }
 
 fn compose_build_ui_inspector_status_text(build_ui: &BuildUiObservability) -> String {
