@@ -366,9 +366,8 @@ impl AsciiScenePresenter {
         if let Some(build_config_rollback_text) = compose_build_config_rollback_text(hud) {
             out.push_str(&format!("BUILD-ROLLBACK: {build_config_rollback_text}\n"));
         }
-        if let Some(build_config_rollback_detail_text) =
-            compose_build_config_rollback_detail_text(hud)
-        {
+        if let Some(panel) = build_build_config_panel(hud, 3) {
+            let build_config_rollback_detail_text = panel.rollback_strip.detail_label();
             out.push_str(&format!(
                 "BUILD-ROLLBACK-DETAIL: {build_config_rollback_detail_text}\n"
             ));
@@ -2339,11 +2338,6 @@ fn compose_build_config_rollback_text(hud: &HudModel) -> Option<String> {
         build_config_outcome_compact_text(strip.last_configured_outcome),
         compact_runtime_ui_text(strip.last_configured_block_name.as_deref()),
     ))
-}
-
-fn compose_build_config_rollback_detail_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_config_panel(hud, 3)?;
-    Some(panel.rollback_strip.detail_label())
 }
 
 fn compose_build_interaction_text(hud: &HudModel) -> Option<String> {

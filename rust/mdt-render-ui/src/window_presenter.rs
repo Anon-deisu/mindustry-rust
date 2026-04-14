@@ -1697,8 +1697,8 @@ fn compose_frame_panel_lines(
     if let Some(build_rollback_text) = compose_build_config_rollback_status_text(hud) {
         lines.push(format!("BUILD-ROLLBACK: {build_rollback_text}"));
     }
-    if let Some(build_rollback_detail_text) = compose_build_config_rollback_detail_status_text(hud)
-    {
+    if let Some(panel) = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP) {
+        let build_rollback_detail_text = panel.rollback_strip.detail_label();
         lines.push(format!(
             "BUILD-ROLLBACK-DETAIL: {build_rollback_detail_text}"
         ));
@@ -3188,11 +3188,6 @@ fn compose_build_config_rollback_status_text(hud: &HudModel) -> Option<String> {
         build_config_outcome_status_text(strip.last_configured_outcome),
         compact_runtime_ui_text(strip.last_configured_block_name.as_deref()),
     ))
-}
-
-fn compose_build_config_rollback_detail_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_config_panel(hud, WINDOW_BUILD_CONFIG_ENTRY_CAP)?;
-    Some(panel.rollback_strip.detail_label())
 }
 
 fn compose_build_interaction_status_text(hud: &HudModel) -> Option<String> {
