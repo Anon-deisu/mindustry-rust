@@ -56,8 +56,8 @@ use crate::presenter_view::{
     format_runtime_resource_delta_panel_text_if_nonempty,
     compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
     compose_runtime_session_text_from_hud,
-    format_runtime_session_banner_text, format_runtime_session_detail_text,
-    format_runtime_session_panel_text,
+    format_runtime_session_banner_text, format_runtime_session_detail_text_if_nonempty,
+    format_runtime_session_panel_text_if_nonempty,
     format_runtime_world_label_detail_text_if_nonempty, format_runtime_world_label_panel_text,
     format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
     format_runtime_prompt_detail_text_if_nonempty, format_runtime_prompt_panel_text_if_nonempty,
@@ -1889,9 +1889,7 @@ fn compose_runtime_resource_delta_detail_text(hud: &HudModel) -> Option<String> 
 }
 
 fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_session_text_from_hud(hud, |panel| {
-        (!panel.is_empty()).then(|| format_runtime_session_panel_text(panel))
-    })
+    compose_runtime_session_text_from_hud(hud, format_runtime_session_panel_text_if_nonempty)
 }
 
 fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
@@ -1899,9 +1897,7 @@ fn compose_runtime_session_banner_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_session_text_from_hud(hud, |panel| {
-        (!panel.is_empty()).then(|| format_runtime_session_detail_text(panel))
-    })
+    compose_runtime_session_text_from_hud(hud, format_runtime_session_detail_text_if_nonempty)
 }
 
 fn compose_runtime_loading_row_text(hud: &HudModel) -> Option<String> {
