@@ -466,10 +466,16 @@ impl AsciiScenePresenter {
                 "RUNTIME-NOTICE-DETAIL: {runtime_ui_notice_detail_text}\n"
             ));
         }
-        if let Some(runtime_menu_text) = compose_runtime_menu_panel_text(hud) {
+        if let Some(runtime_menu_text) =
+            compose_runtime_menu_text_from_hud(hud, |panel| {
+                Some(format_runtime_menu_panel_text(panel))
+            })
+        {
             out.push_str(&format!("RUNTIME-MENU: {runtime_menu_text}\n"));
         }
-        if let Some(runtime_menu_detail_text) = compose_runtime_menu_detail_text(hud) {
+        if let Some(runtime_menu_detail_text) =
+            compose_runtime_menu_text_from_hud(hud, format_runtime_menu_detail_text_if_nonempty)
+        {
             out.push_str(&format!(
                 "RUNTIME-MENU-DETAIL: {runtime_menu_detail_text}\n"
             ));
@@ -554,15 +560,21 @@ impl AsciiScenePresenter {
                 "RUNTIME-DIALOG-STACK: {runtime_dialog_stack_text}\n"
             ));
         }
-        if let Some(runtime_command_text) = compose_runtime_command_mode_panel_text(hud) {
+        if let Some(runtime_command_text) = compose_runtime_command_mode_text_from_hud(hud, |panel| {
+            Some(format_runtime_command_mode_panel_text(panel))
+        }) {
             out.push_str(&format!("RUNTIME-COMMAND: {runtime_command_text}\n"));
         }
-        if let Some(runtime_command_detail_text) = compose_runtime_command_mode_detail_text(hud) {
+        if let Some(runtime_command_detail_text) =
+            compose_runtime_command_mode_text_from_hud(hud, |panel| {
+                Some(format_runtime_command_mode_detail_text(panel))
+            })
+        {
             out.push_str(&format!(
                 "RUNTIME-COMMAND-DETAIL: {runtime_command_detail_text}\n"
             ));
         }
-        for runtime_command_group_text in compose_runtime_command_group_lines(hud) {
+        for runtime_command_group_text in compose_runtime_command_group_lines_from_hud(hud) {
             out.push_str(&format!(
                 "RUNTIME-COMMAND-GROUP: {runtime_command_group_text}\n"
             ));
@@ -591,13 +603,19 @@ impl AsciiScenePresenter {
                 "RUNTIME-RULES-DETAIL: {runtime_rules_detail_text}\n"
             ));
         }
-        if let Some(runtime_world_label_text) = compose_runtime_world_label_panel_text(hud) {
+        if let Some(runtime_world_label_text) =
+            compose_runtime_world_label_text_from_hud(hud, |panel| {
+                Some(format_runtime_world_label_panel_text(panel))
+            })
+        {
             out.push_str(&format!(
                 "RUNTIME-WORLD-LABEL: {runtime_world_label_text}\n"
             ));
         }
-        if let Some(runtime_world_label_detail_text) = compose_runtime_world_label_detail_text(hud)
-        {
+        if let Some(runtime_world_label_detail_text) = compose_runtime_world_label_text_from_hud(
+            hud,
+            format_runtime_world_label_detail_text_if_nonempty,
+        ) {
             out.push_str(&format!(
                 "RUNTIME-WORLD-LABEL-DETAIL: {runtime_world_label_detail_text}\n"
             ));
@@ -622,10 +640,15 @@ impl AsciiScenePresenter {
                 "RUNTIME-SESSION-DETAIL: {runtime_session_detail_text}\n"
             ));
         }
-        if let Some(runtime_bootstrap_text) = compose_runtime_bootstrap_row_text(hud) {
+        if let Some(runtime_bootstrap_text) =
+            compose_runtime_bootstrap_text_from_hud(hud, format_runtime_bootstrap_summary_text_if_nonempty)
+        {
             out.push_str(&format!("RUNTIME-BOOTSTRAP: {runtime_bootstrap_text}\n"));
         }
-        if let Some(runtime_bootstrap_detail_text) = compose_runtime_bootstrap_detail_text(hud) {
+        if let Some(runtime_bootstrap_detail_text) = compose_runtime_bootstrap_text_from_hud(
+            hud,
+            format_runtime_bootstrap_detail_text_if_nonempty,
+        ) {
             out.push_str(&format!(
                 "RUNTIME-BOOTSTRAP-DETAIL: {runtime_bootstrap_detail_text}\n"
             ));
@@ -1808,60 +1831,12 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
-fn compose_runtime_menu_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_menu_text_from_hud(hud, |panel| {
-        Some(format_runtime_menu_panel_text(panel))
-    })
-}
-
-fn compose_runtime_menu_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_menu_text_from_hud(hud, format_runtime_menu_detail_text_if_nonempty)
-}
-
-
-fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_command_mode_text_from_hud(hud, |panel| {
-        Some(format_runtime_command_mode_panel_text(panel))
-    })
-}
-
-fn compose_runtime_command_mode_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_command_mode_text_from_hud(hud, |panel| {
-        Some(format_runtime_command_mode_detail_text(panel))
-    })
-}
-
-fn compose_runtime_command_group_lines(hud: &HudModel) -> Vec<String> {
-    compose_runtime_command_group_lines_from_hud(hud)
-}
-
-fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_world_label_text_from_hud(hud, |panel| {
-        Some(format_runtime_world_label_panel_text(panel))
-    })
-}
-
-fn compose_runtime_world_label_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_world_label_text_from_hud(
-        hud,
-        format_runtime_world_label_detail_text_if_nonempty,
-    )
-}
-
 fn compose_runtime_marker_panel_text(hud: &HudModel) -> Option<String> {
     compose_runtime_marker_text_from_hud(hud, format_runtime_marker_panel_text_if_nonempty)
 }
 
 fn compose_runtime_marker_detail_text(hud: &HudModel) -> Option<String> {
     compose_runtime_marker_text_from_hud(hud, format_runtime_marker_detail_text_if_nonempty)
-}
-
-fn compose_runtime_bootstrap_row_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_bootstrap_text_from_hud(hud, format_runtime_bootstrap_summary_text_if_nonempty)
-}
-
-fn compose_runtime_bootstrap_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_bootstrap_text_from_hud(hud, format_runtime_bootstrap_detail_text_if_nonempty)
 }
 
 fn compose_runtime_resource_delta_row_text(hud: &HudModel) -> Option<String> {
