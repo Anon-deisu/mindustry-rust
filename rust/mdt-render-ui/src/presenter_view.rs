@@ -1830,7 +1830,7 @@ fn format_optional_i32_text(value: Option<i32>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
-fn format_optional_i16_text(value: Option<i16>) -> String {
+pub(crate) fn format_optional_i16_text(value: Option<i16>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
@@ -1901,7 +1901,7 @@ fn format_u8_list_text(values: &[u8]) -> String {
     }
 }
 
-fn format_optional_bool_flag(value: Option<bool>) -> char {
+pub(crate) fn format_optional_bool_flag(value: Option<bool>) -> char {
     match value {
         Some(true) => '1',
         Some(false) => '0',
@@ -1923,7 +1923,7 @@ pub(crate) fn format_optional_signed_tile_text(value: Option<isize>) -> String {
     }
 }
 
-fn format_optional_u8_text(value: Option<u8>) -> String {
+pub(crate) fn format_optional_u8_text(value: Option<u8>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
@@ -2081,6 +2081,7 @@ mod tests {
         format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
+        format_optional_i16_text, format_optional_u8_text, format_optional_bool_flag,
         format_runtime_stack_depth_text, format_runtime_stack_detail_text,
         format_runtime_stack_panel_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
@@ -4288,6 +4289,27 @@ mod tests {
         assert_eq!(format_build_config_alignment_text(Some(true)), "match");
         assert_eq!(format_build_config_alignment_text(Some(false)), "split");
         assert_eq!(format_build_config_alignment_text(None), "none");
+    }
+
+    #[test]
+    fn format_optional_i16_text_handles_some_and_none() {
+        assert_eq!(format_optional_i16_text(Some(-2)), "-2");
+        assert_eq!(format_optional_i16_text(Some(3)), "3");
+        assert_eq!(format_optional_i16_text(None), "none");
+    }
+
+    #[test]
+    fn format_optional_u8_text_handles_some_and_none() {
+        assert_eq!(format_optional_u8_text(Some(0)), "0");
+        assert_eq!(format_optional_u8_text(Some(7)), "7");
+        assert_eq!(format_optional_u8_text(None), "none");
+    }
+
+    #[test]
+    fn format_optional_bool_flag_handles_all_variants() {
+        assert_eq!(format_optional_bool_flag(Some(true)), '1');
+        assert_eq!(format_optional_bool_flag(Some(false)), '0');
+        assert_eq!(format_optional_bool_flag(None), 'n');
     }
 
     #[test]

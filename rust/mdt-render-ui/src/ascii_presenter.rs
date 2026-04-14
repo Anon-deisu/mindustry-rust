@@ -21,6 +21,7 @@ use crate::presenter_view::{
     format_build_config_alignment_text,
     format_minimap_detail_lines, format_minimap_edge_detail_text,
     format_hud_visibility_detail_text, format_minimap_kind_text, format_minimap_legend_text,
+    format_optional_bool_flag, format_optional_i16_text, format_optional_u8_text,
     format_optional_focus_tile_text, format_optional_signed_tile_text,
     format_semantic_detail_text,
     format_minimap_visibility_detail_text, format_visibility_minimap_text,
@@ -1705,8 +1706,8 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
         compact_runtime_ui_text(text_input.last_message.as_deref()),
         compact_runtime_ui_text(text_input.last_default_text.as_deref()),
         text_input.last_length.unwrap_or_default(),
-        optional_bool_label(text_input.last_numeric),
-        optional_bool_label(text_input.last_allow_empty),
+        format_optional_bool_flag(text_input.last_numeric),
+        format_optional_bool_flag(text_input.last_allow_empty),
         format_runtime_live_entity_summary_text(&live.entity),
         format_runtime_live_effect_summary_text(&live.effect),
     ))
@@ -1738,8 +1739,8 @@ fn compose_runtime_rules_panel_text(hud: &HudModel) -> Option<String> {
         "rules:mut{}:fail{}:wv{}:pvp{}:obj{}:q{}:par{}:fg{}:oor{}:last{}",
         panel.mutation_count,
         panel.parse_fail_count,
-        optional_bool_label(panel.waves),
-        optional_bool_label(panel.pvp),
+        format_optional_bool_flag(panel.waves),
+        format_optional_bool_flag(panel.pvp),
         panel.objective_count,
         panel.qualified_objective_count,
         panel.objective_parent_edge_count,
@@ -1787,8 +1788,8 @@ fn compose_runtime_menu_panel_text(hud: &HudModel) -> Option<String> {
         compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
         compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
         panel.text_input_last_length.unwrap_or_default(),
-        optional_bool_label(panel.text_input_last_numeric),
-        optional_bool_label(panel.text_input_last_allow_empty),
+        format_optional_bool_flag(panel.text_input_last_numeric),
+        format_optional_bool_flag(panel.text_input_last_allow_empty),
     ))
 }
 
@@ -1823,8 +1824,8 @@ fn compose_runtime_menu_detail_text(hud: &HudModel) -> Option<String> {
         optional_i32_label(panel.text_input_last_id),
         compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
         panel.default_text_len(),
-        optional_bool_label(panel.text_input_last_numeric),
-        optional_bool_label(panel.text_input_last_allow_empty),
+        format_optional_bool_flag(panel.text_input_last_numeric),
+        format_optional_bool_flag(panel.text_input_last_allow_empty),
     ))
 }
 
@@ -2158,7 +2159,7 @@ fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
 
     Some(format!(
         "sel={} r{} q={} auth={}",
-        optional_i16_label(selected_block_id),
+        format_optional_i16_text(selected_block_id),
         rotation,
         queue_text,
         authority_text,
@@ -2208,7 +2209,7 @@ fn compose_minimap_panel_text(
         panel.map_tile_count,
         panel.window_coverage_percent,
         format_optional_focus_tile_text(panel.focus_tile),
-        optional_bool_label(panel.focus_in_window),
+        format_optional_bool_flag(panel.focus_in_window),
         format_optional_signed_tile_text(panel.focus_offset_x),
         format_optional_signed_tile_text(panel.focus_offset_y),
         bool_flag(panel.window_clamped_left),
@@ -2308,7 +2309,7 @@ fn compose_minimap_edge_summary_text(panel: &MinimapPanelModel) -> String {
     format!(
         "focus={} in-window={} drift={}:{} clamp={} outside={}/{} window={}/{}",
         format_optional_focus_tile_text(panel.focus_tile),
-        optional_bool_label(panel.focus_in_window),
+        format_optional_bool_flag(panel.focus_in_window),
         format_optional_signed_tile_text(panel.focus_offset_x),
         format_optional_signed_tile_text(panel.focus_offset_y),
         minimap_clamp_text(panel),
@@ -2439,7 +2440,7 @@ fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
         .join(",");
     Some(format!(
         "cfgpanel:sel{}:r{}:m{}:p{}/{}:hist{}/{}:o{}:h={}:align={}:auth={}:pm={}:src={}:b={}:fam{}/{}:more{}:t{}@{}",
-        optional_i16_label(panel.selected_block_id),
+        format_optional_i16_text(panel.selected_block_id),
         panel.selected_rotation,
         if panel.building { 1 } else { 0 },
         panel.queued_count,
@@ -2605,7 +2606,7 @@ fn compose_build_minimap_aux_text(
         build_config_rollback_source_compact_text(panel.authority_source),
         compact_runtime_ui_text(panel.authority_block_name.as_deref()),
         format_optional_focus_tile_text(panel.focus_tile),
-        optional_bool_label(panel.focus_in_window),
+        format_optional_bool_flag(panel.focus_in_window),
         panel.visible_map_percent,
         panel.unknown_tile_percent,
         panel.window_coverage_percent,
@@ -2844,8 +2845,8 @@ fn build_config_head_text(head: Option<&crate::panel_model::BuildConfigHeadModel
         "{stage}@{}:{}:{mode}:b{}:r{}",
         head.x,
         head.y,
-        optional_i16_label(head.block_id),
-        optional_u8_label(head.rotation),
+        format_optional_i16_text(head.block_id),
+        format_optional_u8_text(head.rotation),
     )
 }
 
@@ -3137,8 +3138,8 @@ fn build_queue_head_text(head: Option<&crate::BuildQueueHeadObservability>) -> S
         "{stage}@{}:{}:{mode}:b{}:r{}",
         head.x,
         head.y,
-        optional_i16_label(head.block_id),
-        optional_u8_label(head.rotation),
+        format_optional_i16_text(head.block_id),
+        format_optional_u8_text(head.rotation),
     )
 }
 
@@ -3146,26 +3147,6 @@ fn optional_i32_label(value: Option<i32>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
-}
-
-fn optional_i16_label(value: Option<i16>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
-}
-
-fn optional_u8_label(value: Option<u8>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
-}
-
-fn optional_bool_label(value: Option<bool>) -> char {
-    match value {
-        Some(true) => '1',
-        Some(false) => '0',
-        None => 'n',
-    }
 }
 
 fn bool_flag(value: bool) -> u8 {
