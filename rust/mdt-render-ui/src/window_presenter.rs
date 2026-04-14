@@ -3,7 +3,7 @@ use crate::{
     minimap_user_flow::build_minimap_user_flow_panel,
     panel_model::{
         build_build_config_entry_breakdown, build_build_config_panel,
-        build_build_interaction_panel, build_build_minimap_assist_panel, build_hud_status_panel,
+        build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_visibility_panel, build_minimap_panel,
         MinimapPanelModel, PresenterViewWindow,
     },
@@ -49,7 +49,9 @@ use crate::{
         format_runtime_resource_delta_detail_text_if_nonempty,
         format_runtime_resource_delta_panel_text_if_nonempty,
         compose_runtime_admin_text_from_hud, compose_runtime_bootstrap_text_from_hud,
-        compose_build_interaction_text_from_hud, compose_runtime_core_binding_text_from_hud,
+        compose_build_interaction_text_from_hud, compose_hud_detail_text_from_hud,
+        compose_hud_status_text_from_hud, compose_hud_visibility_detail_text_from_hud,
+        compose_hud_visibility_text_from_hud, compose_runtime_core_binding_text_from_hud,
         compose_runtime_kick_row_text_from_hud,
         compose_runtime_kick_text_from_hud,
         compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
@@ -2547,49 +2549,50 @@ fn format_render_primitive_payload_value(
 }
 
 fn compose_hud_summary_status_text(hud: &HudModel) -> Option<String> {
-    let summary = build_hud_status_panel(hud)?;
-    Some(format!(
-        "hud:team={} sel={} plans={} mk={} map={}x{}",
-        summary.team_id,
-        compact_runtime_ui_text(Some(summary.selected_block.as_str())),
-        summary.plan_count,
-        summary.marker_count,
-        summary.map_width,
-        summary.map_height,
-    ))
+    compose_hud_status_text_from_hud(hud, |summary| {
+        Some(format!(
+            "hud:team={} sel={} plans={} mk={} map={}x{}",
+            summary.team_id,
+            compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+            summary.plan_count,
+            summary.marker_count,
+            summary.map_width,
+            summary.map_height,
+        ))
+    })
 }
 
 fn compose_hud_visibility_status_text(hud: &HudModel) -> Option<String> {
-    let visibility = build_hud_visibility_panel(hud)?;
-    Some(format_hud_visibility_status_text(&visibility))
+    compose_hud_visibility_text_from_hud(hud, |visibility| {
+        Some(format_hud_visibility_status_text(visibility))
+    })
 }
 
 fn compose_hud_visibility_detail_status_text(hud: &HudModel) -> Option<String> {
-    let summary = hud.summary.as_ref()?;
-    let visibility = build_hud_visibility_panel(hud)?;
-    Some(format_hud_visibility_detail_text(summary, &visibility))
+    compose_hud_visibility_detail_text_from_hud(hud, |summary, visibility| {
+        Some(format_hud_visibility_detail_text(summary, visibility))
+    })
 }
 
 fn compose_hud_detail_status_text(hud: &HudModel) -> Option<String> {
-    let hud_summary = hud.summary.as_ref()?;
-    let summary = build_hud_status_panel(hud)?;
-    let visibility = build_hud_visibility_panel(hud)?;
-    Some(format!(
-        "huddet:p={}#{}:sel={}#{}:t{}:vm{}:hm{}:ov{}:fg{}:mini=f{}:w{}+{}:a{}",
-        compact_runtime_ui_text(Some(summary.player_name.as_str())),
-        summary.player_name_len(),
-        compact_runtime_ui_text(Some(summary.selected_block.as_str())),
-        summary.selected_block_len(),
-        summary.map_tile_count(),
-        visibility.visible_map_percent(),
-        visibility.hidden_map_percent(),
-        bool_flag(hud_summary.overlay_visible),
-        bool_flag(hud_summary.fog_enabled),
-        format_optional_focus_tile_text(hud_summary.minimap.focus_tile),
-        hud_summary.minimap.view_window.origin_label(),
-        hud_summary.minimap.view_window.size_label(),
-        hud_summary.minimap.view_window.tile_count(),
-    ))
+    compose_hud_detail_text_from_hud(hud, |hud_summary, summary, visibility| {
+        Some(format!(
+            "huddet:p={}#{}:sel={}#{}:t{}:vm{}:hm{}:ov{}:fg{}:mini=f{}:w{}+{}:a{}",
+            compact_runtime_ui_text(Some(summary.player_name.as_str())),
+            summary.player_name_len(),
+            compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+            summary.selected_block_len(),
+            summary.map_tile_count(),
+            visibility.visible_map_percent(),
+            visibility.hidden_map_percent(),
+            bool_flag(hud_summary.overlay_visible),
+            bool_flag(hud_summary.fog_enabled),
+            format_optional_focus_tile_text(hud_summary.minimap.focus_tile),
+            hud_summary.minimap.view_window.origin_label(),
+            hud_summary.minimap.view_window.size_label(),
+            hud_summary.minimap.view_window.tile_count(),
+        ))
+    })
 }
 
 fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String {

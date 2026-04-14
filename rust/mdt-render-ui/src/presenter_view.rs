@@ -2,6 +2,7 @@ use crate::{
     hud_model::{HudModel, HudSummary, RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
     panel_model::{
         build_build_interaction_panel,
+        build_hud_status_panel, build_hud_visibility_panel,
         build_runtime_chat_panel,
         build_runtime_admin_panel,
         build_runtime_bootstrap_panel,
@@ -21,7 +22,8 @@ use crate::{
         build_runtime_rules_panel,
         build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
         build_runtime_ui_stack_panel,
-        BuildInteractionPanelModel, BuildInteractionQueueState, HudVisibilityPanelModel,
+        BuildInteractionPanelModel, BuildInteractionQueueState, HudStatusPanelModel,
+        HudVisibilityPanelModel,
         MinimapPanelModel,
         PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
         RuntimeChoicePanelModel,
@@ -2042,6 +2044,47 @@ where
 {
     let panel = build_build_interaction_panel(hud)?;
     formatter(&panel)
+}
+
+pub(crate) fn compose_hud_status_text_from_hud<F>(hud: &HudModel, formatter: F) -> Option<String>
+where
+    F: FnOnce(&HudStatusPanelModel) -> Option<String>,
+{
+    let summary = build_hud_status_panel(hud)?;
+    formatter(&summary)
+}
+
+pub(crate) fn compose_hud_visibility_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&HudVisibilityPanelModel) -> Option<String>,
+{
+    let visibility = build_hud_visibility_panel(hud)?;
+    formatter(&visibility)
+}
+
+pub(crate) fn compose_hud_visibility_detail_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&HudSummary, &HudVisibilityPanelModel) -> Option<String>,
+{
+    let summary = hud.summary.as_ref()?;
+    let visibility = build_hud_visibility_panel(hud)?;
+    formatter(summary, &visibility)
+}
+
+pub(crate) fn compose_hud_detail_text_from_hud<F>(hud: &HudModel, formatter: F) -> Option<String>
+where
+    F: FnOnce(&HudSummary, &HudStatusPanelModel, &HudVisibilityPanelModel) -> Option<String>,
+{
+    let hud_summary = hud.summary.as_ref()?;
+    let summary = build_hud_status_panel(hud)?;
+    let visibility = build_hud_visibility_panel(hud)?;
+    formatter(hud_summary, &summary, &visibility)
 }
 
 pub(crate) fn compose_runtime_world_label_text_from_hud<F>(

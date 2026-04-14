@@ -2,7 +2,7 @@ use crate::build_user_flow::build_build_user_flow_panel;
 use crate::minimap_user_flow::build_minimap_user_flow_panel;
 use crate::panel_model::{
     build_build_config_entry_breakdown, build_build_config_panel, build_build_interaction_panel,
-    build_build_minimap_assist_panel, build_hud_status_panel, build_hud_visibility_panel,
+    build_build_minimap_assist_panel, build_hud_visibility_panel,
     build_minimap_panel,
     MinimapPanelModel,
     PresenterViewWindow,
@@ -48,7 +48,9 @@ use crate::presenter_view::{
     format_runtime_resource_delta_detail_text_if_nonempty,
     format_runtime_resource_delta_panel_text_if_nonempty,
     compose_runtime_admin_text_from_hud, compose_runtime_bootstrap_text_from_hud,
-    compose_build_interaction_text_from_hud, compose_runtime_core_binding_text_from_hud,
+    compose_build_interaction_text_from_hud, compose_hud_detail_text_from_hud,
+    compose_hud_status_text_from_hud, compose_hud_visibility_detail_text_from_hud,
+    compose_hud_visibility_text_from_hud, compose_runtime_core_binding_text_from_hud,
     compose_runtime_kick_row_text_from_hud,
     compose_runtime_kick_text_from_hud,
     compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
@@ -1630,28 +1632,30 @@ fn ascii_sprite_for_icon(family: RenderIconPrimitiveFamily) -> char {
 }
 
 fn compose_hud_summary_text(hud: &HudModel) -> Option<String> {
-    let summary = build_hud_status_panel(hud)?;
-    Some(format!(
-        "player={} team={} selected={} plans={} markers={} map={}x{}",
-        compact_runtime_ui_text(Some(summary.player_name.as_str())),
-        summary.team_id,
-        compact_runtime_ui_text(Some(summary.selected_block.as_str())),
-        summary.plan_count,
-        summary.marker_count,
-        summary.map_width,
-        summary.map_height,
-    ))
+    compose_hud_status_text_from_hud(hud, |summary| {
+        Some(format!(
+            "player={} team={} selected={} plans={} markers={} map={}x{}",
+            compact_runtime_ui_text(Some(summary.player_name.as_str())),
+            summary.team_id,
+            compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+            summary.plan_count,
+            summary.marker_count,
+            summary.map_width,
+            summary.map_height,
+        ))
+    })
 }
 
 fn compose_hud_visibility_text(hud: &HudModel) -> Option<String> {
-    let visibility = build_hud_visibility_panel(hud)?;
-    Some(format_hud_visibility_text(&visibility))
+    compose_hud_visibility_text_from_hud(hud, |visibility| {
+        Some(format_hud_visibility_text(visibility))
+    })
 }
 
 fn compose_hud_visibility_detail_text(hud: &HudModel) -> Option<String> {
-    let summary = hud.summary.as_ref()?;
-    let visibility = build_hud_visibility_panel(hud)?;
-    Some(format_hud_visibility_detail_text(summary, &visibility))
+    compose_hud_visibility_detail_text_from_hud(hud, |summary, visibility| {
+        Some(format_hud_visibility_detail_text(summary, visibility))
+    })
 }
 
 fn compose_visibility_minimap_text(
@@ -1665,22 +1669,21 @@ fn compose_visibility_minimap_text(
 }
 
 fn compose_hud_detail_text(hud: &HudModel) -> Option<String> {
-    let hud_summary = hud.summary.as_ref()?;
-    let summary = build_hud_status_panel(hud)?;
-    let visibility = build_hud_visibility_panel(hud)?;
-    Some(format!(
-        "player={} len={} selected={} len={} tiles={} vis-map={} hidden-map={} overlay={} fog={} minimap={}",
-        compact_runtime_ui_text(Some(summary.player_name.as_str())),
-        summary.player_name_len(),
-        compact_runtime_ui_text(Some(summary.selected_block.as_str())),
-        summary.selected_block_len(),
-        summary.map_tile_count(),
-        visibility.visible_map_percent(),
-        visibility.hidden_map_percent(),
-        hud_summary.overlay_label(),
-        hud_summary.fog_label(),
-        hud_summary.minimap.detail_label(),
-    ))
+    compose_hud_detail_text_from_hud(hud, |hud_summary, summary, visibility| {
+        Some(format!(
+            "player={} len={} selected={} len={} tiles={} vis-map={} hidden-map={} overlay={} fog={} minimap={}",
+            compact_runtime_ui_text(Some(summary.player_name.as_str())),
+            summary.player_name_len(),
+            compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+            summary.selected_block_len(),
+            summary.map_tile_count(),
+            visibility.visible_map_percent(),
+            visibility.hidden_map_percent(),
+            hud_summary.overlay_label(),
+            hud_summary.fog_label(),
+            hud_summary.minimap.detail_label(),
+        ))
+    })
 }
 
 fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
