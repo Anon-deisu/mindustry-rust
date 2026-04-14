@@ -4,6 +4,7 @@ use crate::{
         build_runtime_chat_panel,
         build_runtime_admin_panel,
         build_runtime_bootstrap_panel,
+        build_runtime_command_mode_panel,
         build_runtime_core_binding_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_kick_panel,
@@ -2109,6 +2110,24 @@ where
 {
     let panel = build_runtime_chat_panel(hud)?;
     formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_command_mode_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeCommandModePanelModel) -> Option<String>,
+{
+    let panel = build_runtime_command_mode_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_command_group_lines_from_hud(hud: &HudModel) -> Vec<String> {
+    let Some(panel) = build_runtime_command_mode_panel(hud) else {
+        return Vec::new();
+    };
+    format_runtime_command_group_lines(&panel)
 }
 
 pub(crate) fn compose_runtime_loading_text_from_hud<F>(

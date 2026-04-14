@@ -4,7 +4,7 @@ use crate::panel_model::{
     build_build_config_entry_breakdown, build_build_config_panel, build_build_interaction_panel,
     build_build_minimap_assist_panel, build_hud_status_panel, build_hud_visibility_panel,
     build_minimap_panel,
-    build_runtime_choice_panel, build_runtime_command_mode_panel,
+    build_runtime_choice_panel,
     build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
     build_runtime_notice_state_panel, build_runtime_prompt_panel,
     build_runtime_ui_stack_panel, MinimapPanelModel,
@@ -28,8 +28,7 @@ use crate::presenter_view::{
     format_runtime_bootstrap_detail_text_if_nonempty,
     format_runtime_bootstrap_summary_text_if_nonempty,
     format_runtime_chat_detail_text_if_nonempty, format_runtime_chat_panel_text,
-    format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
-    format_runtime_command_mode_panel_text,
+    format_runtime_command_mode_detail_text, format_runtime_command_mode_panel_text,
     format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
     format_runtime_choice_panel_text_if_nonempty, format_runtime_choice_detail_text_if_nonempty,
     format_runtime_dialog_stack_summary_text_if_nonempty,
@@ -58,6 +57,7 @@ use crate::presenter_view::{
     compose_runtime_menu_text_from_hud,
     compose_runtime_notice_state_text_from_hud,
     compose_runtime_chat_text_from_hud,
+    compose_runtime_command_group_lines_from_hud, compose_runtime_command_mode_text_from_hud,
     compose_runtime_prompt_text_from_hud,
     compose_runtime_ui_notice_text_from_hud,
     compose_runtime_resource_delta_text_from_hud, compose_runtime_world_label_text_from_hud,
@@ -1823,20 +1823,19 @@ fn compose_runtime_dialog_stack_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_command_mode_panel(hud)?;
-    Some(format_runtime_command_mode_panel_text(&panel))
+    compose_runtime_command_mode_text_from_hud(hud, |panel| {
+        Some(format_runtime_command_mode_panel_text(panel))
+    })
 }
 
 fn compose_runtime_command_mode_detail_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_command_mode_panel(hud)?;
-    Some(format_runtime_command_mode_detail_text(&panel))
+    compose_runtime_command_mode_text_from_hud(hud, |panel| {
+        Some(format_runtime_command_mode_detail_text(panel))
+    })
 }
 
 fn compose_runtime_command_group_lines(hud: &HudModel) -> Vec<String> {
-    let Some(panel) = build_runtime_command_mode_panel(hud) else {
-        return Vec::new();
-    };
-    format_runtime_command_group_lines(&panel)
+    compose_runtime_command_group_lines_from_hud(hud)
 }
 
 fn compose_runtime_admin_panel_text(hud: &HudModel) -> Option<String> {
