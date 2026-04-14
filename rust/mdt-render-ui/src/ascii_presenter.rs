@@ -435,7 +435,9 @@ impl AsciiScenePresenter {
         if let Some(runtime_ui_text) = compose_runtime_ui_text(hud) {
             out.push_str(&format!("RUNTIME-UI: {runtime_ui_text}\n"));
         }
-        if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_text(hud) {
+        if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_text_from_hud(hud, |panel| {
+            Some(format_runtime_ui_notice_panel_text(panel))
+        }) {
             out.push_str(&format!("RUNTIME-NOTICE: {runtime_ui_notice_text}\n"));
         }
         if let Some(runtime_notice_state_text) = compose_runtime_notice_state_panel_text(hud) {
@@ -450,7 +452,11 @@ impl AsciiScenePresenter {
                 "RUNTIME-NOTICE-STATE-DETAIL: {runtime_notice_state_detail_text}\n"
             ));
         }
-        if let Some(runtime_ui_notice_detail_text) = compose_runtime_ui_notice_detail_text(hud) {
+        if let Some(runtime_ui_notice_detail_text) =
+            compose_runtime_ui_notice_text_from_hud(hud, |panel| {
+                format_runtime_ui_notice_detail_text(panel)
+            })
+        {
             out.push_str(&format!(
                 "RUNTIME-NOTICE-DETAIL: {runtime_ui_notice_detail_text}\n"
             ));
@@ -1771,16 +1777,6 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
         format_runtime_live_entity_summary_text(&live.entity),
         format_runtime_live_effect_summary_text(&live.effect),
     ))
-}
-
-fn compose_runtime_ui_notice_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_ui_notice_text_from_hud(hud, |panel| {
-        Some(format_runtime_ui_notice_panel_text(panel))
-    })
-}
-
-fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_ui_notice_text_from_hud(hud, format_runtime_ui_notice_detail_text)
 }
 
 fn compose_runtime_notice_state_panel_text(hud: &HudModel) -> Option<String> {
