@@ -47,6 +47,7 @@ use crate::presenter_view::{
     format_runtime_loading_detail_text_if_nonempty, format_runtime_loading_panel_text,
     format_runtime_marker_detail_text_if_nonempty, format_runtime_marker_panel_text_if_nonempty,
     format_runtime_reconnect_detail_text_if_nonempty, format_runtime_reconnect_panel_text,
+    format_runtime_rules_panel_text,
     format_runtime_rules_detail_text_if_nonempty,
     format_runtime_resource_delta_detail_text_if_nonempty,
     format_runtime_resource_delta_panel_text_if_nonempty,
@@ -1729,19 +1730,7 @@ fn compose_runtime_notice_state_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_rules_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_rules_panel(hud)?;
-    Some(format!(
-        "rules:mut{}:fail{}:wv{}:pvp{}:obj{}:q{}:par{}:fg{}:oor{}:last{}",
-        panel.mutation_count,
-        panel.parse_fail_count,
-        format_optional_bool_flag(panel.waves),
-        format_optional_bool_flag(panel.pvp),
-        panel.objective_count,
-        panel.qualified_objective_count,
-        panel.objective_parent_edge_count,
-        panel.objective_flag_count,
-        panel.complete_out_of_range_count,
-        optional_i32_label(panel.last_completed_index),
-    ))
+    Some(format_runtime_rules_panel_text(&panel))
 }
 
 fn compose_runtime_rules_detail_text(hud: &HudModel) -> Option<String> {

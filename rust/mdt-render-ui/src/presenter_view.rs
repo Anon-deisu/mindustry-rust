@@ -1318,6 +1318,22 @@ pub(crate) fn format_runtime_bootstrap_detail_text_if_nonempty(
     (!panel.is_empty()).then(|| panel.detail_label())
 }
 
+pub(crate) fn format_runtime_rules_panel_text(panel: &RuntimeRulesPanelModel) -> String {
+    format!(
+        "rules:mut{}:fail{}:wv{}:pvp{}:obj{}:q{}:par{}:fg{}:oor{}:last{}",
+        panel.mutation_count,
+        panel.parse_fail_count,
+        format_optional_bool_flag(panel.waves),
+        format_optional_bool_flag(panel.pvp),
+        panel.objective_count,
+        panel.qualified_objective_count,
+        panel.objective_parent_edge_count,
+        panel.objective_flag_count,
+        panel.complete_out_of_range_count,
+        format_optional_i32_text(panel.last_completed_index),
+    )
+}
+
 pub(crate) fn format_runtime_rules_detail_text(panel: &RuntimeRulesPanelModel) -> String {
     format!(
         "rulesd:set{}:obj{}:rule{}:clr{}:done{}",
@@ -2304,6 +2320,7 @@ mod tests {
         format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
+        format_runtime_rules_panel_text,
         format_runtime_rules_detail_text, format_runtime_rules_detail_text_if_nonempty,
         format_runtime_world_label_sample_text,
         format_runtime_world_label_scalar_text,
@@ -4449,6 +4466,32 @@ mod tests {
         assert_eq!(
             format_runtime_bootstrap_detail_text_if_nonempty(&RuntimeBootstrapPanelModel::default()),
             None
+        );
+    }
+
+    #[test]
+    fn format_runtime_rules_panel_text_preserves_field_order() {
+        let panel = RuntimeRulesPanelModel {
+            mutation_count: 64,
+            parse_fail_count: 65,
+            set_rules_count: 67,
+            set_objectives_count: 69,
+            set_rule_count: 71,
+            clear_objectives_count: 73,
+            complete_objective_count: 74,
+            waves: Some(true),
+            pvp: Some(false),
+            objective_count: 11,
+            qualified_objective_count: 7,
+            objective_parent_edge_count: 13,
+            objective_flag_count: 17,
+            complete_out_of_range_count: 19,
+            last_completed_index: Some(23),
+        };
+
+        assert_eq!(
+            format_runtime_rules_panel_text(&panel),
+            "rules:mut64:fail65:wv1:pvp0:obj11:q7:par13:fg17:oor19:last23"
         );
     }
 
