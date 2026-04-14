@@ -1376,6 +1376,12 @@ pub(crate) fn format_runtime_world_label_detail_text(
     )
 }
 
+pub(crate) fn format_runtime_world_label_detail_text_if_nonempty(
+    panel: &RuntimeWorldLabelPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_world_label_detail_text(panel))
+}
+
 pub(crate) fn format_runtime_world_reload_panel_text(
     world_reload: Option<&RuntimeWorldReloadPanelModel>,
 ) -> String {
@@ -2231,7 +2237,8 @@ mod tests {
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
         format_runtime_world_label_sample_text,
         format_runtime_world_label_scalar_text,
-        format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
+        format_runtime_world_label_detail_text, format_runtime_world_label_detail_text_if_nonempty,
+        format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
         format_runtime_core_binding_detail_text,
         format_runtime_core_binding_detail_text_if_nonempty,
@@ -2746,6 +2753,53 @@ mod tests {
         assert_eq!(
             format_runtime_world_label_detail_text(&panel),
             "wlabeld:set19:rel20:rm21:tot60:act2:in1:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0"
+        );
+    }
+
+    #[test]
+    fn format_runtime_world_label_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let empty_panel = RuntimeWorldLabelPanelModel {
+            label_count: 0,
+            reliable_label_count: 0,
+            remove_label_count: 0,
+            total_count: 9,
+            active_count: 0,
+            inactive_count: 9,
+            last_entity_id: None,
+            last_text: None,
+            last_flags: None,
+            last_font_size_bits: None,
+            last_z_bits: None,
+            last_position: None,
+        };
+        assert_eq!(
+            format_runtime_world_label_detail_text_if_nonempty(&empty_panel),
+            None
+        );
+
+        let panel = RuntimeWorldLabelPanelModel {
+            label_count: 19,
+            reliable_label_count: 20,
+            remove_label_count: 21,
+            total_count: 60,
+            active_count: 2,
+            inactive_count: 1,
+            last_entity_id: Some(904),
+            last_text: Some("world label".to_string()),
+            last_flags: Some(3),
+            last_font_size_bits: Some(1094713344),
+            last_z_bits: Some(1082130432),
+            last_position: Some(RuntimeWorldPositionObservability {
+                x_bits: 0x4220_0000,
+                y_bits: 0x4270_0000,
+            }),
+        };
+        assert_eq!(
+            format_runtime_world_label_detail_text_if_nonempty(&panel),
+            Some(
+                "wlabeld:set19:rel20:rm21:tot60:act2:in1:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0"
+                    .to_string()
+            )
         );
     }
 

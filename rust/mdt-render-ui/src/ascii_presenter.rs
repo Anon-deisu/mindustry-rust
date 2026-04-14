@@ -50,7 +50,7 @@ use crate::presenter_view::{
     compose_runtime_session_text_from_hud,
     format_runtime_session_banner_text, format_runtime_session_detail_text,
     format_runtime_session_panel_text,
-    format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
+    format_runtime_world_label_detail_text_if_nonempty, format_runtime_world_label_panel_text,
     format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
     format_runtime_prompt_detail_text_if_nonempty, format_runtime_prompt_panel_text_if_nonempty,
     format_runtime_stack_depth_text_if_nonempty, format_runtime_stack_detail_text_if_nonempty,
@@ -1941,21 +1941,7 @@ fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_world_label_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_world_label_panel(hud)?;
-    if panel.label_count == 0
-        && panel.reliable_label_count == 0
-        && panel.remove_label_count == 0
-        && panel.active_count == 0
-        && panel.last_entity_id.is_none()
-        && panel.last_text.is_none()
-        && panel.last_flags.is_none()
-        && panel.last_font_size_bits.is_none()
-        && panel.last_z_bits.is_none()
-        && panel.last_position.is_none()
-    {
-        return None;
-    }
-
-    Some(format_runtime_world_label_detail_text(&panel))
+    format_runtime_world_label_detail_text_if_nonempty(&panel)
 }
 
 fn compose_runtime_marker_panel_text(hud: &HudModel) -> Option<String> {

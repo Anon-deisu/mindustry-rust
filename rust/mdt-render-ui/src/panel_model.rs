@@ -1126,6 +1126,19 @@ pub struct RuntimeWorldLabelPanelModel {
 }
 
 impl RuntimeWorldLabelPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.label_count == 0
+            && self.reliable_label_count == 0
+            && self.remove_label_count == 0
+            && self.active_count == 0
+            && self.last_entity_id.is_none()
+            && self.last_text.is_none()
+            && self.last_flags.is_none()
+            && self.last_font_size_bits.is_none()
+            && self.last_z_bits.is_none()
+            && self.last_position.is_none()
+    }
+
     pub fn inactive_count(&self) -> usize {
         self.inactive_count
     }
@@ -4246,11 +4259,32 @@ mod tests {
             last_position: None,
         };
 
+        assert!(!panel.is_empty());
         assert_eq!(panel.inactive_count(), 4);
         assert_eq!(panel.last_text_len(), 11);
         assert_eq!(panel.last_text_line_count(), 3);
         assert_eq!(panel.last_font_size(), None);
         assert_eq!(panel.last_z(), None);
+    }
+
+    #[test]
+    fn runtime_world_label_panel_is_empty_ignores_derived_totals_without_observed_fields() {
+        let panel = RuntimeWorldLabelPanelModel {
+            label_count: 0,
+            reliable_label_count: 0,
+            remove_label_count: 0,
+            total_count: 7,
+            active_count: 0,
+            inactive_count: 7,
+            last_entity_id: None,
+            last_text: None,
+            last_flags: None,
+            last_font_size_bits: None,
+            last_z_bits: None,
+            last_position: None,
+        };
+
+        assert!(panel.is_empty());
     }
 
     #[test]
