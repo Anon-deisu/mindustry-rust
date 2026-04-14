@@ -7173,6 +7173,17 @@ impl SessionState {
         self.record_payload_lifecycle_drop(projection.unit, drop_tile);
     }
 
+    pub fn record_picked_build_payload(&mut self, projection: &PickedBuildPayloadProjection) {
+        self.received_picked_build_payload_count =
+            self.received_picked_build_payload_count.saturating_add(1);
+        self.last_picked_build_payload = Some(projection.clone());
+        self.record_picked_build_payload_lifecycle(
+            projection.unit,
+            projection.build_pos,
+            projection.on_ground,
+        );
+    }
+
     pub fn record_destroy_payload(&mut self, projection: &DestroyPayloadProjection) {
         self.received_destroy_payload_count =
             self.received_destroy_payload_count.saturating_add(1);
@@ -15226,6 +15237,51 @@ mod tests {
                 on_ground: Some(true),
                 removed_target_unit: false,
                 removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+    }
+
+    #[test]
+    fn record_picked_build_payload_tracks_projection_and_lifecycle() {
+        let mut state = SessionState::default();
+        let carrier = UnitRefProjection {
+            kind: 1,
+            value: pack_point2(2, 3),
+        };
+        let projection = PickedBuildPayloadProjection {
+            unit: Some(carrier),
+            build_pos: Some(pack_point2(9, 12)),
+            on_ground: true,
+        };
+        state.payload_lifecycle_projection.by_carrier.insert(
+            carrier,
+            PayloadLifecycleCarrierProjection {
+                carrier,
+                target_unit: Some(UnitRefProjection { kind: 2, value: 77 }),
+                target_build: None,
+                drop_tile: Some(pack_point2(1, 2)),
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+
+        state.record_picked_build_payload(&projection);
+
+        assert_eq!(state.received_picked_build_payload_count, 1);
+        assert_eq!(state.last_picked_build_payload, Some(projection));
+        assert_eq!(
+            state.payload_lifecycle_projection.by_carrier.get(&carrier),
+            Some(&PayloadLifecycleCarrierProjection {
+                carrier,
+                target_unit: None,
+                target_build: Some(pack_point2(9, 12)),
+                drop_tile: None,
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: true,
                 removed_carrier: false,
             })
         );

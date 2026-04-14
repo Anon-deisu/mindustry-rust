@@ -5230,16 +5230,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.picked_build_payload_packet_id => {
                 if let Some(projection) = decode_picked_build_payload(&packet.payload) {
-                    self.state.received_picked_build_payload_count = self
-                        .state
-                        .received_picked_build_payload_count
-                        .saturating_add(1);
-                    self.state.last_picked_build_payload = Some(projection.clone());
-                    self.state.record_picked_build_payload_lifecycle(
-                        projection.unit,
-                        projection.build_pos,
-                        projection.on_ground,
-                    );
+                    self.state.record_picked_build_payload(&projection);
                     Ok(ClientSessionEvent::PickedBuildPayload { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
