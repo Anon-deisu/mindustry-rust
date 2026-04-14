@@ -7,6 +7,7 @@ use crate::{
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_kick_panel,
         build_runtime_loading_panel,
+        build_runtime_marker_panel,
         build_runtime_reconnect_panel,
         build_runtime_session_panel, build_runtime_world_label_panel, HudVisibilityPanelModel,
         MinimapPanelModel,
@@ -2019,6 +2020,17 @@ where
     F: FnOnce(&RuntimeAdminPanelModel) -> Option<String>,
 {
     let panel = build_runtime_admin_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_marker_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeMarkerPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_marker_panel(hud)?;
     formatter(&panel)
 }
 
