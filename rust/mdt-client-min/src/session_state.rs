@@ -7124,6 +7124,44 @@ impl SessionState {
         self.reconnect_projection.hint_text = hint_text;
     }
 
+    pub fn record_set_rules_json(&mut self, json_data: &str) {
+        self.received_set_rules_count = self.received_set_rules_count.saturating_add(1);
+        self.last_set_rules_json_data = Some(json_data.to_string());
+        self.last_set_rules_parse_error = None;
+        self.last_set_rules_parse_error_payload_len = None;
+        self.rules_projection.apply_set_rules_json(json_data);
+    }
+
+    pub fn record_set_objectives_json(&mut self, json_data: &str) {
+        self.received_set_objectives_count = self.received_set_objectives_count.saturating_add(1);
+        self.last_set_objectives_json_data = Some(json_data.to_string());
+        self.last_set_objectives_parse_error = None;
+        self.last_set_objectives_parse_error_payload_len = None;
+        self.objectives_projection.replace_from_json(json_data);
+    }
+
+    pub fn record_set_rule_patch(&mut self, rule: &str, json_data: &str) {
+        self.received_set_rule_count = self.received_set_rule_count.saturating_add(1);
+        self.last_set_rule_name = Some(rule.to_string());
+        self.last_set_rule_json_data = Some(json_data.to_string());
+        self.last_set_rule_parse_error = None;
+        self.last_set_rule_parse_error_payload_len = None;
+        self.rules_projection.apply_set_rule_patch(rule, json_data);
+    }
+
+    pub fn record_clear_objectives(&mut self) {
+        self.received_clear_objectives_count =
+            self.received_clear_objectives_count.saturating_add(1);
+        self.objectives_projection.clear();
+    }
+
+    pub fn record_complete_objective(&mut self, index: i32) {
+        self.received_complete_objective_count =
+            self.received_complete_objective_count.saturating_add(1);
+        self.last_complete_objective_index = Some(index);
+        self.objectives_projection.complete_by_index(index);
+    }
+
     pub fn record_finish_connecting(&mut self, projection: FinishConnectingProjection) {
         self.finish_connecting_commit_count = self.finish_connecting_commit_count.saturating_add(1);
         self.last_finish_connecting = Some(projection);
@@ -8590,6 +8628,53 @@ mod tests {
         assert_eq!(state.last_kick_duration_ms, None);
         assert_eq!(state.last_kick_hint_category, None);
         assert_eq!(state.last_kick_hint_text, None);
+    }
+
+    #[test]
+    fn session_state_rules_objectives_record_helpers_update_projection_state() {
+        let mut state = SessionState::default();
+
+        state.record_set_rules_json(r#"{"waves":true,"waveSpacing":120.0}"#);
+        assert_eq!(state.received_set_rules_count, 1);
+        assert_eq!(
+            state.last_set_rules_json_data.as_deref(),
+            Some(r#"{"waves":true,"waveSpacing":120.0}"#)
+        );
+        assert_eq!(state.last_set_rules_parse_error, None);
+        assert_eq!(state.last_set_rules_parse_error_payload_len, None);
+        assert_eq!(state.rules_projection.waves, Some(true));
+        assert_eq!(state.rules_projection.wave_spacing, Some(120.0));
+
+        state.record_set_rule_patch("waves", "false");
+        assert_eq!(state.received_set_rule_count, 1);
+        assert_eq!(state.last_set_rule_name.as_deref(), Some("waves"));
+        assert_eq!(state.last_set_rule_json_data.as_deref(), Some("false"));
+        assert_eq!(state.last_set_rule_parse_error, None);
+        assert_eq!(state.last_set_rule_parse_error_payload_len, None);
+        assert_eq!(state.rules_projection.waves, Some(false));
+
+        state.record_set_objectives_json(
+            r#"[{"type":"Research","content":"router","completed":false}]"#,
+        );
+        assert_eq!(state.received_set_objectives_count, 1);
+        assert_eq!(
+            state.last_set_objectives_json_data.as_deref(),
+            Some(r#"[{"type":"Research","content":"router","completed":false}]"#)
+        );
+        assert_eq!(state.last_set_objectives_parse_error, None);
+        assert_eq!(state.last_set_objectives_parse_error_payload_len, None);
+        assert_eq!(state.objectives_projection.objectives.len(), 1);
+        assert_eq!(state.objectives_projection.complete_by_index_count, 0);
+
+        state.record_complete_objective(0);
+        assert_eq!(state.received_complete_objective_count, 1);
+        assert_eq!(state.last_complete_objective_index, Some(0));
+        assert_eq!(state.objectives_projection.complete_by_index_count, 1);
+
+        state.record_clear_objectives();
+        assert_eq!(state.received_clear_objectives_count, 1);
+        assert!(state.objectives_projection.objectives.is_empty());
+        assert_eq!(state.objectives_projection.cleared_count, 1);
     }
 
     #[test]

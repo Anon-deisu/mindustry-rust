@@ -5014,12 +5014,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_rules_packet_id => {
                 if let Ok(json_data) = decode_length_prefixed_json_payload(&packet.payload) {
-                    self.state.received_set_rules_count =
-                        self.state.received_set_rules_count.saturating_add(1);
-                    self.state.last_set_rules_json_data = Some(json_data.clone());
-                    self.state.last_set_rules_parse_error = None;
-                    self.state.last_set_rules_parse_error_payload_len = None;
-                    self.state.rules_projection.apply_set_rules_json(&json_data);
+                    self.state.record_set_rules_json(&json_data);
                     Ok(ClientSessionEvent::RulesUpdatedRaw { json_data })
                 } else {
                     let error = decode_length_prefixed_json_payload(&packet.payload)
@@ -5037,14 +5032,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_objectives_packet_id => {
                 if let Ok(json_data) = decode_length_prefixed_json_payload(&packet.payload) {
-                    self.state.received_set_objectives_count =
-                        self.state.received_set_objectives_count.saturating_add(1);
-                    self.state.last_set_objectives_json_data = Some(json_data.clone());
-                    self.state.last_set_objectives_parse_error = None;
-                    self.state.last_set_objectives_parse_error_payload_len = None;
-                    self.state
-                        .objectives_projection
-                        .replace_from_json(&json_data);
+                    self.state.record_set_objectives_json(&json_data);
                     Ok(ClientSessionEvent::ObjectivesUpdatedRaw { json_data })
                 } else {
                     let error = decode_length_prefixed_json_payload(&packet.payload)
@@ -5067,15 +5055,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_rule_packet_id => {
                 if let Ok((rule, json_data)) = decode_set_rule_payload(&packet.payload) {
-                    self.state.received_set_rule_count =
-                        self.state.received_set_rule_count.saturating_add(1);
-                    self.state.last_set_rule_name = Some(rule.clone());
-                    self.state.last_set_rule_json_data = Some(json_data.clone());
-                    self.state.last_set_rule_parse_error = None;
-                    self.state.last_set_rule_parse_error_payload_len = None;
-                    self.state
-                        .rules_projection
-                        .apply_set_rule_patch(&rule, &json_data);
+                    self.state.record_set_rule_patch(&rule, &json_data);
                     Ok(ClientSessionEvent::SetRuleApplied { rule, json_data })
                 } else {
                     let error = decode_set_rule_payload(&packet.payload)
@@ -5093,9 +5073,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.clear_objectives_packet_id => {
                 if packet.payload.is_empty() {
-                    self.state.received_clear_objectives_count =
-                        self.state.received_clear_objectives_count.saturating_add(1);
-                    self.state.objectives_projection.clear();
+                    self.state.record_clear_objectives();
                     Ok(ClientSessionEvent::ObjectivesCleared)
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -5106,12 +5084,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.complete_objective_packet_id => {
                 if let Some(index) = decode_complete_objective_payload(&packet.payload) {
-                    self.state.received_complete_objective_count = self
-                        .state
-                        .received_complete_objective_count
-                        .saturating_add(1);
-                    self.state.last_complete_objective_index = Some(index);
-                    self.state.objectives_projection.complete_by_index(index);
+                    self.state.record_complete_objective(index);
                     Ok(ClientSessionEvent::ObjectiveCompleted { index })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
