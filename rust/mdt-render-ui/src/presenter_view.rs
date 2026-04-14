@@ -956,6 +956,12 @@ pub(crate) fn format_runtime_prompt_panel_text(panel: &RuntimePromptPanelModel) 
     )
 }
 
+pub(crate) fn format_runtime_prompt_panel_text_if_nonempty(
+    panel: &RuntimePromptPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_prompt_panel_text(panel))
+}
+
 pub(crate) fn format_runtime_prompt_detail_text(panel: &RuntimePromptPanelModel) -> String {
     format!(
         "pd:ma{}:fm{}:fh{}:fo{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
@@ -971,6 +977,12 @@ pub(crate) fn format_runtime_prompt_detail_text(panel: &RuntimePromptPanelModel)
         format_optional_bool_flag(panel.text_input_last_numeric),
         format_optional_bool_flag(panel.text_input_last_allow_empty),
     )
+}
+
+pub(crate) fn format_runtime_prompt_detail_text_if_nonempty(
+    panel: &RuntimePromptPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_prompt_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_notice_state_panel_text(
@@ -2212,7 +2224,8 @@ mod tests {
         format_runtime_resource_delta_panel_text_if_nonempty,
         format_runtime_session_banner_text,
         format_runtime_session_detail_text, format_runtime_session_panel_text,
-        format_runtime_prompt_detail_text, format_runtime_prompt_panel_text,
+        format_runtime_prompt_detail_text, format_runtime_prompt_detail_text_if_nonempty,
+        format_runtime_prompt_panel_text, format_runtime_prompt_panel_text_if_nonempty,
         format_runtime_chat_detail_text, format_runtime_chat_panel_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
         format_optional_i16_text, format_optional_u8_text, format_optional_bool_flag,
@@ -3861,6 +3874,53 @@ mod tests {
     }
 
     #[test]
+    fn format_runtime_prompt_panel_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimePromptPanelModel {
+            kind: Some(RuntimeDialogPromptKind::TextInput),
+            menu_active: true,
+            text_input_active: true,
+            menu_open_count: 16,
+            follow_up_menu_open_count: 17,
+            hide_follow_up_menu_count: 18,
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            text_input_last_title: Some("Digits".to_string()),
+            text_input_last_message: Some("Only numbers".to_string()),
+            text_input_last_default_text: Some("12345".to_string()),
+            text_input_last_length: Some(16),
+            text_input_last_numeric: Some(true),
+            text_input_last_allow_empty: Some(true),
+        };
+
+        assert_eq!(
+            format_runtime_prompt_panel_text_if_nonempty(&panel),
+            Some(
+                "prompt:k=input:a1:d2:l=input>menu:m16:fo0:tin53@404:Digits/Only_numbers/12345#16:n1:e1"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            format_runtime_prompt_panel_text_if_nonempty(&RuntimePromptPanelModel {
+                kind: None,
+                menu_active: false,
+                text_input_active: false,
+                menu_open_count: 0,
+                follow_up_menu_open_count: 0,
+                hide_follow_up_menu_count: 0,
+                text_input_open_count: 0,
+                text_input_last_id: None,
+                text_input_last_title: None,
+                text_input_last_message: None,
+                text_input_last_default_text: None,
+                text_input_last_length: None,
+                text_input_last_numeric: None,
+                text_input_last_allow_empty: None,
+            }),
+            None
+        );
+    }
+
+    #[test]
     fn format_runtime_prompt_detail_text_preserves_field_order() {
         let panel = RuntimePromptPanelModel {
             kind: Some(RuntimeDialogPromptKind::TextInput),
@@ -3882,6 +3942,50 @@ mod tests {
         assert_eq!(
             format_runtime_prompt_detail_text(&panel),
             "pd:ma1:fm17:fh18:fo0:tin53:id404:t6:m12:d5:n1:e1"
+        );
+    }
+
+    #[test]
+    fn format_runtime_prompt_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimePromptPanelModel {
+            kind: Some(RuntimeDialogPromptKind::TextInput),
+            menu_active: true,
+            text_input_active: true,
+            menu_open_count: 16,
+            follow_up_menu_open_count: 17,
+            hide_follow_up_menu_count: 18,
+            text_input_open_count: 53,
+            text_input_last_id: Some(404),
+            text_input_last_title: Some("Digits".to_string()),
+            text_input_last_message: Some("Only numbers".to_string()),
+            text_input_last_default_text: Some("12345".to_string()),
+            text_input_last_length: Some(16),
+            text_input_last_numeric: Some(true),
+            text_input_last_allow_empty: Some(true),
+        };
+
+        assert_eq!(
+            format_runtime_prompt_detail_text_if_nonempty(&panel),
+            Some("pd:ma1:fm17:fh18:fo0:tin53:id404:t6:m12:d5:n1:e1".to_string())
+        );
+        assert_eq!(
+            format_runtime_prompt_detail_text_if_nonempty(&RuntimePromptPanelModel {
+                kind: None,
+                menu_active: false,
+                text_input_active: false,
+                menu_open_count: 0,
+                follow_up_menu_open_count: 0,
+                hide_follow_up_menu_count: 0,
+                text_input_open_count: 0,
+                text_input_last_id: None,
+                text_input_last_title: None,
+                text_input_last_message: None,
+                text_input_last_default_text: None,
+                text_input_last_length: None,
+                text_input_last_numeric: None,
+                text_input_last_allow_empty: None,
+            }),
+            None
         );
     }
 
