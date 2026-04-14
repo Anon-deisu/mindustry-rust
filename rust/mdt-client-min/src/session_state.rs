@@ -7174,6 +7174,13 @@ impl SessionState {
         self.last_create_bullet = Some(projection.clone());
     }
 
+    pub fn record_auto_door_toggle(&mut self, tile_pos: Option<i32>, open: bool) {
+        self.received_auto_door_toggle_count =
+            self.received_auto_door_toggle_count.saturating_add(1);
+        self.last_auto_door_toggle_tile_pos = tile_pos;
+        self.last_auto_door_toggle_open = Some(open);
+    }
+
     pub fn record_payload_dropped(
         &mut self,
         projection: &PayloadDroppedProjection,
@@ -15260,6 +15267,17 @@ mod tests {
 
         assert_eq!(state.received_create_bullet_count, 1);
         assert_eq!(state.last_create_bullet, Some(projection));
+    }
+
+    #[test]
+    fn record_auto_door_toggle_tracks_tile_and_open_state() {
+        let mut state = SessionState::default();
+
+        state.record_auto_door_toggle(Some(pack_point2(1, 2)), true);
+
+        assert_eq!(state.received_auto_door_toggle_count, 1);
+        assert_eq!(state.last_auto_door_toggle_tile_pos, Some(pack_point2(1, 2)));
+        assert_eq!(state.last_auto_door_toggle_open, Some(true));
     }
 
     #[test]

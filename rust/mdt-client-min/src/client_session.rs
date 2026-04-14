@@ -5504,10 +5504,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.auto_door_toggle_packet_id => {
                 if let Some((tile_pos, open)) = decode_tile_bool_payload(&packet.payload) {
-                    self.state.received_auto_door_toggle_count =
-                        self.state.received_auto_door_toggle_count.saturating_add(1);
-                    self.state.last_auto_door_toggle_tile_pos = tile_pos;
-                    self.state.last_auto_door_toggle_open = Some(open);
+                    self.state.record_auto_door_toggle(tile_pos, open);
                     Ok(ClientSessionEvent::AutoDoorToggle { tile_pos, open })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
