@@ -7,6 +7,7 @@ use crate::{
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_kick_panel,
         build_runtime_loading_panel,
+        build_runtime_menu_panel,
         build_runtime_marker_panel,
         build_runtime_reconnect_panel,
         build_runtime_session_panel, build_runtime_world_label_panel, HudVisibilityPanelModel,
@@ -2043,6 +2044,14 @@ where
 {
     let panel = build_runtime_session_panel(hud)?;
     formatter(&panel.resource_delta)
+}
+
+pub(crate) fn compose_runtime_menu_text_from_hud<F>(hud: &HudModel, formatter: F) -> Option<String>
+where
+    F: FnOnce(&RuntimeMenuPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_menu_panel(hud)?;
+    formatter(&panel)
 }
 
 pub(crate) fn compose_runtime_loading_text_from_hud<F>(
