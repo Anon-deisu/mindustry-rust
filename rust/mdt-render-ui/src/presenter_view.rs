@@ -1705,6 +1705,12 @@ pub(crate) fn format_runtime_loading_detail_text(
     )
 }
 
+pub(crate) fn format_runtime_loading_detail_text_if_nonempty(
+    loading: &RuntimeLoadingPanelModel,
+) -> Option<String> {
+    (!loading.is_empty()).then(|| format_runtime_loading_detail_text(loading))
+}
+
 pub(crate) fn format_runtime_session_panel_text(panel: &RuntimeSessionPanelModel) -> String {
     let mut segments = Vec::new();
     if !panel.bootstrap.is_empty() {
@@ -2260,7 +2266,8 @@ mod tests {
         format_runtime_live_effect_summary_text,
         format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
         format_runtime_live_entity_summary_text,
-        format_runtime_loading_detail_text, format_runtime_loading_panel_text,
+        format_runtime_loading_detail_text, format_runtime_loading_detail_text_if_nonempty,
+        format_runtime_loading_panel_text,
         format_runtime_kick_detail_text, format_runtime_kick_detail_text_if_nonempty,
         format_runtime_kick_panel_text, format_runtime_marker_detail_text,
         format_runtime_marker_detail_text_if_nonempty, format_runtime_marker_panel_text,
@@ -3294,6 +3301,73 @@ mod tests {
         assert_eq!(
             format_runtime_loading_detail_text(&panel),
             "loadingd:rdy8@9:to10/11/12:ready@13:rs14/15/16/17:reload:@lw1:cl0:rd1:cc0:p4:d5:r6"
+        );
+    }
+
+    #[test]
+    fn format_runtime_loading_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        assert_eq!(
+            format_runtime_loading_detail_text_if_nonempty(&RuntimeLoadingPanelModel {
+                deferred_inbound_packet_count: 0,
+                replayed_inbound_packet_count: 0,
+                dropped_loading_low_priority_packet_count: 0,
+                dropped_loading_deferred_overflow_count: 0,
+                failed_state_snapshot_parse_count: 0,
+                failed_state_snapshot_core_data_parse_count: 0,
+                failed_entity_snapshot_parse_count: 0,
+                ready_inbound_liveness_anchor_count: 0,
+                last_ready_inbound_liveness_anchor_at_ms: None,
+                timeout_count: 0,
+                connect_or_loading_timeout_count: 0,
+                ready_snapshot_timeout_count: 0,
+                last_timeout_kind: None,
+                last_timeout_idle_ms: None,
+                reset_count: 0,
+                reconnect_reset_count: 0,
+                world_reload_count: 0,
+                kick_reset_count: 0,
+                last_reset_kind: None,
+                last_world_reload: None,
+            }),
+            None
+        );
+
+        let panel = RuntimeLoadingPanelModel {
+            deferred_inbound_packet_count: 1,
+            replayed_inbound_packet_count: 2,
+            dropped_loading_low_priority_packet_count: 3,
+            dropped_loading_deferred_overflow_count: 4,
+            failed_state_snapshot_parse_count: 5,
+            failed_state_snapshot_core_data_parse_count: 6,
+            failed_entity_snapshot_parse_count: 7,
+            ready_inbound_liveness_anchor_count: 8,
+            last_ready_inbound_liveness_anchor_at_ms: Some(9),
+            timeout_count: 10,
+            connect_or_loading_timeout_count: 11,
+            ready_snapshot_timeout_count: 12,
+            last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+            last_timeout_idle_ms: Some(13),
+            reset_count: 14,
+            reconnect_reset_count: 15,
+            world_reload_count: 16,
+            kick_reset_count: 17,
+            last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+            last_world_reload: Some(RuntimeWorldReloadPanelModel {
+                had_loaded_world: true,
+                had_client_loaded: false,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 4,
+                cleared_deferred_inbound_packets: 5,
+                cleared_replayed_loading_events: 6,
+            }),
+        };
+        assert_eq!(
+            format_runtime_loading_detail_text_if_nonempty(&panel),
+            Some(
+                "loadingd:rdy8@9:to10/11/12:ready@13:rs14/15/16/17:reload:@lw1:cl0:rd1:cc0:p4:d5:r6"
+                    .to_string()
+            )
         );
     }
 
