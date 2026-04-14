@@ -1288,6 +1288,12 @@ pub(crate) fn format_runtime_chat_detail_text(panel: &RuntimeChatPanelModel) -> 
     )
 }
 
+pub(crate) fn format_runtime_chat_detail_text_if_nonempty(
+    panel: &RuntimeChatPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_chat_detail_text(panel))
+}
+
 pub(crate) fn format_runtime_admin_panel_text(panel: &RuntimeAdminPanelModel) -> String {
     format!(
         "admin:t{}@{}:f{}:dbg{}/{}@{}:f{}",
@@ -2226,7 +2232,8 @@ mod tests {
         format_runtime_session_detail_text, format_runtime_session_panel_text,
         format_runtime_prompt_detail_text, format_runtime_prompt_detail_text_if_nonempty,
         format_runtime_prompt_panel_text, format_runtime_prompt_panel_text_if_nonempty,
-        format_runtime_chat_detail_text, format_runtime_chat_panel_text,
+        format_runtime_chat_detail_text, format_runtime_chat_detail_text_if_nonempty,
+        format_runtime_chat_panel_text,
         format_runtime_admin_detail_text, format_runtime_admin_panel_text,
         format_optional_i16_text, format_optional_u8_text, format_optional_bool_flag,
         format_runtime_stack_depth_text, format_runtime_stack_detail_text,
@@ -4108,6 +4115,34 @@ mod tests {
         assert_eq!(
             format_runtime_chat_detail_text(&panel),
             "chatd:s11:c11:r5:eq0:sid404"
+        );
+    }
+
+    #[test]
+    fn format_runtime_chat_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeChatPanelModel {
+            server_message_count: 7,
+            last_server_message: Some("server text".to_string()),
+            chat_message_count: 8,
+            last_chat_message: Some("[cyan]hello".to_string()),
+            last_chat_unformatted: Some("hello".to_string()),
+            last_chat_sender_entity_id: Some(404),
+        };
+
+        assert_eq!(
+            format_runtime_chat_detail_text_if_nonempty(&panel),
+            Some("chatd:s11:c11:r5:eq0:sid404".to_string())
+        );
+        assert_eq!(
+            format_runtime_chat_detail_text_if_nonempty(&RuntimeChatPanelModel {
+                server_message_count: 0,
+                last_server_message: None,
+                chat_message_count: 0,
+                last_chat_message: None,
+                last_chat_unformatted: None,
+                last_chat_sender_entity_id: None,
+            }),
+            None
         );
     }
 

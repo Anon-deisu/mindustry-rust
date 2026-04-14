@@ -28,7 +28,7 @@ use crate::presenter_view::{
     format_minimap_visibility_detail_text, format_visibility_minimap_text,
     format_counted_detail_text, format_counted_preview_text,
     format_runtime_admin_detail_text, format_runtime_admin_panel_text,
-    format_runtime_chat_detail_text, format_runtime_chat_panel_text,
+    format_runtime_chat_detail_text_if_nonempty, format_runtime_chat_panel_text,
     format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
     format_runtime_command_mode_panel_text,
     format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
@@ -1881,10 +1881,7 @@ fn compose_runtime_chat_panel_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_chat_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_chat_panel(hud)?;
-    if panel.is_empty() {
-        return None;
-    }
-    Some(format_runtime_chat_detail_text(&panel))
+    format_runtime_chat_detail_text_if_nonempty(&panel)
 }
 
 fn compose_runtime_stack_panel_text(hud: &HudModel) -> Option<String> {
