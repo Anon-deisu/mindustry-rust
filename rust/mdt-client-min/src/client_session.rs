@@ -5441,9 +5441,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.create_bullet_packet_id => {
                 if let Some(projection) = decode_create_bullet_payload(&packet.payload) {
-                    self.state.received_create_bullet_count =
-                        self.state.received_create_bullet_count.saturating_add(1);
-                    self.state.last_create_bullet = Some(projection.clone());
+                    self.state.record_create_bullet(&projection);
                     Ok(ClientSessionEvent::CreateBullet { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {

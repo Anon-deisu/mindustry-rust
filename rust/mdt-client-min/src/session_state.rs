@@ -7168,6 +7168,12 @@ impl SessionState {
         self.last_transfer_item_effect = Some(projection.clone());
     }
 
+    pub fn record_create_bullet(&mut self, projection: &CreateBulletProjection) {
+        self.received_create_bullet_count =
+            self.received_create_bullet_count.saturating_add(1);
+        self.last_create_bullet = Some(projection.clone());
+    }
+
     pub fn record_payload_dropped(
         &mut self,
         projection: &PayloadDroppedProjection,
@@ -15234,6 +15240,26 @@ mod tests {
 
         assert_eq!(state.received_transfer_item_effect_count, 1);
         assert_eq!(state.last_transfer_item_effect, Some(projection));
+    }
+
+    #[test]
+    fn record_create_bullet_tracks_projection() {
+        let mut state = SessionState::default();
+        let projection = CreateBulletProjection {
+            bullet_type_id: Some(17),
+            team_id: 4,
+            x_bits: 32.5f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            angle_bits: 90.0f32.to_bits(),
+            damage_bits: 11.5f32.to_bits(),
+            velocity_scl_bits: 1.25f32.to_bits(),
+            lifetime_scl_bits: 0.75f32.to_bits(),
+        };
+
+        state.record_create_bullet(&projection);
+
+        assert_eq!(state.received_create_bullet_count, 1);
+        assert_eq!(state.last_create_bullet, Some(projection));
     }
 
     #[test]
