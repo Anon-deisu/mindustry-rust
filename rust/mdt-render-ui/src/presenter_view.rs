@@ -1,8 +1,10 @@
 use crate::{
     hud_model::{HudModel, HudSummary, RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
     panel_model::{
+        build_runtime_core_binding_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_loading_panel,
+        build_runtime_reconnect_panel,
         build_runtime_session_panel, HudVisibilityPanelModel, MinimapPanelModel,
         PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
         RuntimeChoicePanelModel,
@@ -1742,6 +1744,12 @@ pub(crate) fn format_runtime_reconnect_panel_text(
     )
 }
 
+pub(crate) fn format_runtime_reconnect_row_text(
+    reconnect: &RuntimeReconnectPanelModel,
+) -> String {
+    format!("reconnect:{}", format_runtime_reconnect_panel_text(reconnect))
+}
+
 pub(crate) fn format_runtime_reconnect_detail_text(
     reconnect: &RuntimeReconnectPanelModel,
 ) -> String {
@@ -1988,6 +1996,28 @@ where
     F: FnOnce(&RuntimeLoadingPanelModel) -> Option<String>,
 {
     let panel = build_runtime_loading_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_core_binding_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeCoreBindingPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_core_binding_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_reconnect_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeReconnectPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_reconnect_panel(hud)?;
     formatter(&panel)
 }
 
@@ -2496,7 +2526,7 @@ mod tests {
         format_runtime_marker_panel_text_if_nonempty,
         format_runtime_reconnect_detail_text,
         format_runtime_reconnect_detail_text_if_nonempty,
-        format_runtime_reconnect_panel_text,
+        format_runtime_reconnect_panel_text, format_runtime_reconnect_row_text,
         format_runtime_resource_delta_detail_text,
         format_runtime_resource_delta_detail_text_if_nonempty,
         format_runtime_resource_delta_panel_text,
@@ -3464,6 +3494,10 @@ mod tests {
         assert_eq!(
             format_runtime_reconnect_panel_text(&panel),
             "attempt3:manual@4/1.2.3.4:6567:manual@7:retry"
+        );
+        assert_eq!(
+            format_runtime_reconnect_row_text(&panel),
+            "reconnect:attempt3:manual@4/1.2.3.4:6567:manual@7:retry"
         );
     }
 
