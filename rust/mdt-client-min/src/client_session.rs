@@ -16,6 +16,11 @@ use crate::net_loop::{ingest_inbound_packet, NetLoopStats};
 use crate::packet_registry::{
     CombinedPacketRegistries, CustomChannelPacketRegistry, InboundSnapshotPacketRegistry,
 };
+use crate::render_runtime::{
+    runtime_manual_connect_hint_text, runtime_manual_connect_reason_text,
+    runtime_reconnect_redirect_hint_text, runtime_reconnect_timeout_hint_text,
+    runtime_reconnect_timeout_reason_text,
+};
 use crate::session_state::{
     merge_building_projection_with_anchor, BuilderQueueEntryObservation, BuildingProjection,
     BuildingTableProjection, BuildingTailSummaryProjection, ConfiguredBlockOutcome,
@@ -329,28 +334,6 @@ fn reconnect_phase_from_kick_hint(
         _ => ReconnectPhaseProjection::Aborted,
     }
 }
-
-fn reconnect_timeout_reason_text(kind: SessionTimeoutKind) -> &'static str {
-    match kind {
-        SessionTimeoutKind::ConnectOrLoading => "connectOrLoadingTimeout",
-        SessionTimeoutKind::ReadySnapshotStall => "readySnapshotTimeout",
-    }
-}
-
-fn reconnect_timeout_hint_text(kind: SessionTimeoutKind, idle_ms: u64) -> String {
-    let scope = match kind {
-        SessionTimeoutKind::ConnectOrLoading => "while connecting or loading",
-        SessionTimeoutKind::ReadySnapshotStall => "while waiting for ready-state snapshots",
-    };
-    format!("session timed out after {idle_ms} ms {scope}.")
-}
-
-fn reconnect_redirect_hint_text(ip: &str, port: i32) -> String {
-    format!("server requested redirect to {ip}:{port}.")
-}
-
-const MANUAL_CONNECT_REASON_TEXT: &str = "manualConnect";
-const MANUAL_CONNECT_HINT_TEXT: &str = "client started a new connect attempt.";
 
 #[derive(Debug)]
 pub struct ClientSession {
@@ -3116,7 +3099,7 @@ impl ClientSession {
                         Some(ReconnectReasonKind::ConnectRedirect),
                         Some("connectRedirect".to_string()),
                         None,
-                        Some(reconnect_redirect_hint_text(&ip, port)),
+                        Some(runtime_reconnect_redirect_hint_text(&ip, port)),
                     );
                     Ok(ClientSessionEvent::ConnectRedirectRequested { ip, port })
                 } else {
@@ -7037,9 +7020,9 @@ impl ClientSession {
         self.state.record_reconnect_projection(
             ReconnectPhaseProjection::Aborted,
             Some(ReconnectReasonKind::Timeout),
-            Some(reconnect_timeout_reason_text(kind).to_string()),
+            Some(runtime_reconnect_timeout_reason_text(kind).to_string()),
             None,
-            Some(reconnect_timeout_hint_text(kind, idle_ms)),
+            Some(runtime_reconnect_timeout_hint_text(kind, idle_ms)),
         );
         projection
     }
@@ -9218,9 +9201,9 @@ impl ClientSession {
             self.state.record_reconnect_projection(
                 ReconnectPhaseProjection::Attempting,
                 Some(ReconnectReasonKind::ManualConnect),
-                Some(MANUAL_CONNECT_REASON_TEXT.to_string()),
+                Some(runtime_manual_connect_reason_text().to_string()),
                 None,
-                Some(MANUAL_CONNECT_HINT_TEXT.to_string()),
+                Some(runtime_manual_connect_hint_text().to_string()),
             );
         } else {
             self.state

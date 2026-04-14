@@ -3205,6 +3205,36 @@ fn runtime_reconnect_reason_kind_observability(
     }
 }
 
+pub(crate) fn runtime_reconnect_timeout_reason_text(kind: SessionTimeoutKind) -> &'static str {
+    match kind {
+        SessionTimeoutKind::ConnectOrLoading => "connectOrLoadingTimeout",
+        SessionTimeoutKind::ReadySnapshotStall => "readySnapshotTimeout",
+    }
+}
+
+pub(crate) fn runtime_reconnect_timeout_hint_text(
+    kind: SessionTimeoutKind,
+    idle_ms: u64,
+) -> String {
+    let scope = match kind {
+        SessionTimeoutKind::ConnectOrLoading => "while connecting or loading",
+        SessionTimeoutKind::ReadySnapshotStall => "while waiting for ready-state snapshots",
+    };
+    format!("session timed out after {idle_ms} ms {scope}.")
+}
+
+pub(crate) fn runtime_reconnect_redirect_hint_text(ip: &str, port: i32) -> String {
+    format!("server requested redirect to {ip}:{port}.")
+}
+
+pub(crate) fn runtime_manual_connect_reason_text() -> &'static str {
+    "manualConnect"
+}
+
+pub(crate) fn runtime_manual_connect_hint_text() -> &'static str {
+    "client started a new connect attempt."
+}
+
 fn runtime_live_summary_observability(
     snapshot_input: &ClientSnapshotInputState,
     session_state: &SessionState,
