@@ -1,6 +1,7 @@
 use crate::{
     hud_model::{HudModel, HudSummary, RuntimeUiStackDepthSummary, RuntimeUiStackSummary},
     panel_model::{
+        build_runtime_bootstrap_panel,
         build_runtime_core_binding_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_kick_panel,
@@ -1998,6 +1999,17 @@ where
     F: FnOnce(&RuntimeWorldLabelPanelModel) -> Option<String>,
 {
     let panel = build_runtime_world_label_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_bootstrap_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeBootstrapPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_bootstrap_panel(hud)?;
     formatter(&panel)
 }
 
