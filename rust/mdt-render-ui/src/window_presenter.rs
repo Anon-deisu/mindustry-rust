@@ -31,8 +31,7 @@ use crate::{
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_choice_panel_text_if_nonempty,
         format_runtime_choice_detail_text_if_nonempty,
-        format_runtime_dialog_stack_summary_text_if_nonempty,
-        format_runtime_dialog_panel_text,
+        format_runtime_dialog_stack_summary_text_if_nonempty, format_runtime_dialog_panel_text,
         format_runtime_core_binding_detail_text_if_nonempty,
         format_runtime_core_binding_panel_text_if_nonempty,
         format_runtime_live_effect_detail_text, format_runtime_live_effect_panel_text,
@@ -1822,10 +1821,13 @@ fn compose_frame_panel_lines(
             "RUNTIME-PROMPT-DETAIL: {runtime_prompt_detail_text}"
         ));
     }
-    if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_status_text(hud) {
+    if let Some(runtime_dialog_text) = compose_runtime_dialog_text_from_hud(
+        hud,
+        |panel| Some(format_runtime_dialog_panel_text(panel)),
+    ) {
         lines.push(format!("RUNTIME-DIALOG: {runtime_dialog_text}"));
     }
-    if let Some(runtime_dialog_detail_text) = compose_runtime_dialog_detail_status_text(hud) {
+    if let Some(runtime_dialog_detail_text) = compose_runtime_dialog_detail_text_from_hud(hud) {
         lines.push(format!(
             "RUNTIME-DIALOG-DETAIL: {runtime_dialog_detail_text}"
         ));
@@ -2703,14 +2705,6 @@ fn compose_runtime_menu_detail_status_text(hud: &HudModel) -> Option<String> {
     compose_runtime_menu_text_from_hud(hud, format_runtime_menu_detail_text_if_nonempty)
 }
 
-
-fn compose_runtime_dialog_panel_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_dialog_text_from_hud(hud, |panel| Some(format_runtime_dialog_panel_text(panel)))
-}
-
-fn compose_runtime_dialog_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_dialog_detail_text_from_hud(hud)
-}
 
 fn compose_runtime_stack_panel_status_text(hud: &HudModel) -> Option<String> {
     compose_runtime_stack_panel_text_from_hud(hud, format_runtime_stack_panel_text_if_nonempty)
