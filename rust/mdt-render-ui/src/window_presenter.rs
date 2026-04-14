@@ -51,7 +51,8 @@ use crate::{
         format_runtime_resource_delta_detail_text_if_nonempty,
         format_runtime_resource_delta_panel_text_if_nonempty,
         compose_runtime_admin_text_from_hud, compose_runtime_bootstrap_text_from_hud,
-        compose_runtime_core_binding_text_from_hud, compose_runtime_kick_row_text_from_hud,
+        compose_build_interaction_text_from_hud, compose_runtime_core_binding_text_from_hud,
+        compose_runtime_kick_row_text_from_hud,
         compose_runtime_kick_text_from_hud,
         compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
         compose_runtime_loading_text_from_hud, compose_runtime_marker_text_from_hud,
@@ -3219,30 +3220,30 @@ fn compose_build_config_rollback_detail_status_text(hud: &HudModel) -> Option<St
 }
 
 fn compose_build_interaction_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_interaction_panel(hud)?;
-    Some(format!(
-        "cfgflow:m={}:s={}:q={}:p={}:pr={}:cfg={}/{}:top={}:h={}:auth={}:pm={}:src={}:t={}:b={}:o={}",
-        build_interaction_mode_status_text(panel.mode),
-        build_interaction_selection_status_text(panel.selection_state),
-        build_interaction_queue_status_text(panel.queue_state),
-        panel.pending_count,
-        if panel.place_ready { 1 } else { 0 },
-        panel.config_family_count,
-        panel.config_sample_count,
-        compact_runtime_ui_text(panel.top_config_family.as_deref()),
-        build_config_panel_head_status_text(panel.head.as_ref()),
-        build_interaction_authority_status_text(panel.authority_state),
-        build_config_pending_match_status_text(panel.authority_pending_match),
-        build_config_rollback_source_status_text(panel.authority_source),
-        build_config_tile_status_text(panel.authority_tile),
-        compact_runtime_ui_text(panel.authority_block_name.as_deref()),
-        panel.orphan_authoritative_count,
-    ))
+    compose_build_interaction_text_from_hud(hud, |panel| {
+        Some(format!(
+            "cfgflow:m={}:s={}:q={}:p={}:pr={}:cfg={}/{}:top={}:h={}:auth={}:pm={}:src={}:t={}:b={}:o={}",
+            build_interaction_mode_status_text(panel.mode),
+            build_interaction_selection_status_text(panel.selection_state),
+            build_interaction_queue_status_text(panel.queue_state),
+            panel.pending_count,
+            if panel.place_ready { 1 } else { 0 },
+            panel.config_family_count,
+            panel.config_sample_count,
+            compact_runtime_ui_text(panel.top_config_family.as_deref()),
+            build_config_panel_head_status_text(panel.head.as_ref()),
+            build_interaction_authority_status_text(panel.authority_state),
+            build_config_pending_match_status_text(panel.authority_pending_match),
+            build_config_rollback_source_status_text(panel.authority_source),
+            build_config_tile_status_text(panel.authority_tile),
+            compact_runtime_ui_text(panel.authority_block_name.as_deref()),
+            panel.orphan_authoritative_count,
+        ))
+    })
 }
 
 fn compose_build_interaction_detail_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_build_interaction_panel(hud)?;
-    Some(panel.detail_label())
+    compose_build_interaction_text_from_hud(hud, |panel| Some(panel.detail_label()))
 }
 
 fn compose_build_ui_queue_status_text(hud: &HudModel) -> Option<String> {
