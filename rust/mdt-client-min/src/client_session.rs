@@ -3171,9 +3171,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_hud_text_packet_id => {
                 if let Some(message) = decode_optional_typeio_string_payload(&packet.payload) {
-                    self.state.received_set_hud_text_count =
-                        self.state.received_set_hud_text_count.saturating_add(1);
-                    self.state.last_set_hud_text_message = message.clone();
+                    self.state.record_set_hud_text(&message);
                     Ok(ClientSessionEvent::SetHudText { message })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {

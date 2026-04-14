@@ -7162,6 +7162,11 @@ impl SessionState {
         self.objectives_projection.complete_by_index(index);
     }
 
+    pub fn record_set_hud_text(&mut self, message: &Option<String>) {
+        self.received_set_hud_text_count = self.received_set_hud_text_count.saturating_add(1);
+        self.last_set_hud_text_message = message.clone();
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15231,6 +15236,17 @@ mod tests {
                 removed_carrier: false,
             })
         );
+    }
+
+    #[test]
+    fn record_set_hud_text_tracks_message() {
+        let mut state = SessionState::default();
+        let message = Some("hud".to_string());
+
+        state.record_set_hud_text(&message);
+
+        assert_eq!(state.received_set_hud_text_count, 1);
+        assert_eq!(state.last_set_hud_text_message, message);
     }
 
     #[test]
