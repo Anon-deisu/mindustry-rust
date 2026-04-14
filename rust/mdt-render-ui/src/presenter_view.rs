@@ -3,6 +3,7 @@ use crate::{
     panel_model::{
         build_runtime_core_binding_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+        build_runtime_kick_panel,
         build_runtime_loading_panel,
         build_runtime_reconnect_panel,
         build_runtime_session_panel, HudVisibilityPanelModel, MinimapPanelModel,
@@ -1996,6 +1997,14 @@ where
     F: FnOnce(&RuntimeLoadingPanelModel) -> Option<String>,
 {
     let panel = build_runtime_loading_panel(hud)?;
+    formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_kick_text_from_hud<F>(hud: &HudModel, formatter: F) -> Option<String>
+where
+    F: FnOnce(&RuntimeKickPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_kick_panel(hud)?;
     formatter(&panel)
 }
 

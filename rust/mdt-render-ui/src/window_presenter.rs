@@ -7,7 +7,7 @@ use crate::{
         build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
         build_runtime_bootstrap_panel, build_runtime_chat_panel, build_runtime_choice_panel,
         build_runtime_command_mode_panel,
-        build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+        build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
         build_runtime_marker_panel, build_runtime_menu_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
         build_runtime_rules_panel, build_runtime_session_panel,
@@ -56,8 +56,9 @@ use crate::{
         format_runtime_rules_detail_text_if_nonempty,
         format_runtime_resource_delta_detail_text_if_nonempty,
         format_runtime_resource_delta_panel_text_if_nonempty,
-        compose_runtime_core_binding_text_from_hud, compose_runtime_live_effect_text_from_hud,
-        compose_runtime_live_entity_text_from_hud, compose_runtime_loading_text_from_hud,
+        compose_runtime_core_binding_text_from_hud, compose_runtime_kick_text_from_hud,
+        compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
+        compose_runtime_loading_text_from_hud,
         compose_runtime_reconnect_text_from_hud, compose_runtime_session_text_from_hud,
         format_runtime_session_banner_text, format_runtime_session_detail_text_if_nonempty,
         format_runtime_session_panel_text_if_nonempty,
@@ -2776,8 +2777,9 @@ fn compose_runtime_marker_detail_status_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_kick_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_kick_panel(hud)?;
-    Some(format!("kick:{}", format_runtime_kick_panel_text(&panel)))
+    compose_runtime_kick_text_from_hud(hud, |panel| {
+        Some(format!("kick:{}", format_runtime_kick_panel_text(panel)))
+    })
 }
 
 fn compose_runtime_bootstrap_status_text(hud: &HudModel) -> Option<String> {
@@ -2813,8 +2815,7 @@ fn compose_runtime_loading_status_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_kick_detail_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_kick_panel(hud)?;
-    format_runtime_kick_detail_text_if_nonempty(&panel)
+    compose_runtime_kick_text_from_hud(hud, format_runtime_kick_detail_text_if_nonempty)
 }
 
 fn compose_runtime_loading_detail_status_text(hud: &HudModel) -> Option<String> {
