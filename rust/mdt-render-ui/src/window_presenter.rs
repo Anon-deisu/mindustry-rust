@@ -1944,10 +1944,16 @@ fn compose_frame_panel_lines(
             "RUNTIME-CORE-BINDING-DETAIL: {runtime_core_binding_detail_text}"
         ));
     }
-    if let Some(runtime_reconnect_text) = compose_runtime_reconnect_status_text(hud) {
+    if let Some(runtime_reconnect_text) = compose_runtime_reconnect_text_from_hud(
+        hud,
+        |panel| Some(format_runtime_reconnect_row_text(panel)),
+    ) {
         lines.push(format!("RUNTIME-RECONNECT: {runtime_reconnect_text}"));
     }
-    if let Some(runtime_reconnect_detail_text) = compose_runtime_reconnect_detail_status_text(hud) {
+    if let Some(runtime_reconnect_detail_text) = compose_runtime_reconnect_text_from_hud(
+        hud,
+        format_runtime_reconnect_detail_text_if_nonempty,
+    ) {
         lines.push(format!(
             "RUNTIME-RECONNECT-DETAIL: {runtime_reconnect_detail_text}"
         ));
@@ -2826,14 +2832,6 @@ fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> 
 
 fn compose_runtime_kick_detail_status_text(hud: &HudModel) -> Option<String> {
     compose_runtime_kick_text_from_hud(hud, format_runtime_kick_detail_text_if_nonempty)
-}
-
-fn compose_runtime_reconnect_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_reconnect_text_from_hud(hud, |panel| Some(format_runtime_reconnect_row_text(panel)))
-}
-
-fn compose_runtime_reconnect_detail_status_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_reconnect_text_from_hud(hud, format_runtime_reconnect_detail_text_if_nonempty)
 }
 
 fn compose_runtime_live_effect_panel_status_text(hud: &HudModel) -> Option<String> {
