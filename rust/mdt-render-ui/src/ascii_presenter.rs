@@ -507,10 +507,15 @@ impl AsciiScenePresenter {
                 "RUNTIME-DIALOG-DETAIL: {runtime_dialog_detail_text}\n"
             ));
         }
-        if let Some(runtime_chat_text) = compose_runtime_chat_panel_text(hud) {
+        if let Some(runtime_chat_text) = compose_runtime_chat_text_from_hud(
+            hud,
+            |panel| Some(format_runtime_chat_panel_text(panel)),
+        ) {
             out.push_str(&format!("RUNTIME-CHAT: {runtime_chat_text}\n"));
         }
-        if let Some(runtime_chat_detail_text) = compose_runtime_chat_detail_text(hud) {
+        if let Some(runtime_chat_detail_text) =
+            compose_runtime_chat_text_from_hud(hud, format_runtime_chat_detail_text_if_nonempty)
+        {
             out.push_str(&format!(
                 "RUNTIME-CHAT-DETAIL: {runtime_chat_detail_text}\n"
             ));
@@ -1800,14 +1805,6 @@ fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_dialog_detail_text(hud: &HudModel) -> Option<String> {
     compose_runtime_dialog_detail_text_from_hud(hud)
-}
-
-fn compose_runtime_chat_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_chat_text_from_hud(hud, |panel| Some(format_runtime_chat_panel_text(panel)))
-}
-
-fn compose_runtime_chat_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_chat_text_from_hud(hud, format_runtime_chat_detail_text_if_nonempty)
 }
 
 fn compose_runtime_stack_panel_text(hud: &HudModel) -> Option<String> {
