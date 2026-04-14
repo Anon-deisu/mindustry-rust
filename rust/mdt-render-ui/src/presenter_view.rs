@@ -1633,6 +1633,10 @@ pub(crate) fn format_runtime_kick_panel_text(kick: &RuntimeKickPanelModel) -> St
     )
 }
 
+pub(crate) fn format_runtime_kick_row_text(kick: &RuntimeKickPanelModel) -> String {
+    format!("kick:{}", format_runtime_kick_panel_text(kick))
+}
+
 pub(crate) fn format_runtime_kick_detail_text(kick: &RuntimeKickPanelModel) -> String {
     format!(
         "kickd:r{}:o{}:c{}:h{}",
@@ -2181,6 +2185,10 @@ where
 {
     let panel = build_runtime_kick_panel(hud)?;
     formatter(&panel)
+}
+
+pub(crate) fn compose_runtime_kick_row_text_from_hud(hud: &HudModel) -> Option<String> {
+    compose_runtime_kick_text_from_hud(hud, |panel| Some(format_runtime_kick_row_text(panel)))
 }
 
 pub(crate) fn compose_runtime_core_binding_text_from_hud<F>(
