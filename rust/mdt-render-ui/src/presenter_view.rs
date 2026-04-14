@@ -1564,6 +1564,12 @@ pub(crate) fn format_runtime_core_binding_panel_text(
     )
 }
 
+pub(crate) fn format_runtime_core_binding_panel_text_if_nonempty(
+    panel: &RuntimeCoreBindingPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_core_binding_panel_text(panel))
+}
+
 pub(crate) fn format_runtime_core_binding_detail_text(
     panel: &RuntimeCoreBindingPanelModel,
 ) -> String {
@@ -1575,6 +1581,12 @@ pub(crate) fn format_runtime_core_binding_detail_text(
         panel.missing_team_count,
         format_u8_list_text(&panel.missing_team_sample),
     )
+}
+
+pub(crate) fn format_runtime_core_binding_detail_text_if_nonempty(
+    panel: &RuntimeCoreBindingPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_core_binding_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_loading_panel_text(
@@ -2149,7 +2161,10 @@ mod tests {
         format_runtime_world_label_scalar_text,
         format_runtime_world_label_detail_text, format_runtime_world_label_panel_text,
         format_runtime_world_reload_detail_text, format_runtime_world_reload_panel_text,
-        format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
+        format_runtime_core_binding_detail_text,
+        format_runtime_core_binding_detail_text_if_nonempty,
+        format_runtime_core_binding_panel_text,
+        format_runtime_core_binding_panel_text_if_nonempty,
         format_runtime_live_effect_detail_text, format_runtime_live_effect_panel_text,
         format_runtime_live_effect_summary_text,
         format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
@@ -2886,6 +2901,32 @@ mod tests {
     }
 
     #[test]
+    fn format_runtime_core_binding_panel_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeCoreBindingPanelModel {
+            kind: Some(RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation),
+            ambiguous_team_count: 1,
+            ambiguous_team_sample: vec![2, 3],
+            missing_team_count: 4,
+            missing_team_sample: vec![5],
+        };
+
+        assert_eq!(
+            format_runtime_core_binding_panel_text_if_nonempty(&panel),
+            Some("core:first-core-per-team:a1@2,3:m4@5".to_string())
+        );
+        assert_eq!(
+            format_runtime_core_binding_panel_text_if_nonempty(&RuntimeCoreBindingPanelModel {
+                kind: None,
+                ambiguous_team_count: 0,
+                ambiguous_team_sample: vec![],
+                missing_team_count: 0,
+                missing_team_sample: vec![],
+            }),
+            None
+        );
+    }
+
+    #[test]
     fn format_runtime_core_binding_detail_text_preserves_field_order() {
         let panel = RuntimeCoreBindingPanelModel {
             kind: Some(RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation),
@@ -2898,6 +2939,32 @@ mod tests {
         assert_eq!(
             format_runtime_core_binding_detail_text(&panel),
             "cored:first-core-per-team:a1@2,3:m4@5"
+        );
+    }
+
+    #[test]
+    fn format_runtime_core_binding_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeCoreBindingPanelModel {
+            kind: Some(RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation),
+            ambiguous_team_count: 1,
+            ambiguous_team_sample: vec![2, 3],
+            missing_team_count: 4,
+            missing_team_sample: vec![5],
+        };
+
+        assert_eq!(
+            format_runtime_core_binding_detail_text_if_nonempty(&panel),
+            Some("cored:first-core-per-team:a1@2,3:m4@5".to_string())
+        );
+        assert_eq!(
+            format_runtime_core_binding_detail_text_if_nonempty(&RuntimeCoreBindingPanelModel {
+                kind: None,
+                ambiguous_team_count: 0,
+                ambiguous_team_sample: vec![],
+                missing_team_count: 0,
+                missing_team_sample: vec![],
+            }),
+            None
         );
     }
 

@@ -36,7 +36,8 @@ use crate::{
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
-        format_runtime_core_binding_detail_text, format_runtime_core_binding_panel_text,
+        format_runtime_core_binding_detail_text_if_nonempty,
+        format_runtime_core_binding_panel_text_if_nonempty,
         format_runtime_live_effect_detail_text, format_runtime_live_effect_panel_text,
         format_runtime_live_effect_summary_text,
         format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
@@ -2975,18 +2976,12 @@ fn compose_runtime_world_reload_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_core_binding_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_core_binding_panel(hud)?;
-    if panel.is_empty() {
-        return None;
-    }
-    Some(format_runtime_core_binding_panel_text(&panel))
+    format_runtime_core_binding_panel_text_if_nonempty(&panel)
 }
 
 fn compose_runtime_core_binding_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_core_binding_panel(hud)?;
-    if panel.is_empty() {
-        return None;
-    }
-    Some(format_runtime_core_binding_detail_text(&panel))
+    format_runtime_core_binding_detail_text_if_nonempty(&panel)
 }
 
 fn compose_runtime_reconnect_status_text(hud: &HudModel) -> Option<String> {
