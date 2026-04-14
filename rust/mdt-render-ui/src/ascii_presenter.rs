@@ -626,14 +626,18 @@ impl AsciiScenePresenter {
                 "RUNTIME-WORLD-RELOAD-DETAIL: {runtime_world_reload_detail_text}\n"
             ));
         }
-        if let Some(runtime_core_binding_text) = compose_runtime_core_binding_panel_text(hud) {
+        if let Some(runtime_core_binding_text) = compose_runtime_core_binding_text_from_hud(
+            hud,
+            format_runtime_core_binding_panel_text_if_nonempty,
+        ) {
             out.push_str(&format!(
                 "RUNTIME-CORE-BINDING: {runtime_core_binding_text}\n"
             ));
         }
-        if let Some(runtime_core_binding_detail_text) =
-            compose_runtime_core_binding_detail_text(hud)
-        {
+        if let Some(runtime_core_binding_detail_text) = compose_runtime_core_binding_text_from_hud(
+            hud,
+            format_runtime_core_binding_detail_text_if_nonempty,
+        ) {
             out.push_str(&format!(
                 "RUNTIME-CORE-BINDING-DETAIL: {runtime_core_binding_detail_text}\n"
             ));
@@ -1922,14 +1926,6 @@ fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_kick_detail_text(hud: &HudModel) -> Option<String> {
     compose_runtime_kick_text_from_hud(hud, format_runtime_kick_detail_text_if_nonempty)
-}
-
-fn compose_runtime_core_binding_panel_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_core_binding_text_from_hud(hud, format_runtime_core_binding_panel_text_if_nonempty)
-}
-
-fn compose_runtime_core_binding_detail_text(hud: &HudModel) -> Option<String> {
-    compose_runtime_core_binding_text_from_hud(hud, format_runtime_core_binding_detail_text_if_nonempty)
 }
 
 fn compose_runtime_reconnect_row_text(hud: &HudModel) -> Option<String> {
