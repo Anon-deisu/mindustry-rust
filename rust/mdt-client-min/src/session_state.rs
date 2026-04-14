@@ -7184,6 +7184,13 @@ impl SessionState {
         );
     }
 
+    pub fn record_picked_unit_payload(&mut self, projection: &PickedUnitPayloadProjection) {
+        self.received_picked_unit_payload_count =
+            self.received_picked_unit_payload_count.saturating_add(1);
+        self.last_picked_unit_payload = Some(projection.clone());
+        self.record_picked_unit_payload_lifecycle(projection.unit, projection.target);
+    }
+
     pub fn record_destroy_payload(&mut self, projection: &DestroyPayloadProjection) {
         self.received_destroy_payload_count =
             self.received_destroy_payload_count.saturating_add(1);
@@ -15282,6 +15289,47 @@ mod tests {
                 on_ground: Some(true),
                 removed_target_unit: false,
                 removed_target_build: true,
+                removed_carrier: false,
+            })
+        );
+    }
+
+    #[test]
+    fn record_picked_unit_payload_tracks_projection_and_lifecycle() {
+        let mut state = SessionState::default();
+        let carrier = UnitRefProjection { kind: 2, value: 5 };
+        let projection = PickedUnitPayloadProjection {
+            unit: Some(carrier),
+            target: Some(UnitRefProjection { kind: 2, value: 6 }),
+        };
+        state.payload_lifecycle_projection.by_carrier.insert(
+            carrier,
+            PayloadLifecycleCarrierProjection {
+                carrier,
+                target_unit: None,
+                target_build: Some(pack_point2(9, 12)),
+                drop_tile: Some(pack_point2(1, 2)),
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: true,
+                removed_carrier: false,
+            },
+        );
+
+        state.record_picked_unit_payload(&projection);
+
+        assert_eq!(state.received_picked_unit_payload_count, 1);
+        assert_eq!(state.last_picked_unit_payload, Some(projection));
+        assert_eq!(
+            state.payload_lifecycle_projection.by_carrier.get(&carrier),
+            Some(&PayloadLifecycleCarrierProjection {
+                carrier,
+                target_unit: Some(UnitRefProjection { kind: 2, value: 6 }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
                 removed_carrier: false,
             })
         );

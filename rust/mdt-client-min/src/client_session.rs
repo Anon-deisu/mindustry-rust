@@ -5241,13 +5241,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.picked_unit_payload_packet_id => {
                 if let Some(projection) = decode_picked_unit_payload(&packet.payload) {
-                    self.state.received_picked_unit_payload_count = self
-                        .state
-                        .received_picked_unit_payload_count
-                        .saturating_add(1);
-                    self.state.last_picked_unit_payload = Some(projection.clone());
-                    self.state
-                        .record_picked_unit_payload_lifecycle(projection.unit, projection.target);
+                    self.state.record_picked_unit_payload(&projection);
                     Ok(ClientSessionEvent::PickedUnitPayload { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
