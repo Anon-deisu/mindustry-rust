@@ -10,7 +10,7 @@ use crate::{
         build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
         build_runtime_menu_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
-        build_runtime_rules_panel, build_runtime_session_panel,
+        build_runtime_rules_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         MinimapPanelModel, PresenterViewWindow,
     },
@@ -60,7 +60,7 @@ use crate::{
         compose_runtime_core_binding_text_from_hud, compose_runtime_kick_text_from_hud,
         compose_runtime_live_effect_text_from_hud, compose_runtime_live_entity_text_from_hud,
         compose_runtime_loading_text_from_hud, compose_runtime_marker_text_from_hud,
-        compose_runtime_world_label_text_from_hud,
+        compose_runtime_resource_delta_text_from_hud, compose_runtime_world_label_text_from_hud,
         compose_runtime_reconnect_text_from_hud, compose_runtime_session_text_from_hud,
         format_runtime_session_banner_text, format_runtime_session_detail_text_if_nonempty,
         format_runtime_session_panel_text_if_nonempty,
@@ -2794,13 +2794,17 @@ fn compose_runtime_bootstrap_detail_status_text(hud: &HudModel) -> Option<String
 }
 
 fn compose_runtime_resource_delta_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_session_panel(hud)?;
-    format_runtime_resource_delta_panel_text_if_nonempty(&panel.resource_delta)
+    compose_runtime_resource_delta_text_from_hud(
+        hud,
+        format_runtime_resource_delta_panel_text_if_nonempty,
+    )
 }
 
 fn compose_runtime_resource_delta_detail_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_session_panel(hud)?;
-    format_runtime_resource_delta_detail_text_if_nonempty(&panel.resource_delta)
+    compose_runtime_resource_delta_text_from_hud(
+        hud,
+        format_runtime_resource_delta_detail_text_if_nonempty,
+    )
 }
 
 fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {

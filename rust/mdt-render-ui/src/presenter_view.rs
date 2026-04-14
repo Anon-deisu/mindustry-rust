@@ -2034,6 +2034,17 @@ where
     formatter(&panel)
 }
 
+pub(crate) fn compose_runtime_resource_delta_text_from_hud<F>(
+    hud: &HudModel,
+    formatter: F,
+) -> Option<String>
+where
+    F: FnOnce(&RuntimeResourceDeltaPanelModel) -> Option<String>,
+{
+    let panel = build_runtime_session_panel(hud)?;
+    formatter(&panel.resource_delta)
+}
+
 pub(crate) fn compose_runtime_loading_text_from_hud<F>(
     hud: &HudModel,
     formatter: F,
