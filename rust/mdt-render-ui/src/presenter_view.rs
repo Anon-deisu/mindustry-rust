@@ -7,7 +7,7 @@ use crate::{
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
         RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind, RuntimeDialogPanelModel,
         RuntimeDialogPromptKind, RuntimeDialogStackPanelModel, RuntimeKickPanelModel,
-        RuntimeLoadingPanelModel, RuntimeLiveEffectPanelModel,
+        RuntimeBootstrapPanelModel, RuntimeLoadingPanelModel, RuntimeLiveEffectPanelModel,
         RuntimeLiveEntityPanelModel,
         RuntimeMarkerPanelModel, RuntimeNoticeStatePanelModel, RuntimePromptPanelModel,
         RuntimeReconnectPanelModel, RuntimeResourceDeltaPanelModel,
@@ -1306,6 +1306,18 @@ pub(crate) fn format_runtime_chat_detail_text_if_nonempty(
     (!panel.is_empty()).then(|| format_runtime_chat_detail_text(panel))
 }
 
+pub(crate) fn format_runtime_bootstrap_summary_text_if_nonempty(
+    panel: &RuntimeBootstrapPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| panel.summary_label())
+}
+
+pub(crate) fn format_runtime_bootstrap_detail_text_if_nonempty(
+    panel: &RuntimeBootstrapPanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| panel.detail_label())
+}
+
 pub(crate) fn format_runtime_admin_panel_text(panel: &RuntimeAdminPanelModel) -> String {
     format!(
         "admin:t{}@{}:f{}:dbg{}/{}@{}:f{}",
@@ -2307,6 +2319,8 @@ mod tests {
         format_runtime_prompt_panel_text, format_runtime_prompt_panel_text_if_nonempty,
         format_runtime_chat_detail_text, format_runtime_chat_detail_text_if_nonempty,
         format_runtime_chat_panel_text,
+        format_runtime_bootstrap_detail_text_if_nonempty,
+        format_runtime_bootstrap_summary_text_if_nonempty,
         format_runtime_admin_detail_text, format_runtime_admin_detail_text_if_nonempty,
         format_runtime_admin_panel_text,
         format_optional_i16_text, format_optional_u8_text, format_optional_bool_flag,
@@ -4362,6 +4376,60 @@ mod tests {
                 last_chat_unformatted: None,
                 last_chat_sender_entity_id: None,
             }),
+            None
+        );
+    }
+
+    #[test]
+    fn format_runtime_bootstrap_summary_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeBootstrapPanelModel {
+            rules_label: "rules".to_string(),
+            tags_label: "tags".to_string(),
+            locales_label: "loc".to_string(),
+            team_count: 1,
+            marker_count: 2,
+            custom_chunk_count: 3,
+            content_patch_count: 4,
+            player_team_plan_count: 5,
+            static_fog_team_count: 6,
+        };
+
+        assert_eq!(
+            format_runtime_bootstrap_summary_text_if_nonempty(&panel),
+            Some(
+                "rules=rules:tags=tags:locales=loc:teams=1:markers=2:chunks=3:patches=4:plans=5:fog=6"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            format_runtime_bootstrap_summary_text_if_nonempty(&RuntimeBootstrapPanelModel::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn format_runtime_bootstrap_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeBootstrapPanelModel {
+            rules_label: "rules".to_string(),
+            tags_label: "tags".to_string(),
+            locales_label: "loc".to_string(),
+            team_count: 1,
+            marker_count: 2,
+            custom_chunk_count: 3,
+            content_patch_count: 4,
+            player_team_plan_count: 5,
+            static_fog_team_count: 6,
+        };
+
+        assert_eq!(
+            format_runtime_bootstrap_detail_text_if_nonempty(&panel),
+            Some(
+                "rules-label=rules:tags-label=tags:locales-label=loc:team-count=1:marker-count=2:custom-chunk-count=3:content-patch-count=4:player-team-plan-count=5:static-fog-team-count=6"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            format_runtime_bootstrap_detail_text_if_nonempty(&RuntimeBootstrapPanelModel::default()),
             None
         );
     }
