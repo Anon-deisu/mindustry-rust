@@ -1636,7 +1636,7 @@ fn compose_render_icon_detail_text(
                 y,
                 ..
             } => {
-                let payload = primitive.payload()?;
+                let payload = primitive.icon_payload()?;
                 let (tile_x, tile_y) = finite_world_tile(*x, *y)?;
                 if tile_local_coords(tile_x, tile_y, window).is_none() {
                     return None;

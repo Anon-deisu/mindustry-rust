@@ -371,6 +371,13 @@ impl RenderPrimitive {
         }
     }
 
+    pub fn icon_payload(&self) -> Option<RenderPrimitivePayload> {
+        match self {
+            Self::Icon { id, .. } => render_icon_payload(id).map(ParsedRenderIconPayload::finish),
+            _ => None,
+        }
+    }
+
     pub fn layer(&self) -> i32 {
         match self {
             Self::Line { layer, .. }
@@ -397,7 +404,7 @@ impl RenderPrimitive {
                 line_ids,
                 ..
             } => render_rect_payload(id, family, line_ids),
-            Self::Icon { id, .. } => render_icon_payload(id).map(ParsedRenderIconPayload::finish),
+            Self::Icon { .. } => self.icon_payload(),
         }
     }
 }
@@ -2047,6 +2054,40 @@ mod tests {
             icon_payload.field("pay_rotation_bits"),
             Some(&RenderPrimitivePayloadValue::U32(0x40800000))
         );
+    }
+
+    #[test]
+    fn render_icon_primitives_expose_typed_payloads_without_fallback() {
+        let icon = RenderPrimitive::Icon {
+            id: "marker:runtime-health:4:5".to_string(),
+            family: RenderIconPrimitiveFamily::RuntimeHealth,
+            variant: "health".to_string(),
+            layer: 1,
+            x: 32.0,
+            y: 40.0,
+        };
+
+        let payload = icon.icon_payload().expect("icon payload");
+        assert_eq!(payload.label, "runtime-health");
+        assert_eq!(
+            payload.field("tile_x"),
+            Some(&RenderPrimitivePayloadValue::I32(4))
+        );
+        assert_eq!(
+            payload.field("tile_y"),
+            Some(&RenderPrimitivePayloadValue::I32(5))
+        );
+        assert_eq!(icon.payload(), Some(payload));
+
+        let text = RenderPrimitive::Text {
+            id: "marker:text:1:text:61".to_string(),
+            kind: RenderObjectSemanticKind::MarkerText,
+            layer: 1,
+            x: 0.0,
+            y: 0.0,
+            text: "a".to_string(),
+        };
+        assert_eq!(text.icon_payload(), None);
     }
 
     #[test]
