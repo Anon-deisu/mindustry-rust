@@ -278,8 +278,8 @@ impl AsciiScenePresenter {
         if let Some(visibility_minimap_text) = compose_visibility_minimap_text(scene, hud, window) {
             out.push_str(&format!("VIS-MINIMAP: {visibility_minimap_text}\n"));
         }
-        if let Some(minimap_visibility_detail_text) =
-            compose_minimap_visibility_detail_text(scene, hud, window)
+        if let Some(minimap_visibility_detail_text) = build_minimap_panel(scene, hud, window)
+            .map(|minimap| format_minimap_visibility_detail_text(&minimap))
         {
             out.push_str(&format!(
                 "MINIMAP-VIS-DETAIL: {minimap_visibility_detail_text}\n"
@@ -303,12 +303,34 @@ impl AsciiScenePresenter {
                 "MINIMAP-KINDS-DETAIL: {minimap_kinds_detail_text}\n"
             ));
         }
-        if let Some(minimap_window_kinds_text) = compose_minimap_window_kind_line(scene, hud) {
+        if let Some(minimap_window_kinds_text) = build_minimap_panel(
+            scene,
+            hud,
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 0,
+                height: 0,
+            },
+        )
+        .map(|panel| compose_minimap_window_kind_distribution_text(&panel))
+        {
             out.push_str(&format!(
                 "MINIWIN-KINDS: {minimap_window_kinds_text}\n"
             ));
         }
-        if let Some(minimap_window_text) = compose_minimap_window_line(scene, hud) {
+        if let Some(minimap_window_text) = build_minimap_panel(
+            scene,
+            hud,
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 0,
+                height: 0,
+            },
+        )
+        .map(|panel| compose_minimap_window_distribution_text(&panel))
+        {
             out.push_str(&format!("MINIWIN: {minimap_window_text}\n"));
         }
         if let Some(minimap_legend_text) = compose_minimap_legend_line(hud) {
@@ -317,14 +339,17 @@ impl AsciiScenePresenter {
         if let Some(minimap_edge_text) = compose_minimap_edge_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-EDGE: {minimap_edge_text}\n"));
         }
-        if let Some(minimap_edge_detail_text) = compose_minimap_edge_detail_line(scene, hud, window)
+        if let Some(minimap_edge_detail_text) = build_minimap_panel(scene, hud, window)
+            .map(|panel| format_minimap_edge_detail_text(&panel))
         {
             out.push_str(&format!(
                 "MINIMAP-EDGE-DETAIL: {minimap_edge_detail_text}\n"
             ));
         }
-        for minimap_detail_text in compose_minimap_detail_lines(scene, hud, window) {
-            out.push_str(&format!("MINIMAP-DETAIL: {minimap_detail_text}\n"));
+        if let Some(panel) = build_minimap_panel(scene, hud, window) {
+            for minimap_detail_text in format_minimap_detail_lines(&panel) {
+                out.push_str(&format!("MINIMAP-DETAIL: {minimap_detail_text}\n"));
+            }
         }
         if let Some(render_pipeline_text) = compose_render_pipeline_text(scene, window) {
             out.push_str(&format!("RENDER-PIPELINE: {render_pipeline_text}\n"));
@@ -1990,15 +2015,6 @@ fn compose_minimap_flow_line(
     ))
 }
 
-fn compose_minimap_visibility_detail_text(
-    scene: &RenderModel,
-    hud: &HudModel,
-    window: PresenterViewWindow,
-) -> Option<String> {
-    let minimap = build_minimap_panel(scene, hud, window)?;
-    Some(format_minimap_visibility_detail_text(&minimap))
-}
-
 fn compose_minimap_edge_line(
     scene: &RenderModel,
     hud: &HudModel,
@@ -2006,15 +2022,6 @@ fn compose_minimap_edge_line(
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(compose_minimap_edge_summary_text(&panel))
-}
-
-fn compose_minimap_edge_detail_line(
-    scene: &RenderModel,
-    hud: &HudModel,
-    window: PresenterViewWindow,
-) -> Option<String> {
-    let panel = build_minimap_panel(scene, hud, window)?;
-    Some(format_minimap_edge_detail_text(&panel))
 }
 
 fn compose_minimap_edge_summary_text(panel: &MinimapPanelModel) -> String {
@@ -2079,45 +2086,6 @@ fn compose_minimap_kind_detail_line(scene: &RenderModel, hud: &HudModel) -> Opti
         },
     )?;
     format_semantic_detail_text(&panel.detail_counts)
-}
-
-fn compose_minimap_window_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<String> {
-    let panel = build_minimap_panel(
-        scene,
-        hud,
-        PresenterViewWindow {
-            origin_x: 0,
-            origin_y: 0,
-            width: 0,
-            height: 0,
-        },
-    )?;
-    Some(compose_minimap_window_kind_distribution_text(&panel))
-}
-
-fn compose_minimap_window_line(scene: &RenderModel, hud: &HudModel) -> Option<String> {
-    let panel = build_minimap_panel(
-        scene,
-        hud,
-        PresenterViewWindow {
-            origin_x: 0,
-            origin_y: 0,
-            width: 0,
-            height: 0,
-        },
-    )?;
-    Some(compose_minimap_window_distribution_text(&panel))
-}
-
-fn compose_minimap_detail_lines(
-    scene: &RenderModel,
-    hud: &HudModel,
-    window: PresenterViewWindow,
-) -> Vec<String> {
-    let Some(panel) = build_minimap_panel(scene, hud, window) else {
-        return Vec::new();
-    };
-    format_minimap_detail_lines(&panel)
 }
 
 fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {
