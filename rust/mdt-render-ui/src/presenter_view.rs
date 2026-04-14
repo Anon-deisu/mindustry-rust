@@ -290,6 +290,14 @@ fn format_build_queue_stage_text(stage: BuildQueueHeadStage, pending_count: usiz
     format!("{stage_text}@{pending_count}")
 }
 
+pub(crate) fn format_build_config_alignment_text(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "match",
+        Some(false) => "split",
+        None => "none",
+    }
+}
+
 pub(crate) fn compose_minimap_window_distribution_text(panel: &MinimapPanelModel) -> String {
     format_minimap_window_counts_text("miniwin:", ":", panel)
 }
@@ -2035,6 +2043,7 @@ mod tests {
     use super::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         crop_origin, crop_window, crop_window_to_focus, format_build_strip_queue_status_text,
+        format_build_config_alignment_text,
         format_counted_detail_text, format_counted_preview_text,
         format_minimap_detail_lines, format_minimap_edge_detail_text,
         format_hud_visibility_detail_text, format_minimap_kind_text,
@@ -4272,6 +4281,13 @@ mod tests {
             compose_minimap_window_distribution_text(&panel),
             "miniwin:tracked=12:outside=5:player=1:marker=2:plan=3:block=4:runtime=5:terrain=6:unknown=7"
         );
+    }
+
+    #[test]
+    fn format_build_config_alignment_text_handles_all_variants() {
+        assert_eq!(format_build_config_alignment_text(Some(true)), "match");
+        assert_eq!(format_build_config_alignment_text(Some(false)), "split");
+        assert_eq!(format_build_config_alignment_text(None), "none");
     }
 
     #[test]

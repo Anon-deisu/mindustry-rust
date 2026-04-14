@@ -18,6 +18,7 @@ use crate::presenter_view::{
     crop_window, render_line_is_visible, render_rect_detail_is_visible, visible_window_tile,
     world_rect_tile_coords, world_tile_coords, tile_local_coords,
     compact_runtime_ui_text,
+    format_build_config_alignment_text,
     format_minimap_detail_lines, format_minimap_edge_detail_text,
     format_hud_visibility_detail_text, format_minimap_kind_text, format_minimap_legend_text,
     format_optional_focus_tile_text, format_optional_signed_tile_text,
@@ -2447,7 +2448,7 @@ fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
         panel.removed_count,
         panel.orphan_authoritative_count,
         build_config_head_text(panel.head.as_ref()),
-        build_config_alignment_text(panel.selected_matches_head),
+        format_build_config_alignment_text(panel.selected_matches_head),
         authority_text,
         pending_match_text,
         authority_source_text,
@@ -2983,14 +2984,6 @@ fn build_config_outcome_compact_text(
         Some(crate::BuildConfigOutcomeObservability::RejectedUnsupportedConfigType) => {
             "rej-unsupported-cfg"
         }
-        None => "none",
-    }
-}
-
-fn build_config_alignment_text(value: Option<bool>) -> &'static str {
-    match value {
-        Some(true) => "match",
-        Some(false) => "split",
         None => "none",
     }
 }
