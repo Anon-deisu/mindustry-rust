@@ -35,6 +35,8 @@ use crate::{
         format_runtime_command_group_lines, format_runtime_command_mode_detail_text,
         format_runtime_command_mode_panel_text,
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
+        format_runtime_choice_panel_text_if_nonempty,
+        format_runtime_choice_detail_text_if_nonempty,
         format_runtime_dialog_stack_summary_text_if_nonempty,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_core_binding_detail_text_if_nonempty,
@@ -2713,32 +2715,12 @@ fn compose_runtime_menu_detail_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_choice_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_choice_panel(hud)?;
-    if panel.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "choice:mc{}@{}/{}:tir{}@{}/{}",
-        panel.menu_choose_count,
-        optional_i32_label(panel.last_menu_choose_menu_id),
-        optional_i32_label(panel.last_menu_choose_option),
-        panel.text_input_result_count,
-        optional_i32_label(panel.last_text_input_result_id),
-        compact_runtime_ui_text(panel.last_text_input_result_text.as_deref()),
-    ))
+    format_runtime_choice_panel_text_if_nonempty(&panel)
 }
 
 fn compose_runtime_choice_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_choice_panel(hud)?;
-    if panel.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "choiced:mid{}:opt{}:rid{}:rlen{}",
-        optional_i32_label(panel.last_menu_choose_menu_id),
-        optional_i32_label(panel.last_menu_choose_option),
-        optional_i32_label(panel.last_text_input_result_id),
-        panel.text_input_result_len(),
-    ))
+    format_runtime_choice_detail_text_if_nonempty(&panel)
 }
 
 fn compose_runtime_prompt_panel_status_text(hud: &HudModel) -> Option<String> {

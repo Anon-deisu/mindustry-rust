@@ -4,6 +4,7 @@ use crate::{
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_session_panel, HudVisibilityPanelModel, MinimapPanelModel,
         PresenterViewWindow, RuntimeAdminPanelModel, RuntimeChatPanelModel,
+        RuntimeChoicePanelModel,
         RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
         RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind, RuntimeDialogPanelModel,
         RuntimeDialogPromptKind, RuntimeDialogStackPanelModel, RuntimeKickPanelModel,
@@ -1318,6 +1319,40 @@ pub(crate) fn format_runtime_bootstrap_detail_text_if_nonempty(
     (!panel.is_empty()).then(|| panel.detail_label())
 }
 
+pub(crate) fn format_runtime_choice_panel_text(panel: &RuntimeChoicePanelModel) -> String {
+    format!(
+        "choice:mc{}@{}/{}:tir{}@{}/{}",
+        panel.menu_choose_count,
+        format_optional_i32_text(panel.last_menu_choose_menu_id),
+        format_optional_i32_text(panel.last_menu_choose_option),
+        panel.text_input_result_count,
+        format_optional_i32_text(panel.last_text_input_result_id),
+        compact_runtime_ui_text(panel.last_text_input_result_text.as_deref()),
+    )
+}
+
+pub(crate) fn format_runtime_choice_panel_text_if_nonempty(
+    panel: &RuntimeChoicePanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_choice_panel_text(panel))
+}
+
+pub(crate) fn format_runtime_choice_detail_text(panel: &RuntimeChoicePanelModel) -> String {
+    format!(
+        "choiced:mid{}:opt{}:rid{}:rlen{}",
+        format_optional_i32_text(panel.last_menu_choose_menu_id),
+        format_optional_i32_text(panel.last_menu_choose_option),
+        format_optional_i32_text(panel.last_text_input_result_id),
+        panel.text_input_result_len(),
+    )
+}
+
+pub(crate) fn format_runtime_choice_detail_text_if_nonempty(
+    panel: &RuntimeChoicePanelModel,
+) -> Option<String> {
+    (!panel.is_empty()).then(|| format_runtime_choice_detail_text(panel))
+}
+
 pub(crate) fn format_runtime_rules_panel_text(panel: &RuntimeRulesPanelModel) -> String {
     format!(
         "rules:mut{}:fail{}:wv{}:pvp{}:obj{}:q{}:par{}:fg{}:oor{}:last{}",
@@ -2320,6 +2355,8 @@ mod tests {
         format_runtime_dialog_stack_summary_text,
         format_runtime_dialog_detail_text, format_runtime_dialog_panel_text,
         format_runtime_dialog_notice_text, format_runtime_dialog_prompt_text,
+        format_runtime_choice_panel_text, format_runtime_choice_panel_text_if_nonempty,
+        format_runtime_choice_detail_text, format_runtime_choice_detail_text_if_nonempty,
         format_runtime_rules_panel_text,
         format_runtime_rules_detail_text, format_runtime_rules_detail_text_if_nonempty,
         format_runtime_world_label_sample_text,
@@ -2383,6 +2420,7 @@ mod tests {
             HudVisibilityPanelModel,
             MinimapPanelModel, PresenterViewWindow, RuntimeAdminPanelModel,
             RuntimeChatPanelModel,
+            RuntimeChoicePanelModel,
             RuntimeCommandControlGroupPanelModel, RuntimeCommandModePanelModel,
             RuntimeCoreBindingPanelModel,
             RuntimeDialogNoticeKind, RuntimeDialogPanelModel, RuntimeDialogPromptKind,
@@ -4465,6 +4503,96 @@ mod tests {
         );
         assert_eq!(
             format_runtime_bootstrap_detail_text_if_nonempty(&RuntimeBootstrapPanelModel::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn format_runtime_choice_panel_text_preserves_field_order() {
+        let panel = RuntimeChoicePanelModel {
+            menu_choose_count: 29,
+            last_menu_choose_menu_id: Some(404),
+            last_menu_choose_option: Some(2),
+            text_input_result_count: 30,
+            last_text_input_result_id: Some(405),
+            last_text_input_result_text: Some("ok123".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_choice_panel_text(&panel),
+            "choice:mc29@404/2:tir30@405/ok123"
+        );
+    }
+
+    #[test]
+    fn format_runtime_choice_panel_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeChoicePanelModel {
+            menu_choose_count: 29,
+            last_menu_choose_menu_id: Some(404),
+            last_menu_choose_option: Some(2),
+            text_input_result_count: 30,
+            last_text_input_result_id: Some(405),
+            last_text_input_result_text: Some("ok123".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_choice_panel_text_if_nonempty(&panel),
+            Some("choice:mc29@404/2:tir30@405/ok123".to_string())
+        );
+        assert_eq!(
+            format_runtime_choice_panel_text_if_nonempty(&RuntimeChoicePanelModel {
+                menu_choose_count: 0,
+                last_menu_choose_menu_id: None,
+                last_menu_choose_option: None,
+                text_input_result_count: 0,
+                last_text_input_result_id: None,
+                last_text_input_result_text: None,
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn format_runtime_choice_detail_text_preserves_field_order() {
+        let panel = RuntimeChoicePanelModel {
+            menu_choose_count: 29,
+            last_menu_choose_menu_id: Some(404),
+            last_menu_choose_option: Some(2),
+            text_input_result_count: 30,
+            last_text_input_result_id: Some(405),
+            last_text_input_result_text: Some("ok123".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_choice_detail_text(&panel),
+            "choiced:mid404:opt2:rid405:rlen5"
+        );
+    }
+
+    #[test]
+    fn format_runtime_choice_detail_text_if_nonempty_handles_empty_and_nonempty() {
+        let panel = RuntimeChoicePanelModel {
+            menu_choose_count: 29,
+            last_menu_choose_menu_id: Some(404),
+            last_menu_choose_option: Some(2),
+            text_input_result_count: 30,
+            last_text_input_result_id: Some(405),
+            last_text_input_result_text: Some("ok123".to_string()),
+        };
+
+        assert_eq!(
+            format_runtime_choice_detail_text_if_nonempty(&panel),
+            Some("choiced:mid404:opt2:rid405:rlen5".to_string())
+        );
+        assert_eq!(
+            format_runtime_choice_detail_text_if_nonempty(&RuntimeChoicePanelModel {
+                menu_choose_count: 0,
+                last_menu_choose_menu_id: None,
+                last_menu_choose_option: None,
+                text_input_result_count: 0,
+                last_text_input_result_id: None,
+                last_text_input_result_text: None,
+            }),
             None
         );
     }
