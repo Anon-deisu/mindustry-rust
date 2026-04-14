@@ -7162,6 +7162,13 @@ impl SessionState {
         self.objectives_projection.complete_by_index(index);
     }
 
+    pub fn record_destroy_payload(&mut self, projection: &DestroyPayloadProjection) {
+        self.received_destroy_payload_count =
+            self.received_destroy_payload_count.saturating_add(1);
+        self.last_destroy_payload = Some(projection.clone());
+        self.record_destroy_payload_lifecycle(projection.build_pos);
+    }
+
     pub fn record_finish_connecting(&mut self, projection: FinishConnectingProjection) {
         self.finish_connecting_commit_count = self.finish_connecting_commit_count.saturating_add(1);
         self.last_finish_connecting = Some(projection);
@@ -15161,6 +15168,64 @@ mod tests {
                     kind: 2,
                     value: 202,
                 }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+    }
+
+    #[test]
+    fn record_destroy_payload_tracks_projection_and_lifecycle() {
+        let mut state = SessionState::default();
+        let build_pos = pack_point2(4, 4);
+        let projection = DestroyPayloadProjection {
+            build_pos: Some(build_pos),
+        };
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 1,
+                value: build_pos,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 202,
+                }),
+                target_build: None,
+                drop_tile: Some(pack_point2(6, 6)),
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+
+        state.record_destroy_payload(&projection);
+
+        assert_eq!(state.received_destroy_payload_count, 1);
+        assert_eq!(state.last_destroy_payload, Some(projection));
+        assert_eq!(
+            state
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                }),
+            Some(&PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                },
+                target_unit: None,
                 target_build: None,
                 drop_tile: None,
                 on_ground: Some(false),

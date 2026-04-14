@@ -5222,11 +5222,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.destroy_payload_packet_id => {
                 if let Some(projection) = decode_destroy_payload_payload(&packet.payload) {
-                    self.state.received_destroy_payload_count =
-                        self.state.received_destroy_payload_count.saturating_add(1);
-                    self.state.last_destroy_payload = Some(projection.clone());
-                    self.state
-                        .record_destroy_payload_lifecycle(projection.build_pos);
+                    self.state.record_destroy_payload(&projection);
                     Ok(ClientSessionEvent::DestroyPayload { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
