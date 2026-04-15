@@ -5123,11 +5123,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.transfer_item_to_packet_id => {
                 if let Some(projection) = decode_transfer_item_to_payload(&packet.payload) {
-                    self.state.received_transfer_item_to_count =
-                        self.state.received_transfer_item_to_count.saturating_add(1);
-                    self.state.last_transfer_item_to = Some(projection.clone());
-                    self.state
-                        .record_transfer_item_to_resource_delta(&projection);
+                    self.state.record_transfer_item_to(&projection);
                     if let Some(build_pos) = projection.build_pos {
                         self.state
                             .refresh_runtime_typed_building_from_tables(build_pos);
@@ -5151,13 +5147,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.transfer_item_to_unit_packet_id => {
                 if let Some(projection) = decode_transfer_item_to_unit_payload(&packet.payload) {
-                    self.state.received_transfer_item_to_unit_count = self
-                        .state
-                        .received_transfer_item_to_unit_count
-                        .saturating_add(1);
-                    self.state.last_transfer_item_to_unit = Some(projection.clone());
-                    self.state
-                        .record_transfer_item_to_unit_resource_delta(&projection);
+                    self.state.record_transfer_item_to_unit(&projection);
                     if let Some(entity_id) = projection.to_entity_id {
                         self.state
                             .refresh_runtime_typed_entity_from_tables(entity_id);

@@ -7225,6 +7225,20 @@ impl SessionState {
         self.last_info_popup_right = Some(right);
     }
 
+    pub fn record_transfer_item_to(&mut self, projection: &TransferItemToProjection) {
+        self.received_transfer_item_to_count =
+            self.received_transfer_item_to_count.saturating_add(1);
+        self.last_transfer_item_to = Some(projection.clone());
+        self.record_transfer_item_to_resource_delta(projection);
+    }
+
+    pub fn record_transfer_item_to_unit(&mut self, projection: &TransferItemToUnitProjection) {
+        self.received_transfer_item_to_unit_count =
+            self.received_transfer_item_to_unit_count.saturating_add(1);
+        self.last_transfer_item_to_unit = Some(projection.clone());
+        self.record_transfer_item_to_unit_resource_delta(projection);
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15400,6 +15414,67 @@ mod tests {
         assert_eq!(state.last_info_popup_left, Some(9));
         assert_eq!(state.last_info_popup_bottom, Some(10));
         assert_eq!(state.last_info_popup_right, Some(11));
+    }
+
+    #[test]
+    fn record_transfer_item_to_tracks_projection_and_resource_delta() {
+        let mut state = SessionState::default();
+        let projection = TransferItemToProjection {
+            unit: Some(UnitRefProjection {
+                kind: 2,
+                value: 1234,
+            }),
+            item_id: Some(6),
+            amount: 7,
+            x_bits: 18.5f32.to_bits(),
+            y_bits: (-3.25f32).to_bits(),
+            build_pos: Some(pack_point2(4, 5)),
+        };
+
+        state.record_transfer_item_to(&projection);
+
+        assert_eq!(state.received_transfer_item_to_count, 1);
+        assert_eq!(state.last_transfer_item_to, Some(projection.clone()));
+        assert_eq!(state.resource_delta_projection.transfer_item_to_count, 1);
+        assert_eq!(state.resource_delta_projection.last_kind, Some("to_build"));
+        assert_eq!(state.resource_delta_projection.last_item_id, projection.item_id);
+        assert_eq!(state.resource_delta_projection.last_amount, Some(projection.amount));
+        assert_eq!(
+            state.resource_delta_projection.last_build_pos,
+            projection.build_pos
+        );
+        assert_eq!(state.resource_delta_projection.last_unit, projection.unit);
+        assert_eq!(state.resource_delta_projection.last_to_entity_id, None);
+        assert_eq!(state.resource_delta_projection.last_x_bits, Some(projection.x_bits));
+        assert_eq!(state.resource_delta_projection.last_y_bits, Some(projection.y_bits));
+    }
+
+    #[test]
+    fn record_transfer_item_to_unit_tracks_projection_and_resource_delta() {
+        let mut state = SessionState::default();
+        let projection = TransferItemToUnitProjection {
+            item_id: Some(15),
+            x_bits: 3.25f32.to_bits(),
+            y_bits: 4.5f32.to_bits(),
+            to_entity_id: Some(1234),
+        };
+
+        state.record_transfer_item_to_unit(&projection);
+
+        assert_eq!(state.received_transfer_item_to_unit_count, 1);
+        assert_eq!(state.last_transfer_item_to_unit, Some(projection.clone()));
+        assert_eq!(state.resource_delta_projection.transfer_item_to_unit_count, 1);
+        assert_eq!(state.resource_delta_projection.last_kind, Some("to_unit"));
+        assert_eq!(state.resource_delta_projection.last_item_id, projection.item_id);
+        assert_eq!(state.resource_delta_projection.last_amount, None);
+        assert_eq!(state.resource_delta_projection.last_build_pos, None);
+        assert_eq!(state.resource_delta_projection.last_unit, None);
+        assert_eq!(
+            state.resource_delta_projection.last_to_entity_id,
+            projection.to_entity_id
+        );
+        assert_eq!(state.resource_delta_projection.last_x_bits, Some(projection.x_bits));
+        assert_eq!(state.resource_delta_projection.last_y_bits, Some(projection.y_bits));
     }
 
     #[test]
