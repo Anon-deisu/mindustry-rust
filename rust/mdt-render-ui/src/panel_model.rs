@@ -6041,6 +6041,31 @@ mod tests {
     }
 
     #[test]
+    fn runtime_ui_stack_foreground_label_maps_all_kinds_and_none() {
+        assert_eq!(
+            super::runtime_ui_stack_foreground_label(Some(RuntimeUiStackForegroundKind::Menu)),
+            "menu"
+        );
+        assert_eq!(
+            super::runtime_ui_stack_foreground_label(Some(
+                RuntimeUiStackForegroundKind::FollowUpMenu,
+            )),
+            "follow-up"
+        );
+        assert_eq!(
+            super::runtime_ui_stack_foreground_label(Some(
+                RuntimeUiStackForegroundKind::TextInput,
+            )),
+            "input"
+        );
+        assert_eq!(
+            super::runtime_ui_stack_foreground_label(Some(RuntimeUiStackForegroundKind::Chat)),
+            "chat"
+        );
+        assert_eq!(super::runtime_ui_stack_foreground_label(None), "none");
+    }
+
+    #[test]
     fn compact_panel_text_handles_none_empty_separator_and_truncation() {
         assert_eq!(compact_panel_text(None), "none");
         assert_eq!(compact_panel_text(Some("")), "-");
