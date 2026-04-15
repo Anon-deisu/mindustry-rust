@@ -3189,6 +3189,7 @@ mod tests {
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, build_runtime_world_reload_panel_model,
         build_config_authority_source_label, build_config_pending_match_label,
+        compact_panel_text,
         BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
         BuildInteractionSelectionState, BuildMinimapAssistPanelModel, PresenterViewWindow,
         RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
@@ -6037,5 +6038,13 @@ mod tests {
 
         assert_eq!(world_position_text(Some(&position)), "12.3:56.8");
         assert_eq!(world_position_text(None), "none");
+    }
+
+    #[test]
+    fn compact_panel_text_handles_none_empty_separator_and_truncation() {
+        assert_eq!(compact_panel_text(None), "none");
+        assert_eq!(compact_panel_text(Some("")), "-");
+        assert_eq!(compact_panel_text(Some("a:b c\td\re\nf")), "a_b_c_d_e_f");
+        assert_eq!(compact_panel_text(Some("1234567890123")), "123456789012~");
     }
 }
