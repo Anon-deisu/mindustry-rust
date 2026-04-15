@@ -5564,9 +5564,8 @@ impl ClientSession {
                     );
                     Ok(event)
                 } else {
-                    self.state.failed_trace_info_parse_count =
-                        self.state.failed_trace_info_parse_count.saturating_add(1);
-                    self.state.last_trace_info_parse_error_payload_len = Some(packet.payload.len());
+                    self.state
+                        .record_trace_info_parse_failure(packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),

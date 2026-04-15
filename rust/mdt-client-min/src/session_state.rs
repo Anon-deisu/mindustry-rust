@@ -7747,6 +7747,11 @@ impl SessionState {
         self.last_trace_info_parse_error_payload_len = None;
     }
 
+    pub fn record_trace_info_parse_failure(&mut self, payload_len: usize) {
+        self.failed_trace_info_parse_count = self.failed_trace_info_parse_count.saturating_add(1);
+        self.last_trace_info_parse_error_payload_len = Some(payload_len);
+    }
+
     pub fn record_debug_status(
         &mut self,
         reliable: bool,
@@ -16875,6 +16880,16 @@ mod tests {
             Some(vec!["alice".to_string(), "bob".to_string()])
         );
         assert_eq!(state.last_trace_info_parse_error_payload_len, None);
+    }
+
+    #[test]
+    fn record_trace_info_parse_failure_tracks_payload_len() {
+        let mut state = SessionState::default();
+
+        state.record_trace_info_parse_failure(12);
+
+        assert_eq!(state.failed_trace_info_parse_count, 1);
+        assert_eq!(state.last_trace_info_parse_error_payload_len, Some(12));
     }
 
     #[test]
