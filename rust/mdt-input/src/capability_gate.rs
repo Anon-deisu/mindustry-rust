@@ -744,4 +744,11 @@ mod tests {
             CapabilityDecision::allowed()
         );
     }
+
+    #[test]
+    fn optional_u8_label_formats_none_and_numeric_values() {
+        assert_eq!(optional_u8_label(None), "none");
+        assert_eq!(optional_u8_label(Some(0)), "0");
+        assert_eq!(optional_u8_label(Some(255)), "255");
+    }
 }
