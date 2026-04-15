@@ -558,6 +558,29 @@ mod tests {
     }
 
     #[test]
+    fn resolve_probe_pointer_prefers_locked_then_runtime_then_fallback() {
+        assert_eq!(
+            resolve_probe_pointer(Some((12.0, 34.0)), Some((56.0, 78.0)), (90.0, 91.0)),
+            (12.0, 34.0)
+        );
+        assert_eq!(
+            resolve_probe_pointer(Some((f32::INFINITY, 34.0)), Some((56.0, 78.0)), (90.0, 91.0)),
+            (56.0, 78.0)
+        );
+        assert_eq!(
+            resolve_probe_pointer(Some((f32::NAN, 34.0)), Some((f32::INFINITY, 78.0)), (90.0, 91.0)),
+            (90.0, 91.0)
+        );
+    }
+
+    #[test]
+    fn probe_heading_degrees_matches_basic_direction_angles() {
+        assert!((probe_heading_degrees((1.0, 0.0)) - 0.0).abs() < 0.000_001);
+        assert!((probe_heading_degrees((0.0, 1.0)) - 90.0).abs() < 0.000_001);
+        assert!((probe_heading_degrees((-1.0, 0.0)) - 180.0).abs() < 0.000_001);
+    }
+
+    #[test]
     fn classify_runtime_input_sample_ignores_non_finite_velocity_for_movement() {
         assert_eq!(
             classify_runtime_input_sample(RuntimeInputSample {
