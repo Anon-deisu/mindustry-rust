@@ -542,6 +542,22 @@ mod tests {
     }
 
     #[test]
+    fn resolve_aim_axis_prefers_finite_pointer_then_position_then_zero_vector() {
+        assert_eq!(
+            resolve_aim_axis(Some((12.0, 34.0)), Some((56.0, 78.0))),
+            (12.0, 34.0)
+        );
+        assert_eq!(
+            resolve_aim_axis(Some((f32::INFINITY, 34.0)), Some((56.0, 78.0))),
+            (56.0, 78.0)
+        );
+        assert_eq!(
+            resolve_aim_axis(Some((f32::NAN, 34.0)), Some((f32::INFINITY, 78.0))),
+            (0.0, 0.0)
+        );
+    }
+
+    #[test]
     fn classify_runtime_input_sample_ignores_non_finite_velocity_for_movement() {
         assert_eq!(
             classify_runtime_input_sample(RuntimeInputSample {
