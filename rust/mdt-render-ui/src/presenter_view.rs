@@ -1210,8 +1210,8 @@ pub(crate) fn format_runtime_live_entity_summary_text(
 pub(crate) fn format_runtime_live_entity_panel_text(
     entity: &RuntimeLiveEntityPanelModel,
 ) -> String {
-    format!(
-        "liveent:{}",
+    format_runtime_live_panel_text(
+        "liveent:",
         format_runtime_live_entity_body_text(
             entity.entity_count,
             entity.hidden_count,
@@ -1226,7 +1226,7 @@ pub(crate) fn format_runtime_live_entity_panel_text(
             entity.last_entity_id,
             entity.last_player_entity_id,
             entity.last_unit_entity_id,
-        )
+        ),
     )
 }
 
@@ -1262,8 +1262,8 @@ pub(crate) fn format_runtime_live_effect_summary_text(
 pub(crate) fn format_runtime_live_effect_panel_text(
     effect: &RuntimeLiveEffectPanelModel,
 ) -> String {
-    format!(
-        "livefx:{}",
+    format_runtime_live_panel_text(
+        "livefx:",
         format_runtime_live_effect_body_text(
             effect.effect_count,
             effect.spawn_effect_count,
@@ -1281,7 +1281,7 @@ pub(crate) fn format_runtime_live_effect_panel_text(
             effect.display_position_source(),
             effect.display_position(),
             effect.display_overlay_ttl(),
-        )
+        ),
     )
 }
 
@@ -1371,6 +1371,10 @@ fn format_runtime_live_effect_body_text(
         format_world_position_status_text(display_position),
         format_live_effect_ttl_text(display_overlay_ttl),
     )
+}
+
+fn format_runtime_live_panel_text(prefix: &str, body: String) -> String {
+    format!("{prefix}{body}")
 }
 
 pub(crate) fn format_runtime_chat_panel_text(panel: &RuntimeChatPanelModel) -> String {
