@@ -4829,6 +4829,16 @@ mod tests {
         );
     }
 
+    #[test]
+    fn build_config_pending_match_status_text_maps_none_match_and_mismatch() {
+        assert_eq!(super::build_config_pending_match_status_text(None), "none");
+        assert_eq!(super::build_config_pending_match_status_text(Some(true)), "match");
+        assert_eq!(
+            super::build_config_pending_match_status_text(Some(false)),
+            "mismatch"
+        );
+    }
+
     fn runtime_command_rect_objects(
         family: &str,
         left: f32,
