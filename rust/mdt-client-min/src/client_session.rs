@@ -51947,6 +51947,22 @@ mod tests {
     }
 
     #[test]
+    fn reconnect_phase_from_kick_hint_maps_restart_to_scheduled_and_otherwise_to_aborted() {
+        assert_eq!(
+            reconnect_phase_from_kick_hint(Some(KickReasonHintCategory::ServerRestarting)),
+            ReconnectPhaseProjection::Scheduled
+        );
+        assert_eq!(
+            reconnect_phase_from_kick_hint(Some(KickReasonHintCategory::TypeMismatch)),
+            ReconnectPhaseProjection::Aborted
+        );
+        assert_eq!(
+            reconnect_phase_from_kick_hint(None),
+            ReconnectPhaseProjection::Aborted
+        );
+    }
+
+    #[test]
     fn kick_string_packet_decodes_text_only_server_restarting_as_scheduled_reconnect() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
