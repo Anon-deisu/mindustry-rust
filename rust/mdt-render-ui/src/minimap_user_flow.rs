@@ -142,8 +142,7 @@ impl MinimapUserFlowPanelModel {
         }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn summary_label(&self) -> String {
+    fn shared_prefix_label(&self) -> String {
         format!(
             "next={} focus={} vis={} cover={} pan={} target={}",
             self.next_action,
@@ -156,15 +155,15 @@ impl MinimapUserFlowPanelModel {
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn summary_label(&self) -> String {
+        self.shared_prefix_label()
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn detail_label(&self) -> String {
         format!(
-            "next={} focus={} vis={} cover={} pan={} target={} tile={} offset={} clamp={} overlay-targets={} visible={} visible-map={} unknown={} window={}",
-            self.next_action,
-            self.focus_state.label(),
-            self.visibility_label(),
-            self.coverage_label(),
-            self.pan_label(),
-            self.target_kind.label(),
+            "{} tile={} offset={} clamp={} overlay-targets={} visible={} visible-map={} unknown={} window={}",
+            self.shared_prefix_label(),
             self.focus_tile_label(),
             self.focus_offset_label(),
             self.clamp_label(),
