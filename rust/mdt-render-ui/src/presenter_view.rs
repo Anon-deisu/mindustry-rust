@@ -1676,6 +1676,18 @@ fn format_runtime_world_reload_detail_text_for_loading(
         .map(format_runtime_world_reload_detail_text)
 }
 
+fn format_runtime_loading_tail_text(loading: &RuntimeLoadingPanelModel) -> String {
+    format!(
+        ":rs{}:rr{}:wr{}:kr{}:lr{}:lwr{}",
+        loading.reset_count,
+        loading.reconnect_reset_count,
+        loading.world_reload_count,
+        loading.kick_reset_count,
+        format_runtime_session_reset_kind_text(loading.last_reset_kind),
+        format_runtime_world_reload_panel_text_for_loading(loading),
+    )
+}
+
 pub(crate) fn format_runtime_marker_panel_text(panel: &RuntimeMarkerPanelModel) -> String {
     format!(
         "marker:cr{}:rm{}:up{}:txt{}:tex{}:f{}:last{}:ctl{}",
@@ -1925,7 +1937,7 @@ pub(crate) fn format_runtime_loading_panel_text(
     loading: &RuntimeLoadingPanelModel,
 ) -> String {
     format!(
-        "defer{}:replay{}:drop{}:qdrop{}:sfail{}:scfail{}:efail{}:rdy{}@{}:to{}:cto{}:rto{}:lt{}@{}:rs{}:rr{}:wr{}:kr{}:lr{}:lwr{}",
+        "defer{}:replay{}:drop{}:qdrop{}:sfail{}:scfail{}:efail{}:rdy{}@{}:to{}:cto{}:rto{}:lt{}@{}{}",
         loading.deferred_inbound_packet_count,
         loading.replayed_inbound_packet_count,
         loading.dropped_loading_low_priority_packet_count,
@@ -1940,12 +1952,7 @@ pub(crate) fn format_runtime_loading_panel_text(
         loading.ready_snapshot_timeout_count,
         format_runtime_session_timeout_kind_text(loading.last_timeout_kind),
         format_optional_u64_text(loading.last_timeout_idle_ms),
-        loading.reset_count,
-        loading.reconnect_reset_count,
-        loading.world_reload_count,
-        loading.kick_reset_count,
-        format_runtime_session_reset_kind_text(loading.last_reset_kind),
-        format_runtime_world_reload_panel_text_for_loading(loading),
+        format_runtime_loading_tail_text(loading),
     )
 }
 
@@ -2912,6 +2919,7 @@ mod tests {
         format_runtime_loading_row_text,
         format_runtime_loading_detail_text, format_runtime_loading_detail_text_if_nonempty,
         format_runtime_loading_panel_text,
+        format_runtime_loading_tail_text,
         format_runtime_kick_detail_text, format_runtime_kick_detail_text_if_nonempty,
         format_runtime_kick_panel_text, format_runtime_marker_detail_text,
         format_runtime_marker_detail_text_if_nonempty, format_runtime_marker_panel_text,
@@ -4071,6 +4079,45 @@ mod tests {
         assert_eq!(
             format_runtime_loading_row_text(&panel),
             "loading:defer1:replay2:drop3:qdrop4:sfail5:scfail6:efail7:rdy8@9:to10:cto11:rto12:ltready@13:rs14:rr15:wr16:kr17:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+        );
+    }
+
+    #[test]
+    fn format_runtime_loading_tail_text_preserves_field_order() {
+        let panel = RuntimeLoadingPanelModel {
+            deferred_inbound_packet_count: 0,
+            replayed_inbound_packet_count: 0,
+            dropped_loading_low_priority_packet_count: 0,
+            dropped_loading_deferred_overflow_count: 0,
+            failed_state_snapshot_parse_count: 0,
+            failed_state_snapshot_core_data_parse_count: 0,
+            failed_entity_snapshot_parse_count: 0,
+            ready_inbound_liveness_anchor_count: 0,
+            last_ready_inbound_liveness_anchor_at_ms: None,
+            timeout_count: 0,
+            connect_or_loading_timeout_count: 0,
+            ready_snapshot_timeout_count: 0,
+            last_timeout_kind: None,
+            last_timeout_idle_ms: None,
+            reset_count: 14,
+            reconnect_reset_count: 15,
+            world_reload_count: 16,
+            kick_reset_count: 17,
+            last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+            last_world_reload: Some(RuntimeWorldReloadPanelModel {
+                had_loaded_world: true,
+                had_client_loaded: false,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 4,
+                cleared_deferred_inbound_packets: 5,
+                cleared_replayed_loading_events: 6,
+            }),
+        };
+
+        assert_eq!(
+            format_runtime_loading_tail_text(&panel),
+            ":rs14:rr15:wr16:kr17:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
         );
     }
 
