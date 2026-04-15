@@ -2339,6 +2339,65 @@ mod tests {
     }
 
     #[test]
+    fn resolve_progress_helpers_respect_breaking_mode_and_clamp_enqueue_progress() {
+        let place_previous = BuilderQueueEntry {
+            x: 30,
+            y: 30,
+            breaking: false,
+            block_id: Some(300),
+            rotation: Some(1),
+            progress_permyriad: Some(4_200),
+            stage: BuilderQueueStage::Queued,
+        };
+        let break_previous = BuilderQueueEntry {
+            x: 31,
+            y: 31,
+            breaking: true,
+            block_id: None,
+            rotation: None,
+            progress_permyriad: Some(7_500),
+            stage: BuilderQueueStage::Queued,
+        };
+
+        assert_eq!(
+            BuilderQueueStateMachine::matching_entry(Some(&place_previous), false),
+            Some(&place_previous)
+        );
+        assert_eq!(
+            BuilderQueueStateMachine::matching_entry(Some(&place_previous), true),
+            None
+        );
+        assert_eq!(
+            BuilderQueueStateMachine::resolve_progress(Some(&place_previous), false),
+            Some(4_200)
+        );
+        assert_eq!(
+            BuilderQueueStateMachine::resolve_progress(Some(&place_previous), true),
+            None
+        );
+        assert_eq!(
+            BuilderQueueStateMachine::resolve_progress(Some(&break_previous), true),
+            Some(7_500)
+        );
+        assert_eq!(
+            BuilderQueueStateMachine::resolve_progress(Some(&break_previous), false),
+            None
+        );
+        assert_eq!(
+            BuilderQueueStateMachine::resolve_enqueue_progress(None, Some(&place_previous), false),
+            Some(4_200)
+        );
+        assert_eq!(
+            BuilderQueueStateMachine::resolve_enqueue_progress(None, Some(&break_previous), true),
+            Some(7_500)
+        );
+        assert_eq!(
+            BuilderQueueStateMachine::resolve_enqueue_progress(Some(12_345), Some(&place_previous), false),
+            Some(10_000)
+        );
+    }
+
+    #[test]
     fn move_to_front_on_current_head_is_a_noop_without_promotion() {
         let mut queue = BuilderQueueStateMachine::default();
         queue.sync_local_entries([
