@@ -2052,6 +2052,17 @@ pub(crate) fn format_runtime_session_detail_text_if_nonempty(
     (!panel.is_empty()).then(|| format_runtime_session_detail_text(panel))
 }
 
+fn format_runtime_session_reload_banner_text(
+    world_reload: Option<&RuntimeWorldReloadPanelModel>,
+) -> Option<String> {
+    world_reload.map(|world_reload| {
+        format!(
+            "RELOAD {}",
+            format_runtime_world_reload_panel_text(Some(world_reload))
+        )
+    })
+}
+
 pub(crate) fn format_runtime_session_banner_text(
     panel: &RuntimeSessionPanelModel,
 ) -> Option<String> {
@@ -2059,14 +2070,13 @@ pub(crate) fn format_runtime_session_banner_text(
         return Some(format!(
             "KICK {}",
             format_runtime_kick_panel_text(&panel.kick)
-        ));
+    ));
     }
     let mut segments = Vec::new();
-    if let Some(world_reload) = panel.loading.last_world_reload.as_ref() {
-        segments.push(format!(
-            "RELOAD {}",
-            format_runtime_world_reload_panel_text(Some(world_reload))
-        ));
+    if let Some(reload_text) =
+        format_runtime_session_reload_banner_text(panel.loading.last_world_reload.as_ref())
+    {
+        segments.push(reload_text);
     }
     if !panel.reconnect.is_empty() {
         segments.push(format!(
