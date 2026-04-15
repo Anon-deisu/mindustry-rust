@@ -2,7 +2,7 @@ use crate::{
     hud_model::{
         runtime_menu_prompt_active, runtime_text_input_prompt_active,
         RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind, RuntimeSessionResetKind,
-        RuntimeSessionTimeoutKind,
+        RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
     },
     render_model::{RenderObjectSemanticFamily, RenderSemanticDetailCount},
     BuildConfigAuthoritySourceObservability, BuildConfigOutcomeObservability, BuildQueueHeadStage,
@@ -2775,6 +2775,20 @@ pub fn build_runtime_loading_panel(hud: &HudModel) -> Option<RuntimeLoadingPanel
     Some(build_runtime_session_panel(hud)?.loading)
 }
 
+fn build_runtime_world_reload_panel_model(
+    world_reload: Option<&RuntimeWorldReloadObservability>,
+) -> Option<RuntimeWorldReloadPanelModel> {
+    world_reload.map(|world_reload| RuntimeWorldReloadPanelModel {
+        had_loaded_world: world_reload.had_loaded_world,
+        had_client_loaded: world_reload.had_client_loaded,
+        was_ready_to_enter_world: world_reload.was_ready_to_enter_world,
+        had_connect_confirm_sent: world_reload.had_connect_confirm_sent,
+        cleared_pending_packets: world_reload.cleared_pending_packets,
+        cleared_deferred_inbound_packets: world_reload.cleared_deferred_inbound_packets,
+        cleared_replayed_loading_events: world_reload.cleared_replayed_loading_events,
+    })
+}
+
 pub fn build_runtime_reconnect_panel(hud: &HudModel) -> Option<RuntimeReconnectPanelModel> {
     Some(build_runtime_session_panel(hud)?.reconnect)
 }
@@ -2862,19 +2876,9 @@ pub fn build_runtime_session_panel(hud: &HudModel) -> Option<RuntimeSessionPanel
             world_reload_count: session.loading.world_reload_count,
             kick_reset_count: session.loading.kick_reset_count,
             last_reset_kind: session.loading.last_reset_kind,
-            last_world_reload: session
-                .loading
-                .last_world_reload
-                .as_ref()
-                .map(|world_reload| RuntimeWorldReloadPanelModel {
-                    had_loaded_world: world_reload.had_loaded_world,
-                    had_client_loaded: world_reload.had_client_loaded,
-                    was_ready_to_enter_world: world_reload.was_ready_to_enter_world,
-                    had_connect_confirm_sent: world_reload.had_connect_confirm_sent,
-                    cleared_pending_packets: world_reload.cleared_pending_packets,
-                    cleared_deferred_inbound_packets: world_reload.cleared_deferred_inbound_packets,
-                    cleared_replayed_loading_events: world_reload.cleared_replayed_loading_events,
-                }),
+            last_world_reload: build_runtime_world_reload_panel_model(
+                session.loading.last_world_reload.as_ref(),
+            ),
         },
         reconnect: RuntimeReconnectPanelModel {
             phase: session.reconnect.phase,
@@ -3116,11 +3120,12 @@ mod tests {
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
-        build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
-        BuildInteractionQueueState, BuildInteractionSelectionState, BuildMinimapAssistPanelModel,
-        PresenterViewWindow, RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind,
-        RuntimeDialogPromptKind, RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind,
-        RuntimeWorldLabelPanelModel,
+        build_runtime_world_label_panel, build_runtime_world_reload_panel_model,
+        BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
+        BuildInteractionSelectionState, BuildMinimapAssistPanelModel, PresenterViewWindow,
+        RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind, RuntimeWorldLabelPanelModel,
+        RuntimeWorldReloadPanelModel,
     };
     use crate::{
         hud_model::{
@@ -5355,6 +5360,33 @@ mod tests {
             Some(RuntimeReconnectReasonKind::ConnectRedirect)
         );
         assert_eq!(reconnect.last_redirect_port, Some(6567));
+    }
+
+    #[test]
+    fn build_runtime_world_reload_panel_model_maps_fields() {
+        let world_reload = RuntimeWorldReloadObservability {
+            had_loaded_world: true,
+            had_client_loaded: false,
+            was_ready_to_enter_world: true,
+            had_connect_confirm_sent: false,
+            cleared_pending_packets: 4,
+            cleared_deferred_inbound_packets: 5,
+            cleared_replayed_loading_events: 6,
+        };
+
+        assert_eq!(
+            build_runtime_world_reload_panel_model(Some(&world_reload)),
+            Some(RuntimeWorldReloadPanelModel {
+                had_loaded_world: true,
+                had_client_loaded: false,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 4,
+                cleared_deferred_inbound_packets: 5,
+                cleared_replayed_loading_events: 6,
+            })
+        );
+        assert_eq!(build_runtime_world_reload_panel_model(None), None);
     }
 
     #[test]
