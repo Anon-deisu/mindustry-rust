@@ -7193,6 +7193,13 @@ impl SessionState {
         self.last_loaded_world_block_snapshot_extra_entry_parse_error = Some(error);
     }
 
+    pub fn record_block_snapshot_parse_failure(&mut self, error: String, payload_len: usize) {
+        self.failed_block_snapshot_parse_count =
+            self.failed_block_snapshot_parse_count.saturating_add(1);
+        self.last_block_snapshot_parse_error = Some(error);
+        self.last_block_snapshot_parse_error_payload_len = Some(payload_len);
+    }
+
     pub fn record_hidden_snapshot_parse_failure(&mut self, error: String, payload_len: usize) {
         self.failed_hidden_snapshot_parse_count =
             self.failed_hidden_snapshot_parse_count.saturating_add(1);
@@ -9629,6 +9636,23 @@ mod tests {
             state.last_loaded_world_block_snapshot_extra_entry_parse_error.as_deref(),
             Some("loaded_world_block_snapshot_entry_1_missing_center")
         );
+    }
+
+    #[test]
+    fn session_state_block_snapshot_parse_failure_helper_tracks_error_text_and_payload_len() {
+        let mut state = SessionState::default();
+
+        state.record_block_snapshot_parse_failure(
+            "blockSnapshot trailing bytes".to_string(),
+            19,
+        );
+
+        assert_eq!(state.failed_block_snapshot_parse_count, 1);
+        assert_eq!(
+            state.last_block_snapshot_parse_error.as_deref(),
+            Some("blockSnapshot trailing bytes")
+        );
+        assert_eq!(state.last_block_snapshot_parse_error_payload_len, Some(19));
     }
 
     #[test]

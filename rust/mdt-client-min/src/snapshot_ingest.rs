@@ -192,12 +192,8 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                     state.last_block_snapshot_parse_error_payload_len = None;
                 }
                 Err(error) => {
-                    state.failed_block_snapshot_parse_count =
-                        state.failed_block_snapshot_parse_count.saturating_add(1);
+                    state.record_block_snapshot_parse_failure(error.to_string(), snapshot.payload.len());
                     state.block_snapshot_head_projection = None;
-                    state.last_block_snapshot_parse_error = Some(error.to_string());
-                    state.last_block_snapshot_parse_error_payload_len =
-                        Some(snapshot.payload.len());
                 }
             }
         }
