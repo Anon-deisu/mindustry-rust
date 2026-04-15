@@ -656,6 +656,20 @@ mod tests {
     }
 
     #[test]
+    fn command_mode_position_target_returns_none_for_non_finite_coordinates_and_packs_finite_coordinates() {
+        assert_eq!(command_mode_position_target((f32::NAN, 2.0)), None);
+        assert_eq!(command_mode_position_target((1.0, f32::INFINITY)), None);
+
+        assert_eq!(
+            command_mode_position_target((1.5, -2.25)),
+            Some(CommandModePositionTarget {
+                x_bits: 1.5f32.to_bits(),
+                y_bits: (-2.25f32).to_bits(),
+            })
+        );
+    }
+
+    #[test]
     fn command_mode_projection_summary_reports_empty_and_recent_selection_state() {
         let empty = CommandModeProjection::default();
 
