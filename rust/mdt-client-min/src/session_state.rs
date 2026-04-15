@@ -7200,6 +7200,13 @@ impl SessionState {
         self.last_block_snapshot_parse_error_payload_len = Some(payload_len);
     }
 
+    pub fn record_state_snapshot_parse_failure(&mut self, error: String, payload_len: usize) {
+        self.failed_state_snapshot_parse_count =
+            self.failed_state_snapshot_parse_count.saturating_add(1);
+        self.last_state_snapshot_parse_error = Some(error);
+        self.last_state_snapshot_parse_error_payload_len = Some(payload_len);
+    }
+
     pub fn record_hidden_snapshot_parse_failure(&mut self, error: String, payload_len: usize) {
         self.failed_hidden_snapshot_parse_count =
             self.failed_hidden_snapshot_parse_count.saturating_add(1);
@@ -9653,6 +9660,23 @@ mod tests {
             Some("blockSnapshot trailing bytes")
         );
         assert_eq!(state.last_block_snapshot_parse_error_payload_len, Some(19));
+    }
+
+    #[test]
+    fn session_state_state_snapshot_parse_failure_helper_tracks_error_text_and_payload_len() {
+        let mut state = SessionState::default();
+
+        state.record_state_snapshot_parse_failure(
+            "stateSnapshot trailing bytes".to_string(),
+            21,
+        );
+
+        assert_eq!(state.failed_state_snapshot_parse_count, 1);
+        assert_eq!(
+            state.last_state_snapshot_parse_error.as_deref(),
+            Some("stateSnapshot trailing bytes")
+        );
+        assert_eq!(state.last_state_snapshot_parse_error_payload_len, Some(21));
     }
 
     #[test]
