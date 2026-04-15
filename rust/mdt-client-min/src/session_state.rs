@@ -7225,6 +7225,89 @@ impl SessionState {
         self.last_remove_world_label_id = Some(label_id);
     }
 
+    fn clear_last_marker_detail(&mut self) {
+        self.last_marker_json_len = None;
+        self.last_marker_control = None;
+        self.last_marker_control_name = None;
+        self.last_marker_p1_bits = None;
+        self.last_marker_p2_bits = None;
+        self.last_marker_p3_bits = None;
+        self.last_marker_fetch = None;
+        self.last_marker_text = None;
+        self.last_marker_texture_kind = None;
+        self.last_marker_texture_kind_name = None;
+    }
+
+    pub fn record_create_marker(&mut self, marker_id: i32, json_len: usize) {
+        self.received_create_marker_count = self.received_create_marker_count.saturating_add(1);
+        self.last_marker_id = Some(marker_id);
+        self.clear_last_marker_detail();
+        self.last_marker_json_len = Some(json_len);
+    }
+
+    pub fn record_remove_marker(&mut self, marker_id: i32) {
+        self.received_remove_marker_count = self.received_remove_marker_count.saturating_add(1);
+        self.last_marker_id = Some(marker_id);
+        self.clear_last_marker_detail();
+    }
+
+    pub fn record_update_marker(
+        &mut self,
+        marker_id: i32,
+        control: u8,
+        control_name: &Option<String>,
+        p1_bits: u64,
+        p2_bits: u64,
+        p3_bits: u64,
+    ) {
+        self.received_update_marker_count = self.received_update_marker_count.saturating_add(1);
+        self.last_marker_id = Some(marker_id);
+        self.clear_last_marker_detail();
+        self.last_marker_control = Some(control);
+        self.last_marker_control_name = control_name.clone();
+        self.last_marker_p1_bits = Some(p1_bits);
+        self.last_marker_p2_bits = Some(p2_bits);
+        self.last_marker_p3_bits = Some(p3_bits);
+    }
+
+    pub fn record_update_marker_text(
+        &mut self,
+        marker_id: i32,
+        control: u8,
+        control_name: &Option<String>,
+        fetch: bool,
+        text: &Option<String>,
+    ) {
+        self.received_update_marker_text_count =
+            self.received_update_marker_text_count.saturating_add(1);
+        self.last_marker_id = Some(marker_id);
+        self.clear_last_marker_detail();
+        self.last_marker_control = Some(control);
+        self.last_marker_control_name = control_name.clone();
+        self.last_marker_fetch = Some(fetch);
+        self.last_marker_text = text.clone();
+    }
+
+    pub fn record_update_marker_texture(
+        &mut self,
+        marker_id: i32,
+        texture_kind: u8,
+        texture_kind_name: &str,
+    ) {
+        self.received_update_marker_texture_count =
+            self.received_update_marker_texture_count.saturating_add(1);
+        self.last_marker_id = Some(marker_id);
+        self.clear_last_marker_detail();
+        self.last_marker_texture_kind = Some(texture_kind);
+        self.last_marker_texture_kind_name = Some(texture_kind_name.to_string());
+    }
+
+    pub fn record_marker_decode_failure(&mut self, method: &'static str, payload_len: usize) {
+        self.failed_marker_decode_count = self.failed_marker_decode_count.saturating_add(1);
+        self.last_failed_marker_method = Some(method.to_string());
+        self.last_failed_marker_payload_len = Some(payload_len);
+    }
+
     pub fn record_menu_open(
         &mut self,
         menu_id: i32,
@@ -15815,6 +15898,74 @@ mod tests {
 
         assert_eq!(state.received_remove_world_label_count, 1);
         assert_eq!(state.last_remove_world_label_id, Some(42));
+    }
+
+    #[test]
+    fn record_marker_variants_track_variant_specific_state() {
+        let mut state = SessionState::default();
+        let control_name = Some("point".to_string());
+        let text = Some("logic-text".to_string());
+
+        state.record_create_marker(77, 42);
+        assert_eq!(state.received_create_marker_count, 1);
+        assert_eq!(state.last_marker_id, Some(77));
+        assert_eq!(state.last_marker_json_len, Some(42));
+        assert_eq!(state.last_marker_control, None);
+        assert_eq!(state.last_marker_text, None);
+        assert_eq!(state.last_marker_texture_kind, None);
+
+        state.record_update_marker(77, 4, &control_name, 1, 2, 3);
+        assert_eq!(state.received_update_marker_count, 1);
+        assert_eq!(state.last_marker_id, Some(77));
+        assert_eq!(state.last_marker_json_len, None);
+        assert_eq!(state.last_marker_control, Some(4));
+        assert_eq!(state.last_marker_control_name, control_name);
+        assert_eq!(state.last_marker_p1_bits, Some(1));
+        assert_eq!(state.last_marker_p2_bits, Some(2));
+        assert_eq!(state.last_marker_p3_bits, Some(3));
+        assert_eq!(state.last_marker_fetch, None);
+        assert_eq!(state.last_marker_text, None);
+
+        let control_name = Some("text".to_string());
+        state.record_update_marker_text(77, 14, &control_name, true, &text);
+        assert_eq!(state.received_update_marker_text_count, 1);
+        assert_eq!(state.last_marker_control, Some(14));
+        assert_eq!(state.last_marker_control_name, control_name);
+        assert_eq!(state.last_marker_p1_bits, None);
+        assert_eq!(state.last_marker_fetch, Some(true));
+        assert_eq!(state.last_marker_text, text);
+
+        state.record_update_marker_texture(77, 2, "icon");
+        assert_eq!(state.received_update_marker_texture_count, 1);
+        assert_eq!(state.last_marker_control, None);
+        assert_eq!(state.last_marker_fetch, None);
+        assert_eq!(state.last_marker_text, None);
+        assert_eq!(state.last_marker_texture_kind, Some(2));
+        assert_eq!(
+            state.last_marker_texture_kind_name.as_deref(),
+            Some("icon")
+        );
+
+        state.record_remove_marker(77);
+        assert_eq!(state.received_remove_marker_count, 1);
+        assert_eq!(state.last_marker_id, Some(77));
+        assert_eq!(state.last_marker_json_len, None);
+        assert_eq!(state.last_marker_control, None);
+        assert_eq!(state.last_marker_texture_kind, None);
+    }
+
+    #[test]
+    fn record_marker_decode_failure_tracks_method_and_payload_len() {
+        let mut state = SessionState::default();
+
+        state.record_marker_decode_failure("createMarker", 12);
+
+        assert_eq!(state.failed_marker_decode_count, 1);
+        assert_eq!(
+            state.last_failed_marker_method.as_deref(),
+            Some("createMarker")
+        );
+        assert_eq!(state.last_failed_marker_payload_len, Some(12));
     }
 
     #[test]

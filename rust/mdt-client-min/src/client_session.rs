@@ -3346,28 +3346,15 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.create_marker_packet_id => {
                 if let Some(summary) = decode_create_marker_payload(&packet.payload) {
-                    self.state.received_create_marker_count =
-                        self.state.received_create_marker_count.saturating_add(1);
-                    self.state.last_marker_id = Some(summary.marker_id);
-                    self.state.last_marker_json_len = Some(summary.json_len);
-                    self.state.last_marker_control = None;
-                    self.state.last_marker_control_name = None;
-                    self.state.last_marker_p1_bits = None;
-                    self.state.last_marker_p2_bits = None;
-                    self.state.last_marker_p3_bits = None;
-                    self.state.last_marker_fetch = None;
-                    self.state.last_marker_text = None;
-                    self.state.last_marker_texture_kind = None;
-                    self.state.last_marker_texture_kind_name = None;
+                    self.state
+                        .record_create_marker(summary.marker_id, summary.json_len);
                     Ok(ClientSessionEvent::CreateMarker {
                         marker_id: summary.marker_id,
                         json_len: summary.json_len,
                     })
                 } else {
-                    self.state.failed_marker_decode_count =
-                        self.state.failed_marker_decode_count.saturating_add(1);
-                    self.state.last_failed_marker_method = Some("createMarker".to_string());
-                    self.state.last_failed_marker_payload_len = Some(packet.payload.len());
+                    self.state
+                        .record_marker_decode_failure("createMarker", packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
@@ -3376,25 +3363,11 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.remove_marker_packet_id => {
                 if let Some(marker_id) = decode_remove_marker_payload(&packet.payload) {
-                    self.state.received_remove_marker_count =
-                        self.state.received_remove_marker_count.saturating_add(1);
-                    self.state.last_marker_id = Some(marker_id);
-                    self.state.last_marker_json_len = None;
-                    self.state.last_marker_control = None;
-                    self.state.last_marker_control_name = None;
-                    self.state.last_marker_p1_bits = None;
-                    self.state.last_marker_p2_bits = None;
-                    self.state.last_marker_p3_bits = None;
-                    self.state.last_marker_fetch = None;
-                    self.state.last_marker_text = None;
-                    self.state.last_marker_texture_kind = None;
-                    self.state.last_marker_texture_kind_name = None;
+                    self.state.record_remove_marker(marker_id);
                     Ok(ClientSessionEvent::RemoveMarker { marker_id })
                 } else {
-                    self.state.failed_marker_decode_count =
-                        self.state.failed_marker_decode_count.saturating_add(1);
-                    self.state.last_failed_marker_method = Some("removeMarker".to_string());
-                    self.state.last_failed_marker_payload_len = Some(packet.payload.len());
+                    self.state
+                        .record_marker_decode_failure("removeMarker", packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
@@ -3421,33 +3394,26 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.update_marker_packet_id => {
                 if let Some(summary) = decode_update_marker_payload(&packet.payload) {
-                    self.state.received_update_marker_count =
-                        self.state.received_update_marker_count.saturating_add(1);
-                    self.state.last_marker_id = Some(summary.marker_id);
-                    self.state.last_marker_json_len = None;
-                    self.state.last_marker_control = Some(summary.control);
-                    self.state.last_marker_control_name =
-                        marker_control_name(summary.control).map(str::to_string);
-                    self.state.last_marker_p1_bits = Some(summary.p1_bits);
-                    self.state.last_marker_p2_bits = Some(summary.p2_bits);
-                    self.state.last_marker_p3_bits = Some(summary.p3_bits);
-                    self.state.last_marker_fetch = None;
-                    self.state.last_marker_text = None;
-                    self.state.last_marker_texture_kind = None;
-                    self.state.last_marker_texture_kind_name = None;
+                    let control_name = marker_control_name(summary.control).map(str::to_string);
+                    self.state.record_update_marker(
+                        summary.marker_id,
+                        summary.control,
+                        &control_name,
+                        summary.p1_bits,
+                        summary.p2_bits,
+                        summary.p3_bits,
+                    );
                     Ok(ClientSessionEvent::UpdateMarker {
                         marker_id: summary.marker_id,
                         control: summary.control,
-                        control_name: marker_control_name(summary.control).map(str::to_string),
+                        control_name,
                         p1_bits: summary.p1_bits,
                         p2_bits: summary.p2_bits,
                         p3_bits: summary.p3_bits,
                     })
                 } else {
-                    self.state.failed_marker_decode_count =
-                        self.state.failed_marker_decode_count.saturating_add(1);
-                    self.state.last_failed_marker_method = Some("updateMarker".to_string());
-                    self.state.last_failed_marker_payload_len = Some(packet.payload.len());
+                    self.state
+                        .record_marker_decode_failure("updateMarker", packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
@@ -3456,34 +3422,24 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.update_marker_text_packet_id => {
                 if let Some(summary) = decode_update_marker_text_payload(&packet.payload) {
-                    self.state.received_update_marker_text_count = self
-                        .state
-                        .received_update_marker_text_count
-                        .saturating_add(1);
-                    self.state.last_marker_id = Some(summary.marker_id);
-                    self.state.last_marker_json_len = None;
-                    self.state.last_marker_control = Some(summary.control);
-                    self.state.last_marker_control_name =
-                        marker_control_name(summary.control).map(str::to_string);
-                    self.state.last_marker_p1_bits = None;
-                    self.state.last_marker_p2_bits = None;
-                    self.state.last_marker_p3_bits = None;
-                    self.state.last_marker_fetch = Some(summary.fetch);
-                    self.state.last_marker_text = summary.text.clone();
-                    self.state.last_marker_texture_kind = None;
-                    self.state.last_marker_texture_kind_name = None;
+                    let control_name = marker_control_name(summary.control).map(str::to_string);
+                    self.state.record_update_marker_text(
+                        summary.marker_id,
+                        summary.control,
+                        &control_name,
+                        summary.fetch,
+                        &summary.text,
+                    );
                     Ok(ClientSessionEvent::UpdateMarkerText {
                         marker_id: summary.marker_id,
                         control: summary.control,
-                        control_name: marker_control_name(summary.control).map(str::to_string),
+                        control_name,
                         fetch: summary.fetch,
                         text: summary.text,
                     })
                 } else {
-                    self.state.failed_marker_decode_count =
-                        self.state.failed_marker_decode_count.saturating_add(1);
-                    self.state.last_failed_marker_method = Some("updateMarkerText".to_string());
-                    self.state.last_failed_marker_payload_len = Some(packet.payload.len());
+                    self.state
+                        .record_marker_decode_failure("updateMarkerText", packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
@@ -3492,32 +3448,21 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.update_marker_texture_packet_id => {
                 if let Some(summary) = decode_update_marker_texture_payload(&packet.payload) {
-                    self.state.received_update_marker_texture_count = self
-                        .state
-                        .received_update_marker_texture_count
-                        .saturating_add(1);
-                    self.state.last_marker_id = Some(summary.marker_id);
-                    self.state.last_marker_json_len = None;
-                    self.state.last_marker_control = None;
-                    self.state.last_marker_control_name = None;
-                    self.state.last_marker_p1_bits = None;
-                    self.state.last_marker_p2_bits = None;
-                    self.state.last_marker_p3_bits = None;
-                    self.state.last_marker_fetch = None;
-                    self.state.last_marker_text = None;
-                    self.state.last_marker_texture_kind = Some(summary.texture_kind);
-                    self.state.last_marker_texture_kind_name =
-                        Some(summary.texture_kind_name.clone());
+                    self.state.record_update_marker_texture(
+                        summary.marker_id,
+                        summary.texture_kind,
+                        &summary.texture_kind_name,
+                    );
                     Ok(ClientSessionEvent::UpdateMarkerTexture {
                         marker_id: summary.marker_id,
                         texture_kind: summary.texture_kind,
                         texture_kind_name: summary.texture_kind_name,
                     })
                 } else {
-                    self.state.failed_marker_decode_count =
-                        self.state.failed_marker_decode_count.saturating_add(1);
-                    self.state.last_failed_marker_method = Some("updateMarkerTexture".to_string());
-                    self.state.last_failed_marker_payload_len = Some(packet.payload.len());
+                    self.state.record_marker_decode_failure(
+                        "updateMarkerTexture",
+                        packet.payload.len(),
+                    );
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
