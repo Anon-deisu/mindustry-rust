@@ -3000,7 +3000,8 @@ mod tests {
         format_runtime_bootstrap_summary_text_if_nonempty,
         format_runtime_admin_detail_text, format_runtime_admin_detail_text_if_nonempty,
         format_runtime_admin_panel_text,
-        format_optional_i16_text, format_optional_u8_text, format_optional_bool_flag,
+        format_optional_i16_text, format_optional_u8_text, format_optional_u32_text,
+        format_optional_u64_text, format_optional_bool_flag, format_u8_list_text,
         format_runtime_stack_depth_text, format_runtime_stack_detail_text,
         format_runtime_stack_panel_text,
         format_live_effect_data_shape_text, format_live_effect_reliable_flag_text,
@@ -6434,10 +6435,30 @@ mod tests {
     }
 
     #[test]
+    fn format_optional_u32_text_handles_some_and_none() {
+        assert_eq!(format_optional_u32_text(Some(0)), "0");
+        assert_eq!(format_optional_u32_text(Some(42)), "42");
+        assert_eq!(format_optional_u32_text(None), "none");
+    }
+
+    #[test]
+    fn format_optional_u64_text_handles_some_and_none() {
+        assert_eq!(format_optional_u64_text(Some(0)), "0");
+        assert_eq!(format_optional_u64_text(Some(42)), "42");
+        assert_eq!(format_optional_u64_text(None), "none");
+    }
+
+    #[test]
     fn format_optional_bool_flag_handles_all_variants() {
         assert_eq!(format_optional_bool_flag(Some(true)), '1');
         assert_eq!(format_optional_bool_flag(Some(false)), '0');
         assert_eq!(format_optional_bool_flag(None), 'n');
+    }
+
+    #[test]
+    fn format_u8_list_text_handles_empty_and_join() {
+        assert_eq!(format_u8_list_text(&[]), "none");
+        assert_eq!(format_u8_list_text(&[1, 2, 3]), "1,2,3");
     }
 
     #[test]
