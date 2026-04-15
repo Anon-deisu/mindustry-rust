@@ -2485,13 +2485,13 @@ pub fn build_runtime_chat_panel(hud: &HudModel) -> Option<RuntimeChatPanelModel>
     })
 }
 
-pub fn build_runtime_notice_state_panel(hud: &HudModel) -> Option<RuntimeNoticeStatePanelModel> {
-    let notice = build_runtime_ui_notice_panel(hud)?;
-    let hud_active = notice.hud_last_message.is_some();
-    let reliable_hud_active = notice.hud_last_reliable_message.is_some();
-    let toast_info_active = notice.toast_last_info_message.is_some();
-    let toast_warning_active = notice.toast_last_warning_text.is_some();
-    let kind = if toast_warning_active {
+fn runtime_notice_state_kind(
+    hud_active: bool,
+    reliable_hud_active: bool,
+    toast_info_active: bool,
+    toast_warning_active: bool,
+) -> Option<RuntimeDialogNoticeKind> {
+    if toast_warning_active {
         Some(RuntimeDialogNoticeKind::ToastWarning)
     } else if toast_info_active {
         Some(RuntimeDialogNoticeKind::ToastInfo)
@@ -2501,14 +2501,44 @@ pub fn build_runtime_notice_state_panel(hud: &HudModel) -> Option<RuntimeNoticeS
         Some(RuntimeDialogNoticeKind::Hud)
     } else {
         None
-    };
-    let text = match kind {
-        Some(RuntimeDialogNoticeKind::ToastWarning) => notice.toast_last_warning_text,
-        Some(RuntimeDialogNoticeKind::ToastInfo) => notice.toast_last_info_message,
-        Some(RuntimeDialogNoticeKind::HudReliable) => notice.hud_last_reliable_message,
-        Some(RuntimeDialogNoticeKind::Hud) => notice.hud_last_message,
+    }
+}
+
+fn runtime_notice_state_text(
+    kind: Option<RuntimeDialogNoticeKind>,
+    hud_last_message: Option<String>,
+    hud_last_reliable_message: Option<String>,
+    toast_last_info_message: Option<String>,
+    toast_last_warning_text: Option<String>,
+) -> Option<String> {
+    match kind {
+        Some(RuntimeDialogNoticeKind::ToastWarning) => toast_last_warning_text,
+        Some(RuntimeDialogNoticeKind::ToastInfo) => toast_last_info_message,
+        Some(RuntimeDialogNoticeKind::HudReliable) => hud_last_reliable_message,
+        Some(RuntimeDialogNoticeKind::Hud) => hud_last_message,
         None => None,
-    };
+    }
+}
+
+pub fn build_runtime_notice_state_panel(hud: &HudModel) -> Option<RuntimeNoticeStatePanelModel> {
+    let notice = build_runtime_ui_notice_panel(hud)?;
+    let hud_active = notice.hud_last_message.is_some();
+    let reliable_hud_active = notice.hud_last_reliable_message.is_some();
+    let toast_info_active = notice.toast_last_info_message.is_some();
+    let toast_warning_active = notice.toast_last_warning_text.is_some();
+    let kind = runtime_notice_state_kind(
+        hud_active,
+        reliable_hud_active,
+        toast_info_active,
+        toast_warning_active,
+    );
+    let text = runtime_notice_state_text(
+        kind,
+        notice.hud_last_message,
+        notice.hud_last_reliable_message,
+        notice.toast_last_info_message,
+        notice.toast_last_warning_text,
+    );
 
     Some(RuntimeNoticeStatePanelModel {
         kind,

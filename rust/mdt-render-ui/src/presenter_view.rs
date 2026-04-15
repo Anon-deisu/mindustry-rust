@@ -1081,14 +1081,18 @@ pub(crate) fn format_runtime_prompt_detail_text_if_nonempty(
     (!panel.is_empty()).then(|| format_runtime_prompt_detail_text(panel))
 }
 
-pub(crate) fn format_runtime_notice_state_panel_text(
-    panel: &RuntimeNoticeStatePanelModel,
-) -> String {
-    let notice_text = format!(
+fn runtime_notice_state_notice_text(panel: &RuntimeNoticeStatePanelModel) -> String {
+    format!(
         "{}@{}",
         format_runtime_dialog_notice_text(panel.kind),
         compact_runtime_ui_text(panel.text.as_deref())
-    );
+    )
+}
+
+pub(crate) fn format_runtime_notice_state_panel_text(
+    panel: &RuntimeNoticeStatePanelModel,
+) -> String {
+    let notice_text = runtime_notice_state_notice_text(panel);
     let layers = panel.layer_labels();
     let source = layers.last().copied().unwrap_or("none");
     let active_layers = if layers.is_empty() {
@@ -1105,11 +1109,7 @@ pub(crate) fn format_runtime_notice_state_panel_text(
 pub(crate) fn format_runtime_notice_state_detail_text(
     panel: &RuntimeNoticeStatePanelModel,
 ) -> String {
-    let notice_text = format!(
-        "{}@{}",
-        format_runtime_dialog_notice_text(panel.kind),
-        compact_runtime_ui_text(panel.text.as_deref())
-    );
+    let notice_text = runtime_notice_state_notice_text(panel);
     let layers = panel.layer_labels().join(">");
     let source = panel.layer_labels().last().copied().unwrap_or("none");
     format!(
