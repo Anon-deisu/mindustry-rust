@@ -786,8 +786,9 @@ fn tile_in_window(
 #[cfg(test)]
 mod tests {
     use super::{
-        fog_reveal_is_visible, marker_projection_summary, project_hud_model, project_render_model,
-        project_render_model_with_player_position, project_render_model_with_view_window,
+        crop_origin, fog_reveal_is_visible, marker_projection_summary, project_hud_model,
+        project_render_model, project_render_model_with_player_position,
+        project_render_model_with_view_window,
     };
     use crate::render_model::{
         RenderObjectSemanticKind, RenderPrimitive, RenderPrimitivePayloadValue,
@@ -861,6 +862,14 @@ mod tests {
         assert!(!fog_reveal_is_visible(None));
         assert!(!fog_reveal_is_visible(Some(false)));
         assert!(fog_reveal_is_visible(Some(true)));
+    }
+
+    #[test]
+    fn crop_origin_clamps_center_and_edges_stably() {
+        assert_eq!(crop_origin(5, 10, 4), 3);
+        assert_eq!(crop_origin(0, 10, 4), 0);
+        assert_eq!(crop_origin(9, 10, 4), 6);
+        assert_eq!(crop_origin(7, 10, 0), 7);
     }
 
     #[test]
