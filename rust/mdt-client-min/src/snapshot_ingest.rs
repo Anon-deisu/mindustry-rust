@@ -104,8 +104,7 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                                 .saturating_add(
                                     core_inventory.inventory.duplicate_item_count as u64,
                                 );
-                            state.last_state_snapshot_core_data_parse_error = None;
-                            state.last_state_snapshot_core_data_parse_error_payload_len = None;
+                            state.clear_state_snapshot_core_data_parse_failure();
                         }
                         Err(error) => {
                             state.last_state_snapshot_core_data = None;
