@@ -3062,8 +3062,26 @@ fn resolve_presenter_window(
 
     let scene_window = scene
         .view_window
-        .map(|view_window| clamp_render_view_window_to_map(view_window, map_width, map_height))
-        .unwrap_or_else(|| clamp_hud_view_window_to_map(summary_window, map_width, map_height));
+        .map(|view_window| {
+            clamp_view_window_to_map(
+                view_window.origin_x,
+                view_window.origin_y,
+                view_window.width,
+                view_window.height,
+                map_width,
+                map_height,
+            )
+        })
+        .unwrap_or_else(|| {
+            clamp_view_window_to_map(
+                summary_window.origin_x,
+                summary_window.origin_y,
+                summary_window.width,
+                summary_window.height,
+                map_width,
+                map_height,
+            )
+        });
 
     if scene_window.width != 0 || scene_window.height != 0 {
         scene_window
@@ -3072,34 +3090,20 @@ fn resolve_presenter_window(
     }
 }
 
-fn clamp_render_view_window_to_map(
-    window: crate::render_model::RenderViewWindow,
+fn clamp_view_window_to_map(
+    origin_x: usize,
+    origin_y: usize,
+    width: usize,
+    height: usize,
     map_width: usize,
     map_height: usize,
 ) -> PresenterViewWindow {
     clamp_presenter_window_to_map(
         PresenterViewWindow {
-            origin_x: window.origin_x,
-            origin_y: window.origin_y,
-            width: window.width,
-            height: window.height,
-        },
-        map_width,
-        map_height,
-    )
-}
-
-fn clamp_hud_view_window_to_map(
-    window: crate::hud_model::HudViewWindowSummary,
-    map_width: usize,
-    map_height: usize,
-) -> PresenterViewWindow {
-    clamp_presenter_window_to_map(
-        PresenterViewWindow {
-            origin_x: window.origin_x,
-            origin_y: window.origin_y,
-            width: window.width,
-            height: window.height,
+            origin_x,
+            origin_y,
+            width,
+            height,
         },
         map_width,
         map_height,
