@@ -3578,11 +3578,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.copy_to_clipboard_packet_id => {
                 if let Some(text) = decode_optional_typeio_string_payload(&packet.payload) {
-                    self.state.received_copy_to_clipboard_count = self
-                        .state
-                        .received_copy_to_clipboard_count
-                        .saturating_add(1);
-                    self.state.last_copy_to_clipboard_text = text.clone();
+                    self.state.record_copy_to_clipboard(text.clone());
                     Ok(ClientSessionEvent::CopyToClipboard { text })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -3593,9 +3589,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.open_uri_packet_id => {
                 if let Some(uri) = decode_optional_typeio_string_payload(&packet.payload) {
-                    self.state.received_open_uri_count =
-                        self.state.received_open_uri_count.saturating_add(1);
-                    self.state.last_open_uri = uri.clone();
+                    self.state.record_open_uri(uri.clone());
                     Ok(ClientSessionEvent::OpenUri { uri })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -3606,15 +3600,15 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.text_input_packet_id => {
                 if let Some(summary) = decode_text_input_payload(&packet.payload, false) {
-                    self.state.received_text_input_count =
-                        self.state.received_text_input_count.saturating_add(1);
-                    self.state.last_text_input_id = Some(summary.text_input_id);
-                    self.state.last_text_input_title = summary.title.clone();
-                    self.state.last_text_input_message = summary.message.clone();
-                    self.state.last_text_input_length = Some(summary.text_length);
-                    self.state.last_text_input_default_text = summary.default_text.clone();
-                    self.state.last_text_input_numeric = Some(summary.numeric);
-                    self.state.last_text_input_allow_empty = Some(summary.allow_empty);
+                    self.state.record_text_input(
+                        summary.text_input_id,
+                        summary.title.clone(),
+                        summary.message.clone(),
+                        summary.text_length,
+                        summary.default_text.clone(),
+                        summary.numeric,
+                        summary.allow_empty,
+                    );
                     Ok(ClientSessionEvent::TextInput {
                         text_input_id: summary.text_input_id,
                         title: summary.title,
@@ -3633,15 +3627,15 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.text_input_allow_empty_packet_id => {
                 if let Some(summary) = decode_text_input_payload(&packet.payload, true) {
-                    self.state.received_text_input_count =
-                        self.state.received_text_input_count.saturating_add(1);
-                    self.state.last_text_input_id = Some(summary.text_input_id);
-                    self.state.last_text_input_title = summary.title.clone();
-                    self.state.last_text_input_message = summary.message.clone();
-                    self.state.last_text_input_length = Some(summary.text_length);
-                    self.state.last_text_input_default_text = summary.default_text.clone();
-                    self.state.last_text_input_numeric = Some(summary.numeric);
-                    self.state.last_text_input_allow_empty = Some(summary.allow_empty);
+                    self.state.record_text_input(
+                        summary.text_input_id,
+                        summary.title.clone(),
+                        summary.message.clone(),
+                        summary.text_length,
+                        summary.default_text.clone(),
+                        summary.numeric,
+                        summary.allow_empty,
+                    );
                     Ok(ClientSessionEvent::TextInput {
                         text_input_id: summary.text_input_id,
                         title: summary.title,

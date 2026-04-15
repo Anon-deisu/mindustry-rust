@@ -7183,6 +7183,37 @@ impl SessionState {
         self.last_info_message = message.clone();
     }
 
+    pub fn record_copy_to_clipboard(&mut self, text: Option<String>) {
+        self.received_copy_to_clipboard_count =
+            self.received_copy_to_clipboard_count.saturating_add(1);
+        self.last_copy_to_clipboard_text = text;
+    }
+
+    pub fn record_open_uri(&mut self, uri: Option<String>) {
+        self.received_open_uri_count = self.received_open_uri_count.saturating_add(1);
+        self.last_open_uri = uri;
+    }
+
+    pub fn record_text_input(
+        &mut self,
+        text_input_id: i32,
+        title: Option<String>,
+        message: Option<String>,
+        text_length: i32,
+        default_text: Option<String>,
+        numeric: bool,
+        allow_empty: bool,
+    ) {
+        self.received_text_input_count = self.received_text_input_count.saturating_add(1);
+        self.last_text_input_id = Some(text_input_id);
+        self.last_text_input_title = title;
+        self.last_text_input_message = message;
+        self.last_text_input_length = Some(text_length);
+        self.last_text_input_default_text = default_text;
+        self.last_text_input_numeric = Some(numeric);
+        self.last_text_input_allow_empty = Some(allow_empty);
+    }
+
     pub fn record_info_toast(&mut self, message: &Option<String>, duration: f32) {
         self.received_info_toast_count = self.received_info_toast_count.saturating_add(1);
         self.last_info_toast_message = message.clone();
@@ -15598,6 +15629,53 @@ mod tests {
 
         assert_eq!(state.received_info_message_count, 1);
         assert_eq!(state.last_info_message, message);
+    }
+
+    #[test]
+    fn record_copy_to_clipboard_tracks_text() {
+        let mut state = SessionState::default();
+
+        state.record_copy_to_clipboard(Some("copy".to_string()));
+
+        assert_eq!(state.received_copy_to_clipboard_count, 1);
+        assert_eq!(
+            state.last_copy_to_clipboard_text.as_deref(),
+            Some("copy")
+        );
+    }
+
+    #[test]
+    fn record_open_uri_tracks_uri() {
+        let mut state = SessionState::default();
+
+        state.record_open_uri(Some("https://example.com".to_string()));
+
+        assert_eq!(state.received_open_uri_count, 1);
+        assert_eq!(state.last_open_uri.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn record_text_input_tracks_payload_summary() {
+        let mut state = SessionState::default();
+
+        state.record_text_input(
+            7,
+            Some("title".to_string()),
+            Some("message".to_string()),
+            32,
+            Some("default".to_string()),
+            true,
+            false,
+        );
+
+        assert_eq!(state.received_text_input_count, 1);
+        assert_eq!(state.last_text_input_id, Some(7));
+        assert_eq!(state.last_text_input_title.as_deref(), Some("title"));
+        assert_eq!(state.last_text_input_message.as_deref(), Some("message"));
+        assert_eq!(state.last_text_input_length, Some(32));
+        assert_eq!(state.last_text_input_default_text.as_deref(), Some("default"));
+        assert_eq!(state.last_text_input_numeric, Some(true));
+        assert_eq!(state.last_text_input_allow_empty, Some(false));
     }
 
     #[test]
