@@ -5585,12 +5585,8 @@ impl ClientSession {
                         snapshots_sent: status.snapshots_sent,
                     })
                 } else {
-                    self.state.failed_debug_status_client_parse_count = self
-                        .state
-                        .failed_debug_status_client_parse_count
-                        .saturating_add(1);
-                    self.state.last_debug_status_client_parse_error_payload_len =
-                        Some(packet.payload.len());
+                    self.state
+                        .record_debug_status_parse_failure(true, packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
@@ -5612,13 +5608,8 @@ impl ClientSession {
                         snapshots_sent: status.snapshots_sent,
                     })
                 } else {
-                    self.state.failed_debug_status_client_unreliable_parse_count = self
-                        .state
-                        .failed_debug_status_client_unreliable_parse_count
-                        .saturating_add(1);
                     self.state
-                        .last_debug_status_client_unreliable_parse_error_payload_len =
-                        Some(packet.payload.len());
+                        .record_debug_status_parse_failure(false, packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),

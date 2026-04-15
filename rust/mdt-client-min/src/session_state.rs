@@ -7775,6 +7775,19 @@ impl SessionState {
         self.last_debug_status_snapshots_sent = Some(snapshots_sent);
     }
 
+    pub fn record_debug_status_parse_failure(&mut self, reliable: bool, payload_len: usize) {
+        if reliable {
+            self.failed_debug_status_client_parse_count =
+                self.failed_debug_status_client_parse_count.saturating_add(1);
+            self.last_debug_status_client_parse_error_payload_len = Some(payload_len);
+        } else {
+            self.failed_debug_status_client_unreliable_parse_count = self
+                .failed_debug_status_client_unreliable_parse_count
+                .saturating_add(1);
+            self.last_debug_status_client_unreliable_parse_error_payload_len = Some(payload_len);
+        }
+    }
+
     pub fn record_sound(&mut self, sound_id: Option<i16>, volume: f32, pitch: f32, pan: f32) {
         self.received_sound_count = self.received_sound_count.saturating_add(1);
         self.last_sound_id = sound_id;
@@ -16954,6 +16967,36 @@ mod tests {
         assert_eq!(
             state.last_debug_status_client_unreliable_parse_error_payload_len,
             None
+        );
+    }
+
+    #[test]
+    fn record_debug_status_parse_failure_tracks_reliable_branch() {
+        let mut state = SessionState::default();
+
+        state.record_debug_status_parse_failure(true, 8);
+
+        assert_eq!(state.failed_debug_status_client_parse_count, 1);
+        assert_eq!(state.last_debug_status_client_parse_error_payload_len, Some(8));
+        assert_eq!(state.failed_debug_status_client_unreliable_parse_count, 0);
+        assert_eq!(
+            state.last_debug_status_client_unreliable_parse_error_payload_len,
+            None
+        );
+    }
+
+    #[test]
+    fn record_debug_status_parse_failure_tracks_unreliable_branch() {
+        let mut state = SessionState::default();
+
+        state.record_debug_status_parse_failure(false, 9);
+
+        assert_eq!(state.failed_debug_status_client_parse_count, 0);
+        assert_eq!(state.last_debug_status_client_parse_error_payload_len, None);
+        assert_eq!(state.failed_debug_status_client_unreliable_parse_count, 1);
+        assert_eq!(
+            state.last_debug_status_client_unreliable_parse_error_payload_len,
+            Some(9)
         );
     }
 
