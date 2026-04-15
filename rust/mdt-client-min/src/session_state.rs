@@ -7459,6 +7459,28 @@ impl SessionState {
         self.last_transfer_inventory_build_pos = build_pos;
     }
 
+    pub fn record_rotate_block(&mut self, build_pos: Option<i32>, direction: bool) {
+        self.received_rotate_block_count = self.received_rotate_block_count.saturating_add(1);
+        self.last_rotate_block_build_pos = build_pos;
+        self.last_rotate_block_direction = Some(direction);
+    }
+
+    pub fn record_drop_item(&mut self, angle: f32) {
+        self.received_drop_item_count = self.received_drop_item_count.saturating_add(1);
+        self.last_drop_item_angle_bits = Some(angle.to_bits());
+    }
+
+    pub fn record_delete_plans(&mut self, positions: &[i32]) {
+        self.received_delete_plans_count = self.received_delete_plans_count.saturating_add(1);
+        self.last_delete_plans_count = positions.len();
+        self.last_delete_plans_first_pos = positions.first().copied();
+    }
+
+    pub fn record_tile_tap(&mut self, tile_pos: Option<i32>) {
+        self.received_tile_tap_count = self.received_tile_tap_count.saturating_add(1);
+        self.last_tile_tap_pos = tile_pos;
+    }
+
     pub fn record_game_over(&mut self, winner_team_id: u8) {
         self.received_game_over_count = self.received_game_over_count.saturating_add(1);
         self.last_game_over_winner_team_id = Some(winner_team_id);
@@ -16237,6 +16259,50 @@ mod tests {
 
         assert_eq!(state.received_transfer_inventory_count, 1);
         assert_eq!(state.last_transfer_inventory_build_pos, Some(27));
+    }
+
+    #[test]
+    fn record_rotate_block_tracks_target_and_direction() {
+        let mut state = SessionState::default();
+
+        state.record_rotate_block(Some(33), true);
+
+        assert_eq!(state.received_rotate_block_count, 1);
+        assert_eq!(state.last_rotate_block_build_pos, Some(33));
+        assert_eq!(state.last_rotate_block_direction, Some(true));
+    }
+
+    #[test]
+    fn record_drop_item_tracks_angle_bits() {
+        let mut state = SessionState::default();
+
+        state.record_drop_item(135.0);
+
+        assert_eq!(state.received_drop_item_count, 1);
+        assert_eq!(state.last_drop_item_angle_bits, Some(135.0f32.to_bits()));
+    }
+
+    #[test]
+    fn record_delete_plans_tracks_count_and_first_position() {
+        let mut state = SessionState::default();
+        let positions = [pack_point2(1, 2), pack_point2(3, 4)];
+
+        state.record_delete_plans(&positions);
+
+        assert_eq!(state.received_delete_plans_count, 1);
+        assert_eq!(state.last_delete_plans_count, 2);
+        assert_eq!(state.last_delete_plans_first_pos, Some(pack_point2(1, 2)));
+    }
+
+    #[test]
+    fn record_tile_tap_tracks_tile_pos() {
+        let mut state = SessionState::default();
+        let tile_pos = Some(pack_point2(9, 10));
+
+        state.record_tile_tap(tile_pos);
+
+        assert_eq!(state.received_tile_tap_count, 1);
+        assert_eq!(state.last_tile_tap_pos, tile_pos);
     }
 
     #[test]

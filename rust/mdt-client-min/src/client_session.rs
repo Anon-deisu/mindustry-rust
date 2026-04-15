@@ -4229,10 +4229,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.rotate_block_packet_id => {
                 if let Some((build_pos, direction)) = decode_rotate_block_payload(&packet.payload) {
-                    self.state.received_rotate_block_count =
-                        self.state.received_rotate_block_count.saturating_add(1);
-                    self.state.last_rotate_block_build_pos = build_pos;
-                    self.state.last_rotate_block_direction = Some(direction);
+                    self.state.record_rotate_block(build_pos, direction);
                     Ok(ClientSessionEvent::RotateBlock {
                         build_pos,
                         direction,
@@ -4246,9 +4243,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.drop_item_packet_id => {
                 if let Some(angle) = decode_drop_item_payload(&packet.payload) {
-                    self.state.received_drop_item_count =
-                        self.state.received_drop_item_count.saturating_add(1);
-                    self.state.last_drop_item_angle_bits = Some(angle.to_bits());
+                    self.state.record_drop_item(angle);
                     Ok(ClientSessionEvent::DropItem { angle })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4259,10 +4254,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.delete_plans_packet_id => {
                 if let Some(positions) = decode_delete_plans_payload(&packet.payload) {
-                    self.state.received_delete_plans_count =
-                        self.state.received_delete_plans_count.saturating_add(1);
-                    self.state.last_delete_plans_count = positions.len();
-                    self.state.last_delete_plans_first_pos = positions.first().copied();
+                    self.state.record_delete_plans(&positions);
                     Ok(ClientSessionEvent::DeletePlans { positions })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4273,9 +4265,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.tile_tap_packet_id => {
                 if let Some(tile_pos) = decode_tile_tap_payload(&packet.payload) {
-                    self.state.received_tile_tap_count =
-                        self.state.received_tile_tap_count.saturating_add(1);
-                    self.state.last_tile_tap_pos = tile_pos;
+                    self.state.record_tile_tap(tile_pos);
                     Ok(ClientSessionEvent::TileTap { tile_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
