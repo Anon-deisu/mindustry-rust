@@ -3096,13 +3096,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_flag_packet_id => {
                 if let Some((flag, add)) = decode_set_flag_payload(&packet.payload) {
-                    self.state.received_set_flag_count =
-                        self.state.received_set_flag_count.saturating_add(1);
-                    self.state.last_set_flag = flag.clone();
-                    self.state.last_set_flag_add = Some(add);
-                    self.state
-                        .objectives_projection
-                        .apply_set_flag(flag.as_deref(), add);
+                    self.state.record_set_flag(&flag, add);
                     Ok(ClientSessionEvent::SetFlag { flag, add })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {

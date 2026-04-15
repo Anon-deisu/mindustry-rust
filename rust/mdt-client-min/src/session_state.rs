@@ -7156,6 +7156,13 @@ impl SessionState {
         self.rules_projection.apply_set_rule_patch(rule, json_data);
     }
 
+    pub fn record_set_flag(&mut self, flag: &Option<String>, add: bool) {
+        self.received_set_flag_count = self.received_set_flag_count.saturating_add(1);
+        self.last_set_flag = flag.clone();
+        self.last_set_flag_add = Some(add);
+        self.objectives_projection.apply_set_flag(flag.as_deref(), add);
+    }
+
     pub fn record_clear_objectives(&mut self) {
         self.received_clear_objectives_count =
             self.received_clear_objectives_count.saturating_add(1);
@@ -9130,6 +9137,19 @@ mod tests {
         assert_eq!(state.received_clear_objectives_count, 1);
         assert!(state.objectives_projection.objectives.is_empty());
         assert_eq!(state.objectives_projection.cleared_count, 1);
+    }
+
+    #[test]
+    fn record_set_flag_tracks_flag_and_projection() {
+        let mut state = SessionState::default();
+        let flag = Some("wave-start".to_string());
+
+        state.record_set_flag(&flag, true);
+
+        assert_eq!(state.received_set_flag_count, 1);
+        assert_eq!(state.last_set_flag, flag);
+        assert_eq!(state.last_set_flag_add, Some(true));
+        assert!(state.objectives_projection.objective_flags.contains("wave-start"));
     }
 
     #[test]
