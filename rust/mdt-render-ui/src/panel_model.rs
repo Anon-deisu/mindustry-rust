@@ -1275,33 +1275,67 @@ impl RuntimeBootstrapPanelModel {
     }
 
     pub fn summary_label(&self) -> String {
-        format!(
-            "rules={}:tags={}:locales={}:teams={}:markers={}:chunks={}:patches={}:plans={}:fog={}",
-            self.rules_label,
-            self.tags_label,
-            self.locales_label,
-            self.team_count,
-            self.marker_count,
-            self.custom_chunk_count,
-            self.content_patch_count,
-            self.player_team_plan_count,
-            self.static_fog_team_count,
-        )
+        format_runtime_bootstrap_fields_text(&[
+            ("rules", &self.rules_label as &dyn std::fmt::Display),
+            ("tags", &self.tags_label as &dyn std::fmt::Display),
+            ("locales", &self.locales_label as &dyn std::fmt::Display),
+            ("teams", &self.team_count as &dyn std::fmt::Display),
+            ("markers", &self.marker_count as &dyn std::fmt::Display),
+            (
+                "chunks",
+                &self.custom_chunk_count as &dyn std::fmt::Display,
+            ),
+            (
+                "patches",
+                &self.content_patch_count as &dyn std::fmt::Display,
+            ),
+            (
+                "plans",
+                &self.player_team_plan_count as &dyn std::fmt::Display,
+            ),
+            (
+                "fog",
+                &self.static_fog_team_count as &dyn std::fmt::Display,
+            ),
+        ])
     }
 
     pub fn detail_label(&self) -> String {
-        format!(
-            "rules-label={}:tags-label={}:locales-label={}:team-count={}:marker-count={}:custom-chunk-count={}:content-patch-count={}:player-team-plan-count={}:static-fog-team-count={}",
-            self.rules_label,
-            self.tags_label,
-            self.locales_label,
-            self.team_count,
-            self.marker_count,
-            self.custom_chunk_count,
-            self.content_patch_count,
-            self.player_team_plan_count,
-            self.static_fog_team_count,
-        )
+        format_runtime_bootstrap_fields_text(&[
+            (
+                "rules-label",
+                &self.rules_label as &dyn std::fmt::Display,
+            ),
+            ("tags-label", &self.tags_label as &dyn std::fmt::Display),
+            (
+                "locales-label",
+                &self.locales_label as &dyn std::fmt::Display,
+            ),
+            (
+                "team-count",
+                &self.team_count as &dyn std::fmt::Display,
+            ),
+            (
+                "marker-count",
+                &self.marker_count as &dyn std::fmt::Display,
+            ),
+            (
+                "custom-chunk-count",
+                &self.custom_chunk_count as &dyn std::fmt::Display,
+            ),
+            (
+                "content-patch-count",
+                &self.content_patch_count as &dyn std::fmt::Display,
+            ),
+            (
+                "player-team-plan-count",
+                &self.player_team_plan_count as &dyn std::fmt::Display,
+            ),
+            (
+                "static-fog-team-count",
+                &self.static_fog_team_count as &dyn std::fmt::Display,
+            ),
+        ])
     }
 }
 
@@ -2281,6 +2315,19 @@ fn compact_panel_text(value: Option<&str>) -> String {
         }
         None => "none".to_string(),
     }
+}
+
+fn format_runtime_bootstrap_fields_text(fields: &[(&str, &dyn std::fmt::Display)]) -> String {
+    use std::fmt::Write as _;
+
+    let mut text = String::new();
+    for (index, (name, value)) in fields.iter().enumerate() {
+        if index > 0 {
+            text.push(':');
+        }
+        let _ = write!(&mut text, "{}={}", name, value);
+    }
+    text
 }
 
 fn build_interaction_mode(
