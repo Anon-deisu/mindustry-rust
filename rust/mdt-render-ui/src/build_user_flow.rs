@@ -75,6 +75,14 @@ impl BuildUserFlowPanelModel {
         }
     }
 
+    fn blocker_and_route_labels(&self) -> (String, String) {
+        let blocker_labels = self.blocker_labels();
+        (
+            Self::join_or_none(&blocker_labels),
+            Self::join_or_none(&self.route),
+        )
+    }
+
     pub(crate) fn pan_label(&self) -> &'static str {
         match (self.pan_horizontal, self.pan_vertical) {
             (MinimapPanAxisDirection::None, MinimapPanAxisDirection::None) => "hold",
@@ -112,9 +120,7 @@ impl BuildUserFlowPanelModel {
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn detail_label(&self) -> String {
-        let blocker_labels = self.blocker_labels();
-        let blockers = Self::join_or_none(&blocker_labels);
-        let route = Self::join_or_none(&self.route);
+        let (blockers, route) = self.blocker_and_route_labels();
         let head = self
             .head_tile
             .map_or_else(|| "none".to_string(), |(x, y)| format!("{x},{y}"));
@@ -140,9 +146,7 @@ impl BuildUserFlowPanelModel {
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn route_detail_label(&self) -> String {
-        let blocker_labels = self.blocker_labels();
-        let blockers = Self::join_or_none(&blocker_labels);
-        let route = Self::join_or_none(&self.route);
+        let (blockers, route) = self.blocker_and_route_labels();
 
         format!(
             "{} blockers={} route={}",
