@@ -7175,6 +7175,12 @@ impl SessionState {
         self.last_set_rule_parse_error_payload_len = Some(payload_len);
     }
 
+    pub fn record_tile_config_parse_failure(&mut self, error: Option<String>) {
+        self.last_tile_config_parse_failed = true;
+        self.failed_tile_config_parse_count = self.failed_tile_config_parse_count.saturating_add(1);
+        self.last_tile_config_parse_error = error;
+    }
+
     pub fn record_loaded_world_block_snapshot_extra_entry_parse_failure(
         &mut self,
         entry_count: usize,
@@ -9582,6 +9588,20 @@ mod tests {
             Some("setRule decode error")
         );
         assert_eq!(state.last_set_rule_parse_error_payload_len, Some(13));
+    }
+
+    #[test]
+    fn session_state_tile_config_parse_failure_helper_tracks_error_state() {
+        let mut state = SessionState::default();
+
+        state.record_tile_config_parse_failure(Some("tileConfig trailing bytes".to_string()));
+
+        assert!(state.last_tile_config_parse_failed);
+        assert_eq!(state.failed_tile_config_parse_count, 1);
+        assert_eq!(
+            state.last_tile_config_parse_error.as_deref(),
+            Some("tileConfig trailing bytes")
+        );
     }
 
     #[test]

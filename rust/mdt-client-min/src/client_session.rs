@@ -4494,11 +4494,11 @@ impl ClientSession {
                     self.state.last_tile_config_kind_name = config_kind_name.clone();
                     self.state.last_tile_config_consumed_len = config_consumed_len;
                     self.state.last_tile_config_object = config_object.clone();
-                    self.state.last_tile_config_parse_failed = parse_failed;
                     if parse_failed {
-                        self.state.failed_tile_config_parse_count =
-                            self.state.failed_tile_config_parse_count.saturating_add(1);
+                        self.state
+                            .record_tile_config_parse_failure(parse_error.clone());
                     }
+                    self.state.last_tile_config_parse_failed = parse_failed;
                     self.state.last_tile_config_parse_error = parse_error;
                     Ok(ClientSessionEvent::TileConfig {
                         build_pos,
