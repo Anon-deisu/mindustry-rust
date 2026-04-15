@@ -16749,6 +16749,21 @@ mod tests {
     }
 
     #[test]
+    fn record_chat_message_tracks_none_optional_fields() {
+        let mut state = SessionState::default();
+
+        state.record_chat_message("[accent]bot[]: ping".to_string(), None, None);
+
+        assert_eq!(state.received_chat_message_count, 1);
+        assert_eq!(
+            state.last_chat_message.as_deref(),
+            Some("[accent]bot[]: ping")
+        );
+        assert_eq!(state.last_chat_unformatted, None);
+        assert_eq!(state.last_chat_sender_entity_id, None);
+    }
+
+    #[test]
     fn clear_runtime_ui_transients_for_world_reload_resets_chat_server_and_ui_state() {
         let mut state = SessionState::default();
 
