@@ -3985,12 +3985,12 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_tile_items_packet_id => {
                 if let Some(summary) = decode_set_tile_items_payload(&packet.payload) {
-                    self.state.received_set_tile_items_count =
-                        self.state.received_set_tile_items_count.saturating_add(1);
-                    self.state.last_set_tile_items_item_id = summary.item_id;
-                    self.state.last_set_tile_items_amount = Some(summary.amount);
-                    self.state.last_set_tile_items_count = summary.position_count;
-                    self.state.last_set_tile_items_first_position = summary.first_position;
+                    self.state.record_set_tile_items(
+                        summary.item_id,
+                        summary.amount,
+                        summary.position_count,
+                        summary.first_position,
+                    );
                     self.state.record_set_tile_items_resource_delta(
                         summary.item_id,
                         summary.amount,
@@ -4015,12 +4015,12 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_tile_liquids_packet_id => {
                 if let Some(summary) = decode_set_tile_liquids_payload(&packet.payload) {
-                    self.state.received_set_tile_liquids_count =
-                        self.state.received_set_tile_liquids_count.saturating_add(1);
-                    self.state.last_set_tile_liquids_liquid_id = summary.liquid_id;
-                    self.state.last_set_tile_liquids_amount_bits = Some(summary.amount_bits);
-                    self.state.last_set_tile_liquids_count = summary.position_count;
-                    self.state.last_set_tile_liquids_first_position = summary.first_position;
+                    self.state.record_set_tile_liquids(
+                        summary.liquid_id,
+                        summary.amount_bits,
+                        summary.position_count,
+                        summary.first_position,
+                    );
                     self.record_set_tile_liquids_resource_delta(
                         summary.liquid_id,
                         summary.amount_bits,

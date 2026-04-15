@@ -7427,6 +7427,36 @@ impl SessionState {
         self.last_set_tile_floors_first_position = first_position;
     }
 
+    pub fn record_set_tile_items(
+        &mut self,
+        item_id: Option<i16>,
+        amount: i32,
+        position_count: usize,
+        first_position: Option<i32>,
+    ) {
+        self.received_set_tile_items_count =
+            self.received_set_tile_items_count.saturating_add(1);
+        self.last_set_tile_items_item_id = item_id;
+        self.last_set_tile_items_amount = Some(amount);
+        self.last_set_tile_items_count = position_count;
+        self.last_set_tile_items_first_position = first_position;
+    }
+
+    pub fn record_set_tile_liquids(
+        &mut self,
+        liquid_id: Option<i16>,
+        amount_bits: u32,
+        position_count: usize,
+        first_position: Option<i32>,
+    ) {
+        self.received_set_tile_liquids_count =
+            self.received_set_tile_liquids_count.saturating_add(1);
+        self.last_set_tile_liquids_liquid_id = liquid_id;
+        self.last_set_tile_liquids_amount_bits = Some(amount_bits);
+        self.last_set_tile_liquids_count = position_count;
+        self.last_set_tile_liquids_first_position = first_position;
+    }
+
     pub fn record_set_tile_overlays(
         &mut self,
         block_id: Option<i16>,
@@ -15900,6 +15930,34 @@ mod tests {
         assert_eq!(state.last_set_tile_floors_block_id, Some(12));
         assert_eq!(state.last_set_tile_floors_count, 2);
         assert_eq!(state.last_set_tile_floors_first_position, first_position);
+    }
+
+    #[test]
+    fn record_set_tile_items_tracks_batch_summary() {
+        let mut state = SessionState::default();
+        let first_position = Some(pack_point2(1, 2));
+
+        state.record_set_tile_items(Some(6), 13, 2, first_position);
+
+        assert_eq!(state.received_set_tile_items_count, 1);
+        assert_eq!(state.last_set_tile_items_item_id, Some(6));
+        assert_eq!(state.last_set_tile_items_amount, Some(13));
+        assert_eq!(state.last_set_tile_items_count, 2);
+        assert_eq!(state.last_set_tile_items_first_position, first_position);
+    }
+
+    #[test]
+    fn record_set_tile_liquids_tracks_batch_summary() {
+        let mut state = SessionState::default();
+        let first_position = Some(pack_point2(5, 6));
+
+        state.record_set_tile_liquids(Some(4), 0.75f32.to_bits(), 2, first_position);
+
+        assert_eq!(state.received_set_tile_liquids_count, 1);
+        assert_eq!(state.last_set_tile_liquids_liquid_id, Some(4));
+        assert_eq!(state.last_set_tile_liquids_amount_bits, Some(0.75f32.to_bits()));
+        assert_eq!(state.last_set_tile_liquids_count, 2);
+        assert_eq!(state.last_set_tile_liquids_first_position, first_position);
     }
 
     #[test]
