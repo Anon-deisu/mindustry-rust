@@ -6027,10 +6027,13 @@ impl ClientSession {
         let business = self.state.state_snapshot_business_projection.as_ref()?;
         let authority = self.state.state_snapshot_authority_projection.as_ref();
         let runtime = self.state.authoritative_state_mirror.as_ref();
-        let core_parse_failed = runtime
-            .map(|projection| !projection.last_core_sync_ok)
-            .or_else(|| authority.map(|projection| !projection.last_core_sync_ok))
-            .unwrap_or(!business.core_inventory_synced);
+        let (core_parse_failed, core_parse_fail_count, used_last_good_core_fallback) =
+            Self::resolve_state_snapshot_core_parse_status(
+                runtime,
+                authority,
+                business,
+                self.state.last_good_state_snapshot_core_data.is_some(),
+            );
 
         Some(StateSnapshotAppliedProjection {
             wave: runtime
@@ -6101,13 +6104,28 @@ impl ClientSession {
                 })
                 .unwrap_or_else(|| business.core_inventory_changed_team_sample.clone()),
             core_parse_failed,
-            core_parse_fail_count: runtime
-                .map(|projection| projection.core_parse_fail_count)
-                .or_else(|| authority.map(|projection| projection.core_parse_fail_count))
-                .unwrap_or_default(),
-            used_last_good_core_fallback: core_parse_failed
-                && self.state.last_good_state_snapshot_core_data.is_some(),
+            core_parse_fail_count,
+            used_last_good_core_fallback,
         })
+    }
+
+    fn resolve_state_snapshot_core_parse_status(
+        runtime: Option<&crate::session_state::AuthoritativeStateMirror>,
+        authority: Option<&crate::session_state::StateSnapshotAuthorityProjection>,
+        business: &crate::session_state::StateSnapshotBusinessProjection,
+        has_last_good_core_data: bool,
+    ) -> (bool, u64, bool) {
+        let core_parse_failed = runtime
+            .map(|projection| !projection.last_core_sync_ok)
+            .or_else(|| authority.map(|projection| !projection.last_core_sync_ok))
+            .unwrap_or(!business.core_inventory_synced);
+        let core_parse_fail_count = runtime
+            .map(|projection| projection.core_parse_fail_count)
+            .or_else(|| authority.map(|projection| projection.core_parse_fail_count))
+            .unwrap_or_default();
+        let used_last_good_core_fallback = core_parse_failed && has_last_good_core_data;
+
+        (core_parse_failed, core_parse_fail_count, used_last_good_core_fallback)
     }
 
     fn apply_state_snapshot_core_inventory_to_runtime_buildings(&mut self) {
@@ -31820,6 +31838,54 @@ mod tests {
             session.state().last_wave_advance_signal_apply_count,
             Some(2)
         );
+    }
+
+    #[test]
+    fn resolve_state_snapshot_core_parse_status_prefers_runtime_authority_and_business_fallback() {
+        let business = crate::session_state::StateSnapshotBusinessProjection {
+            core_inventory_synced: true,
+            ..Default::default()
+        };
+
+        let mut runtime = crate::session_state::AuthoritativeStateMirror::default();
+        runtime.last_core_sync_ok = false;
+        runtime.core_parse_fail_count = 7;
+
+        let mut authority = crate::session_state::StateSnapshotAuthorityProjection::default();
+        authority.last_core_sync_ok = true;
+        authority.core_parse_fail_count = 11;
+
+        let (core_parse_failed, core_parse_fail_count, used_last_good_core_fallback) =
+            ClientSession::resolve_state_snapshot_core_parse_status(
+                Some(&runtime),
+                Some(&authority),
+                &business,
+                true,
+            );
+        assert!(core_parse_failed);
+        assert_eq!(core_parse_fail_count, 7);
+        assert!(used_last_good_core_fallback);
+
+        let mut authority = crate::session_state::StateSnapshotAuthorityProjection::default();
+        authority.last_core_sync_ok = false;
+        authority.core_parse_fail_count = 11;
+
+        let (core_parse_failed, core_parse_fail_count, used_last_good_core_fallback) =
+            ClientSession::resolve_state_snapshot_core_parse_status(
+                None,
+                Some(&authority),
+                &business,
+                false,
+            );
+        assert!(core_parse_failed);
+        assert_eq!(core_parse_fail_count, 11);
+        assert!(!used_last_good_core_fallback);
+
+        let (core_parse_failed, core_parse_fail_count, used_last_good_core_fallback) =
+            ClientSession::resolve_state_snapshot_core_parse_status(None, None, &business, false);
+        assert!(!core_parse_failed);
+        assert_eq!(core_parse_fail_count, 0);
+        assert!(!used_last_good_core_fallback);
     }
 
     #[test]
