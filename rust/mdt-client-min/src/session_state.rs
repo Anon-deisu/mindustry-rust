@@ -7178,6 +7178,27 @@ impl SessionState {
         self.last_announce_message = message.clone();
     }
 
+    pub fn record_game_over(&mut self, winner_team_id: u8) {
+        self.received_game_over_count = self.received_game_over_count.saturating_add(1);
+        self.last_game_over_winner_team_id = Some(winner_team_id);
+    }
+
+    pub fn record_update_game_over(&mut self, winner_team_id: u8) {
+        self.received_update_game_over_count =
+            self.received_update_game_over_count.saturating_add(1);
+        self.last_update_game_over_winner_team_id = Some(winner_team_id);
+    }
+
+    pub fn record_sector_capture(&mut self) {
+        self.received_sector_capture_count = self.received_sector_capture_count.saturating_add(1);
+    }
+
+    pub fn record_researched(&mut self, content_type: u8, content_id: i16) {
+        self.received_researched_count = self.received_researched_count.saturating_add(1);
+        self.last_researched_content_type = Some(content_type);
+        self.last_researched_content_id = Some(content_id);
+    }
+
     pub fn record_info_message(&mut self, message: &Option<String>) {
         self.received_info_message_count = self.received_info_message_count.saturating_add(1);
         self.last_info_message = message.clone();
@@ -15618,6 +15639,46 @@ mod tests {
 
         assert_eq!(state.received_announce_count, 1);
         assert_eq!(state.last_announce_message, message);
+    }
+
+    #[test]
+    fn record_game_over_tracks_winner_team() {
+        let mut state = SessionState::default();
+
+        state.record_game_over(3);
+
+        assert_eq!(state.received_game_over_count, 1);
+        assert_eq!(state.last_game_over_winner_team_id, Some(3));
+    }
+
+    #[test]
+    fn record_update_game_over_tracks_winner_team() {
+        let mut state = SessionState::default();
+
+        state.record_update_game_over(5);
+
+        assert_eq!(state.received_update_game_over_count, 1);
+        assert_eq!(state.last_update_game_over_winner_team_id, Some(5));
+    }
+
+    #[test]
+    fn record_sector_capture_tracks_count() {
+        let mut state = SessionState::default();
+
+        state.record_sector_capture();
+
+        assert_eq!(state.received_sector_capture_count, 1);
+    }
+
+    #[test]
+    fn record_researched_tracks_content_identity() {
+        let mut state = SessionState::default();
+
+        state.record_researched(2, 123);
+
+        assert_eq!(state.received_researched_count, 1);
+        assert_eq!(state.last_researched_content_type, Some(2));
+        assert_eq!(state.last_researched_content_id, Some(123));
     }
 
     #[test]

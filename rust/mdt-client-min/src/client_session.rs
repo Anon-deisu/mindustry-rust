@@ -3116,9 +3116,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.game_over_packet_id => {
                 if let Some(winner_team_id) = decode_team_payload(&packet.payload) {
-                    self.state.received_game_over_count =
-                        self.state.received_game_over_count.saturating_add(1);
-                    self.state.last_game_over_winner_team_id = Some(winner_team_id);
+                    self.state.record_game_over(winner_team_id);
                     Ok(ClientSessionEvent::GameOver { winner_team_id })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -3129,9 +3127,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.update_game_over_packet_id => {
                 if let Some(winner_team_id) = decode_team_payload(&packet.payload) {
-                    self.state.received_update_game_over_count =
-                        self.state.received_update_game_over_count.saturating_add(1);
-                    self.state.last_update_game_over_winner_team_id = Some(winner_team_id);
+                    self.state.record_update_game_over(winner_team_id);
                     Ok(ClientSessionEvent::UpdateGameOver { winner_team_id })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -3142,8 +3138,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.sector_capture_packet_id => {
                 if packet.payload.is_empty() {
-                    self.state.received_sector_capture_count =
-                        self.state.received_sector_capture_count.saturating_add(1);
+                    self.state.record_sector_capture();
                     Ok(ClientSessionEvent::SectorCapture)
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -3154,10 +3149,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.researched_packet_id => {
                 if let Some((content_type, content_id)) = decode_content_payload(&packet.payload) {
-                    self.state.received_researched_count =
-                        self.state.received_researched_count.saturating_add(1);
-                    self.state.last_researched_content_type = Some(content_type);
-                    self.state.last_researched_content_id = Some(content_id);
+                    self.state.record_researched(content_type, content_id);
                     Ok(ClientSessionEvent::Researched {
                         content_type,
                         content_id,
