@@ -337,6 +337,45 @@ mod tests {
     }
 
     #[test]
+    fn canonicalize_actions_deduplicates_and_keeps_tail_action_order_stable() {
+        assert_eq!(
+            canonicalize_actions(&[
+                BinaryAction::Interact,
+                BinaryAction::Chat,
+                BinaryAction::Boost,
+                BinaryAction::Fire,
+                BinaryAction::Chat,
+                BinaryAction::Interact,
+                BinaryAction::Boost,
+                BinaryAction::Fire,
+            ]),
+            vec![
+                BinaryAction::Fire,
+                BinaryAction::Boost,
+                BinaryAction::Chat,
+                BinaryAction::Interact,
+            ]
+        );
+
+        assert_eq!(
+            canonicalize_actions(&[
+                BinaryAction::Chat,
+                BinaryAction::Interact,
+                BinaryAction::Fire,
+                BinaryAction::Boost,
+                BinaryAction::Interact,
+                BinaryAction::Chat,
+            ]),
+            vec![
+                BinaryAction::Fire,
+                BinaryAction::Boost,
+                BinaryAction::Chat,
+                BinaryAction::Interact,
+            ]
+        );
+    }
+
+    #[test]
     fn action_edge_order_is_stable_across_input_permutations() {
         let mut mapper = StatelessIntentMapper::default();
 
