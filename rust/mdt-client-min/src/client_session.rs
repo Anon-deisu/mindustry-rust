@@ -5538,31 +5538,31 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.trace_info_packet_id => {
                 if let Some(trace) = decode_trace_info_payload(&packet.payload) {
-                    self.state.received_trace_info_count =
-                        self.state.received_trace_info_count.saturating_add(1);
-                    self.state.last_trace_info_player_id = trace.player_id;
-                    self.state.last_trace_info_ip = trace.ip.clone();
-                    self.state.last_trace_info_uuid = trace.uuid.clone();
-                    self.state.last_trace_info_locale = trace.locale.clone();
-                    self.state.last_trace_info_modded = Some(trace.modded);
-                    self.state.last_trace_info_mobile = Some(trace.mobile);
-                    self.state.last_trace_info_times_joined = Some(trace.times_joined);
-                    self.state.last_trace_info_times_kicked = Some(trace.times_kicked);
-                    self.state.last_trace_info_ips = Some(trace.ips.clone());
-                    self.state.last_trace_info_names = Some(trace.names.clone());
-                    self.state.last_trace_info_parse_error_payload_len = None;
-                    Ok(ClientSessionEvent::TraceInfoReceived {
+                    let event = ClientSessionEvent::TraceInfoReceived {
                         player_id: trace.player_id,
-                        ip: trace.ip,
-                        uuid: trace.uuid,
-                        locale: trace.locale,
+                        ip: trace.ip.clone(),
+                        uuid: trace.uuid.clone(),
+                        locale: trace.locale.clone(),
                         modded: trace.modded,
                         mobile: trace.mobile,
                         times_joined: trace.times_joined,
                         times_kicked: trace.times_kicked,
-                        ips: trace.ips,
-                        names: trace.names,
-                    })
+                        ips: trace.ips.clone(),
+                        names: trace.names.clone(),
+                    };
+                    self.state.record_trace_info(
+                        trace.player_id,
+                        trace.ip,
+                        trace.uuid,
+                        trace.locale,
+                        trace.modded,
+                        trace.mobile,
+                        trace.times_joined,
+                        trace.times_kicked,
+                        trace.ips,
+                        trace.names,
+                    );
+                    Ok(event)
                 } else {
                     self.state.failed_trace_info_parse_count =
                         self.state.failed_trace_info_parse_count.saturating_add(1);

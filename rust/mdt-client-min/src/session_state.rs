@@ -7719,6 +7719,34 @@ impl SessionState {
         self.last_chat_sender_entity_id = sender_entity_id;
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_trace_info(
+        &mut self,
+        player_id: Option<i32>,
+        ip: Option<String>,
+        uuid: Option<String>,
+        locale: Option<String>,
+        modded: bool,
+        mobile: bool,
+        times_joined: i32,
+        times_kicked: i32,
+        ips: Vec<String>,
+        names: Vec<String>,
+    ) {
+        self.received_trace_info_count = self.received_trace_info_count.saturating_add(1);
+        self.last_trace_info_player_id = player_id;
+        self.last_trace_info_ip = ip;
+        self.last_trace_info_uuid = uuid;
+        self.last_trace_info_locale = locale;
+        self.last_trace_info_modded = Some(modded);
+        self.last_trace_info_mobile = Some(mobile);
+        self.last_trace_info_times_joined = Some(times_joined);
+        self.last_trace_info_times_kicked = Some(times_kicked);
+        self.last_trace_info_ips = Some(ips);
+        self.last_trace_info_names = Some(names);
+        self.last_trace_info_parse_error_payload_len = None;
+    }
+
     pub fn record_debug_status(
         &mut self,
         reliable: bool,
@@ -16708,6 +16736,43 @@ mod tests {
         );
         assert_eq!(state.last_chat_unformatted.as_deref(), Some("hello"));
         assert_eq!(state.last_chat_sender_entity_id, Some(42));
+    }
+
+    #[test]
+    fn record_trace_info_tracks_summary() {
+        let mut state = SessionState::default();
+
+        state.record_trace_info(
+            Some(123456),
+            Some("127.0.0.1".to_string()),
+            Some("uuid-golden".to_string()),
+            Some("en_US".to_string()),
+            true,
+            false,
+            7,
+            2,
+            vec!["10.0.0.1".to_string(), "10.0.0.2".to_string()],
+            vec!["alice".to_string(), "bob".to_string()],
+        );
+
+        assert_eq!(state.received_trace_info_count, 1);
+        assert_eq!(state.last_trace_info_player_id, Some(123456));
+        assert_eq!(state.last_trace_info_ip.as_deref(), Some("127.0.0.1"));
+        assert_eq!(state.last_trace_info_uuid.as_deref(), Some("uuid-golden"));
+        assert_eq!(state.last_trace_info_locale.as_deref(), Some("en_US"));
+        assert_eq!(state.last_trace_info_modded, Some(true));
+        assert_eq!(state.last_trace_info_mobile, Some(false));
+        assert_eq!(state.last_trace_info_times_joined, Some(7));
+        assert_eq!(state.last_trace_info_times_kicked, Some(2));
+        assert_eq!(
+            state.last_trace_info_ips,
+            Some(vec!["10.0.0.1".to_string(), "10.0.0.2".to_string()])
+        );
+        assert_eq!(
+            state.last_trace_info_names,
+            Some(vec!["alice".to_string(), "bob".to_string()])
+        );
+        assert_eq!(state.last_trace_info_parse_error_payload_len, None);
     }
 
     #[test]
