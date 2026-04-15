@@ -752,6 +752,19 @@ mod tests {
         assert_eq!(optional_u8_label(Some(255)), "255");
     }
 
+    fn optional_bool_label(value: Option<bool>) -> String {
+        value
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    #[test]
+    fn optional_bool_label_formats_none_true_and_false() {
+        assert_eq!(optional_bool_label(None), "none");
+        assert_eq!(optional_bool_label(Some(true)), "true");
+        assert_eq!(optional_bool_label(Some(false)), "false");
+    }
+
     fn optional_i16_label(value: Option<i16>) -> String {
         value
             .map(|value| value.to_string())
