@@ -3176,8 +3176,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.hide_hud_text_packet_id => {
                 if packet.payload.is_empty() {
-                    self.state.received_hide_hud_text_count =
-                        self.state.received_hide_hud_text_count.saturating_add(1);
+                    self.state.record_hide_hud_text();
                     Ok(ClientSessionEvent::HideHudText)
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -3199,14 +3198,14 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.label_packet_id => {
                 if let Some(summary) = decode_world_label_payload(&packet.payload, false) {
-                    self.state.received_world_label_count =
-                        self.state.received_world_label_count.saturating_add(1);
-                    self.state.last_world_label_reliable = Some(false);
-                    self.state.last_world_label_id = summary.label_id;
-                    self.state.last_world_label_message = summary.message.clone();
-                    self.state.last_world_label_duration_bits = Some(summary.duration.to_bits());
-                    self.state.last_world_label_world_x_bits = Some(summary.world_x.to_bits());
-                    self.state.last_world_label_world_y_bits = Some(summary.world_y.to_bits());
+                    self.state.record_world_label(
+                        false,
+                        summary.label_id,
+                        &summary.message,
+                        summary.duration,
+                        summary.world_x,
+                        summary.world_y,
+                    );
                     Ok(ClientSessionEvent::WorldLabel {
                         reliable: false,
                         label_id: summary.label_id,
@@ -3224,14 +3223,14 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.label_with_id_packet_id => {
                 if let Some(summary) = decode_world_label_payload(&packet.payload, true) {
-                    self.state.received_world_label_count =
-                        self.state.received_world_label_count.saturating_add(1);
-                    self.state.last_world_label_reliable = Some(false);
-                    self.state.last_world_label_id = summary.label_id;
-                    self.state.last_world_label_message = summary.message.clone();
-                    self.state.last_world_label_duration_bits = Some(summary.duration.to_bits());
-                    self.state.last_world_label_world_x_bits = Some(summary.world_x.to_bits());
-                    self.state.last_world_label_world_y_bits = Some(summary.world_y.to_bits());
+                    self.state.record_world_label(
+                        false,
+                        summary.label_id,
+                        &summary.message,
+                        summary.duration,
+                        summary.world_x,
+                        summary.world_y,
+                    );
                     Ok(ClientSessionEvent::WorldLabel {
                         reliable: false,
                         label_id: summary.label_id,
@@ -3249,16 +3248,14 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.label_reliable_packet_id => {
                 if let Some(summary) = decode_world_label_payload(&packet.payload, false) {
-                    self.state.received_world_label_reliable_count = self
-                        .state
-                        .received_world_label_reliable_count
-                        .saturating_add(1);
-                    self.state.last_world_label_reliable = Some(true);
-                    self.state.last_world_label_id = summary.label_id;
-                    self.state.last_world_label_message = summary.message.clone();
-                    self.state.last_world_label_duration_bits = Some(summary.duration.to_bits());
-                    self.state.last_world_label_world_x_bits = Some(summary.world_x.to_bits());
-                    self.state.last_world_label_world_y_bits = Some(summary.world_y.to_bits());
+                    self.state.record_world_label(
+                        true,
+                        summary.label_id,
+                        &summary.message,
+                        summary.duration,
+                        summary.world_x,
+                        summary.world_y,
+                    );
                     Ok(ClientSessionEvent::WorldLabel {
                         reliable: true,
                         label_id: summary.label_id,
@@ -3276,16 +3273,14 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.label_reliable_with_id_packet_id => {
                 if let Some(summary) = decode_world_label_payload(&packet.payload, true) {
-                    self.state.received_world_label_reliable_count = self
-                        .state
-                        .received_world_label_reliable_count
-                        .saturating_add(1);
-                    self.state.last_world_label_reliable = Some(true);
-                    self.state.last_world_label_id = summary.label_id;
-                    self.state.last_world_label_message = summary.message.clone();
-                    self.state.last_world_label_duration_bits = Some(summary.duration.to_bits());
-                    self.state.last_world_label_world_x_bits = Some(summary.world_x.to_bits());
-                    self.state.last_world_label_world_y_bits = Some(summary.world_y.to_bits());
+                    self.state.record_world_label(
+                        true,
+                        summary.label_id,
+                        &summary.message,
+                        summary.duration,
+                        summary.world_x,
+                        summary.world_y,
+                    );
                     Ok(ClientSessionEvent::WorldLabel {
                         reliable: true,
                         label_id: summary.label_id,
@@ -3303,11 +3298,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.remove_world_label_packet_id => {
                 if let Some(label_id) = decode_remove_world_label_payload(&packet.payload) {
-                    self.state.received_remove_world_label_count = self
-                        .state
-                        .received_remove_world_label_count
-                        .saturating_add(1);
-                    self.state.last_remove_world_label_id = Some(label_id);
+                    self.state.record_remove_world_label(label_id);
                     Ok(ClientSessionEvent::RemoveWorldLabel { label_id })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {

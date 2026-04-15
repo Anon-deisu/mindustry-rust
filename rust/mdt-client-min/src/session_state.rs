@@ -7192,6 +7192,39 @@ impl SessionState {
         self.last_announce_message = message.clone();
     }
 
+    pub fn record_hide_hud_text(&mut self) {
+        self.received_hide_hud_text_count = self.received_hide_hud_text_count.saturating_add(1);
+    }
+
+    pub fn record_world_label(
+        &mut self,
+        reliable: bool,
+        label_id: Option<i32>,
+        message: &Option<String>,
+        duration: f32,
+        world_x: f32,
+        world_y: f32,
+    ) {
+        if reliable {
+            self.received_world_label_reliable_count =
+                self.received_world_label_reliable_count.saturating_add(1);
+        } else {
+            self.received_world_label_count = self.received_world_label_count.saturating_add(1);
+        }
+        self.last_world_label_reliable = Some(reliable);
+        self.last_world_label_id = label_id;
+        self.last_world_label_message = message.clone();
+        self.last_world_label_duration_bits = Some(duration.to_bits());
+        self.last_world_label_world_x_bits = Some(world_x.to_bits());
+        self.last_world_label_world_y_bits = Some(world_y.to_bits());
+    }
+
+    pub fn record_remove_world_label(&mut self, label_id: i32) {
+        self.received_remove_world_label_count =
+            self.received_remove_world_label_count.saturating_add(1);
+        self.last_remove_world_label_id = Some(label_id);
+    }
+
     pub fn record_game_over(&mut self, winner_team_id: u8) {
         self.received_game_over_count = self.received_game_over_count.saturating_add(1);
         self.last_game_over_winner_team_id = Some(winner_team_id);
@@ -15677,6 +15710,53 @@ mod tests {
 
         assert_eq!(state.received_announce_count, 1);
         assert_eq!(state.last_announce_message, message);
+    }
+
+    #[test]
+    fn record_hide_hud_text_tracks_count() {
+        let mut state = SessionState::default();
+
+        state.record_hide_hud_text();
+
+        assert_eq!(state.received_hide_hud_text_count, 1);
+    }
+
+    #[test]
+    fn record_world_label_tracks_variant_and_fields() {
+        let mut state = SessionState::default();
+        let message = Some("world".to_string());
+
+        state.record_world_label(false, Some(7), &message, 2.5, 4.0, 8.0);
+
+        assert_eq!(state.received_world_label_count, 1);
+        assert_eq!(state.received_world_label_reliable_count, 0);
+        assert_eq!(state.last_world_label_reliable, Some(false));
+        assert_eq!(state.last_world_label_id, Some(7));
+        assert_eq!(state.last_world_label_message, message);
+        assert_eq!(state.last_world_label_duration_bits, Some(2.5f32.to_bits()));
+        assert_eq!(state.last_world_label_world_x_bits, Some(4.0f32.to_bits()));
+        assert_eq!(state.last_world_label_world_y_bits, Some(8.0f32.to_bits()));
+
+        state.record_world_label(true, None, &None, 1.0, 6.0, 9.0);
+
+        assert_eq!(state.received_world_label_count, 1);
+        assert_eq!(state.received_world_label_reliable_count, 1);
+        assert_eq!(state.last_world_label_reliable, Some(true));
+        assert_eq!(state.last_world_label_id, None);
+        assert_eq!(state.last_world_label_message, None);
+        assert_eq!(state.last_world_label_duration_bits, Some(1.0f32.to_bits()));
+        assert_eq!(state.last_world_label_world_x_bits, Some(6.0f32.to_bits()));
+        assert_eq!(state.last_world_label_world_y_bits, Some(9.0f32.to_bits()));
+    }
+
+    #[test]
+    fn record_remove_world_label_tracks_label_id() {
+        let mut state = SessionState::default();
+
+        state.record_remove_world_label(42);
+
+        assert_eq!(state.received_remove_world_label_count, 1);
+        assert_eq!(state.last_remove_world_label_id, Some(42));
     }
 
     #[test]
