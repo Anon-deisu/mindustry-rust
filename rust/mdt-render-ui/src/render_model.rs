@@ -1589,11 +1589,25 @@ fn object_visible_in_window(
 #[cfg(test)]
 mod tests {
     use super::{
-        RenderIconPrimitiveFamily, RenderModel, RenderObject, RenderObjectSemanticFamily,
-        RenderObjectSemanticKind, RenderPipelineLayerSummary, RenderPipelineSummary,
-        RenderPrimitive, RenderPrimitiveKind, RenderPrimitivePayloadValue,
-        RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
+        parse_prefixed_hex_u32, parse_prefixed_or_decimal_u32_bits, RenderIconPrimitiveFamily,
+        RenderModel, RenderObject, RenderObjectSemanticFamily, RenderObjectSemanticKind,
+        RenderPipelineLayerSummary, RenderPipelineSummary, RenderPrimitive, RenderPrimitiveKind,
+        RenderPrimitivePayloadValue, RenderSemanticDetailCount, RenderSemanticSummary,
+        RenderViewWindow, Viewport,
     };
+
+    #[test]
+    fn parse_prefixed_hex_u32_and_decimal_fallback_handle_prefix_and_invalid_input() {
+        assert_eq!(parse_prefixed_hex_u32("0x2a"), Some(42));
+        assert_eq!(parse_prefixed_hex_u32("42"), None);
+        assert_eq!(parse_prefixed_hex_u32("0xzz"), None);
+
+        assert_eq!(parse_prefixed_or_decimal_u32_bits("0x2a"), Some(42));
+        assert_eq!(parse_prefixed_or_decimal_u32_bits("42"), Some(42));
+        assert_eq!(parse_prefixed_or_decimal_u32_bits("4294967295"), Some(u32::MAX));
+        assert_eq!(parse_prefixed_or_decimal_u32_bits("0xzz"), None);
+        assert_eq!(parse_prefixed_or_decimal_u32_bits("not-a-number"), None);
+    }
 
     #[test]
     fn semantic_kind_from_id_supports_known_prefixes_aliases_and_runtime_patterns() {
