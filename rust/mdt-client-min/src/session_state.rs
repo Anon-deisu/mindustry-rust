@@ -7167,6 +7167,12 @@ impl SessionState {
         self.last_set_hud_text_message = message.clone();
     }
 
+    pub fn record_set_hud_text_reliable(&mut self, message: &Option<String>) {
+        self.received_set_hud_text_reliable_count =
+            self.received_set_hud_text_reliable_count.saturating_add(1);
+        self.last_set_hud_text_reliable_message = message.clone();
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15247,6 +15253,17 @@ mod tests {
 
         assert_eq!(state.received_set_hud_text_count, 1);
         assert_eq!(state.last_set_hud_text_message, message);
+    }
+
+    #[test]
+    fn record_set_hud_text_reliable_tracks_message() {
+        let mut state = SessionState::default();
+        let message = Some("hud-reliable".to_string());
+
+        state.record_set_hud_text_reliable(&message);
+
+        assert_eq!(state.received_set_hud_text_reliable_count, 1);
+        assert_eq!(state.last_set_hud_text_reliable_message, message);
     }
 
     #[test]

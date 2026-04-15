@@ -3182,11 +3182,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_hud_text_reliable_packet_id => {
                 if let Some(message) = decode_optional_typeio_string_payload(&packet.payload) {
-                    self.state.received_set_hud_text_reliable_count = self
-                        .state
-                        .received_set_hud_text_reliable_count
-                        .saturating_add(1);
-                    self.state.last_set_hud_text_reliable_message = message.clone();
+                    self.state.record_set_hud_text_reliable(&message);
                     Ok(ClientSessionEvent::SetHudTextReliable { message })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
