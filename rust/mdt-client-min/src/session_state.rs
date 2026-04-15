@@ -7801,6 +7801,16 @@ impl SessionState {
         self.last_sound_at_parse_error_payload_len = None;
     }
 
+    pub fn record_sound_parse_failure(&mut self, payload_len: usize) {
+        self.failed_sound_parse_count = self.failed_sound_parse_count.saturating_add(1);
+        self.last_sound_parse_error_payload_len = Some(payload_len);
+    }
+
+    pub fn record_sound_at_parse_failure(&mut self, payload_len: usize) {
+        self.failed_sound_at_parse_count = self.failed_sound_at_parse_count.saturating_add(1);
+        self.last_sound_at_parse_error_payload_len = Some(payload_len);
+    }
+
     pub fn record_set_map_area(&mut self, x: i32, y: i32, w: i32, h: i32) {
         self.received_set_map_area_count = self.received_set_map_area_count.saturating_add(1);
         self.last_set_map_area_x = Some(x);
@@ -16890,6 +16900,26 @@ mod tests {
 
         assert_eq!(state.failed_trace_info_parse_count, 1);
         assert_eq!(state.last_trace_info_parse_error_payload_len, Some(12));
+    }
+
+    #[test]
+    fn record_sound_parse_failure_tracks_payload_len() {
+        let mut state = SessionState::default();
+
+        state.record_sound_parse_failure(9);
+
+        assert_eq!(state.failed_sound_parse_count, 1);
+        assert_eq!(state.last_sound_parse_error_payload_len, Some(9));
+    }
+
+    #[test]
+    fn record_sound_at_parse_failure_tracks_payload_len() {
+        let mut state = SessionState::default();
+
+        state.record_sound_at_parse_failure(17);
+
+        assert_eq!(state.failed_sound_at_parse_count, 1);
+        assert_eq!(state.last_sound_at_parse_error_payload_len, Some(17));
     }
 
     #[test]

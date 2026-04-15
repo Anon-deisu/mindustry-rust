@@ -5356,9 +5356,8 @@ impl ClientSession {
                         pan: sound.pan,
                     })
                 } else {
-                    self.state.failed_sound_parse_count =
-                        self.state.failed_sound_parse_count.saturating_add(1);
-                    self.state.last_sound_parse_error_payload_len = Some(packet.payload.len());
+                    self.state
+                        .record_sound_parse_failure(packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
@@ -5382,9 +5381,8 @@ impl ClientSession {
                         pitch: sound.pitch,
                     })
                 } else {
-                    self.state.failed_sound_at_parse_count =
-                        self.state.failed_sound_at_parse_count.saturating_add(1);
-                    self.state.last_sound_at_parse_error_payload_len = Some(packet.payload.len());
+                    self.state
+                        .record_sound_at_parse_failure(packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
