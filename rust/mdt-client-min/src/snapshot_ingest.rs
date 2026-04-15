@@ -111,13 +111,10 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                             state.last_state_snapshot_core_data = None;
                             state.last_state_snapshot_core_data_duplicate_team_count = 0;
                             state.last_state_snapshot_core_data_duplicate_item_count = 0;
-                            state.failed_state_snapshot_core_data_parse_count = state
-                                .failed_state_snapshot_core_data_parse_count
-                                .saturating_add(1);
-                            state.last_state_snapshot_core_data_parse_error =
-                                Some(error.to_string());
-                            state.last_state_snapshot_core_data_parse_error_payload_len =
-                                Some(parsed_core_data_len);
+                            state.record_state_snapshot_core_data_parse_failure(
+                                error.to_string(),
+                                parsed_core_data_len,
+                            );
                         }
                     }
                 }
