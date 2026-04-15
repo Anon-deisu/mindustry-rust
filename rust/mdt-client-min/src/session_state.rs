@@ -16739,6 +16739,83 @@ mod tests {
     }
 
     #[test]
+    fn clear_runtime_ui_transients_for_world_reload_resets_chat_server_and_ui_state() {
+        let mut state = SessionState::default();
+
+        state.record_server_message("[accent]server".to_string());
+        state.record_chat_message(
+            "[accent]bot[]: hello".to_string(),
+            Some("hello".to_string()),
+            Some(42),
+        );
+
+        let hud_text = Some("hud".to_string());
+        let hud_text_reliable = Some("hud-reliable".to_string());
+        let announce = Some("announce".to_string());
+        let world_label = Some("world".to_string());
+
+        state.record_set_hud_text(&hud_text);
+        state.record_set_hud_text_reliable(&hud_text_reliable);
+        state.record_announce(&announce);
+        state.record_world_label(false, Some(7), &world_label, 2.5, 4.0, 8.0);
+        state.record_remove_world_label(99);
+
+        state.received_create_marker_count = 1;
+        state.received_remove_marker_count = 2;
+        state.received_update_marker_count = 3;
+        state.received_update_marker_text_count = 4;
+        state.received_update_marker_texture_count = 5;
+        state.failed_marker_decode_count = 6;
+        state.last_failed_marker_method = Some("marker".to_string());
+        state.last_failed_marker_payload_len = Some(7);
+        state.last_marker_id = Some(8);
+        state.last_marker_json_len = Some(9);
+        state.last_marker_control = Some(10);
+        state.last_marker_control_name = Some("control".to_string());
+        state.last_marker_p1_bits = Some(11);
+        state.last_marker_p2_bits = Some(12);
+
+        state.clear_runtime_ui_transients_for_world_reload();
+
+        assert_eq!(state.received_server_message_count, 0);
+        assert_eq!(state.last_server_message, None);
+        assert_eq!(state.received_chat_message_count, 0);
+        assert_eq!(state.last_chat_message, None);
+        assert_eq!(state.last_chat_unformatted, None);
+        assert_eq!(state.last_chat_sender_entity_id, None);
+        assert_eq!(state.received_set_hud_text_count, 0);
+        assert_eq!(state.last_set_hud_text_message, None);
+        assert_eq!(state.received_set_hud_text_reliable_count, 0);
+        assert_eq!(state.last_set_hud_text_reliable_message, None);
+        assert_eq!(state.received_announce_count, 0);
+        assert_eq!(state.last_announce_message, None);
+        assert_eq!(state.received_world_label_count, 0);
+        assert_eq!(state.received_world_label_reliable_count, 0);
+        assert_eq!(state.last_world_label_reliable, None);
+        assert_eq!(state.last_world_label_id, None);
+        assert_eq!(state.last_world_label_message, None);
+        assert_eq!(state.last_world_label_duration_bits, None);
+        assert_eq!(state.last_world_label_world_x_bits, None);
+        assert_eq!(state.last_world_label_world_y_bits, None);
+        assert_eq!(state.received_remove_world_label_count, 0);
+        assert_eq!(state.last_remove_world_label_id, None);
+        assert_eq!(state.received_create_marker_count, 0);
+        assert_eq!(state.received_remove_marker_count, 0);
+        assert_eq!(state.received_update_marker_count, 0);
+        assert_eq!(state.received_update_marker_text_count, 0);
+        assert_eq!(state.received_update_marker_texture_count, 0);
+        assert_eq!(state.failed_marker_decode_count, 0);
+        assert_eq!(state.last_failed_marker_method, None);
+        assert_eq!(state.last_failed_marker_payload_len, None);
+        assert_eq!(state.last_marker_id, None);
+        assert_eq!(state.last_marker_json_len, None);
+        assert_eq!(state.last_marker_control, None);
+        assert_eq!(state.last_marker_control_name, None);
+        assert_eq!(state.last_marker_p1_bits, None);
+        assert_eq!(state.last_marker_p2_bits, None);
+    }
+
+    #[test]
     fn record_trace_info_tracks_summary() {
         let mut state = SessionState::default();
 
