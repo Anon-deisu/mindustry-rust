@@ -1795,36 +1795,56 @@ pub struct RuntimeLiveEffectPanelModel {
 }
 
 impl RuntimeLiveEffectPanelModel {
+    fn prefer_active<T: Copy>(
+        active: bool,
+        active_value: Option<T>,
+        fallback_value: Option<T>,
+    ) -> Option<T> {
+        if active {
+            active_value
+        } else {
+            fallback_value
+        }
+    }
+
     pub fn display_effect_id(&self) -> Option<i16> {
-        self.active_effect_id.or(self.last_effect_id)
+        Self::prefer_active(
+            self.active_effect_id.is_some(),
+            self.active_effect_id,
+            self.last_effect_id,
+        )
     }
 
     pub fn display_contract_name(&self) -> Option<&str> {
-        self.active_contract_name
-            .as_deref()
-            .or(self.last_contract_name.as_deref())
+        Self::prefer_active(
+            self.active_contract_name.is_some(),
+            self.active_contract_name.as_deref(),
+            self.last_contract_name.as_deref(),
+        )
     }
 
     pub fn display_reliable_contract_name(&self) -> Option<&str> {
-        if self.active_reliable == Some(true) {
-            self.active_contract_name.as_deref()
-        } else {
-            self.last_reliable_contract_name.as_deref()
-        }
+        Self::prefer_active(
+            self.active_reliable == Some(true),
+            self.active_contract_name.as_deref(),
+            self.last_reliable_contract_name.as_deref(),
+        )
     }
 
     pub fn display_position_source(&self) -> Option<crate::RuntimeLiveEffectPositionSource> {
-        if self.active_position.is_some() {
-            Some(crate::RuntimeLiveEffectPositionSource::ActiveOverlay)
-        } else {
-            self.last_position_source
-        }
+        Self::prefer_active(
+            self.active_position.is_some(),
+            Some(crate::RuntimeLiveEffectPositionSource::ActiveOverlay),
+            self.last_position_source,
+        )
     }
 
     pub fn display_position(&self) -> Option<&crate::RuntimeWorldPositionObservability> {
-        self.active_position
-            .as_ref()
-            .or(self.last_position_hint.as_ref())
+        Self::prefer_active(
+            self.active_position.is_some(),
+            self.active_position.as_ref(),
+            self.last_position_hint.as_ref(),
+        )
     }
 
     pub fn display_overlay_ttl(&self) -> Option<(u8, u8)> {
