@@ -7175,6 +7175,18 @@ impl SessionState {
         self.last_set_rule_parse_error_payload_len = Some(payload_len);
     }
 
+    pub fn record_loaded_world_block_snapshot_extra_entry_parse_failure(
+        &mut self,
+        entry_count: usize,
+        error: String,
+    ) {
+        self.last_loaded_world_block_snapshot_extra_entry_count = entry_count;
+        self.failed_loaded_world_block_snapshot_extra_entry_parse_count = self
+            .failed_loaded_world_block_snapshot_extra_entry_parse_count
+            .saturating_add(1);
+        self.last_loaded_world_block_snapshot_extra_entry_parse_error = Some(error);
+    }
+
     pub fn record_set_flag(&mut self, flag: &Option<String>, add: bool) {
         self.received_set_flag_count = self.received_set_flag_count.saturating_add(1);
         self.last_set_flag = flag.clone();
@@ -9570,6 +9582,26 @@ mod tests {
             Some("setRule decode error")
         );
         assert_eq!(state.last_set_rule_parse_error_payload_len, Some(13));
+    }
+
+    #[test]
+    fn session_state_loaded_world_block_snapshot_extra_entry_parse_failure_helper_tracks_error_text_and_entry_count() {
+        let mut state = SessionState::default();
+
+        state.record_loaded_world_block_snapshot_extra_entry_parse_failure(
+            3,
+            "loaded_world_block_snapshot_entry_1_missing_center".to_string(),
+        );
+
+        assert_eq!(state.last_loaded_world_block_snapshot_extra_entry_count, 3);
+        assert_eq!(
+            state.failed_loaded_world_block_snapshot_extra_entry_parse_count,
+            1
+        );
+        assert_eq!(
+            state.last_loaded_world_block_snapshot_extra_entry_parse_error.as_deref(),
+            Some("loaded_world_block_snapshot_entry_1_missing_center")
+        );
     }
 
     #[test]

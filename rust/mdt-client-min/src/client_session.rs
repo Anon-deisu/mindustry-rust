@@ -7576,26 +7576,15 @@ impl ClientSession {
             Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error }) => {
                 self.apply_loaded_world_block_snapshot_head_fallback();
                 self.state
-                    .last_loaded_world_block_snapshot_extra_entry_count = entries.len();
-                self.state
-                    .failed_loaded_world_block_snapshot_extra_entry_parse_count = self
-                    .state
-                    .failed_loaded_world_block_snapshot_extra_entry_parse_count
-                    .saturating_add(1);
-                self.state
-                    .last_loaded_world_block_snapshot_extra_entry_parse_error = Some(error);
+                    .record_loaded_world_block_snapshot_extra_entry_parse_failure(
+                        entries.len(),
+                        error,
+                    );
             }
             Err(error) => {
                 self.apply_loaded_world_block_snapshot_head_fallback();
                 self.state
-                    .last_loaded_world_block_snapshot_extra_entry_count = 0;
-                self.state
-                    .failed_loaded_world_block_snapshot_extra_entry_parse_count = self
-                    .state
-                    .failed_loaded_world_block_snapshot_extra_entry_parse_count
-                    .saturating_add(1);
-                self.state
-                    .last_loaded_world_block_snapshot_extra_entry_parse_error = Some(error);
+                    .record_loaded_world_block_snapshot_extra_entry_parse_failure(0, error);
             }
         }
     }
