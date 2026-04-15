@@ -785,17 +785,11 @@ impl RuntimePromptPanelModel {
     }
 
     pub fn layer_labels(&self) -> Vec<&'static str> {
-        let mut labels = Vec::new();
-        if self.text_input_active() {
-            labels.push("input");
-        }
-        if self.outstanding_follow_up_count() > 0 {
-            labels.push("follow-up");
-        }
-        if self.menu_active() {
-            labels.push("menu");
-        }
-        labels
+        collect_layer_labels(&[
+            (self.text_input_active(), "input"),
+            (self.outstanding_follow_up_count() > 0, "follow-up"),
+            (self.menu_active(), "menu"),
+        ])
     }
 
     pub fn depth(&self) -> usize {
@@ -839,20 +833,12 @@ impl RuntimeNoticeStatePanelModel {
     }
 
     pub fn layer_labels(&self) -> Vec<&'static str> {
-        let mut labels = Vec::new();
-        if self.hud_active {
-            labels.push("hud");
-        }
-        if self.reliable_hud_active {
-            labels.push("reliable");
-        }
-        if self.toast_info_active {
-            labels.push("info");
-        }
-        if self.toast_warning_active {
-            labels.push("warn");
-        }
-        labels
+        collect_layer_labels(&[
+            (self.hud_active, "hud"),
+            (self.reliable_hud_active, "reliable"),
+            (self.toast_info_active, "info"),
+            (self.toast_warning_active, "warn"),
+        ])
     }
 
     pub fn depth(&self) -> usize {
@@ -862,6 +848,16 @@ impl RuntimeNoticeStatePanelModel {
     pub fn text_len(&self) -> usize {
         text_char_count(self.text.as_deref())
     }
+}
+
+fn collect_layer_labels(items: &[(bool, &'static str)]) -> Vec<&'static str> {
+    let mut labels = Vec::new();
+    for &(active, label) in items {
+        if active {
+            labels.push(label);
+        }
+    }
+    labels
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
