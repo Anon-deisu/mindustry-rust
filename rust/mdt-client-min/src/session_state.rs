@@ -7109,6 +7109,13 @@ impl SessionState {
         self.reconnect_projection.set_phase(phase);
     }
 
+    pub fn record_connect_redirect(&mut self, ip: String, port: i32) {
+        self.received_connect_redirect_count =
+            self.received_connect_redirect_count.saturating_add(1);
+        self.last_connect_redirect_ip = Some(ip);
+        self.last_connect_redirect_port = Some(port);
+    }
+
     pub fn record_reconnect_projection(
         &mut self,
         phase: ReconnectPhaseProjection,
@@ -8860,6 +8867,17 @@ mod tests {
             state.reconnect_projection.hint_text.as_deref(),
             Some("session timed out")
         );
+    }
+
+    #[test]
+    fn record_connect_redirect_tracks_target() {
+        let mut state = SessionState::default();
+
+        state.record_connect_redirect("127.0.0.1".to_string(), 6567);
+
+        assert_eq!(state.received_connect_redirect_count, 1);
+        assert_eq!(state.last_connect_redirect_ip.as_deref(), Some("127.0.0.1"));
+        assert_eq!(state.last_connect_redirect_port, Some(6567));
     }
 
     #[test]

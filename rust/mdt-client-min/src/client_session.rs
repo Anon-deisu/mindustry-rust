@@ -3066,10 +3066,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.connect_redirect_packet_id => {
                 if let Some((ip, port)) = decode_connect_redirect_payload(&packet.payload) {
-                    self.state.received_connect_redirect_count =
-                        self.state.received_connect_redirect_count.saturating_add(1);
-                    self.state.last_connect_redirect_ip = Some(ip.clone());
-                    self.state.last_connect_redirect_port = Some(port);
+                    self.state.record_connect_redirect(ip.clone(), port);
                     self.state.record_reconnect_projection(
                         ReconnectPhaseProjection::Scheduled,
                         Some(ReconnectReasonKind::ConnectRedirect),
