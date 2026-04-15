@@ -7178,6 +7178,11 @@ impl SessionState {
         self.last_announce_message = message.clone();
     }
 
+    pub fn record_info_message(&mut self, message: &Option<String>) {
+        self.received_info_message_count = self.received_info_message_count.saturating_add(1);
+        self.last_info_message = message.clone();
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15280,6 +15285,17 @@ mod tests {
 
         assert_eq!(state.received_announce_count, 1);
         assert_eq!(state.last_announce_message, message);
+    }
+
+    #[test]
+    fn record_info_message_tracks_message() {
+        let mut state = SessionState::default();
+        let message = Some("alert".to_string());
+
+        state.record_info_message(&message);
+
+        assert_eq!(state.received_info_message_count, 1);
+        assert_eq!(state.last_info_message, message);
     }
 
     #[test]
