@@ -7195,6 +7195,36 @@ impl SessionState {
         self.last_warning_toast_text = text.clone();
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_info_popup(
+        &mut self,
+        reliable: bool,
+        popup_id: &Option<String>,
+        message: &Option<String>,
+        duration: f32,
+        align: i32,
+        top: i32,
+        left: i32,
+        bottom: i32,
+        right: i32,
+    ) {
+        if reliable {
+            self.received_info_popup_reliable_count =
+                self.received_info_popup_reliable_count.saturating_add(1);
+        } else {
+            self.received_info_popup_count = self.received_info_popup_count.saturating_add(1);
+        }
+        self.last_info_popup_reliable = Some(reliable);
+        self.last_info_popup_id = popup_id.clone();
+        self.last_info_popup_message = message.clone();
+        self.last_info_popup_duration_bits = Some(duration.to_bits());
+        self.last_info_popup_align = Some(align);
+        self.last_info_popup_top = Some(top);
+        self.last_info_popup_left = Some(left);
+        self.last_info_popup_bottom = Some(bottom);
+        self.last_info_popup_right = Some(right);
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15332,6 +15362,44 @@ mod tests {
         assert_eq!(state.received_warning_toast_count, 1);
         assert_eq!(state.last_warning_toast_unicode, Some(0xe813));
         assert_eq!(state.last_warning_toast_text, text);
+    }
+
+    #[test]
+    fn record_info_popup_tracks_summary_and_reliability() {
+        let mut state = SessionState::default();
+        let popup_id = Some("popup-a".to_string());
+        let message = Some("body".to_string());
+
+        state.record_info_popup(false, &popup_id, &message, 1.5, 2, 3, 4, 5, 6);
+
+        assert_eq!(state.received_info_popup_count, 1);
+        assert_eq!(state.received_info_popup_reliable_count, 0);
+        assert_eq!(state.last_info_popup_reliable, Some(false));
+        assert_eq!(state.last_info_popup_id, popup_id);
+        assert_eq!(state.last_info_popup_message, message);
+        assert_eq!(state.last_info_popup_duration_bits, Some(1.5f32.to_bits()));
+        assert_eq!(state.last_info_popup_align, Some(2));
+        assert_eq!(state.last_info_popup_top, Some(3));
+        assert_eq!(state.last_info_popup_left, Some(4));
+        assert_eq!(state.last_info_popup_bottom, Some(5));
+        assert_eq!(state.last_info_popup_right, Some(6));
+
+        let reliable_id = Some("popup-b".to_string());
+        let reliable_message = Some("body-r".to_string());
+
+        state.record_info_popup(true, &reliable_id, &reliable_message, 2.5, 7, 8, 9, 10, 11);
+
+        assert_eq!(state.received_info_popup_count, 1);
+        assert_eq!(state.received_info_popup_reliable_count, 1);
+        assert_eq!(state.last_info_popup_reliable, Some(true));
+        assert_eq!(state.last_info_popup_id, reliable_id);
+        assert_eq!(state.last_info_popup_message, reliable_message);
+        assert_eq!(state.last_info_popup_duration_bits, Some(2.5f32.to_bits()));
+        assert_eq!(state.last_info_popup_align, Some(7));
+        assert_eq!(state.last_info_popup_top, Some(8));
+        assert_eq!(state.last_info_popup_left, Some(9));
+        assert_eq!(state.last_info_popup_bottom, Some(10));
+        assert_eq!(state.last_info_popup_right, Some(11));
     }
 
     #[test]

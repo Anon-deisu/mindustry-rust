@@ -4113,17 +4113,17 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.info_popup_packet_id => {
                 if let Some(summary) = decode_info_popup_payload(&packet.payload, false) {
-                    self.state.received_info_popup_count =
-                        self.state.received_info_popup_count.saturating_add(1);
-                    self.state.last_info_popup_reliable = Some(false);
-                    self.state.last_info_popup_id = summary.popup_id.clone();
-                    self.state.last_info_popup_message = summary.message.clone();
-                    self.state.last_info_popup_duration_bits = Some(summary.duration.to_bits());
-                    self.state.last_info_popup_align = Some(summary.align);
-                    self.state.last_info_popup_top = Some(summary.top);
-                    self.state.last_info_popup_left = Some(summary.left);
-                    self.state.last_info_popup_bottom = Some(summary.bottom);
-                    self.state.last_info_popup_right = Some(summary.right);
+                    self.state.record_info_popup(
+                        false,
+                        &summary.popup_id,
+                        &summary.message,
+                        summary.duration,
+                        summary.align,
+                        summary.top,
+                        summary.left,
+                        summary.bottom,
+                        summary.right,
+                    );
                     Ok(ClientSessionEvent::InfoPopup {
                         reliable: false,
                         popup_id: summary.popup_id,
@@ -4144,17 +4144,17 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.info_popup_with_id_packet_id => {
                 if let Some(summary) = decode_info_popup_payload(&packet.payload, true) {
-                    self.state.received_info_popup_count =
-                        self.state.received_info_popup_count.saturating_add(1);
-                    self.state.last_info_popup_reliable = Some(false);
-                    self.state.last_info_popup_id = summary.popup_id.clone();
-                    self.state.last_info_popup_message = summary.message.clone();
-                    self.state.last_info_popup_duration_bits = Some(summary.duration.to_bits());
-                    self.state.last_info_popup_align = Some(summary.align);
-                    self.state.last_info_popup_top = Some(summary.top);
-                    self.state.last_info_popup_left = Some(summary.left);
-                    self.state.last_info_popup_bottom = Some(summary.bottom);
-                    self.state.last_info_popup_right = Some(summary.right);
+                    self.state.record_info_popup(
+                        false,
+                        &summary.popup_id,
+                        &summary.message,
+                        summary.duration,
+                        summary.align,
+                        summary.top,
+                        summary.left,
+                        summary.bottom,
+                        summary.right,
+                    );
                     Ok(ClientSessionEvent::InfoPopup {
                         reliable: false,
                         popup_id: summary.popup_id,
@@ -4175,19 +4175,17 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.info_popup_reliable_packet_id => {
                 if let Some(summary) = decode_info_popup_payload(&packet.payload, false) {
-                    self.state.received_info_popup_reliable_count = self
-                        .state
-                        .received_info_popup_reliable_count
-                        .saturating_add(1);
-                    self.state.last_info_popup_reliable = Some(true);
-                    self.state.last_info_popup_id = summary.popup_id.clone();
-                    self.state.last_info_popup_message = summary.message.clone();
-                    self.state.last_info_popup_duration_bits = Some(summary.duration.to_bits());
-                    self.state.last_info_popup_align = Some(summary.align);
-                    self.state.last_info_popup_top = Some(summary.top);
-                    self.state.last_info_popup_left = Some(summary.left);
-                    self.state.last_info_popup_bottom = Some(summary.bottom);
-                    self.state.last_info_popup_right = Some(summary.right);
+                    self.state.record_info_popup(
+                        true,
+                        &summary.popup_id,
+                        &summary.message,
+                        summary.duration,
+                        summary.align,
+                        summary.top,
+                        summary.left,
+                        summary.bottom,
+                        summary.right,
+                    );
                     Ok(ClientSessionEvent::InfoPopup {
                         reliable: true,
                         popup_id: summary.popup_id,
@@ -4208,19 +4206,17 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.info_popup_reliable_with_id_packet_id => {
                 if let Some(summary) = decode_info_popup_payload(&packet.payload, true) {
-                    self.state.received_info_popup_reliable_count = self
-                        .state
-                        .received_info_popup_reliable_count
-                        .saturating_add(1);
-                    self.state.last_info_popup_reliable = Some(true);
-                    self.state.last_info_popup_id = summary.popup_id.clone();
-                    self.state.last_info_popup_message = summary.message.clone();
-                    self.state.last_info_popup_duration_bits = Some(summary.duration.to_bits());
-                    self.state.last_info_popup_align = Some(summary.align);
-                    self.state.last_info_popup_top = Some(summary.top);
-                    self.state.last_info_popup_left = Some(summary.left);
-                    self.state.last_info_popup_bottom = Some(summary.bottom);
-                    self.state.last_info_popup_right = Some(summary.right);
+                    self.state.record_info_popup(
+                        true,
+                        &summary.popup_id,
+                        &summary.message,
+                        summary.duration,
+                        summary.align,
+                        summary.top,
+                        summary.left,
+                        summary.bottom,
+                        summary.right,
+                    );
                     Ok(ClientSessionEvent::InfoPopup {
                         reliable: true,
                         popup_id: summary.popup_id,
