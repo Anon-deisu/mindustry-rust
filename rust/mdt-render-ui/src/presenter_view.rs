@@ -2927,6 +2927,7 @@ mod tests {
         format_runtime_marker_panel_text_if_nonempty,
         format_runtime_reconnect_detail_text,
         format_runtime_reconnect_detail_text_if_nonempty,
+        format_runtime_reconnect_phase_text,
         format_runtime_reconnect_panel_text, format_runtime_reconnect_row_text,
         format_runtime_resource_delta_detail_text,
         format_runtime_resource_delta_detail_text_if_nonempty,
@@ -3875,6 +3876,30 @@ mod tests {
         assert_eq!(
             format_runtime_resource_delta_detail_text_if_nonempty(&empty_runtime_resource_delta_panel()),
             None
+        );
+    }
+
+    #[test]
+    fn format_runtime_reconnect_phase_text_maps_all_phases() {
+        assert_eq!(
+            format_runtime_reconnect_phase_text(RuntimeReconnectPhaseObservability::Idle),
+            "idle"
+        );
+        assert_eq!(
+            format_runtime_reconnect_phase_text(RuntimeReconnectPhaseObservability::Scheduled),
+            "sched"
+        );
+        assert_eq!(
+            format_runtime_reconnect_phase_text(RuntimeReconnectPhaseObservability::Attempting),
+            "attempt"
+        );
+        assert_eq!(
+            format_runtime_reconnect_phase_text(RuntimeReconnectPhaseObservability::Succeeded),
+            "ok"
+        );
+        assert_eq!(
+            format_runtime_reconnect_phase_text(RuntimeReconnectPhaseObservability::Aborted),
+            "abort"
         );
     }
 
