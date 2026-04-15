@@ -1776,7 +1776,7 @@ pub(crate) fn format_runtime_resource_delta_panel_text(
     resource_delta: &RuntimeResourceDeltaPanelModel,
 ) -> String {
     format!(
-        "resd:tile{}/{}/{}/{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}@{}:{}:{}:{}:{}:{}:proj{}/{}/{}:au{}:d{}/{}/{}:chg{}/{}/{}/{}",
+        "resd:tile{}/{}/{}/{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}{}",
         resource_delta.remove_tile_count,
         resource_delta.set_tile_count,
         resource_delta.set_floor_count,
@@ -1792,23 +1792,7 @@ pub(crate) fn format_runtime_resource_delta_panel_text(
         resource_delta.take_items_count,
         resource_delta.transfer_item_to_count,
         resource_delta.transfer_item_to_unit_count,
-        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
-        format_optional_i16_text(resource_delta.last_item_id),
-        format_optional_i32_text(resource_delta.last_amount),
-        format_optional_i32_text(resource_delta.last_build_pos),
-        format_runtime_command_unit_ref_text(resource_delta.last_unit),
-        format_optional_i32_text(resource_delta.last_to_entity_id),
-        resource_delta.build_count,
-        resource_delta.build_stack_count,
-        resource_delta.entity_count,
-        resource_delta.authoritative_build_update_count,
-        resource_delta.delta_apply_count,
-        resource_delta.delta_skip_count,
-        resource_delta.delta_conflict_count,
-        format_optional_i32_text(resource_delta.last_changed_build_pos),
-        format_optional_i32_text(resource_delta.last_changed_entity_id),
-        format_optional_i16_text(resource_delta.last_changed_item_id),
-        format_optional_i32_text(resource_delta.last_changed_amount),
+        format_runtime_resource_delta_tail_text("@", resource_delta),
     )
 }
 
@@ -1822,7 +1806,7 @@ pub(crate) fn format_runtime_resource_delta_detail_text(
     resource_delta: &RuntimeResourceDeltaPanelModel,
 ) -> String {
     format!(
-        "resdd:rm{}:st{}:sf{}:so{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}:last{}:{}:{}:{}:{}:{}:proj{}/{}/{}:au{}:d{}/{}/{}:chg{}/{}/{}/{}",
+        "resdd:rm{}:st{}:sf{}:so{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}{}",
         resource_delta.remove_tile_count,
         resource_delta.set_tile_count,
         resource_delta.set_floor_count,
@@ -1838,6 +1822,16 @@ pub(crate) fn format_runtime_resource_delta_detail_text(
         resource_delta.take_items_count,
         resource_delta.transfer_item_to_count,
         resource_delta.transfer_item_to_unit_count,
+        format_runtime_resource_delta_tail_text(":last", resource_delta),
+    )
+}
+
+fn format_runtime_resource_delta_tail_text(
+    kind_prefix: &str,
+    resource_delta: &RuntimeResourceDeltaPanelModel,
+) -> String {
+    format!(
+        "{kind_prefix}{}:{}:{}:{}:{}:{}:proj{}/{}/{}:au{}:d{}/{}/{}:chg{}/{}/{}/{}",
         compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
         format_optional_i16_text(resource_delta.last_item_id),
         format_optional_i32_text(resource_delta.last_amount),
