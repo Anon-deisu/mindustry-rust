@@ -5575,16 +5575,12 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.debug_status_client_packet_id => {
                 if let Some(status) = decode_debug_status_payload(&packet.payload) {
-                    self.state.received_debug_status_client_count = self
-                        .state
-                        .received_debug_status_client_count
-                        .saturating_add(1);
-                    self.state.last_debug_status_reliable = Some(true);
-                    self.state.last_debug_status_value = Some(status.value);
-                    self.state.last_debug_status_last_client_snapshot =
-                        Some(status.last_client_snapshot);
-                    self.state.last_debug_status_snapshots_sent = Some(status.snapshots_sent);
-                    self.state.last_debug_status_client_parse_error_payload_len = None;
+                    self.state.record_debug_status(
+                        true,
+                        status.value,
+                        status.last_client_snapshot,
+                        status.snapshots_sent,
+                    );
                     Ok(ClientSessionEvent::DebugStatusReceived {
                         reliable: true,
                         value: status.value,
@@ -5606,17 +5602,12 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.debug_status_client_unreliable_packet_id => {
                 if let Some(status) = decode_debug_status_payload(&packet.payload) {
-                    self.state.received_debug_status_client_unreliable_count = self
-                        .state
-                        .received_debug_status_client_unreliable_count
-                        .saturating_add(1);
-                    self.state.last_debug_status_reliable = Some(false);
-                    self.state.last_debug_status_value = Some(status.value);
-                    self.state.last_debug_status_last_client_snapshot =
-                        Some(status.last_client_snapshot);
-                    self.state.last_debug_status_snapshots_sent = Some(status.snapshots_sent);
-                    self.state
-                        .last_debug_status_client_unreliable_parse_error_payload_len = None;
+                    self.state.record_debug_status(
+                        false,
+                        status.value,
+                        status.last_client_snapshot,
+                        status.snapshots_sent,
+                    );
                     Ok(ClientSessionEvent::DebugStatusReceived {
                         reliable: false,
                         value: status.value,

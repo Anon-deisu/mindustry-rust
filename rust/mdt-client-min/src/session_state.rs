@@ -7719,6 +7719,29 @@ impl SessionState {
         self.last_chat_sender_entity_id = sender_entity_id;
     }
 
+    pub fn record_debug_status(
+        &mut self,
+        reliable: bool,
+        value: i32,
+        last_client_snapshot: i32,
+        snapshots_sent: i32,
+    ) {
+        if reliable {
+            self.received_debug_status_client_count =
+                self.received_debug_status_client_count.saturating_add(1);
+            self.last_debug_status_client_parse_error_payload_len = None;
+        } else {
+            self.received_debug_status_client_unreliable_count = self
+                .received_debug_status_client_unreliable_count
+                .saturating_add(1);
+            self.last_debug_status_client_unreliable_parse_error_payload_len = None;
+        }
+        self.last_debug_status_reliable = Some(reliable);
+        self.last_debug_status_value = Some(value);
+        self.last_debug_status_last_client_snapshot = Some(last_client_snapshot);
+        self.last_debug_status_snapshots_sent = Some(snapshots_sent);
+    }
+
     pub fn record_sound(&mut self, sound_id: Option<i16>, volume: f32, pitch: f32, pan: f32) {
         self.received_sound_count = self.received_sound_count.saturating_add(1);
         self.last_sound_id = sound_id;
@@ -16685,6 +16708,41 @@ mod tests {
         );
         assert_eq!(state.last_chat_unformatted.as_deref(), Some("hello"));
         assert_eq!(state.last_chat_sender_entity_id, Some(42));
+    }
+
+    #[test]
+    fn record_debug_status_tracks_reliable_branch() {
+        let mut state = SessionState::default();
+        state.last_debug_status_client_parse_error_payload_len = Some(8);
+
+        state.record_debug_status(true, 7, 101, 303);
+
+        assert_eq!(state.received_debug_status_client_count, 1);
+        assert_eq!(state.received_debug_status_client_unreliable_count, 0);
+        assert_eq!(state.last_debug_status_reliable, Some(true));
+        assert_eq!(state.last_debug_status_value, Some(7));
+        assert_eq!(state.last_debug_status_last_client_snapshot, Some(101));
+        assert_eq!(state.last_debug_status_snapshots_sent, Some(303));
+        assert_eq!(state.last_debug_status_client_parse_error_payload_len, None);
+    }
+
+    #[test]
+    fn record_debug_status_tracks_unreliable_branch() {
+        let mut state = SessionState::default();
+        state.last_debug_status_client_unreliable_parse_error_payload_len = Some(9);
+
+        state.record_debug_status(false, 12, 202, 404);
+
+        assert_eq!(state.received_debug_status_client_count, 0);
+        assert_eq!(state.received_debug_status_client_unreliable_count, 1);
+        assert_eq!(state.last_debug_status_reliable, Some(false));
+        assert_eq!(state.last_debug_status_value, Some(12));
+        assert_eq!(state.last_debug_status_last_client_snapshot, Some(202));
+        assert_eq!(state.last_debug_status_snapshots_sent, Some(404));
+        assert_eq!(
+            state.last_debug_status_client_unreliable_parse_error_payload_len,
+            None
+        );
     }
 
     #[test]
