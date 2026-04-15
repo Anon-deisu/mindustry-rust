@@ -559,6 +559,41 @@ mod tests {
     }
 
     #[test]
+    fn reset_finish_connecting_lifecycle_clears_finish_connecting_state() {
+        let mut state = SessionState::default();
+        state.client_loaded = true;
+        state.connect_confirm_sent = true;
+        state.connect_confirm_flushed = true;
+        state.last_connect_confirm_at_ms = Some(11);
+        state.last_connect_confirm_flushed_at_ms = Some(12);
+        state.finish_connecting_commit_count = 3;
+        state.last_finish_connecting = Some(FinishConnectingProjection {
+            committed_at_ms: 10,
+            replayed_loading_packet_count: 2,
+            total_replayed_loading_packet_count: 4,
+            ready_to_enter_world: true,
+            client_loaded: true,
+            connect_confirm_queued: true,
+            connect_confirm_flushed: true,
+            snapshot_watchdog_armed_at_ms: Some(10),
+        });
+        state.last_ready_inbound_liveness_anchor_at_ms = Some(13);
+        state.ready_inbound_liveness_anchor_count = 5;
+
+        reset_finish_connecting_lifecycle(&mut state);
+
+        assert!(!state.client_loaded);
+        assert!(!state.connect_confirm_sent);
+        assert!(!state.connect_confirm_flushed);
+        assert_eq!(state.last_connect_confirm_at_ms, None);
+        assert_eq!(state.last_connect_confirm_flushed_at_ms, None);
+        assert_eq!(state.finish_connecting_commit_count, 0);
+        assert_eq!(state.last_finish_connecting, None);
+        assert_eq!(state.last_ready_inbound_liveness_anchor_at_ms, None);
+        assert_eq!(state.ready_inbound_liveness_anchor_count, 0);
+    }
+
+    #[test]
     fn rejects_stream_begin_packet_over_hard_limit() {
         let begin_packet = encode_packet(
             STREAM_BEGIN_PACKET_ID,
