@@ -3821,12 +3821,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_map_area_packet_id => {
                 if let Some(summary) = decode_set_map_area_payload(&packet.payload) {
-                    self.state.received_set_map_area_count =
-                        self.state.received_set_map_area_count.saturating_add(1);
-                    self.state.last_set_map_area_x = Some(summary.x);
-                    self.state.last_set_map_area_y = Some(summary.y);
-                    self.state.last_set_map_area_w = Some(summary.w);
-                    self.state.last_set_map_area_h = Some(summary.h);
+                    self.state
+                        .record_set_map_area(summary.x, summary.y, summary.w, summary.h);
                     Ok(ClientSessionEvent::SetMapArea {
                         x: summary.x,
                         y: summary.y,
@@ -3842,10 +3838,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_team_packet_id => {
                 if let Some(summary) = decode_set_team_payload(&packet.payload) {
-                    self.state.received_set_team_count =
-                        self.state.received_set_team_count.saturating_add(1);
-                    self.state.last_set_team_build_pos = summary.build_pos;
-                    self.state.last_set_team_id = Some(summary.team_id);
+                    self.state
+                        .record_set_team(summary.build_pos, summary.team_id);
                     if let Some(build_pos) = summary.build_pos {
                         self.apply_authoritative_building_team_projection(
                             build_pos,

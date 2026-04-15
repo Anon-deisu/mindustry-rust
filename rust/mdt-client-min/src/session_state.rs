@@ -7373,6 +7373,20 @@ impl SessionState {
         self.last_sound_at_parse_error_payload_len = None;
     }
 
+    pub fn record_set_map_area(&mut self, x: i32, y: i32, w: i32, h: i32) {
+        self.received_set_map_area_count = self.received_set_map_area_count.saturating_add(1);
+        self.last_set_map_area_x = Some(x);
+        self.last_set_map_area_y = Some(y);
+        self.last_set_map_area_w = Some(w);
+        self.last_set_map_area_h = Some(h);
+    }
+
+    pub fn record_set_team(&mut self, build_pos: Option<i32>, team_id: u8) {
+        self.received_set_team_count = self.received_set_team_count.saturating_add(1);
+        self.last_set_team_build_pos = build_pos;
+        self.last_set_team_id = Some(team_id);
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15753,6 +15767,31 @@ mod tests {
         assert_eq!(state.last_sound_at_volume_bits, Some(0.8f32.to_bits()));
         assert_eq!(state.last_sound_at_pitch_bits, Some(1.1f32.to_bits()));
         assert_eq!(state.last_sound_at_parse_error_payload_len, None);
+    }
+
+    #[test]
+    fn record_set_map_area_tracks_bounds() {
+        let mut state = SessionState::default();
+
+        state.record_set_map_area(-4, 12, 320, 180);
+
+        assert_eq!(state.received_set_map_area_count, 1);
+        assert_eq!(state.last_set_map_area_x, Some(-4));
+        assert_eq!(state.last_set_map_area_y, Some(12));
+        assert_eq!(state.last_set_map_area_w, Some(320));
+        assert_eq!(state.last_set_map_area_h, Some(180));
+    }
+
+    #[test]
+    fn record_set_team_tracks_target_and_team() {
+        let mut state = SessionState::default();
+        let build_pos = Some(pack_point2(7, 9));
+
+        state.record_set_team(build_pos, 5);
+
+        assert_eq!(state.received_set_team_count, 1);
+        assert_eq!(state.last_set_team_build_pos, build_pos);
+        assert_eq!(state.last_set_team_id, Some(5));
     }
 
     #[test]
