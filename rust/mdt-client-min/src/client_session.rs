@@ -3489,13 +3489,13 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.menu_packet_id => {
                 if let Some(summary) = decode_menu_dialog_payload(&packet.payload) {
-                    self.state.received_menu_open_count =
-                        self.state.received_menu_open_count.saturating_add(1);
-                    self.state.last_menu_open_id = Some(summary.menu_id);
-                    self.state.last_menu_open_title = summary.title.clone();
-                    self.state.last_menu_open_message = summary.message.clone();
-                    self.state.last_menu_open_option_rows = summary.option_rows;
-                    self.state.last_menu_open_first_row_len = summary.first_row_len;
+                    self.state.record_menu_open(
+                        summary.menu_id,
+                        &summary.title,
+                        &summary.message,
+                        summary.option_rows,
+                        summary.first_row_len,
+                    );
                     Ok(ClientSessionEvent::MenuShown {
                         menu_id: summary.menu_id,
                         title: summary.title,
@@ -3512,15 +3512,13 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.follow_up_menu_packet_id => {
                 if let Some(summary) = decode_menu_dialog_payload(&packet.payload) {
-                    self.state.received_follow_up_menu_open_count = self
-                        .state
-                        .received_follow_up_menu_open_count
-                        .saturating_add(1);
-                    self.state.last_follow_up_menu_open_id = Some(summary.menu_id);
-                    self.state.last_follow_up_menu_open_title = summary.title.clone();
-                    self.state.last_follow_up_menu_open_message = summary.message.clone();
-                    self.state.last_follow_up_menu_open_option_rows = summary.option_rows;
-                    self.state.last_follow_up_menu_open_first_row_len = summary.first_row_len;
+                    self.state.record_follow_up_menu_open(
+                        summary.menu_id,
+                        &summary.title,
+                        &summary.message,
+                        summary.option_rows,
+                        summary.first_row_len,
+                    );
                     Ok(ClientSessionEvent::FollowUpMenuShown {
                         menu_id: summary.menu_id,
                         title: summary.title,
@@ -3537,11 +3535,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.hide_follow_up_menu_packet_id => {
                 if let Some(menu_id) = decode_hide_follow_up_menu_payload(&packet.payload) {
-                    self.state.received_hide_follow_up_menu_count = self
-                        .state
-                        .received_hide_follow_up_menu_count
-                        .saturating_add(1);
-                    self.state.last_hide_follow_up_menu_id = Some(menu_id);
+                    self.state.record_hide_follow_up_menu(menu_id);
                     Ok(ClientSessionEvent::HideFollowUpMenu { menu_id })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4226,11 +4220,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_player_team_editor_packet_id => {
                 if let Some(team_id) = decode_set_player_team_editor_payload(&packet.payload) {
-                    self.state.received_set_player_team_editor_count = self
-                        .state
-                        .received_set_player_team_editor_count
-                        .saturating_add(1);
-                    self.state.last_set_player_team_editor_team_id = Some(team_id);
+                    self.state.record_set_player_team_editor(team_id);
                     self.apply_loaded_world_player_team(team_id);
                     Ok(ClientSessionEvent::SetPlayerTeamEditor { team_id })
                 } else {
@@ -4242,10 +4232,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.menu_choose_packet_id => {
                 if let Some(summary) = decode_menu_choose_payload(&packet.payload) {
-                    self.state.received_menu_choose_count =
-                        self.state.received_menu_choose_count.saturating_add(1);
-                    self.state.last_menu_choose_menu_id = Some(summary.menu_id);
-                    self.state.last_menu_choose_option = Some(summary.option);
+                    self.state
+                        .record_menu_choose(summary.menu_id, summary.option);
                     Ok(ClientSessionEvent::MenuChoose {
                         menu_id: summary.menu_id,
                         option: summary.option,
@@ -4259,12 +4247,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.text_input_result_packet_id => {
                 if let Some(summary) = decode_text_input_result_payload(&packet.payload) {
-                    self.state.received_text_input_result_count = self
-                        .state
-                        .received_text_input_result_count
-                        .saturating_add(1);
-                    self.state.last_text_input_result_id = Some(summary.text_input_id);
-                    self.state.last_text_input_result_text = summary.text.clone();
+                    self.state
+                        .record_text_input_result(summary.text_input_id, &summary.text);
                     Ok(ClientSessionEvent::TextInputResult {
                         text_input_id: summary.text_input_id,
                         text: summary.text,

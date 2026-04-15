@@ -7225,6 +7225,64 @@ impl SessionState {
         self.last_remove_world_label_id = Some(label_id);
     }
 
+    pub fn record_menu_open(
+        &mut self,
+        menu_id: i32,
+        title: &Option<String>,
+        message: &Option<String>,
+        option_rows: usize,
+        first_row_len: usize,
+    ) {
+        self.received_menu_open_count = self.received_menu_open_count.saturating_add(1);
+        self.last_menu_open_id = Some(menu_id);
+        self.last_menu_open_title = title.clone();
+        self.last_menu_open_message = message.clone();
+        self.last_menu_open_option_rows = option_rows;
+        self.last_menu_open_first_row_len = first_row_len;
+    }
+
+    pub fn record_follow_up_menu_open(
+        &mut self,
+        menu_id: i32,
+        title: &Option<String>,
+        message: &Option<String>,
+        option_rows: usize,
+        first_row_len: usize,
+    ) {
+        self.received_follow_up_menu_open_count =
+            self.received_follow_up_menu_open_count.saturating_add(1);
+        self.last_follow_up_menu_open_id = Some(menu_id);
+        self.last_follow_up_menu_open_title = title.clone();
+        self.last_follow_up_menu_open_message = message.clone();
+        self.last_follow_up_menu_open_option_rows = option_rows;
+        self.last_follow_up_menu_open_first_row_len = first_row_len;
+    }
+
+    pub fn record_hide_follow_up_menu(&mut self, menu_id: i32) {
+        self.received_hide_follow_up_menu_count =
+            self.received_hide_follow_up_menu_count.saturating_add(1);
+        self.last_hide_follow_up_menu_id = Some(menu_id);
+    }
+
+    pub fn record_set_player_team_editor(&mut self, team_id: u8) {
+        self.received_set_player_team_editor_count =
+            self.received_set_player_team_editor_count.saturating_add(1);
+        self.last_set_player_team_editor_team_id = Some(team_id);
+    }
+
+    pub fn record_menu_choose(&mut self, menu_id: i32, option: i32) {
+        self.received_menu_choose_count = self.received_menu_choose_count.saturating_add(1);
+        self.last_menu_choose_menu_id = Some(menu_id);
+        self.last_menu_choose_option = Some(option);
+    }
+
+    pub fn record_text_input_result(&mut self, text_input_id: i32, text: &Option<String>) {
+        self.received_text_input_result_count =
+            self.received_text_input_result_count.saturating_add(1);
+        self.last_text_input_result_id = Some(text_input_id);
+        self.last_text_input_result_text = text.clone();
+    }
+
     pub fn record_game_over(&mut self, winner_team_id: u8) {
         self.received_game_over_count = self.received_game_over_count.saturating_add(1);
         self.last_game_over_winner_team_id = Some(winner_team_id);
@@ -15757,6 +15815,81 @@ mod tests {
 
         assert_eq!(state.received_remove_world_label_count, 1);
         assert_eq!(state.last_remove_world_label_id, Some(42));
+    }
+
+    #[test]
+    fn record_menu_open_tracks_dialog_summary() {
+        let mut state = SessionState::default();
+        let title = Some("title".to_string());
+        let message = Some("body".to_string());
+
+        state.record_menu_open(12, &title, &message, 2, 3);
+
+        assert_eq!(state.received_menu_open_count, 1);
+        assert_eq!(state.last_menu_open_id, Some(12));
+        assert_eq!(state.last_menu_open_title, title);
+        assert_eq!(state.last_menu_open_message, message);
+        assert_eq!(state.last_menu_open_option_rows, 2);
+        assert_eq!(state.last_menu_open_first_row_len, 3);
+    }
+
+    #[test]
+    fn record_follow_up_menu_open_tracks_dialog_summary() {
+        let mut state = SessionState::default();
+        let title = Some("next".to_string());
+        let message = Some("step".to_string());
+
+        state.record_follow_up_menu_open(21, &title, &message, 1, 1);
+
+        assert_eq!(state.received_follow_up_menu_open_count, 1);
+        assert_eq!(state.last_follow_up_menu_open_id, Some(21));
+        assert_eq!(state.last_follow_up_menu_open_title, title);
+        assert_eq!(state.last_follow_up_menu_open_message, message);
+        assert_eq!(state.last_follow_up_menu_open_option_rows, 1);
+        assert_eq!(state.last_follow_up_menu_open_first_row_len, 1);
+    }
+
+    #[test]
+    fn record_hide_follow_up_menu_tracks_menu_id() {
+        let mut state = SessionState::default();
+
+        state.record_hide_follow_up_menu(21);
+
+        assert_eq!(state.received_hide_follow_up_menu_count, 1);
+        assert_eq!(state.last_hide_follow_up_menu_id, Some(21));
+    }
+
+    #[test]
+    fn record_set_player_team_editor_tracks_team() {
+        let mut state = SessionState::default();
+
+        state.record_set_player_team_editor(7);
+
+        assert_eq!(state.received_set_player_team_editor_count, 1);
+        assert_eq!(state.last_set_player_team_editor_team_id, Some(7));
+    }
+
+    #[test]
+    fn record_menu_choose_tracks_menu_and_option() {
+        let mut state = SessionState::default();
+
+        state.record_menu_choose(12, -1);
+
+        assert_eq!(state.received_menu_choose_count, 1);
+        assert_eq!(state.last_menu_choose_menu_id, Some(12));
+        assert_eq!(state.last_menu_choose_option, Some(-1));
+    }
+
+    #[test]
+    fn record_text_input_result_tracks_text() {
+        let mut state = SessionState::default();
+        let text = Some("router".to_string());
+
+        state.record_text_input_result(9, &text);
+
+        assert_eq!(state.received_text_input_result_count, 1);
+        assert_eq!(state.last_text_input_result_id, Some(9));
+        assert_eq!(state.last_text_input_result_text, text);
     }
 
     #[test]
