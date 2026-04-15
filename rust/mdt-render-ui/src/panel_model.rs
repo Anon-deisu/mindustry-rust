@@ -3534,6 +3534,15 @@ mod tests {
     }
 
     #[test]
+    fn compact_sha_label_truncates_to_12_chars_and_handles_none() {
+        assert_eq!(
+            super::compact_sha_label(Some("1234567890abcdef")),
+            "1234567890ab"
+        );
+        assert_eq!(super::compact_sha_label(None), "none");
+    }
+
+    #[test]
     fn builds_build_config_panel_with_capped_and_sorted_entries() {
         let hud = HudModel {
             build_ui: Some(BuildUiObservability {
