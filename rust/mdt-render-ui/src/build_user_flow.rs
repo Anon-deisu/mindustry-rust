@@ -1139,4 +1139,34 @@ mod tests {
             assert_eq!(panel.authority_source_label(), expected);
         }
     }
+
+    #[test]
+    fn join_or_none_formats_empty_and_ordered_labels_with_stable_prefix() {
+        assert_eq!(BuildUserFlowPanelModel::join_or_none(&[]), "none");
+        assert_eq!(
+            BuildUserFlowPanelModel::join_or_none(&["alpha", "beta", "gamma"]),
+            "alpha+beta+gamma"
+        );
+
+        let panel = BuildUserFlowPanelModel {
+            next_action: "survey",
+            blockers: Vec::new(),
+            route: Vec::new(),
+            minimap_next_action: "build",
+            focus_state: MinimapUserFocusState::Inside,
+            pan_horizontal: MinimapPanAxisDirection::None,
+            pan_vertical: MinimapPanAxisDirection::None,
+            target_kind: MinimapUserTargetKind::None,
+            config_scope: "scope",
+            authority_state: BuildInteractionAuthorityState::None,
+            authority_pending_match: None,
+            authority_source: None,
+            authority_block_name: None,
+            head_tile: None,
+        };
+
+        assert!(panel
+            .summary_label()
+            .starts_with("next=survey minimap=build "));
+    }
 }
