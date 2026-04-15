@@ -1099,7 +1099,7 @@ fn format_state_snapshot_applied_summary(
     projection: &crate::client_session::StateSnapshotAppliedProjection,
 ) -> String {
     format!(
-        "state_snapshot_applied: wave={} enemies={} tps={} gameplay_state={} transitions={} wave_advanced={} wave_from={:?} wave_to={:?} apply_count={} net_seconds_delta={} rollback={} time_regress_count={} wave_regress_count={} core_parse_failed={} core_parse_fail_count={} used_last_good_core_fallback={} core_teams={} core_items={} core_total={} core_changed={} core_changed_sample={}",
+        "state_snapshot_applied: wave={} enemies={} tps={} gameplay_state={} transitions={} wave_advanced={} wave_from={:?} wave_to={:?} apply_count={} net_seconds_delta={} rollback={} time_regress_count={} wave_regress_count={} {}",
         projection.wave,
         projection.enemies,
         projection.tps,
@@ -1113,6 +1113,15 @@ fn format_state_snapshot_applied_summary(
         projection.net_seconds_rollback,
         projection.time_regress_count,
         projection.wave_regress_count,
+        format_state_snapshot_applied_core_fields(projection),
+    )
+}
+
+fn format_state_snapshot_applied_core_fields(
+    projection: &crate::client_session::StateSnapshotAppliedProjection,
+) -> String {
+    format!(
+        "core_parse_failed={} core_parse_fail_count={} used_last_good_core_fallback={} core_teams={} core_items={} core_total={} core_changed={} core_changed_sample={}",
         projection.core_parse_failed,
         projection.core_parse_fail_count,
         projection.used_last_good_core_fallback,
@@ -1408,7 +1417,9 @@ fn truncate_for_preview(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client_session::StateSnapshotAppliedProjection;
     use crate::session_state::{
+        GameplayStateProjection,
         PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
         TakeItemsProjection, TransferItemToProjection, TransferItemToUnitProjection,
         UnitEnteredPayloadProjection,
@@ -1603,6 +1614,38 @@ mod tests {
                 "transfer_item_to: unit=Some(UnitRefProjection { kind: 2, value: 44 }) item_id=Some(8) amount=12 x_bits=0x3f800000 y_bits=0x40000000 build_pos=Some(65538)".to_string(),
                 "unit_entered_payload: unit=Some(UnitRefProjection { kind: 2, value: 88 }) build_pos=Some(196612) removed_entity_projection=false".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn format_state_snapshot_applied_summary_keeps_core_status_string_stable() {
+        let projection = StateSnapshotAppliedProjection {
+            wave: 12,
+            enemies: 34,
+            tps: 60,
+            gameplay_state: GameplayStateProjection::Paused,
+            gameplay_state_transition_count: 5,
+            wave_advanced: true,
+            wave_advance_from: Some(10),
+            wave_advance_to: Some(11),
+            apply_count: 8,
+            net_seconds_delta: -3,
+            net_seconds_rollback: false,
+            time_regress_count: 2,
+            wave_regress_count: 4,
+            core_inventory_team_count: 1,
+            core_inventory_item_entry_count: 2,
+            core_inventory_total_amount: 77,
+            core_inventory_changed_team_count: 3,
+            core_inventory_changed_team_sample: vec![5, 8],
+            core_parse_failed: true,
+            core_parse_fail_count: 9,
+            used_last_good_core_fallback: false,
+        };
+
+        assert_eq!(
+            format_state_snapshot_applied_summary(&projection),
+            "state_snapshot_applied: wave=12 enemies=34 tps=60 gameplay_state=pause transitions=5 wave_advanced=true wave_from=Some(10) wave_to=Some(11) apply_count=8 net_seconds_delta=-3 rollback=false time_regress_count=2 wave_regress_count=4 core_parse_failed=true core_parse_fail_count=9 used_last_good_core_fallback=false core_teams=1 core_items=2 core_total=77 core_changed=3 core_changed_sample=5,8"
         );
     }
 
