@@ -751,4 +751,17 @@ mod tests {
         assert_eq!(optional_u8_label(Some(0)), "0");
         assert_eq!(optional_u8_label(Some(255)), "255");
     }
+
+    fn optional_i16_label(value: Option<i16>) -> String {
+        value
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    #[test]
+    fn optional_i16_label_formats_none_and_signed_values() {
+        assert_eq!(optional_i16_label(None), "none");
+        assert_eq!(optional_i16_label(Some(-7)), "-7");
+        assert_eq!(optional_i16_label(Some(42)), "42");
+    }
 }
