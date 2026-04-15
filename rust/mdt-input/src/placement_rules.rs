@@ -173,7 +173,7 @@ fn placement_bounds(x: i32, y: i32, size: i32) -> PlacementBounds {
 #[cfg(test)]
 mod tests {
     use super::{
-        repair_derelict_candidate, valid_place_against_local_plans,
+        placement_bounds, repair_derelict_candidate, valid_place_against_local_plans,
         valid_place_against_local_plans_with_reason, LocalPlanPlacement, PlacementRejectReason,
         PlacementRequest, RepairDerelictBuildObservation, RepairDerelictCandidate,
         RepairDerelictObservation,
@@ -392,6 +392,16 @@ mod tests {
             }],
             None,
         ));
+    }
+
+    #[test]
+    fn placement_bounds_and_overlaps_handle_center_overlap_and_touching_edges() {
+        let center = placement_bounds(10, 10, 1);
+        let overlapping = placement_bounds(10, 10, 1);
+        let touching = placement_bounds(11, 10, 1);
+
+        assert!(center.overlaps(overlapping));
+        assert!(!center.overlaps(touching));
     }
 
     #[test]
