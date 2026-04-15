@@ -3172,7 +3172,7 @@ mod tests {
         BuildInteractionQueueState, BuildInteractionSelectionState, BuildMinimapAssistPanelModel,
         PresenterViewWindow, RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind,
         RuntimeDialogPromptKind, RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind,
-        RuntimeWorldLabelPanelModel, RuntimeWorldReloadPanelModel,
+        RuntimeWorldLabelPanelModel, RuntimeWorldReloadPanelModel, world_position_text,
     };
     use crate::{
         hud_model::{
@@ -5988,5 +5988,16 @@ mod tests {
         assert_eq!(stack.prompt_depth(), 0);
         assert_eq!(stack.chat_depth(), 1);
         assert_eq!(stack.total_depth(), 1);
+    }
+
+    #[test]
+    fn world_position_text_formats_some_and_none() {
+        let position = crate::RuntimeWorldPositionObservability {
+            x_bits: 12.34f32.to_bits(),
+            y_bits: 56.78f32.to_bits(),
+        };
+
+        assert_eq!(world_position_text(Some(&position)), "12.3:56.8");
+        assert_eq!(world_position_text(None), "none");
     }
 }
