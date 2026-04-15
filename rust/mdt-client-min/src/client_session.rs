@@ -5570,13 +5570,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.sound_packet_id => {
                 if let Some(sound) = decode_sound_payload(&packet.payload) {
-                    self.state.received_sound_count =
-                        self.state.received_sound_count.saturating_add(1);
-                    self.state.last_sound_id = sound.sound_id;
-                    self.state.last_sound_volume_bits = Some(sound.volume.to_bits());
-                    self.state.last_sound_pitch_bits = Some(sound.pitch.to_bits());
-                    self.state.last_sound_pan_bits = Some(sound.pan.to_bits());
-                    self.state.last_sound_parse_error_payload_len = None;
+                    self.state
+                        .record_sound(sound.sound_id, sound.volume, sound.pitch, sound.pan);
                     Ok(ClientSessionEvent::SoundRequested {
                         sound_id: sound.sound_id,
                         volume: sound.volume,
@@ -5595,14 +5590,13 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.sound_at_packet_id => {
                 if let Some(sound) = decode_sound_at_payload(&packet.payload) {
-                    self.state.received_sound_at_count =
-                        self.state.received_sound_at_count.saturating_add(1);
-                    self.state.last_sound_at_id = sound.sound_id;
-                    self.state.last_sound_at_x_bits = Some(sound.x.to_bits());
-                    self.state.last_sound_at_y_bits = Some(sound.y.to_bits());
-                    self.state.last_sound_at_volume_bits = Some(sound.volume.to_bits());
-                    self.state.last_sound_at_pitch_bits = Some(sound.pitch.to_bits());
-                    self.state.last_sound_at_parse_error_payload_len = None;
+                    self.state.record_sound_at(
+                        sound.sound_id,
+                        sound.x,
+                        sound.y,
+                        sound.volume,
+                        sound.pitch,
+                    );
                     Ok(ClientSessionEvent::SoundAtRequested {
                         sound_id: sound.sound_id,
                         x: sound.x,

@@ -7347,6 +7347,32 @@ impl SessionState {
         self.last_unit_tether_block_spawned_id = Some(unit_id);
     }
 
+    pub fn record_sound(&mut self, sound_id: Option<i16>, volume: f32, pitch: f32, pan: f32) {
+        self.received_sound_count = self.received_sound_count.saturating_add(1);
+        self.last_sound_id = sound_id;
+        self.last_sound_volume_bits = Some(volume.to_bits());
+        self.last_sound_pitch_bits = Some(pitch.to_bits());
+        self.last_sound_pan_bits = Some(pan.to_bits());
+        self.last_sound_parse_error_payload_len = None;
+    }
+
+    pub fn record_sound_at(
+        &mut self,
+        sound_id: Option<i16>,
+        x: f32,
+        y: f32,
+        volume: f32,
+        pitch: f32,
+    ) {
+        self.received_sound_at_count = self.received_sound_at_count.saturating_add(1);
+        self.last_sound_at_id = sound_id;
+        self.last_sound_at_x_bits = Some(x.to_bits());
+        self.last_sound_at_y_bits = Some(y.to_bits());
+        self.last_sound_at_volume_bits = Some(volume.to_bits());
+        self.last_sound_at_pitch_bits = Some(pitch.to_bits());
+        self.last_sound_at_parse_error_payload_len = None;
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15698,6 +15724,35 @@ mod tests {
         assert_eq!(state.received_unit_tether_block_spawned_count, 1);
         assert_eq!(state.last_unit_tether_block_spawned_tile_pos, tile_pos);
         assert_eq!(state.last_unit_tether_block_spawned_id, Some(404));
+    }
+
+    #[test]
+    fn record_sound_tracks_audio_summary() {
+        let mut state = SessionState::default();
+
+        state.record_sound(Some(7), 0.5, 1.25, -0.75);
+
+        assert_eq!(state.received_sound_count, 1);
+        assert_eq!(state.last_sound_id, Some(7));
+        assert_eq!(state.last_sound_volume_bits, Some(0.5f32.to_bits()));
+        assert_eq!(state.last_sound_pitch_bits, Some(1.25f32.to_bits()));
+        assert_eq!(state.last_sound_pan_bits, Some((-0.75f32).to_bits()));
+        assert_eq!(state.last_sound_parse_error_payload_len, None);
+    }
+
+    #[test]
+    fn record_sound_at_tracks_spatial_audio_summary() {
+        let mut state = SessionState::default();
+
+        state.record_sound_at(Some(11), 64.0, 96.0, 0.8, 1.1);
+
+        assert_eq!(state.received_sound_at_count, 1);
+        assert_eq!(state.last_sound_at_id, Some(11));
+        assert_eq!(state.last_sound_at_x_bits, Some(64.0f32.to_bits()));
+        assert_eq!(state.last_sound_at_y_bits, Some(96.0f32.to_bits()));
+        assert_eq!(state.last_sound_at_volume_bits, Some(0.8f32.to_bits()));
+        assert_eq!(state.last_sound_at_pitch_bits, Some(1.1f32.to_bits()));
+        assert_eq!(state.last_sound_at_parse_error_payload_len, None);
     }
 
     #[test]
