@@ -3659,11 +3659,11 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_floor_packet_id => {
                 if let Some(summary) = decode_set_floor_payload(&packet.payload) {
-                    self.state.received_set_floor_count =
-                        self.state.received_set_floor_count.saturating_add(1);
-                    self.state.last_set_floor_tile_pos = summary.tile_pos;
-                    self.state.last_set_floor_floor_id = summary.floor_id;
-                    self.state.last_set_floor_overlay_id = summary.overlay_id;
+                    self.state.record_set_floor(
+                        summary.tile_pos,
+                        summary.floor_id,
+                        summary.overlay_id,
+                    );
                     if let Some(tile_pos) = summary.tile_pos {
                         self.apply_loaded_world_tile_patch(
                             tile_pos,
@@ -3740,10 +3740,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_overlay_packet_id => {
                 if let Some(summary) = decode_set_overlay_payload(&packet.payload) {
-                    self.state.received_set_overlay_count =
-                        self.state.received_set_overlay_count.saturating_add(1);
-                    self.state.last_set_overlay_tile_pos = summary.tile_pos;
-                    self.state.last_set_overlay_block_id = summary.overlay_id;
+                    self.state
+                        .record_set_overlay(summary.tile_pos, summary.overlay_id);
                     if let Some(tile_pos) = summary.tile_pos {
                         self.apply_loaded_world_tile_patch(
                             tile_pos,

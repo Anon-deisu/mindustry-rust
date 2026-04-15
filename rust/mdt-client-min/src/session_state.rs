@@ -7416,6 +7416,24 @@ impl SessionState {
         self.last_set_liquids_first_amount_bits = first_amount_bits;
     }
 
+    pub fn record_set_floor(
+        &mut self,
+        tile_pos: Option<i32>,
+        floor_id: Option<i16>,
+        overlay_id: Option<i16>,
+    ) {
+        self.received_set_floor_count = self.received_set_floor_count.saturating_add(1);
+        self.last_set_floor_tile_pos = tile_pos;
+        self.last_set_floor_floor_id = floor_id;
+        self.last_set_floor_overlay_id = overlay_id;
+    }
+
+    pub fn record_set_overlay(&mut self, tile_pos: Option<i32>, overlay_id: Option<i16>) {
+        self.received_set_overlay_count = self.received_set_overlay_count.saturating_add(1);
+        self.last_set_overlay_tile_pos = tile_pos;
+        self.last_set_overlay_block_id = overlay_id;
+    }
+
     pub fn record_request_build_payload(&mut self, build_pos: Option<i32>) {
         self.received_request_build_payload_count =
             self.received_request_build_payload_count.saturating_add(1);
@@ -16609,6 +16627,31 @@ mod tests {
         assert_eq!(state.received_set_team_count, 1);
         assert_eq!(state.last_set_team_build_pos, build_pos);
         assert_eq!(state.last_set_team_id, Some(5));
+    }
+
+    #[test]
+    fn record_set_floor_tracks_summary() {
+        let mut state = SessionState::default();
+        let tile_pos = Some(pack_point2(1, 2));
+
+        state.record_set_floor(tile_pos, Some(11), Some(12));
+
+        assert_eq!(state.received_set_floor_count, 1);
+        assert_eq!(state.last_set_floor_tile_pos, tile_pos);
+        assert_eq!(state.last_set_floor_floor_id, Some(11));
+        assert_eq!(state.last_set_floor_overlay_id, Some(12));
+    }
+
+    #[test]
+    fn record_set_overlay_tracks_summary() {
+        let mut state = SessionState::default();
+        let tile_pos = Some(pack_point2(3, 4));
+
+        state.record_set_overlay(tile_pos, Some(13));
+
+        assert_eq!(state.received_set_overlay_count, 1);
+        assert_eq!(state.last_set_overlay_tile_pos, tile_pos);
+        assert_eq!(state.last_set_overlay_block_id, Some(13));
     }
 
     #[test]
