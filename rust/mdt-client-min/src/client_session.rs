@@ -4173,11 +4173,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.request_unit_payload_packet_id => {
                 if let Some(target) = decode_request_unit_payload_payload(&packet.payload) {
-                    self.state.received_request_unit_payload_count = self
-                        .state
-                        .received_request_unit_payload_count
-                        .saturating_add(1);
-                    self.state.last_request_unit_payload_target = target;
+                    self.state.record_request_unit_payload(target);
                     Ok(ClientSessionEvent::RequestUnitPayload { target })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4188,11 +4184,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.transfer_inventory_packet_id => {
                 if let Some(build_pos) = decode_transfer_inventory_payload(&packet.payload) {
-                    self.state.received_transfer_inventory_count = self
-                        .state
-                        .received_transfer_inventory_count
-                        .saturating_add(1);
-                    self.state.last_transfer_inventory_build_pos = build_pos;
+                    self.state.record_transfer_inventory(build_pos);
                     Ok(ClientSessionEvent::TransferInventory { build_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {

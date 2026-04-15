@@ -7403,6 +7403,18 @@ impl SessionState {
         self.last_request_drop_payload_y_bits = Some(y.to_bits());
     }
 
+    pub fn record_request_unit_payload(&mut self, target: Option<UnitRefProjection>) {
+        self.received_request_unit_payload_count =
+            self.received_request_unit_payload_count.saturating_add(1);
+        self.last_request_unit_payload_target = target;
+    }
+
+    pub fn record_transfer_inventory(&mut self, build_pos: Option<i32>) {
+        self.received_transfer_inventory_count =
+            self.received_transfer_inventory_count.saturating_add(1);
+        self.last_transfer_inventory_build_pos = build_pos;
+    }
+
     pub fn record_game_over(&mut self, winner_team_id: u8) {
         self.received_game_over_count = self.received_game_over_count.saturating_add(1);
         self.last_game_over_winner_team_id = Some(winner_team_id);
@@ -16132,6 +16144,27 @@ mod tests {
         assert_eq!(state.received_request_drop_payload_count, 1);
         assert_eq!(state.last_request_drop_payload_x_bits, Some(12.5f32.to_bits()));
         assert_eq!(state.last_request_drop_payload_y_bits, Some(48.0f32.to_bits()));
+    }
+
+    #[test]
+    fn record_request_unit_payload_tracks_target() {
+        let mut state = SessionState::default();
+        let target = Some(UnitRefProjection { kind: 2, value: 14 });
+
+        state.record_request_unit_payload(target);
+
+        assert_eq!(state.received_request_unit_payload_count, 1);
+        assert_eq!(state.last_request_unit_payload_target, target);
+    }
+
+    #[test]
+    fn record_transfer_inventory_tracks_build_pos() {
+        let mut state = SessionState::default();
+
+        state.record_transfer_inventory(Some(27));
+
+        assert_eq!(state.received_transfer_inventory_count, 1);
+        assert_eq!(state.last_transfer_inventory_build_pos, Some(27));
     }
 
     #[test]
