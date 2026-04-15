@@ -118,18 +118,10 @@ impl MinimapUserFlowPanelModel {
 
     fn clamp_label(&self) -> String {
         let mut parts = String::new();
-        if self.window_clamped_left {
-            parts.push('L');
-        }
-        if self.window_clamped_top {
-            parts.push('T');
-        }
-        if self.window_clamped_right {
-            parts.push('R');
-        }
-        if self.window_clamped_bottom {
-            parts.push('B');
-        }
+        push_clamp_flag(&mut parts, self.window_clamped_left, 'L');
+        push_clamp_flag(&mut parts, self.window_clamped_top, 'T');
+        push_clamp_flag(&mut parts, self.window_clamped_right, 'R');
+        push_clamp_flag(&mut parts, self.window_clamped_bottom, 'B');
         if parts.is_empty() {
             "none".to_string()
         } else {
@@ -179,6 +171,12 @@ where
     value
         .map(|(x, y)| format!("{x}:{y}"))
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn push_clamp_flag(parts: &mut String, enabled: bool, flag: char) {
+    if enabled {
+        parts.push(flag);
+    }
 }
 
 pub(crate) fn build_minimap_user_flow_panel(
