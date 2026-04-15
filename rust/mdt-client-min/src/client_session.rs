@@ -4256,10 +4256,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.warning_toast_packet_id => {
                 if let Some(summary) = decode_warning_toast_payload(&packet.payload) {
-                    self.state.received_warning_toast_count =
-                        self.state.received_warning_toast_count.saturating_add(1);
-                    self.state.last_warning_toast_unicode = Some(summary.unicode);
-                    self.state.last_warning_toast_text = summary.text.clone();
+                    self.state
+                        .record_warning_toast(summary.unicode, &summary.text);
                     Ok(ClientSessionEvent::WarningToast {
                         unicode: summary.unicode,
                         text: summary.text,

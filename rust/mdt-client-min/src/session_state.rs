@@ -7189,6 +7189,12 @@ impl SessionState {
         self.last_info_toast_duration_bits = Some(duration.to_bits());
     }
 
+    pub fn record_warning_toast(&mut self, unicode: i32, text: &Option<String>) {
+        self.received_warning_toast_count = self.received_warning_toast_count.saturating_add(1);
+        self.last_warning_toast_unicode = Some(unicode);
+        self.last_warning_toast_text = text.clone();
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15314,6 +15320,18 @@ mod tests {
         assert_eq!(state.received_info_toast_count, 1);
         assert_eq!(state.last_info_toast_message, message);
         assert_eq!(state.last_info_toast_duration_bits, Some(1.5f32.to_bits()));
+    }
+
+    #[test]
+    fn record_warning_toast_tracks_unicode_and_text() {
+        let mut state = SessionState::default();
+        let text = Some("warn".to_string());
+
+        state.record_warning_toast(0xe813, &text);
+
+        assert_eq!(state.received_warning_toast_count, 1);
+        assert_eq!(state.last_warning_toast_unicode, Some(0xe813));
+        assert_eq!(state.last_warning_toast_text, text);
     }
 
     #[test]
