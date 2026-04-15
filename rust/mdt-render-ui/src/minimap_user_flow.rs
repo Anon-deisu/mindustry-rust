@@ -109,16 +109,11 @@ impl MinimapUserFlowPanelModel {
     }
 
     fn focus_tile_label(&self) -> String {
-        self.focus_tile
-            .map(|(x, y)| format!("{x}:{y}"))
-            .unwrap_or_else(|| "none".to_string())
+        pair_label(self.focus_tile)
     }
 
     fn focus_offset_label(&self) -> String {
-        match (self.focus_offset_x, self.focus_offset_y) {
-            (Some(x), Some(y)) => format!("{x}:{y}"),
-            _ => "none".to_string(),
-        }
+        pair_label(self.focus_offset_x.zip(self.focus_offset_y))
     }
 
     fn clamp_label(&self) -> String {
@@ -174,6 +169,16 @@ impl MinimapUserFlowPanelModel {
             self.window_coverage_percent,
         )
     }
+}
+
+fn pair_label<T, U>(value: Option<(T, U)>) -> String
+where
+    T: std::fmt::Display,
+    U: std::fmt::Display,
+{
+    value
+        .map(|(x, y)| format!("{x}:{y}"))
+        .unwrap_or_else(|| "none".to_string())
 }
 
 pub(crate) fn build_minimap_user_flow_panel(
