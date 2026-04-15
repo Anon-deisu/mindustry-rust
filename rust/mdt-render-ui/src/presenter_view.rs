@@ -3962,6 +3962,69 @@ mod tests {
     }
 
     #[test]
+    fn format_runtime_reconnect_and_session_kind_text_maps_enums_and_none() {
+        assert_eq!(
+            super::format_runtime_reconnect_reason_kind_text(Some(
+                super::RuntimeReconnectReasonKind::ConnectRedirect,
+            )),
+            "redirect"
+        );
+        assert_eq!(
+            super::format_runtime_reconnect_reason_kind_text(Some(
+                super::RuntimeReconnectReasonKind::Kick,
+            )),
+            "kick"
+        );
+        assert_eq!(
+            super::format_runtime_reconnect_reason_kind_text(Some(
+                super::RuntimeReconnectReasonKind::Timeout,
+            )),
+            "timeout"
+        );
+        assert_eq!(
+            super::format_runtime_reconnect_reason_kind_text(Some(
+                super::RuntimeReconnectReasonKind::ManualConnect,
+            )),
+            "manual"
+        );
+        assert_eq!(super::format_runtime_reconnect_reason_kind_text(None), "none");
+
+        assert_eq!(
+            super::format_runtime_session_timeout_kind_text(Some(
+                super::RuntimeSessionTimeoutKind::ConnectOrLoading,
+            )),
+            "cload"
+        );
+        assert_eq!(
+            super::format_runtime_session_timeout_kind_text(Some(
+                super::RuntimeSessionTimeoutKind::ReadySnapshotStall,
+            )),
+            "ready"
+        );
+        assert_eq!(super::format_runtime_session_timeout_kind_text(None), "none");
+
+        assert_eq!(
+            super::format_runtime_session_reset_kind_text(Some(
+                super::RuntimeSessionResetKind::Reconnect,
+            )),
+            "reconnect"
+        );
+        assert_eq!(
+            super::format_runtime_session_reset_kind_text(Some(
+                super::RuntimeSessionResetKind::WorldReload,
+            )),
+            "reload"
+        );
+        assert_eq!(
+            super::format_runtime_session_reset_kind_text(Some(
+                super::RuntimeSessionResetKind::Kick,
+            )),
+            "kick"
+        );
+        assert_eq!(super::format_runtime_session_reset_kind_text(None), "none");
+    }
+
+    #[test]
     fn format_runtime_reconnect_panel_text_preserves_field_order() {
         let panel = RuntimeReconnectPanelModel {
             phase: RuntimeReconnectPhaseObservability::Attempting,
