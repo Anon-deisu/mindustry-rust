@@ -4890,8 +4890,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_position_packet_id => {
                 let (x, y) = decode_set_position_payload(&packet.payload)?;
-                self.state.world_player_x_bits = Some(x.to_bits());
-                self.state.world_player_y_bits = Some(y.to_bits());
+                self.state.record_world_player_position(x, y);
                 self.snapshot_input.position = Some((x, y));
                 self.snapshot_input.view_center = Some((x, y));
                 Ok(ClientSessionEvent::PlayerPositionUpdated { x, y })

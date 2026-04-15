@@ -7373,6 +7373,11 @@ impl SessionState {
         self.last_camera_y_bits = Some(y.to_bits());
     }
 
+    pub fn record_world_player_position(&mut self, x: f32, y: f32) {
+        self.world_player_x_bits = Some(x.to_bits());
+        self.world_player_y_bits = Some(y.to_bits());
+    }
+
     pub fn record_game_over(&mut self, winner_team_id: u8) {
         self.received_game_over_count = self.received_game_over_count.saturating_add(1);
         self.last_game_over_winner_team_id = Some(winner_team_id);
@@ -16059,6 +16064,16 @@ mod tests {
         assert_eq!(state.received_set_camera_position_count, 1);
         assert_eq!(state.last_camera_x_bits, Some(123.5f32.to_bits()));
         assert_eq!(state.last_camera_y_bits, Some((-10.25f32).to_bits()));
+    }
+
+    #[test]
+    fn record_world_player_position_tracks_bits() {
+        let mut state = SessionState::default();
+
+        state.record_world_player_position(123.5, 456.25);
+
+        assert_eq!(state.world_player_x_bits, Some(123.5f32.to_bits()));
+        assert_eq!(state.world_player_y_bits, Some(456.25f32.to_bits()));
     }
 
     #[test]
