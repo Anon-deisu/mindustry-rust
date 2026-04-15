@@ -1811,4 +1811,14 @@ mod tests {
             "local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=7 players=2 units=1 last=202/102/202 owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
         );
     }
+
+    #[test]
+    fn compact_sha_label_truncates_short_value_and_falls_back_to_none() {
+        assert_eq!(super::compact_sha_label(None), "none");
+        assert_eq!(super::compact_sha_label(Some("short-sha")), "short-sha");
+        assert_eq!(
+            super::compact_sha_label(Some("0123456789abcdef0123456789abcdef")),
+            "0123456789ab"
+        );
+    }
 }
