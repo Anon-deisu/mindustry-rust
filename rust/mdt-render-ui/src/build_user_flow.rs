@@ -1103,4 +1103,40 @@ mod tests {
         );
         assert_eq!(panel.minimap_next_action, "missing");
     }
+
+    #[test]
+    fn authority_source_label_maps_none_and_high_signal_sources() {
+        let cases = [
+            (None, "none"),
+            (
+                Some(crate::BuildConfigAuthoritySourceObservability::TileConfig),
+                "tileConfig",
+            ),
+            (
+                Some(crate::BuildConfigAuthoritySourceObservability::ConstructFinish),
+                "constructFinish",
+            ),
+        ];
+
+        for (authority_source, expected) in cases {
+            let panel = BuildUserFlowPanelModel {
+                next_action: "",
+                blockers: Vec::new(),
+                route: Vec::new(),
+                minimap_next_action: "",
+                focus_state: MinimapUserFocusState::Missing,
+                pan_horizontal: MinimapPanAxisDirection::None,
+                pan_vertical: MinimapPanAxisDirection::None,
+                target_kind: MinimapUserTargetKind::None,
+                config_scope: "",
+                authority_state: BuildInteractionAuthorityState::None,
+                authority_pending_match: None,
+                authority_source,
+                authority_block_name: None,
+                head_tile: None,
+            };
+
+            assert_eq!(panel.authority_source_label(), expected);
+        }
+    }
 }
