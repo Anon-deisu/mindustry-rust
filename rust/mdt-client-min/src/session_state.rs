@@ -7390,6 +7390,32 @@ impl SessionState {
         self.last_request_item_amount = Some(amount);
     }
 
+    pub fn record_set_liquid_observability(
+        &mut self,
+        build_pos: Option<i32>,
+        liquid_id: Option<i16>,
+        amount_bits: u32,
+    ) {
+        self.received_set_liquid_count = self.received_set_liquid_count.saturating_add(1);
+        self.last_set_liquid_build_pos = build_pos;
+        self.last_set_liquid_liquid_id = liquid_id;
+        self.last_set_liquid_amount_bits = Some(amount_bits);
+    }
+
+    pub fn record_set_liquids_observability(
+        &mut self,
+        build_pos: Option<i32>,
+        stack_count: usize,
+        first_liquid_id: Option<i16>,
+        first_amount_bits: Option<u32>,
+    ) {
+        self.received_set_liquids_count = self.received_set_liquids_count.saturating_add(1);
+        self.last_set_liquids_build_pos = build_pos;
+        self.last_set_liquids_count = stack_count;
+        self.last_set_liquids_first_liquid_id = first_liquid_id;
+        self.last_set_liquids_first_amount_bits = first_amount_bits;
+    }
+
     pub fn record_request_build_payload(&mut self, build_pos: Option<i32>) {
         self.received_request_build_payload_count =
             self.received_request_build_payload_count.saturating_add(1);
@@ -16123,6 +16149,34 @@ mod tests {
         assert_eq!(state.last_request_item_build_pos, Some(9));
         assert_eq!(state.last_request_item_item_id, Some(7));
         assert_eq!(state.last_request_item_amount, Some(15));
+    }
+
+    #[test]
+    fn record_set_liquid_observability_tracks_summary() {
+        let mut state = SessionState::default();
+
+        state.record_set_liquid_observability(Some(11), Some(3), 2.5f32.to_bits());
+
+        assert_eq!(state.received_set_liquid_count, 1);
+        assert_eq!(state.last_set_liquid_build_pos, Some(11));
+        assert_eq!(state.last_set_liquid_liquid_id, Some(3));
+        assert_eq!(state.last_set_liquid_amount_bits, Some(2.5f32.to_bits()));
+    }
+
+    #[test]
+    fn record_set_liquids_observability_tracks_summary() {
+        let mut state = SessionState::default();
+
+        state.record_set_liquids_observability(Some(13), 2, Some(5), Some(1.25f32.to_bits()));
+
+        assert_eq!(state.received_set_liquids_count, 1);
+        assert_eq!(state.last_set_liquids_build_pos, Some(13));
+        assert_eq!(state.last_set_liquids_count, 2);
+        assert_eq!(state.last_set_liquids_first_liquid_id, Some(5));
+        assert_eq!(
+            state.last_set_liquids_first_amount_bits,
+            Some(1.25f32.to_bits())
+        );
     }
 
     #[test]

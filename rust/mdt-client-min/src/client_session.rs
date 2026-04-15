@@ -3686,11 +3686,11 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_liquid_packet_id => {
                 if let Some(summary) = decode_set_liquid_payload(&packet.payload) {
-                    self.state.received_set_liquid_count =
-                        self.state.received_set_liquid_count.saturating_add(1);
-                    self.state.last_set_liquid_build_pos = summary.build_pos;
-                    self.state.last_set_liquid_liquid_id = summary.liquid_id;
-                    self.state.last_set_liquid_amount_bits = Some(summary.amount.to_bits());
+                    self.state.record_set_liquid_observability(
+                        summary.build_pos,
+                        summary.liquid_id,
+                        summary.amount.to_bits(),
+                    );
                     self.record_set_liquid_resource_delta(
                         summary.build_pos,
                         summary.liquid_id,
@@ -3714,12 +3714,12 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_liquids_packet_id => {
                 if let Some(summary) = decode_set_liquids_payload(&packet.payload) {
-                    self.state.received_set_liquids_count =
-                        self.state.received_set_liquids_count.saturating_add(1);
-                    self.state.last_set_liquids_build_pos = summary.build_pos;
-                    self.state.last_set_liquids_count = summary.stack_count;
-                    self.state.last_set_liquids_first_liquid_id = summary.first_liquid_id;
-                    self.state.last_set_liquids_first_amount_bits = summary.first_amount_bits;
+                    self.state.record_set_liquids_observability(
+                        summary.build_pos,
+                        summary.stack_count,
+                        summary.first_liquid_id,
+                        summary.first_amount_bits,
+                    );
                     self.record_set_liquids_resource_delta(summary.build_pos, &summary.stacks);
                     if let Some(build_pos) = summary.build_pos {
                         self.state
