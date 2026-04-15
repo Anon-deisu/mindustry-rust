@@ -1826,22 +1826,12 @@ pub(crate) fn format_runtime_resource_delta_panel_text(
     resource_delta: &RuntimeResourceDeltaPanelModel,
 ) -> String {
     format!(
-        "resd:tile{}/{}/{}/{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}{}",
+        "resd:tile{}/{}/{}/{}{}{}",
         resource_delta.remove_tile_count,
         resource_delta.set_tile_count,
         resource_delta.set_floor_count,
         resource_delta.set_overlay_count,
-        resource_delta.set_item_count,
-        resource_delta.set_items_count,
-        resource_delta.set_liquid_count,
-        resource_delta.set_liquids_count,
-        resource_delta.clear_items_count,
-        resource_delta.clear_liquids_count,
-        resource_delta.set_tile_items_count,
-        resource_delta.set_tile_liquids_count,
-        resource_delta.take_items_count,
-        resource_delta.transfer_item_to_count,
-        resource_delta.transfer_item_to_unit_count,
+        format_runtime_resource_delta_counts_text(resource_delta),
         format_runtime_resource_delta_tail_text("@", resource_delta),
     )
 }
@@ -1856,11 +1846,21 @@ pub(crate) fn format_runtime_resource_delta_detail_text(
     resource_delta: &RuntimeResourceDeltaPanelModel,
 ) -> String {
     format!(
-        "resdd:rm{}:st{}:sf{}:so{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}{}",
+        "resdd:rm{}:st{}:sf{}:so{}{}{}",
         resource_delta.remove_tile_count,
         resource_delta.set_tile_count,
         resource_delta.set_floor_count,
         resource_delta.set_overlay_count,
+        format_runtime_resource_delta_counts_text(resource_delta),
+        format_runtime_resource_delta_tail_text(":last", resource_delta),
+    )
+}
+
+fn format_runtime_resource_delta_counts_text(
+    resource_delta: &RuntimeResourceDeltaPanelModel,
+) -> String {
+    format!(
+        ":set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}",
         resource_delta.set_item_count,
         resource_delta.set_items_count,
         resource_delta.set_liquid_count,
@@ -1872,7 +1872,6 @@ pub(crate) fn format_runtime_resource_delta_detail_text(
         resource_delta.take_items_count,
         resource_delta.transfer_item_to_count,
         resource_delta.transfer_item_to_unit_count,
-        format_runtime_resource_delta_tail_text(":last", resource_delta),
     )
 }
 
