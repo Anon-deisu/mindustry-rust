@@ -5389,14 +5389,13 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.create_weather_packet_id => {
                 if let Some(summary) = decode_create_weather_payload(&packet.payload) {
-                    self.state.received_create_weather_count =
-                        self.state.received_create_weather_count.saturating_add(1);
-                    self.state.last_create_weather_id = summary.weather_id;
-                    self.state.last_create_weather_intensity_bits =
-                        Some(summary.intensity.to_bits());
-                    self.state.last_create_weather_duration_bits = Some(summary.duration.to_bits());
-                    self.state.last_create_weather_wind_x_bits = Some(summary.wind_x.to_bits());
-                    self.state.last_create_weather_wind_y_bits = Some(summary.wind_y.to_bits());
+                    self.state.record_create_weather(
+                        summary.weather_id,
+                        summary.intensity,
+                        summary.duration,
+                        summary.wind_x,
+                        summary.wind_y,
+                    );
                     Ok(ClientSessionEvent::CreateWeather {
                         weather_id: summary.weather_id,
                         intensity: summary.intensity,

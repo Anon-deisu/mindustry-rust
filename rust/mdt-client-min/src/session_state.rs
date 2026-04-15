@@ -7239,6 +7239,23 @@ impl SessionState {
         self.record_transfer_item_to_unit_resource_delta(projection);
     }
 
+    pub fn record_create_weather(
+        &mut self,
+        weather_id: Option<i16>,
+        intensity: f32,
+        duration: f32,
+        wind_x: f32,
+        wind_y: f32,
+    ) {
+        self.received_create_weather_count =
+            self.received_create_weather_count.saturating_add(1);
+        self.last_create_weather_id = weather_id;
+        self.last_create_weather_intensity_bits = Some(intensity.to_bits());
+        self.last_create_weather_duration_bits = Some(duration.to_bits());
+        self.last_create_weather_wind_x_bits = Some(wind_x.to_bits());
+        self.last_create_weather_wind_y_bits = Some(wind_y.to_bits());
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15475,6 +15492,20 @@ mod tests {
         );
         assert_eq!(state.resource_delta_projection.last_x_bits, Some(projection.x_bits));
         assert_eq!(state.resource_delta_projection.last_y_bits, Some(projection.y_bits));
+    }
+
+    #[test]
+    fn record_create_weather_tracks_weather_summary() {
+        let mut state = SessionState::default();
+
+        state.record_create_weather(Some(5), 0.75, 120.0, -2.5, 6.0);
+
+        assert_eq!(state.received_create_weather_count, 1);
+        assert_eq!(state.last_create_weather_id, Some(5));
+        assert_eq!(state.last_create_weather_intensity_bits, Some(0.75f32.to_bits()));
+        assert_eq!(state.last_create_weather_duration_bits, Some(120.0f32.to_bits()));
+        assert_eq!(state.last_create_weather_wind_x_bits, Some((-2.5f32).to_bits()));
+        assert_eq!(state.last_create_weather_wind_y_bits, Some(6.0f32.to_bits()));
     }
 
     #[test]
