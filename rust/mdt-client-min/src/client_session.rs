@@ -2995,6 +2995,43 @@ impl ClientSession {
         self.state.ready_to_enter_world = false;
     }
 
+    fn process_info_popup_packet(
+        &mut self,
+        packet: InboundPacketRef<'_>,
+        reliable: bool,
+        has_id: bool,
+    ) -> ClientSessionEvent {
+        if let Some(summary) = decode_info_popup_payload(packet.payload, has_id) {
+            self.state.record_info_popup(
+                reliable,
+                &summary.popup_id,
+                &summary.message,
+                summary.duration,
+                summary.align,
+                summary.top,
+                summary.left,
+                summary.bottom,
+                summary.right,
+            );
+            ClientSessionEvent::InfoPopup {
+                reliable,
+                popup_id: summary.popup_id,
+                message: summary.message,
+                duration: summary.duration,
+                align: summary.align,
+                top: summary.top,
+                left: summary.left,
+                bottom: summary.bottom,
+                right: summary.right,
+            }
+        } else {
+            ClientSessionEvent::IgnoredPacket {
+                packet_id: packet.packet_id,
+                remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+            }
+        }
+    }
+
     fn process_inbound_packet(
         &mut self,
         raw_bytes: &[u8],
@@ -4065,128 +4102,16 @@ impl ClientSession {
                 }
             }
             packet_id if Some(packet_id) == self.info_popup_packet_id => {
-                if let Some(summary) = decode_info_popup_payload(&packet.payload, false) {
-                    self.state.record_info_popup(
-                        false,
-                        &summary.popup_id,
-                        &summary.message,
-                        summary.duration,
-                        summary.align,
-                        summary.top,
-                        summary.left,
-                        summary.bottom,
-                        summary.right,
-                    );
-                    Ok(ClientSessionEvent::InfoPopup {
-                        reliable: false,
-                        popup_id: summary.popup_id,
-                        message: summary.message,
-                        duration: summary.duration,
-                        align: summary.align,
-                        top: summary.top,
-                        left: summary.left,
-                        bottom: summary.bottom,
-                        right: summary.right,
-                    })
-                } else {
-                    Ok(ClientSessionEvent::IgnoredPacket {
-                        packet_id: packet.packet_id,
-                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
-                    })
-                }
+                Ok(self.process_info_popup_packet(packet, false, false))
             }
             packet_id if Some(packet_id) == self.info_popup_with_id_packet_id => {
-                if let Some(summary) = decode_info_popup_payload(&packet.payload, true) {
-                    self.state.record_info_popup(
-                        false,
-                        &summary.popup_id,
-                        &summary.message,
-                        summary.duration,
-                        summary.align,
-                        summary.top,
-                        summary.left,
-                        summary.bottom,
-                        summary.right,
-                    );
-                    Ok(ClientSessionEvent::InfoPopup {
-                        reliable: false,
-                        popup_id: summary.popup_id,
-                        message: summary.message,
-                        duration: summary.duration,
-                        align: summary.align,
-                        top: summary.top,
-                        left: summary.left,
-                        bottom: summary.bottom,
-                        right: summary.right,
-                    })
-                } else {
-                    Ok(ClientSessionEvent::IgnoredPacket {
-                        packet_id: packet.packet_id,
-                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
-                    })
-                }
+                Ok(self.process_info_popup_packet(packet, false, true))
             }
             packet_id if Some(packet_id) == self.info_popup_reliable_packet_id => {
-                if let Some(summary) = decode_info_popup_payload(&packet.payload, false) {
-                    self.state.record_info_popup(
-                        true,
-                        &summary.popup_id,
-                        &summary.message,
-                        summary.duration,
-                        summary.align,
-                        summary.top,
-                        summary.left,
-                        summary.bottom,
-                        summary.right,
-                    );
-                    Ok(ClientSessionEvent::InfoPopup {
-                        reliable: true,
-                        popup_id: summary.popup_id,
-                        message: summary.message,
-                        duration: summary.duration,
-                        align: summary.align,
-                        top: summary.top,
-                        left: summary.left,
-                        bottom: summary.bottom,
-                        right: summary.right,
-                    })
-                } else {
-                    Ok(ClientSessionEvent::IgnoredPacket {
-                        packet_id: packet.packet_id,
-                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
-                    })
-                }
+                Ok(self.process_info_popup_packet(packet, true, false))
             }
             packet_id if Some(packet_id) == self.info_popup_reliable_with_id_packet_id => {
-                if let Some(summary) = decode_info_popup_payload(&packet.payload, true) {
-                    self.state.record_info_popup(
-                        true,
-                        &summary.popup_id,
-                        &summary.message,
-                        summary.duration,
-                        summary.align,
-                        summary.top,
-                        summary.left,
-                        summary.bottom,
-                        summary.right,
-                    );
-                    Ok(ClientSessionEvent::InfoPopup {
-                        reliable: true,
-                        popup_id: summary.popup_id,
-                        message: summary.message,
-                        duration: summary.duration,
-                        align: summary.align,
-                        top: summary.top,
-                        left: summary.left,
-                        bottom: summary.bottom,
-                        right: summary.right,
-                    })
-                } else {
-                    Ok(ClientSessionEvent::IgnoredPacket {
-                        packet_id: packet.packet_id,
-                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
-                    })
-                }
+                Ok(self.process_info_popup_packet(packet, true, true))
             }
             packet_id if Some(packet_id) == self.info_toast_packet_id => {
                 if let Some(summary) = decode_info_toast_payload(&packet.payload) {
