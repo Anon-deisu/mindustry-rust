@@ -676,6 +676,38 @@ mod tests {
         );
     }
 
+    fn build_user_flow_panel_with_pending_match(
+        authority_pending_match: Option<bool>,
+    ) -> BuildUserFlowPanelModel {
+        BuildUserFlowPanelModel {
+            next_action: "noop",
+            blockers: Vec::new(),
+            route: Vec::new(),
+            minimap_next_action: "noop",
+            focus_state: MinimapUserFocusState::Inside,
+            pan_horizontal: MinimapPanAxisDirection::None,
+            pan_vertical: MinimapPanAxisDirection::None,
+            target_kind: MinimapUserTargetKind::None,
+            config_scope: "single",
+            authority_state: BuildInteractionAuthorityState::None,
+            authority_pending_match,
+            authority_source: None,
+            authority_block_name: None,
+            head_tile: None,
+        }
+    }
+
+    #[test]
+    fn authority_pending_match_label_maps_none_match_and_mismatch() {
+        let none = build_user_flow_panel_with_pending_match(None);
+        let match_panel = build_user_flow_panel_with_pending_match(Some(true));
+        let mismatch = build_user_flow_panel_with_pending_match(Some(false));
+
+        assert_eq!(none.authority_pending_match_label(), "none");
+        assert_eq!(match_panel.authority_pending_match_label(), "match");
+        assert_eq!(mismatch.authority_pending_match_label(), "mismatch");
+    }
+
     #[test]
     fn build_user_flow_unknown_focus_window_state_requires_refocus() {
         let panel = build_user_flow_from_panels(
