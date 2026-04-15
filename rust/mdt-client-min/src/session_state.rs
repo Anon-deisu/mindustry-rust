@@ -7378,6 +7378,31 @@ impl SessionState {
         self.world_player_y_bits = Some(y.to_bits());
     }
 
+    pub fn record_request_item(
+        &mut self,
+        build_pos: Option<i32>,
+        item_id: Option<i16>,
+        amount: i32,
+    ) {
+        self.received_request_item_count = self.received_request_item_count.saturating_add(1);
+        self.last_request_item_build_pos = build_pos;
+        self.last_request_item_item_id = item_id;
+        self.last_request_item_amount = Some(amount);
+    }
+
+    pub fn record_request_build_payload(&mut self, build_pos: Option<i32>) {
+        self.received_request_build_payload_count =
+            self.received_request_build_payload_count.saturating_add(1);
+        self.last_request_build_payload_build_pos = build_pos;
+    }
+
+    pub fn record_request_drop_payload(&mut self, x: f32, y: f32) {
+        self.received_request_drop_payload_count =
+            self.received_request_drop_payload_count.saturating_add(1);
+        self.last_request_drop_payload_x_bits = Some(x.to_bits());
+        self.last_request_drop_payload_y_bits = Some(y.to_bits());
+    }
+
     pub fn record_game_over(&mut self, winner_team_id: u8) {
         self.received_game_over_count = self.received_game_over_count.saturating_add(1);
         self.last_game_over_winner_team_id = Some(winner_team_id);
@@ -16074,6 +16099,39 @@ mod tests {
 
         assert_eq!(state.world_player_x_bits, Some(123.5f32.to_bits()));
         assert_eq!(state.world_player_y_bits, Some(456.25f32.to_bits()));
+    }
+
+    #[test]
+    fn record_request_item_tracks_summary() {
+        let mut state = SessionState::default();
+
+        state.record_request_item(Some(9), Some(7), 15);
+
+        assert_eq!(state.received_request_item_count, 1);
+        assert_eq!(state.last_request_item_build_pos, Some(9));
+        assert_eq!(state.last_request_item_item_id, Some(7));
+        assert_eq!(state.last_request_item_amount, Some(15));
+    }
+
+    #[test]
+    fn record_request_build_payload_tracks_build_pos() {
+        let mut state = SessionState::default();
+
+        state.record_request_build_payload(Some(12));
+
+        assert_eq!(state.received_request_build_payload_count, 1);
+        assert_eq!(state.last_request_build_payload_build_pos, Some(12));
+    }
+
+    #[test]
+    fn record_request_drop_payload_tracks_bits() {
+        let mut state = SessionState::default();
+
+        state.record_request_drop_payload(12.5, 48.0);
+
+        assert_eq!(state.received_request_drop_payload_count, 1);
+        assert_eq!(state.last_request_drop_payload_x_bits, Some(12.5f32.to_bits()));
+        assert_eq!(state.last_request_drop_payload_y_bits, Some(48.0f32.to_bits()));
     }
 
     #[test]

@@ -4132,11 +4132,11 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.request_item_packet_id => {
                 if let Some(summary) = decode_request_item_inbound_payload(&packet.payload) {
-                    self.state.received_request_item_count =
-                        self.state.received_request_item_count.saturating_add(1);
-                    self.state.last_request_item_build_pos = summary.build_pos;
-                    self.state.last_request_item_item_id = summary.item_id;
-                    self.state.last_request_item_amount = Some(summary.amount);
+                    self.state.record_request_item(
+                        summary.build_pos,
+                        summary.item_id,
+                        summary.amount,
+                    );
                     Ok(ClientSessionEvent::RequestItem {
                         build_pos: summary.build_pos,
                         item_id: summary.item_id,
@@ -4151,11 +4151,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.request_build_payload_packet_id => {
                 if let Some(build_pos) = decode_request_build_payload_payload(&packet.payload) {
-                    self.state.received_request_build_payload_count = self
-                        .state
-                        .received_request_build_payload_count
-                        .saturating_add(1);
-                    self.state.last_request_build_payload_build_pos = build_pos;
+                    self.state.record_request_build_payload(build_pos);
                     Ok(ClientSessionEvent::RequestBuildPayload { build_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4166,12 +4162,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.request_drop_payload_packet_id => {
                 if let Some((x, y)) = decode_request_drop_payload_payload(&packet.payload) {
-                    self.state.received_request_drop_payload_count = self
-                        .state
-                        .received_request_drop_payload_count
-                        .saturating_add(1);
-                    self.state.last_request_drop_payload_x_bits = Some(x.to_bits());
-                    self.state.last_request_drop_payload_y_bits = Some(y.to_bits());
+                    self.state.record_request_drop_payload(x, y);
                     Ok(ClientSessionEvent::RequestDropPayload { x, y })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
