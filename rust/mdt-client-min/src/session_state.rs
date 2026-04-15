@@ -16330,6 +16330,16 @@ mod tests {
     }
 
     #[test]
+    fn record_transfer_inventory_tracks_none_build_pos() {
+        let mut state = SessionState::default();
+
+        state.record_transfer_inventory(None);
+
+        assert_eq!(state.received_transfer_inventory_count, 1);
+        assert_eq!(state.last_transfer_inventory_build_pos, None);
+    }
+
+    #[test]
     fn record_rotate_block_tracks_target_and_direction() {
         let mut state = SessionState::default();
 
