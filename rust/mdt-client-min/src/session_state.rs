@@ -7399,6 +7399,34 @@ impl SessionState {
         self.last_set_teams_first_position = first_position;
     }
 
+    pub fn record_set_tile_blocks(
+        &mut self,
+        block_id: Option<i16>,
+        team_id: u8,
+        position_count: usize,
+        first_position: Option<i32>,
+    ) {
+        self.received_set_tile_blocks_count =
+            self.received_set_tile_blocks_count.saturating_add(1);
+        self.last_set_tile_blocks_block_id = block_id;
+        self.last_set_tile_blocks_team_id = Some(team_id);
+        self.last_set_tile_blocks_count = position_count;
+        self.last_set_tile_blocks_first_position = first_position;
+    }
+
+    pub fn record_set_tile_floors(
+        &mut self,
+        block_id: Option<i16>,
+        position_count: usize,
+        first_position: Option<i32>,
+    ) {
+        self.received_set_tile_floors_count =
+            self.received_set_tile_floors_count.saturating_add(1);
+        self.last_set_tile_floors_block_id = block_id;
+        self.last_set_tile_floors_count = position_count;
+        self.last_set_tile_floors_first_position = first_position;
+    }
+
     pub fn record_set_tile_overlays(
         &mut self,
         block_id: Option<i16>,
@@ -15845,6 +15873,33 @@ mod tests {
         assert_eq!(state.last_set_teams_team_id, Some(6));
         assert_eq!(state.last_set_teams_count, 4);
         assert_eq!(state.last_set_teams_first_position, first_position);
+    }
+
+    #[test]
+    fn record_set_tile_blocks_tracks_batch_summary() {
+        let mut state = SessionState::default();
+        let first_position = Some(pack_point2(1, 2));
+
+        state.record_set_tile_blocks(Some(11), 2, 3, first_position);
+
+        assert_eq!(state.received_set_tile_blocks_count, 1);
+        assert_eq!(state.last_set_tile_blocks_block_id, Some(11));
+        assert_eq!(state.last_set_tile_blocks_team_id, Some(2));
+        assert_eq!(state.last_set_tile_blocks_count, 3);
+        assert_eq!(state.last_set_tile_blocks_first_position, first_position);
+    }
+
+    #[test]
+    fn record_set_tile_floors_tracks_batch_summary() {
+        let mut state = SessionState::default();
+        let first_position = Some(pack_point2(5, 6));
+
+        state.record_set_tile_floors(Some(12), 2, first_position);
+
+        assert_eq!(state.received_set_tile_floors_count, 1);
+        assert_eq!(state.last_set_tile_floors_block_id, Some(12));
+        assert_eq!(state.last_set_tile_floors_count, 2);
+        assert_eq!(state.last_set_tile_floors_first_position, first_position);
     }
 
     #[test]

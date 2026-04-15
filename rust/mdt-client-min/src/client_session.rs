@@ -3921,12 +3921,12 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_tile_blocks_packet_id => {
                 if let Some(summary) = decode_set_tile_blocks_payload(&packet.payload) {
-                    self.state.received_set_tile_blocks_count =
-                        self.state.received_set_tile_blocks_count.saturating_add(1);
-                    self.state.last_set_tile_blocks_block_id = summary.block_id;
-                    self.state.last_set_tile_blocks_team_id = Some(summary.team_id);
-                    self.state.last_set_tile_blocks_count = summary.position_count;
-                    self.state.last_set_tile_blocks_first_position = summary.first_position;
+                    self.state.record_set_tile_blocks(
+                        summary.block_id,
+                        summary.team_id,
+                        summary.position_count,
+                        summary.first_position,
+                    );
                     for tile_pos in &summary.positions {
                         let previous_block_id = self.loaded_world_block_id_at(*tile_pos);
                         self.apply_loaded_world_tile_patch(
@@ -3958,11 +3958,11 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_tile_floors_packet_id => {
                 if let Some(summary) = decode_set_tile_floors_payload(&packet.payload) {
-                    self.state.received_set_tile_floors_count =
-                        self.state.received_set_tile_floors_count.saturating_add(1);
-                    self.state.last_set_tile_floors_block_id = summary.block_id;
-                    self.state.last_set_tile_floors_count = summary.position_count;
-                    self.state.last_set_tile_floors_first_position = summary.first_position;
+                    self.state.record_set_tile_floors(
+                        summary.block_id,
+                        summary.position_count,
+                        summary.first_position,
+                    );
                     for tile_pos in &summary.positions {
                         self.apply_loaded_world_tile_patch(
                             *tile_pos,
