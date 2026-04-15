@@ -7296,6 +7296,28 @@ impl SessionState {
         self.last_logic_explosion_effect = Some(effect);
     }
 
+    pub fn record_unit_spawn(
+        &mut self,
+        unit_id: i32,
+        unit_class_id: u8,
+        payload_len: usize,
+        consumed_bytes: usize,
+        trailing_bytes: usize,
+    ) {
+        self.received_unit_spawn_count = self.received_unit_spawn_count.saturating_add(1);
+        self.last_unit_spawn_id = Some(unit_id);
+        self.last_unit_spawn_class_id = Some(unit_class_id);
+        self.last_unit_spawn_payload_len = Some(payload_len);
+        self.last_unit_spawn_consumed_bytes = Some(consumed_bytes);
+        self.last_unit_spawn_trailing_bytes = Some(trailing_bytes);
+    }
+
+    pub fn record_unit_block_spawn(&mut self, tile_pos: Option<i32>) {
+        self.received_unit_block_spawn_count =
+            self.received_unit_block_spawn_count.saturating_add(1);
+        self.last_unit_block_spawn_tile_pos = tile_pos;
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15577,6 +15599,31 @@ mod tests {
         assert_eq!(state.last_logic_explosion_ground, Some(false));
         assert_eq!(state.last_logic_explosion_pierce, Some(true));
         assert_eq!(state.last_logic_explosion_effect, Some(false));
+    }
+
+    #[test]
+    fn record_unit_spawn_tracks_header_summary() {
+        let mut state = SessionState::default();
+
+        state.record_unit_spawn(404, 36, 8, 5, 3);
+
+        assert_eq!(state.received_unit_spawn_count, 1);
+        assert_eq!(state.last_unit_spawn_id, Some(404));
+        assert_eq!(state.last_unit_spawn_class_id, Some(36));
+        assert_eq!(state.last_unit_spawn_payload_len, Some(8));
+        assert_eq!(state.last_unit_spawn_consumed_bytes, Some(5));
+        assert_eq!(state.last_unit_spawn_trailing_bytes, Some(3));
+    }
+
+    #[test]
+    fn record_unit_block_spawn_tracks_tile_pos() {
+        let mut state = SessionState::default();
+        let tile_pos = Some(pack_point2(4, 15));
+
+        state.record_unit_block_spawn(tile_pos);
+
+        assert_eq!(state.received_unit_block_spawn_count, 1);
+        assert_eq!(state.last_unit_block_spawn_tile_pos, tile_pos);
     }
 
     #[test]

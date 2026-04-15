@@ -5534,13 +5534,13 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.unit_spawn_packet_id => {
                 if let Some(summary) = decode_unit_spawn_header_payload(&packet.payload) {
-                    self.state.received_unit_spawn_count =
-                        self.state.received_unit_spawn_count.saturating_add(1);
-                    self.state.last_unit_spawn_id = Some(summary.unit_id);
-                    self.state.last_unit_spawn_class_id = Some(summary.unit_class_id);
-                    self.state.last_unit_spawn_payload_len = Some(summary.payload_len);
-                    self.state.last_unit_spawn_consumed_bytes = Some(summary.consumed_bytes);
-                    self.state.last_unit_spawn_trailing_bytes = Some(summary.trailing_bytes);
+                    self.state.record_unit_spawn(
+                        summary.unit_id,
+                        summary.unit_class_id,
+                        summary.payload_len,
+                        summary.consumed_bytes,
+                        summary.trailing_bytes,
+                    );
                     Ok(ClientSessionEvent::UnitSpawnObserved {
                         unit_id: summary.unit_id,
                         unit_class_id: summary.unit_class_id,
@@ -5557,9 +5557,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.unit_block_spawn_packet_id => {
                 if let Some(tile_pos) = decode_unit_block_spawn_payload(&packet.payload) {
-                    self.state.received_unit_block_spawn_count =
-                        self.state.received_unit_block_spawn_count.saturating_add(1);
-                    self.state.last_unit_block_spawn_tile_pos = tile_pos;
+                    self.state.record_unit_block_spawn(tile_pos);
                     Ok(ClientSessionEvent::UnitBlockSpawn { tile_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
