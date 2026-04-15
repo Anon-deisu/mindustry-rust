@@ -5486,11 +5486,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.landing_pad_landed_packet_id => {
                 if let Some(tile_pos) = decode_unit_block_spawn_payload(&packet.payload) {
-                    self.state.received_landing_pad_landed_count = self
-                        .state
-                        .received_landing_pad_landed_count
-                        .saturating_add(1);
-                    self.state.last_landing_pad_landed_tile_pos = tile_pos;
+                    self.state.record_landing_pad_landed(tile_pos);
                     Ok(ClientSessionEvent::LandingPadLanded { tile_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -5503,12 +5499,8 @@ impl ClientSession {
                 if let Some((tile_pos, unit_id)) =
                     decode_unit_tether_block_spawned_payload(&packet.payload)
                 {
-                    self.state.received_assembler_drone_spawned_count = self
-                        .state
-                        .received_assembler_drone_spawned_count
-                        .saturating_add(1);
-                    self.state.last_assembler_drone_spawned_tile_pos = tile_pos;
-                    self.state.last_assembler_drone_spawned_unit_id = Some(unit_id);
+                    self.state
+                        .record_assembler_drone_spawned(tile_pos, unit_id);
                     Ok(ClientSessionEvent::AssemblerDroneSpawned { tile_pos, unit_id })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -5519,11 +5511,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.assembler_unit_spawned_packet_id => {
                 if let Some(tile_pos) = decode_unit_block_spawn_payload(&packet.payload) {
-                    self.state.received_assembler_unit_spawned_count = self
-                        .state
-                        .received_assembler_unit_spawned_count
-                        .saturating_add(1);
-                    self.state.last_assembler_unit_spawned_tile_pos = tile_pos;
+                    self.state.record_assembler_unit_spawned(tile_pos);
                     Ok(ClientSessionEvent::AssemblerUnitSpawned { tile_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -5570,12 +5558,8 @@ impl ClientSession {
                 if let Some((tile_pos, unit_id)) =
                     decode_unit_tether_block_spawned_payload(&packet.payload)
                 {
-                    self.state.received_unit_tether_block_spawned_count = self
-                        .state
-                        .received_unit_tether_block_spawned_count
-                        .saturating_add(1);
-                    self.state.last_unit_tether_block_spawned_tile_pos = tile_pos;
-                    self.state.last_unit_tether_block_spawned_id = Some(unit_id);
+                    self.state
+                        .record_unit_tether_block_spawned(tile_pos, unit_id);
                     Ok(ClientSessionEvent::UnitTetherBlockSpawned { tile_pos, unit_id })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {

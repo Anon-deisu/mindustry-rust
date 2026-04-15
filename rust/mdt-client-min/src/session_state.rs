@@ -7318,6 +7318,35 @@ impl SessionState {
         self.last_unit_block_spawn_tile_pos = tile_pos;
     }
 
+    pub fn record_landing_pad_landed(&mut self, tile_pos: Option<i32>) {
+        self.received_landing_pad_landed_count =
+            self.received_landing_pad_landed_count.saturating_add(1);
+        self.last_landing_pad_landed_tile_pos = tile_pos;
+    }
+
+    pub fn record_assembler_drone_spawned(&mut self, tile_pos: Option<i32>, unit_id: i32) {
+        self.received_assembler_drone_spawned_count = self
+            .received_assembler_drone_spawned_count
+            .saturating_add(1);
+        self.last_assembler_drone_spawned_tile_pos = tile_pos;
+        self.last_assembler_drone_spawned_unit_id = Some(unit_id);
+    }
+
+    pub fn record_assembler_unit_spawned(&mut self, tile_pos: Option<i32>) {
+        self.received_assembler_unit_spawned_count = self
+            .received_assembler_unit_spawned_count
+            .saturating_add(1);
+        self.last_assembler_unit_spawned_tile_pos = tile_pos;
+    }
+
+    pub fn record_unit_tether_block_spawned(&mut self, tile_pos: Option<i32>, unit_id: i32) {
+        self.received_unit_tether_block_spawned_count = self
+            .received_unit_tether_block_spawned_count
+            .saturating_add(1);
+        self.last_unit_tether_block_spawned_tile_pos = tile_pos;
+        self.last_unit_tether_block_spawned_id = Some(unit_id);
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15624,6 +15653,51 @@ mod tests {
 
         assert_eq!(state.received_unit_block_spawn_count, 1);
         assert_eq!(state.last_unit_block_spawn_tile_pos, tile_pos);
+    }
+
+    #[test]
+    fn record_landing_pad_landed_tracks_tile_pos() {
+        let mut state = SessionState::default();
+        let tile_pos = Some(pack_point2(3, 4));
+
+        state.record_landing_pad_landed(tile_pos);
+
+        assert_eq!(state.received_landing_pad_landed_count, 1);
+        assert_eq!(state.last_landing_pad_landed_tile_pos, tile_pos);
+    }
+
+    #[test]
+    fn record_assembler_drone_spawned_tracks_tile_pos_and_unit_id() {
+        let mut state = SessionState::default();
+        let tile_pos = Some(pack_point2(5, 6));
+
+        state.record_assembler_drone_spawned(tile_pos, 707);
+
+        assert_eq!(state.received_assembler_drone_spawned_count, 1);
+        assert_eq!(state.last_assembler_drone_spawned_tile_pos, tile_pos);
+        assert_eq!(state.last_assembler_drone_spawned_unit_id, Some(707));
+    }
+
+    #[test]
+    fn record_assembler_unit_spawned_tracks_tile_pos() {
+        let mut state = SessionState::default();
+
+        state.record_assembler_unit_spawned(None);
+
+        assert_eq!(state.received_assembler_unit_spawned_count, 1);
+        assert_eq!(state.last_assembler_unit_spawned_tile_pos, None);
+    }
+
+    #[test]
+    fn record_unit_tether_block_spawned_tracks_tile_pos_and_unit_id() {
+        let mut state = SessionState::default();
+        let tile_pos = Some(pack_point2(8, 3));
+
+        state.record_unit_tether_block_spawned(tile_pos, 404);
+
+        assert_eq!(state.received_unit_tether_block_spawned_count, 1);
+        assert_eq!(state.last_unit_tether_block_spawned_tile_pos, tile_pos);
+        assert_eq!(state.last_unit_tether_block_spawned_id, Some(404));
     }
 
     #[test]
