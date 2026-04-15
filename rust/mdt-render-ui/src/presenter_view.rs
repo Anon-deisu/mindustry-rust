@@ -1377,6 +1377,17 @@ fn format_runtime_live_panel_text(prefix: &str, body: String) -> String {
     format!("{prefix}{body}")
 }
 
+fn format_runtime_core_binding_body_text(panel: &RuntimeCoreBindingPanelModel) -> String {
+    format!(
+        "{}:a{}@{}:m{}@{}",
+        panel.kind_label(),
+        panel.ambiguous_team_count,
+        format_u8_list_text(&panel.ambiguous_team_sample),
+        panel.missing_team_count,
+        format_u8_list_text(&panel.missing_team_sample),
+    )
+}
+
 pub(crate) fn format_runtime_chat_panel_text(panel: &RuntimeChatPanelModel) -> String {
     format!(
         "chat:srv{}@{}:msg{}@{}:raw{}:s{}",
@@ -1902,14 +1913,7 @@ pub(crate) fn format_runtime_reconnect_detail_text_if_nonempty(
 pub(crate) fn format_runtime_core_binding_panel_text(
     panel: &RuntimeCoreBindingPanelModel,
 ) -> String {
-    format!(
-        "core:{}:a{}@{}:m{}@{}",
-        panel.kind_label(),
-        panel.ambiguous_team_count,
-        format_u8_list_text(&panel.ambiguous_team_sample),
-        panel.missing_team_count,
-        format_u8_list_text(&panel.missing_team_sample),
-    )
+    format!("core:{}", format_runtime_core_binding_body_text(panel))
 }
 
 pub(crate) fn format_runtime_core_binding_panel_text_if_nonempty(
@@ -1921,14 +1925,7 @@ pub(crate) fn format_runtime_core_binding_panel_text_if_nonempty(
 pub(crate) fn format_runtime_core_binding_detail_text(
     panel: &RuntimeCoreBindingPanelModel,
 ) -> String {
-    format!(
-        "cored:{}:a{}@{}:m{}@{}",
-        panel.kind_label(),
-        panel.ambiguous_team_count,
-        format_u8_list_text(&panel.ambiguous_team_sample),
-        panel.missing_team_count,
-        format_u8_list_text(&panel.missing_team_sample),
-    )
+    format!("cored:{}", format_runtime_core_binding_body_text(panel))
 }
 
 pub(crate) fn format_runtime_core_binding_detail_text_if_nonempty(
