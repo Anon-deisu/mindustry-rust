@@ -590,6 +590,12 @@ mod tests {
     }
 
     #[test]
+    fn dedupe_i32_preserves_first_occurrence_and_drops_duplicates() {
+        assert_eq!(dedupe_i32(&[]), Vec::<i32>::new());
+        assert_eq!(dedupe_i32(&[1, 2, 1, 3, 2]), vec![1, 2, 3]);
+    }
+
+    #[test]
     fn target_projection_is_empty_only_without_any_target() {
         assert!(CommandModeTargetProjection::default().is_empty());
         assert_eq!(CommandModeTargetProjection::default().summary_label(), "none");
