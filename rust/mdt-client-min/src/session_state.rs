@@ -7139,12 +7139,25 @@ impl SessionState {
         self.rules_projection.apply_set_rules_json(json_data);
     }
 
+    pub fn record_set_rules_parse_failure(&mut self, error: String, payload_len: usize) {
+        self.failed_set_rules_parse_count = self.failed_set_rules_parse_count.saturating_add(1);
+        self.last_set_rules_parse_error = Some(error);
+        self.last_set_rules_parse_error_payload_len = Some(payload_len);
+    }
+
     pub fn record_set_objectives_json(&mut self, json_data: &str) {
         self.received_set_objectives_count = self.received_set_objectives_count.saturating_add(1);
         self.last_set_objectives_json_data = Some(json_data.to_string());
         self.last_set_objectives_parse_error = None;
         self.last_set_objectives_parse_error_payload_len = None;
         self.objectives_projection.replace_from_json(json_data);
+    }
+
+    pub fn record_set_objectives_parse_failure(&mut self, error: String, payload_len: usize) {
+        self.failed_set_objectives_parse_count =
+            self.failed_set_objectives_parse_count.saturating_add(1);
+        self.last_set_objectives_parse_error = Some(error);
+        self.last_set_objectives_parse_error_payload_len = Some(payload_len);
     }
 
     pub fn record_set_rule_patch(&mut self, rule: &str, json_data: &str) {
@@ -7154,6 +7167,12 @@ impl SessionState {
         self.last_set_rule_parse_error = None;
         self.last_set_rule_parse_error_payload_len = None;
         self.rules_projection.apply_set_rule_patch(rule, json_data);
+    }
+
+    pub fn record_set_rule_parse_failure(&mut self, error: String, payload_len: usize) {
+        self.failed_set_rule_parse_count = self.failed_set_rule_parse_count.saturating_add(1);
+        self.last_set_rule_parse_error = Some(error);
+        self.last_set_rule_parse_error_payload_len = Some(payload_len);
     }
 
     pub fn record_set_flag(&mut self, flag: &Option<String>, add: bool) {
@@ -9522,6 +9541,35 @@ mod tests {
         assert_eq!(state.received_clear_objectives_count, 1);
         assert!(state.objectives_projection.objectives.is_empty());
         assert_eq!(state.objectives_projection.cleared_count, 1);
+    }
+
+    #[test]
+    fn session_state_set_rule_parse_failure_helpers_track_error_text_and_payload_len() {
+        let mut state = SessionState::default();
+
+        state.record_set_rules_parse_failure("setRules decode error".to_string(), 11);
+        assert_eq!(state.failed_set_rules_parse_count, 1);
+        assert_eq!(
+            state.last_set_rules_parse_error.as_deref(),
+            Some("setRules decode error")
+        );
+        assert_eq!(state.last_set_rules_parse_error_payload_len, Some(11));
+
+        state.record_set_objectives_parse_failure("setObjectives decode error".to_string(), 12);
+        assert_eq!(state.failed_set_objectives_parse_count, 1);
+        assert_eq!(
+            state.last_set_objectives_parse_error.as_deref(),
+            Some("setObjectives decode error")
+        );
+        assert_eq!(state.last_set_objectives_parse_error_payload_len, Some(12));
+
+        state.record_set_rule_parse_failure("setRule decode error".to_string(), 13);
+        assert_eq!(state.failed_set_rule_parse_count, 1);
+        assert_eq!(
+            state.last_set_rule_parse_error.as_deref(),
+            Some("setRule decode error")
+        );
+        assert_eq!(state.last_set_rule_parse_error_payload_len, Some(13));
     }
 
     #[test]

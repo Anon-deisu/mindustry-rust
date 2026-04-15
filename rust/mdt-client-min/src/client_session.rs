@@ -4785,10 +4785,8 @@ impl ClientSession {
                     let error = decode_length_prefixed_json_payload(&packet.payload)
                         .err()
                         .unwrap_or_else(|| "unknown setRules payload decode error".to_string());
-                    self.state.failed_set_rules_parse_count =
-                        self.state.failed_set_rules_parse_count.saturating_add(1);
-                    self.state.last_set_rules_parse_error = Some(error);
-                    self.state.last_set_rules_parse_error_payload_len = Some(packet.payload.len());
+                    self.state
+                        .record_set_rules_parse_failure(error, packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
@@ -4805,13 +4803,8 @@ impl ClientSession {
                         .unwrap_or_else(|| {
                             "unknown setObjectives payload decode error".to_string()
                         });
-                    self.state.failed_set_objectives_parse_count = self
-                        .state
-                        .failed_set_objectives_parse_count
-                        .saturating_add(1);
-                    self.state.last_set_objectives_parse_error = Some(error);
-                    self.state.last_set_objectives_parse_error_payload_len =
-                        Some(packet.payload.len());
+                    self.state
+                        .record_set_objectives_parse_failure(error, packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
@@ -4826,10 +4819,8 @@ impl ClientSession {
                     let error = decode_set_rule_payload(&packet.payload)
                         .err()
                         .unwrap_or_else(|| "unknown setRule payload decode error".to_string());
-                    self.state.failed_set_rule_parse_count =
-                        self.state.failed_set_rule_parse_count.saturating_add(1);
-                    self.state.last_set_rule_parse_error = Some(error);
-                    self.state.last_set_rule_parse_error_payload_len = Some(packet.payload.len());
+                    self.state
+                        .record_set_rule_parse_failure(error, packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
