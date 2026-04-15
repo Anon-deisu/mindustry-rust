@@ -1729,19 +1729,16 @@ fn format_runtime_world_reload_fields_text(
     )
 }
 
-fn format_runtime_world_reload_panel_text_for_loading(
+fn runtime_world_reload_from_loading(
     loading: &RuntimeLoadingPanelModel,
-) -> String {
-    format_runtime_world_reload_panel_text(loading.last_world_reload.as_ref())
+) -> Option<&RuntimeWorldReloadPanelModel> {
+    loading.last_world_reload.as_ref()
 }
 
-fn format_runtime_world_reload_detail_text_for_loading(
+fn format_runtime_world_reload_panel_text_from_loading(
     loading: &RuntimeLoadingPanelModel,
-) -> Option<String> {
-    loading
-        .last_world_reload
-        .as_ref()
-        .map(format_runtime_world_reload_detail_text)
+) -> String {
+    format_runtime_world_reload_panel_text(runtime_world_reload_from_loading(loading))
 }
 
 fn format_runtime_loading_tail_text(loading: &RuntimeLoadingPanelModel) -> String {
@@ -1752,7 +1749,7 @@ fn format_runtime_loading_tail_text(loading: &RuntimeLoadingPanelModel) -> Strin
         loading.world_reload_count,
         loading.kick_reset_count,
         format_runtime_session_reset_kind_text(loading.last_reset_kind),
-        format_runtime_world_reload_panel_text_for_loading(loading),
+        format_runtime_world_reload_panel_text_from_loading(loading),
     )
 }
 
@@ -2025,7 +2022,7 @@ pub(crate) fn format_runtime_loading_detail_text(
         loading.world_reload_count,
         loading.kick_reset_count,
         format_runtime_session_reset_kind_text(loading.last_reset_kind),
-        format_runtime_world_reload_panel_text_for_loading(loading),
+        format_runtime_world_reload_panel_text_from_loading(loading),
     )
 }
 
@@ -2038,13 +2035,13 @@ pub(crate) fn format_runtime_loading_detail_text_if_nonempty(
 pub(crate) fn format_runtime_world_reload_text_if_loading_nonempty(
     loading: &RuntimeLoadingPanelModel,
 ) -> Option<String> {
-    (!loading.is_empty()).then(|| format_runtime_world_reload_panel_text_for_loading(loading))
+    (!loading.is_empty()).then(|| format_runtime_world_reload_panel_text_from_loading(loading))
 }
 
 pub(crate) fn format_runtime_world_reload_detail_text_from_loading(
     loading: &RuntimeLoadingPanelModel,
 ) -> Option<String> {
-    format_runtime_world_reload_detail_text_for_loading(loading)
+    runtime_world_reload_from_loading(loading).map(format_runtime_world_reload_detail_text)
 }
 
 pub(crate) fn format_runtime_session_panel_text(panel: &RuntimeSessionPanelModel) -> String {
