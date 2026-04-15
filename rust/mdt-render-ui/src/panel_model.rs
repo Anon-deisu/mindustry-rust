@@ -3172,11 +3172,11 @@ mod tests {
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, build_runtime_world_reload_panel_model,
-        BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
-        BuildInteractionSelectionState, BuildMinimapAssistPanelModel, PresenterViewWindow,
-        RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
-        RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind, RuntimeWorldLabelPanelModel,
-        RuntimeWorldReloadPanelModel,
+        build_config_pending_match_label, BuildInteractionAuthorityState, BuildInteractionMode,
+        BuildInteractionQueueState, BuildInteractionSelectionState, BuildMinimapAssistPanelModel,
+        PresenterViewWindow, RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind,
+        RuntimeDialogPromptKind, RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind,
+        RuntimeWorldLabelPanelModel, RuntimeWorldReloadPanelModel,
     };
     use crate::{
         hud_model::{
@@ -3528,6 +3528,13 @@ mod tests {
         assert_eq!(panel.window_last_y, 59);
         assert!(panel.window_clamped_right);
         assert!(panel.window_clamped_bottom);
+    }
+
+    #[test]
+    fn build_config_pending_match_label_maps_all_variants() {
+        assert_eq!(build_config_pending_match_label(Some(true)), "match");
+        assert_eq!(build_config_pending_match_label(Some(false)), "mismatch");
+        assert_eq!(build_config_pending_match_label(None), "none");
     }
 
     #[test]
