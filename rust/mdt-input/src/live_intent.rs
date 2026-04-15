@@ -1361,4 +1361,49 @@ mod tests {
         assert!(profile.has_transient_signals());
         assert!(!profile.is_idle());
     }
+
+    #[test]
+    fn transient_label_formats_all_edges_in_order_and_handles_empty_state() {
+        let profile = LiveIntentBindingProfile {
+            move_axis: (0.0, 0.0),
+            aim_axis: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            last_config_tap_tile: Some((3, 4)),
+            last_build_pulse: Some(BuildPulse {
+                tile: (9, 10),
+                breaking: true,
+            }),
+            active_actions: vec![BinaryAction::Fire],
+            pressed_actions: vec![BinaryAction::Boost, BinaryAction::Chat],
+            released_actions: vec![BinaryAction::Chat],
+        };
+
+        assert_eq!(
+            transient_label(&profile),
+            "tap=3,4 pulse=9,10,break pressed=2 released=1"
+        );
+        assert_eq!(
+            profile.summary_label(),
+            "move=0,0 aim=0,0 mining=none building=off active=1 transient=tap=3,4 pulse=9,10,break pressed=2 released=1"
+        );
+
+        let empty_profile = LiveIntentBindingProfile {
+            move_axis: (0.0, 0.0),
+            aim_axis: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            last_config_tap_tile: None,
+            last_build_pulse: None,
+            active_actions: Vec::new(),
+            pressed_actions: Vec::new(),
+            released_actions: Vec::new(),
+        };
+
+        assert_eq!(transient_label(&empty_profile), "none");
+        assert_eq!(
+            empty_profile.summary_label(),
+            "move=0,0 aim=0,0 mining=none building=off active=0 transient=none"
+        );
+    }
 }
