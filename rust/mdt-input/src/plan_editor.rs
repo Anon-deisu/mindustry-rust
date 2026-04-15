@@ -653,6 +653,17 @@ mod tests {
     }
 
     #[test]
+    fn block_offset_scales_even_and_odd_sizes_and_rejects_non_positive_sizes() {
+        assert_eq!(block_offset(1), 0.0);
+        assert_eq!(block_offset(2), TILE_SIZE / 2.0);
+        assert_eq!(block_offset(3), 0.0);
+        assert_eq!(block_offset(4), TILE_SIZE / 2.0);
+
+        assert!(std::panic::catch_unwind(|| block_offset(0)).is_err());
+        assert!(std::panic::catch_unwind(|| block_offset(-1)).is_err());
+    }
+
+    #[test]
     fn plan_rotation_matches_java_passthrough_semantics() {
         let mut block = PlanBlockMeta::with_size(1);
         block.rotate = true;
