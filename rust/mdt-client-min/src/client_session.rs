@@ -3205,9 +3205,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.announce_packet_id => {
                 if let Some(message) = decode_optional_typeio_string_payload(&packet.payload) {
-                    self.state.received_announce_count =
-                        self.state.received_announce_count.saturating_add(1);
-                    self.state.last_announce_message = message.clone();
+                    self.state.record_announce(&message);
                     Ok(ClientSessionEvent::Announce { message })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
