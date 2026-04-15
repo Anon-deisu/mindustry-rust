@@ -4241,10 +4241,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.info_toast_packet_id => {
                 if let Some(summary) = decode_info_toast_payload(&packet.payload) {
-                    self.state.received_info_toast_count =
-                        self.state.received_info_toast_count.saturating_add(1);
-                    self.state.last_info_toast_message = summary.message.clone();
-                    self.state.last_info_toast_duration_bits = Some(summary.duration.to_bits());
+                    self.state
+                        .record_info_toast(&summary.message, summary.duration);
                     Ok(ClientSessionEvent::InfoToast {
                         message: summary.message,
                         duration: summary.duration,
