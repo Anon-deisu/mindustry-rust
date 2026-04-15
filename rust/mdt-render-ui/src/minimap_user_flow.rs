@@ -861,6 +861,13 @@ mod tests {
         assert_eq!(panel.next_action, "hold");
     }
 
+    #[test]
+    fn pair_label_formats_none_and_pair_values() {
+        assert_eq!(super::pair_label::<usize, usize>(None), "none");
+        assert_eq!(super::pair_label(Some((3, 7))), "3:7");
+        assert_eq!(super::pair_label(Some(("left", "right"))), "left:right");
+    }
+
     fn build_top_left_summary() -> HudSummary {
         HudSummary {
             player_name: "operator".to_string(),
