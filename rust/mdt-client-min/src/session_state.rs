@@ -7270,6 +7270,32 @@ impl SessionState {
         self.last_spawn_effect_unit_type_id = unit_type_id;
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_logic_explosion(
+        &mut self,
+        team_id: u8,
+        x: f32,
+        y: f32,
+        radius: f32,
+        damage: f32,
+        air: bool,
+        ground: bool,
+        pierce: bool,
+        effect: bool,
+    ) {
+        self.received_logic_explosion_count =
+            self.received_logic_explosion_count.saturating_add(1);
+        self.last_logic_explosion_team_id = Some(team_id);
+        self.last_logic_explosion_x_bits = Some(x.to_bits());
+        self.last_logic_explosion_y_bits = Some(y.to_bits());
+        self.last_logic_explosion_radius_bits = Some(radius.to_bits());
+        self.last_logic_explosion_damage_bits = Some(damage.to_bits());
+        self.last_logic_explosion_air = Some(air);
+        self.last_logic_explosion_ground = Some(ground);
+        self.last_logic_explosion_pierce = Some(pierce);
+        self.last_logic_explosion_effect = Some(effect);
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15533,6 +15559,24 @@ mod tests {
         assert_eq!(state.last_spawn_effect_y_bits, Some(48.0f32.to_bits()));
         assert_eq!(state.last_spawn_effect_rotation_bits, Some(90.0f32.to_bits()));
         assert_eq!(state.last_spawn_effect_unit_type_id, Some(19));
+    }
+
+    #[test]
+    fn record_logic_explosion_tracks_summary() {
+        let mut state = SessionState::default();
+
+        state.record_logic_explosion(2, 10.0, 12.5, 3.25, 40.0, true, false, true, false);
+
+        assert_eq!(state.received_logic_explosion_count, 1);
+        assert_eq!(state.last_logic_explosion_team_id, Some(2));
+        assert_eq!(state.last_logic_explosion_x_bits, Some(10.0f32.to_bits()));
+        assert_eq!(state.last_logic_explosion_y_bits, Some(12.5f32.to_bits()));
+        assert_eq!(state.last_logic_explosion_radius_bits, Some(3.25f32.to_bits()));
+        assert_eq!(state.last_logic_explosion_damage_bits, Some(40.0f32.to_bits()));
+        assert_eq!(state.last_logic_explosion_air, Some(true));
+        assert_eq!(state.last_logic_explosion_ground, Some(false));
+        assert_eq!(state.last_logic_explosion_pierce, Some(true));
+        assert_eq!(state.last_logic_explosion_effect, Some(false));
     }
 
     #[test]

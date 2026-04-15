@@ -5444,17 +5444,17 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.logic_explosion_packet_id => {
                 if let Some(summary) = decode_logic_explosion_payload(&packet.payload) {
-                    self.state.received_logic_explosion_count =
-                        self.state.received_logic_explosion_count.saturating_add(1);
-                    self.state.last_logic_explosion_team_id = Some(summary.team_id);
-                    self.state.last_logic_explosion_x_bits = Some(summary.x.to_bits());
-                    self.state.last_logic_explosion_y_bits = Some(summary.y.to_bits());
-                    self.state.last_logic_explosion_radius_bits = Some(summary.radius.to_bits());
-                    self.state.last_logic_explosion_damage_bits = Some(summary.damage.to_bits());
-                    self.state.last_logic_explosion_air = Some(summary.air);
-                    self.state.last_logic_explosion_ground = Some(summary.ground);
-                    self.state.last_logic_explosion_pierce = Some(summary.pierce);
-                    self.state.last_logic_explosion_effect = Some(summary.effect);
+                    self.state.record_logic_explosion(
+                        summary.team_id,
+                        summary.x,
+                        summary.y,
+                        summary.radius,
+                        summary.damage,
+                        summary.air,
+                        summary.ground,
+                        summary.pierce,
+                        summary.effect,
+                    );
                     Ok(ClientSessionEvent::LogicExplosionObserved {
                         team_id: summary.team_id,
                         x: summary.x,
