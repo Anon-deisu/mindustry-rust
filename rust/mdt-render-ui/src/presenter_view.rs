@@ -1598,15 +1598,8 @@ pub(crate) fn format_runtime_world_label_panel_text(
     panel: &RuntimeWorldLabelPanelModel,
 ) -> String {
     format!(
-        "wlabel:set{}:rel{}:rm{}:tot{}:act{}:inact{}:last{}:f{}:fs{}:z{}:pos{}:txt{}:l{}:n{}",
-        panel.label_count,
-        panel.reliable_label_count,
-        panel.remove_label_count,
-        panel.total_count,
-        panel.active_count,
-        panel.inactive_count(),
-        format_optional_i32_text(panel.last_entity_id),
-        format_optional_u8_text(panel.last_flags),
+        "wlabel:{}:fs{}:z{}:pos{}:txt{}:l{}:n{}",
+        format_runtime_world_label_fields_text(panel, "inact"),
         format_runtime_world_label_scalar_text(panel.last_font_size_bits, panel.last_font_size()),
         format_runtime_world_label_scalar_text(panel.last_z_bits, panel.last_z()),
         format_world_position_status_text(panel.last_position.as_ref()),
@@ -1620,15 +1613,8 @@ pub(crate) fn format_runtime_world_label_detail_text(
     panel: &RuntimeWorldLabelPanelModel,
 ) -> String {
     format!(
-        "wlabeld:set{}:rel{}:rm{}:tot{}:act{}:in{}:last{}:f{}:txt{}x{}:fs{}:z{}:p{}",
-        panel.label_count,
-        panel.reliable_label_count,
-        panel.remove_label_count,
-        panel.total_count,
-        panel.active_count,
-        panel.inactive_count(),
-        format_optional_i32_text(panel.last_entity_id),
-        format_optional_u8_text(panel.last_flags),
+        "wlabeld:{}:txt{}x{}:fs{}:z{}:p{}",
+        format_runtime_world_label_fields_text(panel, "in"),
         panel.last_text_len(),
         panel.last_text_line_count(),
         format_runtime_world_label_scalar_text(panel.last_font_size_bits, panel.last_font_size()),
@@ -1641,6 +1627,24 @@ pub(crate) fn format_runtime_world_label_detail_text_if_nonempty(
     panel: &RuntimeWorldLabelPanelModel,
 ) -> Option<String> {
     (!panel.is_empty()).then(|| format_runtime_world_label_detail_text(panel))
+}
+
+fn format_runtime_world_label_fields_text(
+    panel: &RuntimeWorldLabelPanelModel,
+    inactive_label: &str,
+) -> String {
+    format!(
+        "set{}:rel{}:rm{}:tot{}:act{}:{}{}:last{}:f{}",
+        panel.label_count,
+        panel.reliable_label_count,
+        panel.remove_label_count,
+        panel.total_count,
+        panel.active_count,
+        inactive_label,
+        panel.inactive_count(),
+        format_optional_i32_text(panel.last_entity_id),
+        format_optional_u8_text(panel.last_flags),
+    )
 }
 
 pub(crate) fn format_runtime_world_reload_panel_text(
