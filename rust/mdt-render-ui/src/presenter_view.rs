@@ -3000,7 +3000,8 @@ mod tests {
         format_runtime_bootstrap_summary_text_if_nonempty,
         format_runtime_admin_detail_text, format_runtime_admin_detail_text_if_nonempty,
         format_runtime_admin_panel_text,
-        format_optional_i16_text, format_optional_u8_text, format_optional_u32_text,
+        format_optional_i16_text, format_optional_i32_text, format_optional_u8_text,
+        format_optional_u32_text,
         format_optional_u64_text, format_optional_bool_flag, format_u8_list_text,
         format_runtime_stack_depth_text, format_runtime_stack_detail_text,
         format_runtime_stack_panel_text,
@@ -6425,6 +6426,13 @@ mod tests {
         assert_eq!(format_optional_i16_text(Some(-2)), "-2");
         assert_eq!(format_optional_i16_text(Some(3)), "3");
         assert_eq!(format_optional_i16_text(None), "none");
+    }
+
+    #[test]
+    fn format_optional_i32_text_handles_some_and_none() {
+        assert_eq!(format_optional_i32_text(Some(-2)), "-2");
+        assert_eq!(format_optional_i32_text(Some(42)), "42");
+        assert_eq!(format_optional_i32_text(None), "none");
     }
 
     #[test]
