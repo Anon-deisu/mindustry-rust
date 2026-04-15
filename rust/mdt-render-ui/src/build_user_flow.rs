@@ -91,11 +91,18 @@ impl BuildUserFlowPanelModel {
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
+    fn next_minimap_label_prefix(&self) -> String {
+        format!(
+            "next={} minimap={}",
+            self.next_action, self.minimap_next_action
+        )
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn summary_label(&self) -> String {
         format!(
-            "next={} minimap={} focus={} pan={} target={} scope={}",
-            self.next_action,
-            self.minimap_next_action,
+            "{} focus={} pan={} target={} scope={}",
+            self.next_minimap_label_prefix(),
             self.focus_state.label(),
             self.pan_label(),
             self.target_kind.label(),
@@ -113,9 +120,8 @@ impl BuildUserFlowPanelModel {
             .map_or_else(|| "none".to_string(), |(x, y)| format!("{x},{y}"));
 
         format!(
-            "next={} minimap={} focus={} pan={} target={} scope={} route={} authority={} pending={} blockers={} src={} block={} head={}",
-            self.next_action,
-            self.minimap_next_action,
+            "{} focus={} pan={} target={} scope={} route={} authority={} pending={} blockers={} src={} block={} head={}",
+            self.next_minimap_label_prefix(),
             self.focus_state.label(),
             self.pan_label(),
             self.target_kind.label(),
@@ -139,8 +145,10 @@ impl BuildUserFlowPanelModel {
         let route = Self::join_or_none(&self.route);
 
         format!(
-            "next={} minimap={} blockers={} route={}",
-            self.next_action, self.minimap_next_action, blockers, route
+            "{} blockers={} route={}",
+            self.next_minimap_label_prefix(),
+            blockers,
+            route
         )
     }
 
@@ -274,9 +282,11 @@ fn build_user_flow_from_panel_options(
         authority_state: interaction.map_or(BuildInteractionAuthorityState::None, |interaction| {
             interaction.authority_state
         }),
-        authority_pending_match: interaction.and_then(|interaction| interaction.authority_pending_match),
+        authority_pending_match: interaction
+            .and_then(|interaction| interaction.authority_pending_match),
         authority_source: interaction.and_then(|interaction| interaction.authority_source),
-        authority_block_name: interaction.and_then(|interaction| interaction.authority_block_name.clone()),
+        authority_block_name: interaction
+            .and_then(|interaction| interaction.authority_block_name.clone()),
         head_tile: interaction
             .as_ref()
             .and_then(|interaction| interaction.head.as_ref().map(|head| (head.x, head.y))),
@@ -1018,7 +1028,10 @@ mod tests {
         assert_eq!(panel.focus_state, MinimapUserFocusState::Inside);
         assert_eq!(panel.target_kind, MinimapUserTargetKind::Marker);
         assert_eq!(panel.config_scope, "missing");
-        assert_eq!(panel.authority_state, BuildInteractionAuthorityState::Applied);
+        assert_eq!(
+            panel.authority_state,
+            BuildInteractionAuthorityState::Applied
+        );
     }
 
     #[test]
