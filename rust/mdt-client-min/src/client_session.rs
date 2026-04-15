@@ -4045,13 +4045,11 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_tile_overlays_packet_id => {
                 if let Some(summary) = decode_set_tile_overlays_payload(&packet.payload) {
-                    self.state.received_set_tile_overlays_count = self
-                        .state
-                        .received_set_tile_overlays_count
-                        .saturating_add(1);
-                    self.state.last_set_tile_overlays_block_id = summary.block_id;
-                    self.state.last_set_tile_overlays_count = summary.position_count;
-                    self.state.last_set_tile_overlays_first_position = summary.first_position;
+                    self.state.record_set_tile_overlays(
+                        summary.block_id,
+                        summary.position_count,
+                        summary.first_position,
+                    );
                     for tile_pos in &summary.positions {
                         self.apply_loaded_world_tile_patch(
                             *tile_pos,
@@ -4074,13 +4072,12 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.sync_variable_packet_id => {
                 if let Some(summary) = decode_sync_variable_payload(&packet.payload) {
-                    self.state.received_sync_variable_count =
-                        self.state.received_sync_variable_count.saturating_add(1);
-                    self.state.last_sync_variable_build_pos = summary.build_pos;
-                    self.state.last_sync_variable_index = Some(summary.variable);
-                    self.state.last_sync_variable_value_kind = Some(summary.value_kind);
-                    self.state.last_sync_variable_value_kind_name =
-                        Some(summary.value_kind_name.clone());
+                    self.state.record_sync_variable(
+                        summary.build_pos,
+                        summary.variable,
+                        summary.value_kind,
+                        &summary.value_kind_name,
+                    );
                     Ok(ClientSessionEvent::SyncVariable {
                         build_pos: summary.build_pos,
                         variable: summary.variable,

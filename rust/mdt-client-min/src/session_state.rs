@@ -7399,6 +7399,34 @@ impl SessionState {
         self.last_set_teams_first_position = first_position;
     }
 
+    pub fn record_set_tile_overlays(
+        &mut self,
+        block_id: Option<i16>,
+        position_count: usize,
+        first_position: Option<i32>,
+    ) {
+        self.received_set_tile_overlays_count =
+            self.received_set_tile_overlays_count.saturating_add(1);
+        self.last_set_tile_overlays_block_id = block_id;
+        self.last_set_tile_overlays_count = position_count;
+        self.last_set_tile_overlays_first_position = first_position;
+    }
+
+    pub fn record_sync_variable(
+        &mut self,
+        build_pos: Option<i32>,
+        variable: i32,
+        value_kind: u8,
+        value_kind_name: &str,
+    ) {
+        self.received_sync_variable_count =
+            self.received_sync_variable_count.saturating_add(1);
+        self.last_sync_variable_build_pos = build_pos;
+        self.last_sync_variable_index = Some(variable);
+        self.last_sync_variable_value_kind = Some(value_kind);
+        self.last_sync_variable_value_kind_name = Some(value_kind_name.to_string());
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15817,6 +15845,36 @@ mod tests {
         assert_eq!(state.last_set_teams_team_id, Some(6));
         assert_eq!(state.last_set_teams_count, 4);
         assert_eq!(state.last_set_teams_first_position, first_position);
+    }
+
+    #[test]
+    fn record_set_tile_overlays_tracks_batch_summary() {
+        let mut state = SessionState::default();
+        let first_position = Some(pack_point2(3, 4));
+
+        state.record_set_tile_overlays(Some(17), 2, first_position);
+
+        assert_eq!(state.received_set_tile_overlays_count, 1);
+        assert_eq!(state.last_set_tile_overlays_block_id, Some(17));
+        assert_eq!(state.last_set_tile_overlays_count, 2);
+        assert_eq!(state.last_set_tile_overlays_first_position, first_position);
+    }
+
+    #[test]
+    fn record_sync_variable_tracks_target_and_value_kind() {
+        let mut state = SessionState::default();
+        let build_pos = Some(pack_point2(9, 10));
+
+        state.record_sync_variable(build_pos, 4, 4, "string");
+
+        assert_eq!(state.received_sync_variable_count, 1);
+        assert_eq!(state.last_sync_variable_build_pos, build_pos);
+        assert_eq!(state.last_sync_variable_index, Some(4));
+        assert_eq!(state.last_sync_variable_value_kind, Some(4));
+        assert_eq!(
+            state.last_sync_variable_value_kind_name.as_deref(),
+            Some("string")
+        );
     }
 
     #[test]
