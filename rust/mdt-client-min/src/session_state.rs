@@ -7256,6 +7256,20 @@ impl SessionState {
         self.last_create_weather_wind_y_bits = Some(wind_y.to_bits());
     }
 
+    pub fn record_spawn_effect(
+        &mut self,
+        x: f32,
+        y: f32,
+        rotation: f32,
+        unit_type_id: Option<i16>,
+    ) {
+        self.received_spawn_effect_count = self.received_spawn_effect_count.saturating_add(1);
+        self.last_spawn_effect_x_bits = Some(x.to_bits());
+        self.last_spawn_effect_y_bits = Some(y.to_bits());
+        self.last_spawn_effect_rotation_bits = Some(rotation.to_bits());
+        self.last_spawn_effect_unit_type_id = unit_type_id;
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15506,6 +15520,19 @@ mod tests {
         assert_eq!(state.last_create_weather_duration_bits, Some(120.0f32.to_bits()));
         assert_eq!(state.last_create_weather_wind_x_bits, Some((-2.5f32).to_bits()));
         assert_eq!(state.last_create_weather_wind_y_bits, Some(6.0f32.to_bits()));
+    }
+
+    #[test]
+    fn record_spawn_effect_tracks_summary() {
+        let mut state = SessionState::default();
+
+        state.record_spawn_effect(32.5, 48.0, 90.0, Some(19));
+
+        assert_eq!(state.received_spawn_effect_count, 1);
+        assert_eq!(state.last_spawn_effect_x_bits, Some(32.5f32.to_bits()));
+        assert_eq!(state.last_spawn_effect_y_bits, Some(48.0f32.to_bits()));
+        assert_eq!(state.last_spawn_effect_rotation_bits, Some(90.0f32.to_bits()));
+        assert_eq!(state.last_spawn_effect_unit_type_id, Some(19));
     }
 
     #[test]

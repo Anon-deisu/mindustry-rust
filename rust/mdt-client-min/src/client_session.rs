@@ -5423,12 +5423,12 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.spawn_effect_packet_id => {
                 if let Some(summary) = decode_spawn_effect_payload(&packet.payload) {
-                    self.state.received_spawn_effect_count =
-                        self.state.received_spawn_effect_count.saturating_add(1);
-                    self.state.last_spawn_effect_x_bits = Some(summary.x.to_bits());
-                    self.state.last_spawn_effect_y_bits = Some(summary.y.to_bits());
-                    self.state.last_spawn_effect_rotation_bits = Some(summary.rotation.to_bits());
-                    self.state.last_spawn_effect_unit_type_id = summary.unit_type_id;
+                    self.state.record_spawn_effect(
+                        summary.x,
+                        summary.y,
+                        summary.rotation,
+                        summary.unit_type_id,
+                    );
                     Ok(ClientSessionEvent::SpawnEffect {
                         x: summary.x,
                         y: summary.y,
