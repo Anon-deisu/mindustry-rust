@@ -886,13 +886,7 @@ impl RuntimeDialogStackPanelModel {
     }
 
     pub fn foreground_label(&self) -> &'static str {
-        match self.foreground_kind {
-            Some(RuntimeUiStackForegroundKind::Menu) => "menu",
-            Some(RuntimeUiStackForegroundKind::FollowUpMenu) => "follow-up",
-            Some(RuntimeUiStackForegroundKind::TextInput) => "input",
-            Some(RuntimeUiStackForegroundKind::Chat) => "chat",
-            None => "none",
-        }
+        runtime_ui_stack_foreground_label(self.foreground_kind)
     }
 
     pub fn prompt_depth(&self) -> usize {
@@ -957,13 +951,7 @@ impl RuntimeUiStackPanelModel {
     }
 
     pub fn foreground_label(&self) -> &'static str {
-        match self.foreground_kind {
-            Some(RuntimeUiStackForegroundKind::Menu) => "menu",
-            Some(RuntimeUiStackForegroundKind::FollowUpMenu) => "follow-up",
-            Some(RuntimeUiStackForegroundKind::TextInput) => "input",
-            Some(RuntimeUiStackForegroundKind::Chat) => "chat",
-            None => "none",
-        }
+        runtime_ui_stack_foreground_label(self.foreground_kind)
     }
 
     pub fn prompt_layer_labels(&self) -> Vec<&'static str> {
@@ -1017,6 +1005,18 @@ impl RuntimeUiStackPanelModel {
         usize::from(self.prompt_depth() > 0)
             + usize::from(self.notice_depth() > 0)
             + usize::from(self.chat_active)
+    }
+}
+
+fn runtime_ui_stack_foreground_label(
+    foreground_kind: Option<RuntimeUiStackForegroundKind>,
+) -> &'static str {
+    match foreground_kind {
+        Some(RuntimeUiStackForegroundKind::Menu) => "menu",
+        Some(RuntimeUiStackForegroundKind::FollowUpMenu) => "follow-up",
+        Some(RuntimeUiStackForegroundKind::TextInput) => "input",
+        Some(RuntimeUiStackForegroundKind::Chat) => "chat",
+        None => "none",
     }
 }
 
