@@ -43,10 +43,10 @@ use crate::{
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, RenderModel,
     RenderObject,
     RuntimeCommandRecentControlGroupOperationObservability, RuntimeCommandRectObservability,
-    RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
-    RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
     RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
-    RuntimeCommandUnitRefObservability, RuntimeLiveEffectPositionSource,
+    RuntimeCommandUnitRefObservability, RuntimeReconnectPhaseObservability,
+    RuntimeReconnectReasonKind, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+    RuntimeLiveEffectPositionSource,
     RuntimeLiveEffectSummaryObservability,
     RuntimeLiveEntitySummaryObservability,
     RuntimeWorldPositionObservability,
@@ -2590,11 +2590,24 @@ pub(crate) fn format_runtime_command_stance_text(
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn format_runtime_command_mode_tail_text(
+    last_target: Option<RuntimeCommandTargetObservability>,
+    last_command_id: Option<u8>,
+    last_stance_selection: Option<RuntimeCommandStanceObservability>,
+) -> String {
+    format!(
+        "t{}:c{}:s{}",
+        format_runtime_command_target_text(last_target),
+        format_optional_u8_text(last_command_id),
+        format_runtime_command_stance_text(last_stance_selection),
+    )
+}
+
 pub(crate) fn format_runtime_command_mode_panel_text(
     panel: &RuntimeCommandModePanelModel,
 ) -> String {
     format!(
-        "cmd:act{}:sel{}@{}:bld{}@{}:rect{}:grp{}:op{}:t{}:c{}:s{}",
+        "cmd:act{}:sel{}@{}:bld{}@{}:rect{}:grp{}:op{}:{}",
         if panel.active { 1 } else { 0 },
         panel.selected_unit_count,
         format_runtime_command_i32_list_text(&panel.selected_unit_sample),
@@ -2603,13 +2616,13 @@ pub(crate) fn format_runtime_command_mode_panel_text(
         format_runtime_command_rect_text(panel.command_rect),
         format_runtime_command_control_groups_text(&panel.control_groups),
         format_runtime_command_control_group_operation_text(panel.last_control_group_operation),
-        format_runtime_command_target_text(panel.last_target),
-        format_optional_u8_text(
+        format_runtime_command_mode_tail_text(
+            panel.last_target,
             panel
                 .last_command_selection
                 .and_then(|selection| selection.command_id),
+            panel.last_stance_selection,
         ),
-        format_runtime_command_stance_text(panel.last_stance_selection),
     )
 }
 
@@ -2617,19 +2630,19 @@ pub(crate) fn format_runtime_command_mode_detail_text(
     panel: &RuntimeCommandModePanelModel,
 ) -> String {
     format!(
-        "cmdd:sample{}:grp{}:op{}:bld{}:rect{}:t{}:c{}:s{}",
+        "cmdd:sample{}:grp{}:op{}:bld{}:rect{}:{}",
         format_runtime_command_i32_list_text(&panel.selected_unit_sample),
         format_runtime_command_control_groups_text(&panel.control_groups),
         format_runtime_command_control_group_operation_text(panel.last_control_group_operation),
         format_optional_i32_text(panel.first_command_building),
         format_runtime_command_rect_text(panel.command_rect),
-        format_runtime_command_target_text(panel.last_target),
-        format_optional_u8_text(
+        format_runtime_command_mode_tail_text(
+            panel.last_target,
             panel
                 .last_command_selection
                 .and_then(|selection| selection.command_id),
+            panel.last_stance_selection,
         ),
-        format_runtime_command_stance_text(panel.last_stance_selection),
     )
 }
 
