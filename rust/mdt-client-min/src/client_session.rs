@@ -4898,12 +4898,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_camera_position_packet_id => {
                 let (x, y) = decode_set_position_payload(&packet.payload)?;
-                self.state.received_set_camera_position_count = self
-                    .state
-                    .received_set_camera_position_count
-                    .saturating_add(1);
-                self.state.last_camera_x_bits = Some(x.to_bits());
-                self.state.last_camera_y_bits = Some(y.to_bits());
+                self.state.record_camera_position(x, y);
                 self.snapshot_input.view_center = Some((x, y));
                 Ok(ClientSessionEvent::CameraPositionUpdated { x, y })
             }
