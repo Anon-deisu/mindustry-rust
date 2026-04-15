@@ -1647,16 +1647,7 @@ pub(crate) fn format_runtime_world_reload_panel_text(
     world_reload: Option<&RuntimeWorldReloadPanelModel>,
 ) -> String {
     match world_reload {
-        Some(world_reload) => format!(
-            "@lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
-            u8::from(world_reload.had_loaded_world),
-            u8::from(world_reload.had_client_loaded),
-            u8::from(world_reload.was_ready_to_enter_world),
-            u8::from(world_reload.had_connect_confirm_sent),
-            world_reload.cleared_pending_packets,
-            world_reload.cleared_deferred_inbound_packets,
-            world_reload.cleared_replayed_loading_events,
-        ),
+        Some(world_reload) => format!("@{}", format_runtime_world_reload_fields_text(world_reload)),
         None => "none".to_string(),
     }
 }
@@ -1665,7 +1656,16 @@ pub(crate) fn format_runtime_world_reload_detail_text(
     world_reload: &RuntimeWorldReloadPanelModel,
 ) -> String {
     format!(
-        "reloadd:lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
+        "reloadd:{}",
+        format_runtime_world_reload_fields_text(world_reload),
+    )
+}
+
+fn format_runtime_world_reload_fields_text(
+    world_reload: &RuntimeWorldReloadPanelModel,
+) -> String {
+    format!(
+        "lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
         u8::from(world_reload.had_loaded_world),
         u8::from(world_reload.had_client_loaded),
         u8::from(world_reload.was_ready_to_enter_world),
