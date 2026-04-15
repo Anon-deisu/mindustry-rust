@@ -3859,11 +3859,11 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_teams_packet_id => {
                 if let Some(summary) = decode_set_teams_payload(&packet.payload) {
-                    self.state.received_set_teams_count =
-                        self.state.received_set_teams_count.saturating_add(1);
-                    self.state.last_set_teams_team_id = Some(summary.team_id);
-                    self.state.last_set_teams_count = summary.position_count;
-                    self.state.last_set_teams_first_position = summary.first_position;
+                    self.state.record_set_teams(
+                        summary.team_id,
+                        summary.position_count,
+                        summary.first_position,
+                    );
                     for build_pos in &summary.positions {
                         self.apply_authoritative_building_team_projection(
                             *build_pos,

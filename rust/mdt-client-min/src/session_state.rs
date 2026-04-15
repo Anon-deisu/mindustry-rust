@@ -7387,6 +7387,18 @@ impl SessionState {
         self.last_set_team_id = Some(team_id);
     }
 
+    pub fn record_set_teams(
+        &mut self,
+        team_id: u8,
+        position_count: usize,
+        first_position: Option<i32>,
+    ) {
+        self.received_set_teams_count = self.received_set_teams_count.saturating_add(1);
+        self.last_set_teams_team_id = Some(team_id);
+        self.last_set_teams_count = position_count;
+        self.last_set_teams_first_position = first_position;
+    }
+
     pub fn record_transfer_item_effect(&mut self, projection: &TransferItemEffectProjection) {
         self.received_transfer_item_effect_count =
             self.received_transfer_item_effect_count.saturating_add(1);
@@ -15792,6 +15804,19 @@ mod tests {
         assert_eq!(state.received_set_team_count, 1);
         assert_eq!(state.last_set_team_build_pos, build_pos);
         assert_eq!(state.last_set_team_id, Some(5));
+    }
+
+    #[test]
+    fn record_set_teams_tracks_batch_summary() {
+        let mut state = SessionState::default();
+        let first_position = Some(pack_point2(2, 3));
+
+        state.record_set_teams(6, 4, first_position);
+
+        assert_eq!(state.received_set_teams_count, 1);
+        assert_eq!(state.last_set_teams_team_id, Some(6));
+        assert_eq!(state.last_set_teams_count, 4);
+        assert_eq!(state.last_set_teams_first_position, first_position);
     }
 
     #[test]
