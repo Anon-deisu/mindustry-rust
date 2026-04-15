@@ -7702,6 +7702,23 @@ impl SessionState {
         self.last_unit_tether_block_spawned_id = Some(unit_id);
     }
 
+    pub fn record_server_message(&mut self, message: String) {
+        self.received_server_message_count = self.received_server_message_count.saturating_add(1);
+        self.last_server_message = Some(message);
+    }
+
+    pub fn record_chat_message(
+        &mut self,
+        message: String,
+        unformatted: Option<String>,
+        sender_entity_id: Option<i32>,
+    ) {
+        self.received_chat_message_count = self.received_chat_message_count.saturating_add(1);
+        self.last_chat_message = Some(message);
+        self.last_chat_unformatted = unformatted;
+        self.last_chat_sender_entity_id = sender_entity_id;
+    }
+
     pub fn record_sound(&mut self, sound_id: Option<i16>, volume: f32, pitch: f32, pan: f32) {
         self.received_sound_count = self.received_sound_count.saturating_add(1);
         self.last_sound_id = sound_id;
@@ -16639,6 +16656,35 @@ mod tests {
         assert_eq!(state.received_unit_tether_block_spawned_count, 1);
         assert_eq!(state.last_unit_tether_block_spawned_tile_pos, tile_pos);
         assert_eq!(state.last_unit_tether_block_spawned_id, Some(404));
+    }
+
+    #[test]
+    fn record_server_message_tracks_message() {
+        let mut state = SessionState::default();
+
+        state.record_server_message("[accent]hello".to_string());
+
+        assert_eq!(state.received_server_message_count, 1);
+        assert_eq!(state.last_server_message.as_deref(), Some("[accent]hello"));
+    }
+
+    #[test]
+    fn record_chat_message_tracks_message_and_sender() {
+        let mut state = SessionState::default();
+
+        state.record_chat_message(
+            "[accent]bot[]: hello".to_string(),
+            Some("hello".to_string()),
+            Some(42),
+        );
+
+        assert_eq!(state.received_chat_message_count, 1);
+        assert_eq!(
+            state.last_chat_message.as_deref(),
+            Some("[accent]bot[]: hello")
+        );
+        assert_eq!(state.last_chat_unformatted.as_deref(), Some("hello"));
+        assert_eq!(state.last_chat_sender_entity_id, Some(42));
     }
 
     #[test]

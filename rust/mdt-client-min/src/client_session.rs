@@ -4745,16 +4745,17 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.send_message_with_sender_packet_id => {
                 if let Some(message) = try_read_chat_message_payload(&packet.payload) {
-                    self.state.received_chat_message_count =
-                        self.state.received_chat_message_count.saturating_add(1);
-                    self.state.last_chat_message = Some(message.message.clone());
-                    self.state.last_chat_unformatted = message.unformatted.clone();
-                    self.state.last_chat_sender_entity_id = message.sender_entity_id;
-                    Ok(ClientSessionEvent::ChatMessage {
-                        message: message.message,
-                        unformatted: message.unformatted,
+                    let event = ClientSessionEvent::ChatMessage {
+                        message: message.message.clone(),
+                        unformatted: message.unformatted.clone(),
                         sender_entity_id: message.sender_entity_id,
-                    })
+                    };
+                    self.state.record_chat_message(
+                        message.message,
+                        message.unformatted,
+                        message.sender_entity_id,
+                    );
+                    Ok(event)
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
@@ -4764,9 +4765,7 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.send_message_packet_id => {
                 if let Some(message) = try_read_typeio_string(&packet.payload) {
-                    self.state.received_server_message_count =
-                        self.state.received_server_message_count.saturating_add(1);
-                    self.state.last_server_message = Some(message.clone());
+                    self.state.record_server_message(message.clone());
                     Ok(ClientSessionEvent::ServerMessage { message })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
