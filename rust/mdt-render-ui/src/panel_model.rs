@@ -4119,6 +4119,62 @@ mod tests {
     }
 
     #[test]
+    fn build_minimap_assist_labels_cover_focus_visibility_and_coverage_states() {
+        let mut panel = BuildMinimapAssistPanelModel {
+            mode: BuildInteractionMode::Idle,
+            selection_state: BuildInteractionSelectionState::Armed,
+            queue_state: BuildInteractionQueueState::Empty,
+            place_ready: false,
+            config_family_count: 0,
+            config_sample_count: 0,
+            top_config_family: None,
+            authority_state: BuildInteractionAuthorityState::None,
+            authority_pending_match: None,
+            head_tile: None,
+            authority_tile: None,
+            authority_source: None,
+            authority_block_name: None,
+            focus_tile: Some((2, 3)),
+            focus_in_window: Some(true),
+            visible_map_percent: 0,
+            unknown_tile_percent: 100,
+            window_coverage_percent: 0,
+            tracked_object_count: 0,
+            runtime_count: 0,
+        };
+
+        assert_eq!(panel.focus_state_label(), "inside");
+        assert_eq!(panel.map_visibility_label(), "unseen");
+        assert_eq!(panel.window_coverage_label(), "offscreen");
+
+        panel.focus_in_window = Some(false);
+        assert_eq!(panel.focus_state_label(), "outside");
+
+        panel.focus_in_window = None;
+        assert_eq!(panel.focus_state_label(), "tracked");
+
+        panel.focus_tile = None;
+        assert_eq!(panel.focus_state_label(), "none");
+
+        panel.focus_tile = Some((2, 3));
+        panel.visible_map_percent = 0;
+        panel.unknown_tile_percent = 0;
+        assert_eq!(panel.map_visibility_label(), "hidden");
+
+        panel.visible_map_percent = 5;
+        assert_eq!(panel.map_visibility_label(), "mapped");
+
+        panel.unknown_tile_percent = 25;
+        assert_eq!(panel.map_visibility_label(), "mixed");
+
+        panel.window_coverage_percent = 100;
+        assert_eq!(panel.window_coverage_label(), "full");
+
+        panel.window_coverage_percent = 64;
+        assert_eq!(panel.window_coverage_label(), "partial");
+    }
+
+    #[test]
     fn builds_runtime_ui_notice_panel_from_runtime_ui_observability() {
         let hud = HudModel {
             runtime_ui: Some(RuntimeUiObservability {
