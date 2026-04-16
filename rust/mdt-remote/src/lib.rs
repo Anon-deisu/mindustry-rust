@@ -3245,6 +3245,59 @@ mod tests {
     }
 
     #[test]
+    fn validate_remote_allow_flags_requires_paired_flags_and_matches_flow() {
+        let base_packet = RemotePacketEntry {
+            remote_index: 0,
+            packet_id: 9,
+            packet_class: "mindustry.gen.TestPacket".to_string(),
+            declaring_type: "mindustry.core.NetServer".to_string(),
+            method: "test".to_string(),
+            targets: "server".to_string(),
+            called: "none".to_string(),
+            variants: "all".to_string(),
+            allow_on_client: None,
+            allow_on_server: None,
+            forward: false,
+            unreliable: false,
+            priority: "normal".to_string(),
+            params: Vec::new(),
+        };
+
+        assert!(validate_remote_allow_flags(&base_packet, RemoteFlow::ServerToClient).is_ok());
+
+        let missing_pair_packet = RemotePacketEntry {
+            allow_on_client: Some(true),
+            ..base_packet.clone()
+        };
+        assert!(matches!(
+            validate_remote_allow_flags(&missing_pair_packet, RemoteFlow::ServerToClient),
+            Err(RemoteManifestError::InvalidRemotePacketMetadata(message))
+                if message
+                    == "remote packet mindustry.gen.TestPacket must set allowOnClient and allowOnServer together"
+        ));
+
+        let matched_packet = RemotePacketEntry {
+            allow_on_client: Some(true),
+            allow_on_server: Some(false),
+            ..base_packet.clone()
+        };
+        assert!(validate_remote_allow_flags(&matched_packet, RemoteFlow::ServerToClient).is_ok());
+
+        let drift_packet = RemotePacketEntry {
+            targets: "client".to_string(),
+            allow_on_client: Some(true),
+            allow_on_server: Some(true),
+            ..base_packet
+        };
+        assert!(matches!(
+            validate_remote_allow_flags(&drift_packet, RemoteFlow::ClientToServer),
+            Err(RemoteManifestError::InvalidRemotePacketMetadata(message))
+                if message
+                    == "remote packet mindustry.gen.TestPacket has allowOnClient/allowOnServer drift for targets client: expected allowOnClient=false, allowOnServer=true, found allowOnClient=true, allowOnServer=true"
+        ));
+    }
+
+    #[test]
     fn param_is_wire_included_client_server_respects_caller_side_flags() {
         let cases = [
             (RemoteFlow::ClientToServer, false, false, false),
