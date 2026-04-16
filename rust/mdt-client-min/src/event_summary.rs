@@ -1732,6 +1732,25 @@ mod tests {
     }
 
     #[test]
+    fn format_tile_config_summary_keeps_optional_labels_and_field_order_stable() {
+        assert_eq!(
+            format_tile_config_summary(
+                Some(123),
+                Some(7),
+                Some("payload"),
+                true,
+                false,
+                true,
+                false,
+                Some(true),
+                Some(ConfiguredBlockOutcome::RejectedUnsupportedConfigType),
+                Some("router"),
+            ),
+            "tile_config: build_pos=Some(123) kind=Some(7) kind_name=Some(\"payload\") parse_failed=true business_applied=false cleared_pending_local=true rollback=false pending_local_match=Some(true) configured_outcome=Some(\"unsupported_config_type\") configured_block=Some(\"router\")"
+        );
+    }
+
+    #[test]
     fn summarize_client_packet_events_includes_build_and_effect_events() {
         let lines = summarize_client_packet_events(&[
             ClientSessionEvent::EffectRequested {
