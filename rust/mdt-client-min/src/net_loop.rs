@@ -126,6 +126,36 @@ mod tests {
     }
 
     #[test]
+    fn ingest_inbound_packet_counts_unknown_packet_without_touching_state() {
+        let mut stats = NetLoopStats {
+            frames: 3,
+            packets_seen: 5,
+            snapshot_packets_seen: 7,
+        };
+        let mut state = SessionState {
+            session_id: Some(42),
+            last_applied_tick: 99,
+            client_loaded: true,
+            world_map_width: 128,
+            world_map_height: 96,
+            world_display_title: Some("unchanged".to_string()),
+            ..SessionState::default()
+        };
+        let registry = InboundSnapshotPacketRegistry::default();
+
+        let stats_before = stats;
+        let state_before = state.clone();
+
+        let result = ingest_inbound_packet(&mut stats, &mut state, &registry, 26, &[]);
+
+        assert_eq!(result, None);
+        assert_eq!(stats.frames, stats_before.frames);
+        assert_eq!(stats.packets_seen, stats_before.packets_seen + 1);
+        assert_eq!(stats.snapshot_packets_seen, stats_before.snapshot_packets_seen);
+        assert_eq!(state, state_before);
+    }
+
+    #[test]
     fn ingest_inbound_packet_bytes_classified_packet_advances_stats_and_state() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let registry = InboundSnapshotPacketRegistry::from_remote_manifest(&manifest).unwrap();
