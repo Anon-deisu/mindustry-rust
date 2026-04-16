@@ -294,6 +294,43 @@ mod tests {
     }
 
     #[test]
+    fn valid_place_against_local_plans_rejects_partial_overlap_even_when_replace_is_allowed() {
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(
+                PlacementRequest {
+                    x: 5,
+                    y: 5,
+                    size: 2,
+                },
+                &[LocalPlanPlacement {
+                    x: 6,
+                    y: 5,
+                    size: 2,
+                    breaking: false,
+                    candidate_can_replace_plan: true,
+                }],
+                None,
+            ),
+            Err(PlacementRejectReason::PlanOverlapsRequest { plan_index: 0 })
+        );
+        assert!(!valid_place_against_local_plans(
+            PlacementRequest {
+                x: 5,
+                y: 5,
+                size: 2,
+            },
+            &[LocalPlanPlacement {
+                x: 6,
+                y: 5,
+                size: 2,
+                breaking: false,
+                candidate_can_replace_plan: true,
+            }],
+            None,
+        ));
+    }
+
+    #[test]
     fn valid_place_against_local_plans_skips_ignored_plan_index() {
         assert!(valid_place_against_local_plans(
             PlacementRequest {
