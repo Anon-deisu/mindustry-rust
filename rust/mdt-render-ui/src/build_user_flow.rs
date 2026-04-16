@@ -737,6 +737,45 @@ mod tests {
     }
 
     #[test]
+    fn build_user_flow_authority_labels_map_state_and_pending_variants() {
+        let cases = [
+            (
+                BuildInteractionAuthorityState::None,
+                None,
+                "none",
+                "none",
+            ),
+            (
+                BuildInteractionAuthorityState::Applied,
+                Some(true),
+                "applied",
+                "match",
+            ),
+            (
+                BuildInteractionAuthorityState::Cleared,
+                Some(false),
+                "cleared",
+                "mismatch",
+            ),
+            (
+                BuildInteractionAuthorityState::Rollback,
+                Some(false),
+                "rollback",
+                "mismatch",
+            ),
+        ];
+
+        for (authority_state, authority_pending_match, expected_state, expected_pending) in cases {
+            let mut panel = empty_flow_panel();
+            panel.authority_state = authority_state;
+            panel.authority_pending_match = authority_pending_match;
+
+            assert_eq!(panel.authority_state_label(), expected_state);
+            assert_eq!(panel.authority_pending_match_label(), expected_pending);
+        }
+    }
+
+    #[test]
     fn build_user_flow_unknown_focus_window_state_requires_refocus() {
         let panel = build_user_flow_from_panels(
             &BuildMinimapAssistPanelModel {
