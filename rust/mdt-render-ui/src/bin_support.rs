@@ -88,4 +88,26 @@ mod tests {
 
         assert_eq!(bytes, vec![10, 11, 12]);
     }
+
+    #[test]
+    fn read_world_stream_bytes_reports_missing_custom_fixture_path() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "mdt-render-ui-bin-support-missing-{}-{}.hex",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let err = read_world_stream_bytes(Some(path.as_path())).unwrap_err();
+
+        assert!(
+            err.contains("os error 2")
+                || err.contains("No such file")
+                || err.contains("cannot find")
+                || err.contains("系统找不到")
+        );
+    }
 }
