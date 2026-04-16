@@ -790,4 +790,28 @@ mod tests {
         assert_eq!(optional_i32_label(Some(-7)), "-7");
         assert_eq!(optional_i32_label(Some(42)), "42");
     }
+
+    #[test]
+    fn capability_deny_reason_labels_are_stable() {
+        assert_eq!(
+            CapabilityDenyReason::MissingControlledUnit.label(),
+            "missing-controlled-unit"
+        );
+        assert_eq!(
+            CapabilityDenyReason::ControlledUnitDead.label(),
+            "controlled-unit-dead"
+        );
+        assert_eq!(
+            CapabilityDenyReason::MiningDisabled.label(),
+            "mining-disabled"
+        );
+        assert_eq!(
+            CapabilityDenyReason::BuildingDisabled.label(),
+            "building-disabled"
+        );
+        assert_eq!(
+            CapabilityDenyReason::CommandDisabled.label(),
+            "command-disabled"
+        );
+    }
 }
