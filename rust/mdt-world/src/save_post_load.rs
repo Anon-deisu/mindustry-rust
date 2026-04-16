@@ -317,6 +317,7 @@ fn bool_label(value: bool) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use super::bool_label;
     use crate::{
         CustomChunkEntry, MarkerEntry, MarkerModel, ParsedCustomChunk, SaveEntityChunkObservation,
         SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
@@ -335,6 +336,12 @@ mod tests {
         assert!(observation.world_entity_chunk(11).is_none());
         assert!(observation.marker(11).is_none());
         assert!(observation.static_fog_chunk().is_none());
+    }
+
+    #[test]
+    fn bool_label_returns_one_for_true_and_zero_for_false() {
+        assert_eq!(bool_label(true), "1");
+        assert_eq!(bool_label(false), "0");
     }
 
     #[test]
