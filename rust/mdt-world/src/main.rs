@@ -819,7 +819,9 @@ mod tests {
         decode_hex_text, read_text_from_candidates, set_input_root_once, world_stream_candidates,
         CliArgs,
     };
+    use std::fs;
     use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn decode_hex_text_rejects_odd_length() {
@@ -895,5 +897,34 @@ mod tests {
                 PathBuf::from("/repo/fixtures/world-streams/archipelago-6567-world-stream.hex"),
             ]
         );
+    }
+
+    #[test]
+    fn read_text_from_candidates_prefers_first_existing_candidate_and_reports_checked_paths() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mdt-world-read-text-from-candidates-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let missing = temp_dir.join("missing.txt");
+        let existing = temp_dir.join("existing.txt");
+        fs::write(&existing, "hello\nworld").unwrap();
+
+        let contents =
+            read_text_from_candidates("sample.txt", &[missing.clone(), existing.clone()]).unwrap();
+        assert_eq!(contents, "hello\nworld");
+
+        let err = read_text_from_candidates("sample.txt", &[missing.clone()]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!("missing sample.txt; checked: {}", missing.display())
+        );
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
