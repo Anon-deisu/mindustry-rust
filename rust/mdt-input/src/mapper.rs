@@ -257,6 +257,16 @@ mod tests {
     }
 
     #[test]
+    fn input_snapshot_summary_label_defaults_to_none_fields_and_zero_actions() {
+        let snapshot = InputSnapshot::default();
+
+        assert_eq!(
+            snapshot.summary_label(),
+            "move=1 aim=1 mining=0 building=0 config=0 build-pulse=0 action=0"
+        );
+    }
+
+    #[test]
     fn press_hold_release_edges_are_emitted() {
         let mut mapper = StatelessIntentMapper::default();
 
