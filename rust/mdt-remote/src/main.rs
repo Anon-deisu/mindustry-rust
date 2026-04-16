@@ -225,7 +225,7 @@ mod tests {
     use super::{
         default_high_frequency_output_path, default_inbound_dispatch_output_path,
         emit_outputs, normalize_path_for_overlap, parse_args, paths_overlap,
-        reject_overlapping_output_paths, resolve_cli_path, USAGE,
+        reject_overlapping_output_paths, resolve_cli_path, write_output_file, USAGE,
     };
     use std::{
         env, fs,
@@ -485,5 +485,27 @@ mod tests {
             Some(Path::new("build/mdt-output/remote-inbound-dispatch.rs")),
         )
         .is_ok());
+    }
+
+    #[test]
+    fn write_output_file_creates_missing_parent_directories_and_writes_contents() {
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-write-output-file-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let output_path = temp_dir.join("nested").join("registry.rs");
+
+        write_output_file(&output_path, "generated-registry").unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&output_path).unwrap(),
+            "generated-registry"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
