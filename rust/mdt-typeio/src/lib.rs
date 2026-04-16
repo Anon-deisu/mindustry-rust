@@ -1509,6 +1509,27 @@ mod tests {
     }
 
     #[test]
+    fn read_objective_marker_json_prefix_rejects_invalid_utf8_and_truncated_payload() {
+        let mut bytes = Vec::new();
+        write_length_prefixed_json_len(&mut bytes, 1, &[0xff]);
+        assert!(matches!(
+            read_objective_marker_json_prefix(&bytes),
+            Err(TypeIoReadError::InvalidUtf8 { position: 4, .. })
+        ));
+
+        bytes.clear();
+        write_length_prefixed_json_len(&mut bytes, 3, b"ab");
+        assert_eq!(
+            read_objective_marker_json_prefix(&bytes).unwrap_err(),
+            TypeIoReadError::UnexpectedEof {
+                position: 4,
+                needed: 3,
+                remaining: 2,
+            }
+        );
+    }
+
+    #[test]
     fn basic_codec_readers_round_trip_expected_payloads() {
         let mut bytes = Vec::new();
         write_bool(&mut bytes, true);
