@@ -658,6 +658,22 @@ mod tests {
     }
 
     #[test]
+    fn transport_timeout_kind_defaults_to_connect_or_loading_when_missing() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let session = ClientSession::from_remote_manifest_with_timing(
+            &manifest,
+            "fr",
+            ClientSessionTiming::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            transport_timeout_kind(&session),
+            Some(SessionTimeoutKind::ConnectOrLoading)
+        );
+    }
+
+    #[test]
     fn discover_first_server_returns_udp_responder_addr() {
         let server = UdpSocket::bind("127.0.0.1:0").unwrap();
         let server_addr = server.local_addr().unwrap();
