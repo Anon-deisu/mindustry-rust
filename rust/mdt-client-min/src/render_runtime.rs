@@ -13124,6 +13124,13 @@ mod tests {
     }
 
     #[test]
+    fn runtime_effect_overlay_start_delay_ticks_applies_only_to_special_effect_124() {
+        assert_eq!(runtime_effect_overlay_start_delay_ticks(Some(124)), 30);
+        assert_eq!(runtime_effect_overlay_start_delay_ticks(Some(123)), 0);
+        assert_eq!(runtime_effect_overlay_start_delay_ticks(None), 0);
+    }
+
+    #[test]
     fn render_runtime_adapter_hides_drill_steam_until_start_delay_elapses() {
         let mut adapter = RenderRuntimeAdapter::default();
         let input = ClientSnapshotInputState::default();
