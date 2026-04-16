@@ -1411,6 +1411,12 @@ pub fn generate_typeio_goldens() -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn encode_hex_formats_empty_and_preserves_leading_zeroes() {
+        assert_eq!(encode_hex(&[]), "");
+        assert_eq!(encode_hex(&[0x00, 0x01, 0x0a, 0x10, 0xff]), "00010a10ff");
+    }
+
     fn assert_no_duplicate_text(label: &str, text: &str) {
         let mut seen = BTreeMap::new();
         let mut duplicates = Vec::new();
