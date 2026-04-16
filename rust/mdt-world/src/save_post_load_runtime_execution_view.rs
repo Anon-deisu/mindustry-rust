@@ -673,6 +673,49 @@ mod tests {
         assert_eq!(status_buckets[0].steps, vec![step]);
     }
 
+    #[test]
+    fn source_region_name_for_step_maps_each_apply_step_to_expected_regions() {
+        let cases = [
+            (SavePostLoadRuntimeApplyStep::WorldShell, "map"),
+            (
+                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
+                "entities",
+            ),
+            (
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 1,
+                    plan_index: 2,
+                },
+                "entities",
+            ),
+            (
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 3 },
+                "markers",
+            ),
+            (SavePostLoadRuntimeApplyStep::StaticFog, "custom"),
+            (
+                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 4 },
+                "custom",
+            ),
+            (
+                SavePostLoadRuntimeApplyStep::Building { center_index: 5 },
+                "map",
+            ),
+            (
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 6 },
+                "entities",
+            ),
+            (
+                SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 7 },
+                "entities",
+            ),
+        ];
+
+        for (step, expected_region_name) in cases {
+            assert_eq!(source_region_name_for_step(&step), expected_region_name);
+        }
+    }
+
     fn make_observation_seedable(observation: &mut crate::SavePostLoadWorldObservation) {
         observation.world_entity_chunks[1].class_id = 3;
         observation.world_entity_chunks[1].custom_name = None;
