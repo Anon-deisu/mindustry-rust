@@ -3189,7 +3189,8 @@ mod tests {
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, build_runtime_world_reload_panel_model,
         build_config_authority_source_label, build_config_pending_match_label,
-        compact_panel_text, minimap_viewport_band,
+        compact_panel_text, minimap_viewport_band, runtime_notice_state_kind,
+        runtime_notice_state_text,
         BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
         BuildInteractionSelectionState, BuildMinimapAssistPanelModel, PresenterViewWindow,
         RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
@@ -5779,6 +5780,86 @@ mod tests {
         assert_eq!(minimap.viewport_band(), "partial");
         assert_eq!(minimap.focus_tile, Some((2, 3)));
         assert_eq!(minimap.focus_in_window, Some(true));
+    }
+
+    #[test]
+    fn runtime_notice_state_kind_prefers_toast_warning_then_info_then_hud_reliable_then_hud() {
+        assert_eq!(
+            runtime_notice_state_kind(true, true, true, true),
+            Some(RuntimeDialogNoticeKind::ToastWarning)
+        );
+        assert_eq!(
+            runtime_notice_state_kind(true, true, true, false),
+            Some(RuntimeDialogNoticeKind::ToastInfo)
+        );
+        assert_eq!(
+            runtime_notice_state_kind(true, true, false, false),
+            Some(RuntimeDialogNoticeKind::HudReliable)
+        );
+        assert_eq!(
+            runtime_notice_state_kind(true, false, false, false),
+            Some(RuntimeDialogNoticeKind::Hud)
+        );
+        assert_eq!(runtime_notice_state_kind(false, false, false, false), None);
+    }
+
+    #[test]
+    fn runtime_notice_state_text_selects_message_matching_notice_kind() {
+        let hud = Some("hud".to_string());
+        let reliable = Some("reliable".to_string());
+        let info = Some("info".to_string());
+        let warning = Some("warning".to_string());
+
+        assert_eq!(
+            runtime_notice_state_text(
+                Some(RuntimeDialogNoticeKind::ToastWarning),
+                hud.clone(),
+                reliable.clone(),
+                info.clone(),
+                warning.clone(),
+            ),
+            warning
+        );
+        assert_eq!(
+            runtime_notice_state_text(
+                Some(RuntimeDialogNoticeKind::ToastInfo),
+                hud.clone(),
+                reliable.clone(),
+                info.clone(),
+                Some("warning".to_string()),
+            ),
+            info
+        );
+        assert_eq!(
+            runtime_notice_state_text(
+                Some(RuntimeDialogNoticeKind::HudReliable),
+                hud.clone(),
+                reliable.clone(),
+                Some("info".to_string()),
+                Some("warning".to_string()),
+            ),
+            reliable
+        );
+        assert_eq!(
+            runtime_notice_state_text(
+                Some(RuntimeDialogNoticeKind::Hud),
+                hud.clone(),
+                Some("reliable".to_string()),
+                Some("info".to_string()),
+                Some("warning".to_string()),
+            ),
+            hud
+        );
+        assert_eq!(
+            runtime_notice_state_text(
+                None,
+                Some("hud".to_string()),
+                Some("reliable".to_string()),
+                Some("info".to_string()),
+                Some("warning".to_string()),
+            ),
+            None
+        );
     }
 
     #[test]
