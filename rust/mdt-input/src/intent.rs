@@ -221,4 +221,12 @@ mod tests {
             "press=interact"
         );
     }
+
+    #[test]
+    fn player_intent_summary_label_formats_press_move_up_stably() {
+        assert_eq!(
+            PlayerIntent::ActionPressed(BinaryAction::MoveUp).summary_label(),
+            "press=move-up"
+        );
+    }
 }
