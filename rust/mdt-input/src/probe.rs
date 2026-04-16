@@ -607,6 +607,25 @@ mod tests {
     }
 
     #[test]
+    fn sample_runtime_input_snapshot_preserves_mining_tile_and_building_flags() {
+        let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
+            position: Some((1.0, 2.0)),
+            pointer: None,
+            velocity: (0.0, 0.0),
+            mining_tile: Some((9, 11)),
+            building: true,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        });
+
+        assert_eq!(snapshot.mining_tile, Some((9, 11)));
+        assert!(snapshot.building);
+        assert_eq!(snapshot.config_tap_tile, None);
+        assert_eq!(snapshot.build_pulse, None);
+    }
+
+    #[test]
     fn sample_runtime_input_snapshot_ignores_non_finite_pointer_and_position() {
         let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
             position: Some((f32::INFINITY, 6.0)),
