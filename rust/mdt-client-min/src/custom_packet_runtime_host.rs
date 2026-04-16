@@ -805,6 +805,39 @@ mod tests {
     }
 
     #[test]
+    fn format_host_action_payload_keeps_variant_labels_stable() {
+        assert_eq!(
+            format_host_action_payload(&RuntimeCustomPacketHostAction::BuildingControlSelect {
+                key: "build.select".to_string(),
+                build_pos: 91,
+            }),
+            "build_pos=91"
+        );
+        assert_eq!(
+            format_host_action_payload(&RuntimeCustomPacketHostAction::TileTap {
+                key: "logic.tap".to_string(),
+                tile_pos: 12,
+            }),
+            "tile_pos=12"
+        );
+        assert_eq!(
+            format_host_action_payload(&RuntimeCustomPacketHostAction::UnitControl {
+                key: "unit.select".to_string(),
+                unit_id: 404,
+            }),
+            "unit_id=404"
+        );
+        assert_eq!(
+            format_host_action_payload(&RuntimeCustomPacketHostAction::RequestDropPayload {
+                key: "logic.pos".to_string(),
+                x: 7.0,
+                y: 9.0,
+            }),
+            "x=7 y=9"
+        );
+    }
+
+    #[test]
     fn runtime_custom_packet_host_queues_bound_actions_only_for_changed_entries() {
         let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
             &[logic_pos_spec(), build_spec()],
