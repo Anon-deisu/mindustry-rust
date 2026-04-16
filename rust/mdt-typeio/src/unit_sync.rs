@@ -846,6 +846,35 @@ mod tests {
     }
 
     #[test]
+    fn read_status_entries_prefix_reports_consumed_length_for_dynamic_entries() {
+        let entries = vec![
+            StatusEntryRaw {
+                status_id: 27,
+                time: 45.5,
+                dynamic_fields: Some(StatusDynamicFieldsRaw::default()),
+            },
+            StatusEntryRaw {
+                status_id: 91,
+                time: 12.25,
+                dynamic_fields: Some(StatusDynamicFieldsRaw {
+                    damage_multiplier: Some(1.5),
+                    speed_multiplier: Some(0.75),
+                    armor_override: Some(6.0),
+                    ..StatusDynamicFieldsRaw::default()
+                }),
+            },
+        ];
+        let mut bytes = Vec::new();
+
+        write_status_entries(&mut bytes, &entries, true);
+
+        let (parsed, consumed) = read_status_entries_prefix(&bytes, true).unwrap();
+
+        assert_eq!(parsed, entries);
+        assert_eq!(consumed, bytes.len());
+    }
+
+    #[test]
     fn status_entries_into_prefix_overwrites_existing_entries() {
         let bytes = [1, 0, 27, 0x42, 0x36, 0x00, 0x00, 0].to_vec();
         let mut entries = vec![StatusEntryRaw {
