@@ -35,6 +35,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn is_building_entity_class_id_matches_only_building_class_ids() {
+        assert!(is_building_entity_class_id(BUILDING_ENTITY_CLASS_IDS[0]));
+        assert!(!is_building_entity_class_id(0));
+        assert!(!is_building_entity_class_id(5));
+        assert!(!is_building_entity_class_id(7));
+        assert!(!is_building_entity_class_id(255));
+    }
+
+    #[test]
     fn current_vanilla_alpha_shape_entity_class_ids_exclude_legacy_aliases() {
         for legacy_alias in ALPHA_SHAPE_LEGACY_ALIAS_ENTITY_CLASS_IDS {
             assert!(!ALPHA_SHAPE_CURRENT_VANILLA_ENTITY_CLASS_IDS.contains(&legacy_alias));
