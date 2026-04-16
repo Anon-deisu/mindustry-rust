@@ -1527,4 +1527,22 @@ mod tests {
         assert_eq!(bool_label(true), "1");
         assert_eq!(bool_label(false), "0");
     }
+
+    #[test]
+    fn consumer_apply_plan_summary_and_detail_labels_are_stable_for_empty_state() {
+        let plan = SavePostLoadConsumerApplyPlan {
+            can_seed_runtime_apply: false,
+            stages: Vec::new(),
+            blockers: Vec::new(),
+        };
+
+        assert_eq!(
+            plan.summary_label(),
+            "seed=0 stages=0 steps=0 blockers=0 regions=0"
+        );
+        assert_eq!(
+            plan.detail_label(),
+            "seed=0 stages=0 steps=0 blockers=0 regions=[]"
+        );
+    }
 }
