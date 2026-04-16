@@ -274,6 +274,31 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_required_manifest_and_optional_outputs_then_rejects_missing_manifest() {
+        let parsed = parse_args(vec![
+            "manifest.json".to_string(),
+            "registry.rs".to_string(),
+            "high-frequency.rs".to_string(),
+            "inbound.rs".to_string(),
+        ]
+        .into_iter())
+        .expect("valid arguments should parse");
+
+        assert_eq!(
+            parsed,
+            (
+                "manifest.json".to_string(),
+                Some(Path::new("registry.rs").to_path_buf()),
+                Some(Path::new("high-frequency.rs").to_path_buf()),
+                Some(Path::new("inbound.rs").to_path_buf()),
+            )
+        );
+
+        let err = parse_args(Vec::<String>::new().into_iter()).unwrap_err();
+        assert_eq!(err, USAGE);
+    }
+
+    #[test]
     fn stdout_registry_generation_does_not_depend_on_auxiliary_generation() {
         let generated = emit_outputs(
             &(),
