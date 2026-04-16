@@ -4550,6 +4550,40 @@ mod tests {
     }
 
     #[test]
+    fn remote_priority_from_str_maps_known_values_and_rejects_unknown() {
+        assert_eq!(
+            remote_priority_from_str("low").unwrap(),
+            RemotePriority::Low
+        );
+        assert_eq!(
+            remote_priority_from_str("normal").unwrap(),
+            RemotePriority::Normal
+        );
+        assert_eq!(
+            remote_priority_from_str("high").unwrap(),
+            RemotePriority::High
+        );
+        assert_eq!(
+            remote_priority_from_str("urgent").unwrap_err().to_string(),
+            "unsupported remote priority: urgent"
+        );
+    }
+
+    #[test]
+    fn remote_packet_const_name_normalizes_simple_and_nested_class_names() {
+        assert_eq!(
+            remote_packet_const_name("mindustry.gen.TransferItemCallPacket"),
+            "TRANSFER_ITEM_CALL_PACKET"
+        );
+        assert_eq!(
+            remote_packet_const_name("mindustry.net.Packets$WorldStream"),
+            "WORLD_STREAM"
+        );
+        assert_eq!(remote_packet_const_name("3dPacket-Class"), "_3D_PACKET_CLASS");
+        assert_eq!(remote_packet_const_name(""), "PACKET");
+    }
+
+    #[test]
     fn typed_high_frequency_lookup_rejects_flow_only_decoys() {
         let manifest = RemoteManifest {
             schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
