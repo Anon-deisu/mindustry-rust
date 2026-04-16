@@ -972,6 +972,51 @@ mod tests {
     }
 
     #[test]
+    fn save_post_load_runtime_execution_summary_and_detail_labels_use_bool_labels() {
+        let execution = SavePostLoadRuntimeApplyExecution {
+            can_seed_runtime_apply: true,
+            world_shell_ready: false,
+            executed_steps: Vec::new(),
+            failed_steps: Vec::new(),
+            awaiting_world_shell_steps: Vec::new(),
+            blocked_steps: Vec::new(),
+            deferred_steps: Vec::new(),
+            world_shell: None,
+            entity_remaps: Vec::new(),
+            entity_remaps_by_custom_id: BTreeMap::new(),
+            custom_chunks: Vec::new(),
+            custom_chunks_by_name: BTreeMap::new(),
+            skipped_entities: Vec::new(),
+            issues: Vec::new(),
+        };
+        let source_region = SavePostLoadRuntimeExecutionSourceRegion {
+            source_region_name: "map",
+            executed_steps: vec![SavePostLoadRuntimeApplyStep::WorldShell],
+            failed_steps: Vec::new(),
+            awaiting_world_shell_steps: Vec::new(),
+            blocked_steps: vec![SavePostLoadRuntimeApplyStep::Building { center_index: 0 }],
+            deferred_steps: Vec::new(),
+        };
+
+        assert_eq!(
+            execution.summary_label(),
+            "seed=yes shell=no exec=0 fail=0 wait=0 block=0 defer=0 total=0 sources=0 issues=0 live=no"
+        );
+        assert_eq!(
+            execution.detail_label(),
+            "seed=yes shell=no exec=0 fail=0 wait=0 block=0 defer=0 total=0 sources=[] issues=0 live=no"
+        );
+        assert_eq!(
+            source_region.summary_label(),
+            "region=map exec=1 fail=0 wait=0 block=1 defer=0 total=2"
+        );
+        assert_eq!(
+            source_region.detail_label(),
+            "region=map exec=1 fail=0 wait=0 block=1 defer=0 total=2"
+        );
+    }
+
+    #[test]
     fn live_runtime_activation_materializes_clean_seedable_runtime_bundle() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
