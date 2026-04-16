@@ -788,7 +788,7 @@ mod tests {
     use super::{
         crop_origin, fog_reveal_is_visible, marker_projection_summary, project_hud_model,
         project_render_model, project_render_model_with_player_position,
-        project_render_model_with_view_window,
+        project_render_model_with_view_window, world_position_tile_coords_in_bounds,
     };
     use crate::render_model::{
         RenderObjectSemanticKind, RenderPrimitive, RenderPrimitivePayloadValue,
@@ -870,6 +870,34 @@ mod tests {
         assert_eq!(crop_origin(0, 10, 4), 0);
         assert_eq!(crop_origin(9, 10, 4), 6);
         assert_eq!(crop_origin(7, 10, 0), 7);
+    }
+
+    #[test]
+    fn world_position_tile_coords_in_bounds_clamps_and_rejects_invalid_positions() {
+        assert_eq!(
+            world_position_tile_coords_in_bounds(8.0, 16.0, 10, 10),
+            Some((1, 2))
+        );
+        assert_eq!(
+            world_position_tile_coords_in_bounds(79.999, 71.999, 10, 10),
+            Some((9, 8))
+        );
+        assert_eq!(
+            world_position_tile_coords_in_bounds(-0.1, 16.0, 10, 10),
+            None
+        );
+        assert_eq!(
+            world_position_tile_coords_in_bounds(f32::NAN, 16.0, 10, 10),
+            None
+        );
+        assert_eq!(
+            world_position_tile_coords_in_bounds(8.0, f32::INFINITY, 10, 10),
+            None
+        );
+        assert_eq!(
+            world_position_tile_coords_in_bounds(80.0, 16.0, 10, 10),
+            None
+        );
     }
 
     #[test]
