@@ -273,12 +273,50 @@ fn pan_vertical_direction(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_minimap_user_flow_panel, MinimapPanAxisDirection, MinimapUserFocusState,
-        MinimapUserTargetKind,
+        build_minimap_user_flow_panel, MinimapPanAxisDirection, MinimapUserFlowPanelModel,
+        MinimapUserFocusState, MinimapUserTargetKind,
     };
     use crate::hud_model::{HudMinimapSummary, HudSummary, HudViewWindowSummary};
     use crate::panel_model::PresenterViewWindow;
     use crate::{HudModel, RenderModel, RenderObject, Viewport};
+
+    fn flow_model(
+        left: bool,
+        top: bool,
+        right: bool,
+        bottom: bool,
+    ) -> MinimapUserFlowPanelModel {
+        MinimapUserFlowPanelModel {
+            next_action: "hold",
+            focus_state: MinimapUserFocusState::Missing,
+            pan_horizontal: MinimapPanAxisDirection::None,
+            pan_vertical: MinimapPanAxisDirection::None,
+            target_kind: MinimapUserTargetKind::None,
+            focus_tile: None,
+            window_clamped_left: left,
+            window_clamped_top: top,
+            window_clamped_right: right,
+            window_clamped_bottom: bottom,
+            focus_offset_x: None,
+            focus_offset_y: None,
+            overlay_target_count: 0,
+            visible_tile_count: 0,
+            visible_map_percent: 0,
+            unknown_tile_percent: 0,
+            window_coverage_percent: 0,
+        }
+    }
+
+    #[test]
+    fn minimap_user_flow_clamp_label_orders_flags_and_handles_none() {
+        assert_eq!(flow_model(false, false, false, false).clamp_label(), "none");
+        assert_eq!(flow_model(true, false, false, false).clamp_label(), "L");
+        assert_eq!(flow_model(false, true, false, false).clamp_label(), "T");
+        assert_eq!(flow_model(false, false, true, false).clamp_label(), "R");
+        assert_eq!(flow_model(false, false, false, true).clamp_label(), "B");
+        assert_eq!(flow_model(true, true, true, true).clamp_label(), "LTRB");
+        assert_eq!(flow_model(true, false, true, true).clamp_label(), "LRB");
+    }
 
     #[test]
     fn minimap_user_flow_prefers_pan_when_focus_is_offscreen() {
