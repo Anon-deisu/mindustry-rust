@@ -461,6 +461,7 @@ mod tests {
             readiness_summary.source_region("entities").cloned(),
             runtime_readiness.source_region("entities")
         );
+        assert!(readiness_summary.source_region("missing").is_none());
     }
 
     #[test]
@@ -482,6 +483,7 @@ mod tests {
             ownership_summary.source_region("entities").cloned(),
             runtime_world_ownership.source_region("entities")
         );
+        assert!(ownership_summary.source_region("missing").is_none());
     }
 
     #[test]
