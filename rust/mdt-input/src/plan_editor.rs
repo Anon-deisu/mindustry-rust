@@ -715,6 +715,20 @@ mod tests {
     }
 
     #[test]
+    fn plan_bounds_label_and_dimensions_are_stable() {
+        let bounds = PlanBounds {
+            min_x: -3,
+            min_y: 4,
+            max_x: 5,
+            max_y: 9,
+        };
+
+        assert_eq!(bounds.width(), 9);
+        assert_eq!(bounds.height(), 6);
+        assert_eq!(bounds.label(), "-3:4..5:9");
+    }
+
+    #[test]
     fn world_to_tile_matches_java_rounding_for_negative_half_tile() {
         assert_eq!(world_to_tile(4.0), 1);
         assert_eq!(world_to_tile(-4.0), 0);
