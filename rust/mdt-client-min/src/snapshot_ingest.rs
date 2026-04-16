@@ -786,7 +786,9 @@ fn read_bytes(payload: &[u8], cursor: &mut usize) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{count_fits_remaining_bytes, ingest_inbound_snapshot, InboundSnapshot};
+    use super::{
+        count_fits_remaining_bytes, ingest_inbound_snapshot, read_bytes, InboundSnapshot,
+    };
     use crate::session_state::{
         AppliedBlockSnapshotEnvelope, AppliedHiddenSnapshotIds, AppliedStateSnapshotCoreData,
         AppliedStateSnapshotCoreDataItem, AppliedStateSnapshotCoreDataTeam,
@@ -876,6 +878,24 @@ mod tests {
         assert!(count_fits_remaining_bytes(2, 12, 6));
         assert!(!count_fits_remaining_bytes(3, 12, 6));
         assert!(!count_fits_remaining_bytes(1, 5, 6));
+    }
+
+    #[test]
+    fn read_bytes_advances_cursor_and_returns_none_on_truncation() {
+        let payload = [0x00, 0x03, 0xaa, 0xbb, 0xcc];
+        let mut cursor = 0usize;
+
+        assert_eq!(
+            read_bytes(&payload, &mut cursor),
+            Some(vec![0xaa, 0xbb, 0xcc])
+        );
+        assert_eq!(cursor, 5);
+
+        let payload = [0x00, 0x04, 0xaa, 0xbb, 0xcc];
+        let mut cursor = 0usize;
+
+        assert_eq!(read_bytes(&payload, &mut cursor), None);
+        assert_eq!(cursor, 2);
     }
 
     #[test]
