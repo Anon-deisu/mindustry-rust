@@ -1518,23 +1518,24 @@ mod tests {
     }
 
     #[test]
-    fn read_object_effect_prefix_rejects_truncated_nested_object_payload() {
-        let value = TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![
+    fn read_object_prefix_rejects_truncated_object_array_payload() {
+        let value = TypeIoObject::ObjectArray(vec![
             TypeIoObject::Int(7),
-        ])]);
+            TypeIoObject::Bool(true),
+        ]);
         let mut bytes = Vec::new();
         write_object(&mut bytes, &value);
         bytes.pop();
 
-        match read_object_effect_prefix(&bytes).unwrap_err() {
+        match read_object_prefix(&bytes).unwrap_err() {
             TypeIoReadError::UnexpectedEof {
                 position,
                 needed,
                 remaining,
             } => {
                 assert_eq!(position, 11);
-                assert_eq!(needed, 4);
-                assert_eq!(remaining, 3);
+                assert_eq!(needed, 1);
+                assert_eq!(remaining, 0);
             }
             other => panic!("unexpected error: {other:?}"),
         }
