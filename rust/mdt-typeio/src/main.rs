@@ -52,6 +52,13 @@ mod tests {
     }
 
     #[test]
+    fn accepts_single_output_dir_with_spaces() {
+        let output_dir = parse_args(vec!["out dir".to_string()].into_iter()).unwrap();
+
+        assert_eq!(output_dir, PathBuf::from("out dir"));
+    }
+
+    #[test]
     fn parse_args_handles_missing_and_single_output_dir() {
         assert_eq!(
             parse_args(Vec::<String>::new().into_iter()).unwrap_err(),
