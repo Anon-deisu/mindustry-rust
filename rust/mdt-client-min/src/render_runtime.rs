@@ -7787,6 +7787,38 @@ mod tests {
     }
 
     #[test]
+    fn runtime_block_snapshot_label_formats_none_and_sample_fields() {
+        let mut state = SessionState::default();
+
+        assert_eq!(runtime_block_snapshot_label(&state), "none");
+
+        state.last_block_snapshot = Some(crate::session_state::AppliedBlockSnapshotEnvelope {
+            amount: 5,
+            data_len: 7,
+            first_build_pos: Some(pack_runtime_point2(3, -4)),
+            first_block_id: Some(9),
+            first_health_bits: None,
+            first_rotation: Some(2),
+            first_team_id: Some(4),
+            first_io_version: Some(6),
+            first_enabled: Some(true),
+            first_module_bitmask: Some(10),
+            first_time_scale_bits: Some(0x1234_5678),
+            first_time_scale_duration_bits: Some(0x9abc_def0),
+            first_last_disabler_pos: Some(pack_runtime_point2(-1, 2)),
+            first_legacy_consume_connected: Some(false),
+            first_efficiency: Some(8),
+            first_optional_efficiency: Some(9),
+            first_visible_flags: Some(77),
+        });
+
+        assert_eq!(
+            runtime_block_snapshot_label(&state),
+            "5x7@3:-4#9:r2:t4:v6:on1:e8:oe9:m10:ts0x12345678:tsd0x9abcdef0:ld-1:2:lcc0:vf77"
+        );
+    }
+
+    #[test]
     fn render_runtime_adapter_surfaces_build_plan_content_config_icons() {
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
