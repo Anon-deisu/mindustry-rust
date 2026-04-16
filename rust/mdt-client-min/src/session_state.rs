@@ -8435,6 +8435,22 @@ impl SessionState {
         }
     }
 
+    pub fn should_skip_entity_snapshot_upsert(
+        &mut self,
+        entity_id: i32,
+        is_local_player: bool,
+    ) -> bool {
+        if self.entity_snapshot_tombstone_blocks_upsert(entity_id) {
+            self.record_entity_snapshot_tombstone_skip(entity_id);
+            return true;
+        }
+        if self.entity_snapshot_hidden_blocks_upsert(entity_id, is_local_player) {
+            self.record_entity_snapshot_hidden_skip(entity_id);
+            return true;
+        }
+        false
+    }
+
     pub fn apply_hidden_snapshot(
         &mut self,
         applied: AppliedHiddenSnapshotIds,
@@ -15732,6 +15748,45 @@ mod tests {
             .contains_key(&303));
         assert!(!state.entity_snapshot_tombstones.contains_key(&303));
         assert!(!state.entity_snapshot_tombstone_blocks_upsert(303));
+    }
+
+    #[test]
+    fn entity_snapshot_skip_upsert_rejects_tombstoned_non_local_entity() {
+        let mut state = SessionState::default();
+        state.record_entity_snapshot_tombstone(303);
+
+        assert!(state.should_skip_entity_snapshot_upsert(303, false));
+        assert_eq!(state.entity_snapshot_tombstone_skip_count, 1);
+        assert_eq!(
+            state.last_entity_snapshot_tombstone_skipped_ids_sample,
+            vec![303]
+        );
+        assert_eq!(state.entity_snapshot_hidden_skip_count, 0);
+    }
+
+    #[test]
+    fn entity_snapshot_skip_upsert_keeps_local_player_even_when_hidden() {
+        let mut state = SessionState::default();
+        state.hidden_snapshot_ids = BTreeSet::from([303]);
+
+        assert!(!state.should_skip_entity_snapshot_upsert(303, true));
+        assert_eq!(state.entity_snapshot_tombstone_skip_count, 0);
+        assert_eq!(state.entity_snapshot_hidden_skip_count, 0);
+        assert!(state.last_entity_snapshot_hidden_skipped_ids_sample.is_empty());
+    }
+
+    #[test]
+    fn entity_snapshot_skip_upsert_rejects_hidden_non_local_entity() {
+        let mut state = SessionState::default();
+        state.hidden_snapshot_ids = BTreeSet::from([303]);
+
+        assert!(state.should_skip_entity_snapshot_upsert(303, false));
+        assert_eq!(state.entity_snapshot_tombstone_skip_count, 0);
+        assert_eq!(state.entity_snapshot_hidden_skip_count, 1);
+        assert_eq!(
+            state.last_entity_snapshot_hidden_skipped_ids_sample,
+            vec![303]
+        );
     }
 
     #[test]

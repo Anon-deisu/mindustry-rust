@@ -7535,21 +7535,8 @@ impl ClientSession {
         entity_id: i32,
         is_local_player: bool,
     ) -> bool {
-        if self
-            .state
-            .entity_snapshot_tombstone_blocks_upsert(entity_id)
-        {
-            self.state.record_entity_snapshot_tombstone_skip(entity_id);
-            return true;
-        }
-        if self
-            .state
-            .entity_snapshot_hidden_blocks_upsert(entity_id, is_local_player)
-        {
-            self.state.record_entity_snapshot_hidden_skip(entity_id);
-            return true;
-        }
-        false
+        self.state
+            .should_skip_entity_snapshot_upsert(entity_id, is_local_player)
     }
 
     fn apply_block_snapshot_entries_from_loaded_world(&mut self, payload: &[u8]) {
