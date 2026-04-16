@@ -2945,7 +2945,7 @@ mod tests {
         format_runtime_command_group_lines,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
         format_runtime_command_mode_detail_text, format_runtime_command_mode_panel_text,
-        runtime_ui_text_len,
+        compact_runtime_ui_text, runtime_ui_text_len,
         format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_command_rect_text, format_runtime_command_stance_text,
@@ -4999,6 +4999,17 @@ mod tests {
         assert_eq!(runtime_ui_text_len(None), 0);
         assert_eq!(runtime_ui_text_len(Some("")), 0);
         assert_eq!(runtime_ui_text_len(Some("a🙂")), 2);
+    }
+
+    #[test]
+    fn compact_runtime_ui_text_sanitizes_whitespace_and_truncates() {
+        assert_eq!(compact_runtime_ui_text(None), "none");
+        assert_eq!(compact_runtime_ui_text(Some("")), "-");
+        assert_eq!(compact_runtime_ui_text(Some("a b\tc\nd\re:f")), "a_b_c_d_e_f");
+        assert_eq!(
+            compact_runtime_ui_text(Some("abc def ghi jkl")),
+            "abc_def_ghi_~"
+        );
     }
 
     #[test]
