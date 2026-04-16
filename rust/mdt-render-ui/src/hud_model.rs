@@ -1315,7 +1315,8 @@ mod tests {
         RuntimeLiveEntitySummaryObservability, RuntimeMenuObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiNoticeLayerKind,
         RuntimeUiObservability, RuntimeUiPromptLayerKind, RuntimeUiStackForegroundSummaryKind,
-        RuntimeUiStackSummary, RuntimeWorldPositionObservability,
+        RuntimeUiStackSummary, RuntimeWorldPositionObservability, runtime_notice_layers,
+        runtime_prompt_layers,
     };
 
     #[test]
@@ -1417,6 +1418,54 @@ mod tests {
             "fg=input prompt=input layers=[input,follow-up,menu] notice=warn layers=[hud,reliable,info,warn] chat=on groups=3 depth=8 menu=3 hud=4 dialog=8 text-input=2 server-msg=1 chat-msg=2 chat-sender=77"
         );
         assert!(!summary.is_empty());
+    }
+
+    #[test]
+    fn runtime_prompt_and_notice_layers_preserve_order_and_handle_empty_state() {
+        let runtime_ui = RuntimeUiObservability {
+            hud_text: RuntimeHudTextObservability {
+                last_message: Some("hud".to_string()),
+                last_reliable_message: Some("reliable".to_string()),
+                ..RuntimeHudTextObservability::default()
+            },
+            toast: RuntimeToastObservability {
+                last_info_message: Some("info".to_string()),
+                last_warning_text: Some("warn".to_string()),
+                ..RuntimeToastObservability::default()
+            },
+            text_input: RuntimeTextInputObservability {
+                open_count: 1,
+                ..RuntimeTextInputObservability::default()
+            },
+            menu: RuntimeMenuObservability {
+                follow_up_menu_open_count: 1,
+                menu_open_count: 1,
+                ..RuntimeMenuObservability::default()
+            },
+            ..RuntimeUiObservability::default()
+        };
+
+        assert_eq!(
+            runtime_prompt_layers(&runtime_ui),
+            vec![
+                RuntimeUiPromptLayerKind::TextInput,
+                RuntimeUiPromptLayerKind::FollowUpMenu,
+                RuntimeUiPromptLayerKind::Menu,
+            ]
+        );
+        assert_eq!(
+            runtime_notice_layers(&runtime_ui),
+            vec![
+                RuntimeUiNoticeLayerKind::Hud,
+                RuntimeUiNoticeLayerKind::HudReliable,
+                RuntimeUiNoticeLayerKind::ToastInfo,
+                RuntimeUiNoticeLayerKind::ToastWarning,
+            ]
+        );
+
+        let empty_runtime_ui = RuntimeUiObservability::default();
+        assert!(runtime_prompt_layers(&empty_runtime_ui).is_empty());
+        assert!(runtime_notice_layers(&empty_runtime_ui).is_empty());
     }
 
     #[test]
