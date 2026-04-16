@@ -772,19 +772,72 @@ mod tests {
     }
 
     #[test]
-    fn save_post_load_world_issue_labels_are_stable() {
-        assert_eq!(
-            SavePostLoadWorldIssue::EmptyWorldGraph.label(),
-            "empty-world-graph"
-        );
-        assert_eq!(
-            SavePostLoadWorldIssue::DuplicateWorldEntityIds.label(),
-            "duplicate-world-entity-ids"
-        );
-        assert_eq!(
-            SavePostLoadWorldIssue::EntitySummaryMismatch.label(),
-            "entity-summary"
-        );
+    fn save_post_load_world_issue_labels_cover_all_variants() {
+        let cases = [
+            (
+                SavePostLoadWorldIssue::EmptyWorldGraph,
+                "empty-world-graph",
+            ),
+            (
+                SavePostLoadWorldIssue::TileSurfaceCountMismatch,
+                "tile-surface-count",
+            ),
+            (
+                SavePostLoadWorldIssue::TileSurfaceIndexMismatch,
+                "tile-surface-index",
+            ),
+            (
+                SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                "building-center-ref",
+            ),
+            (
+                SavePostLoadWorldIssue::TeamPlanOverlayMismatch,
+                "team-plan-overlay",
+            ),
+            (SavePostLoadWorldIssue::TeamPlanOutOfBounds, "team-plan-oob"),
+            (
+                SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds,
+                "duplicate-team-plan-group-ids",
+            ),
+            (SavePostLoadWorldIssue::MarkerRegionMismatch, "marker-region"),
+            (SavePostLoadWorldIssue::MarkerOutOfBounds, "marker-oob"),
+            (
+                SavePostLoadWorldIssue::DuplicateMarkerIds,
+                "duplicate-marker-ids",
+            ),
+            (
+                SavePostLoadWorldIssue::StaticFogDimensionMismatch,
+                "static-fog-dimension",
+            ),
+            (
+                SavePostLoadWorldIssue::StaticFogCoverageMismatch,
+                "static-fog-coverage",
+            ),
+            (
+                SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
+                "duplicate-static-fog-team-ids",
+            ),
+            (
+                SavePostLoadWorldIssue::DuplicateCustomChunkNames,
+                "duplicate-custom-chunk-names",
+            ),
+            (
+                SavePostLoadWorldIssue::WorldEntityCountMismatch,
+                "world-entity-count",
+            ),
+            (
+                SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+                "duplicate-world-entity-ids",
+            ),
+            (
+                SavePostLoadWorldIssue::EntitySummaryMismatch,
+                "entity-summary",
+            ),
+        ];
+
+        for (issue, expected_label) in cases {
+            assert_eq!(issue.label(), expected_label);
+        }
     }
 
     #[test]
