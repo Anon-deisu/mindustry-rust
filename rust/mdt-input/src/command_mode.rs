@@ -676,6 +676,41 @@ mod tests {
     }
 
     #[test]
+    fn command_mode_rect_projection_normalized_orders_coordinates() {
+        assert_eq!(
+            CommandModeRectProjection {
+                x0: 9,
+                y0: -4,
+                x1: -2,
+                y1: 7,
+            }
+            .normalized(),
+            CommandModeRectProjection {
+                x0: -2,
+                y0: -4,
+                x1: 9,
+                y1: 7,
+            }
+        );
+
+        assert_eq!(
+            CommandModeRectProjection {
+                x0: -3,
+                y0: 8,
+                x1: -3,
+                y1: 1,
+            }
+            .normalized(),
+            CommandModeRectProjection {
+                x0: -3,
+                y0: 1,
+                x1: -3,
+                y1: 8,
+            }
+        );
+    }
+
+    #[test]
     fn command_mode_projection_summary_reports_empty_and_recent_selection_state() {
         let empty = CommandModeProjection::default();
 
