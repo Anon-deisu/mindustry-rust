@@ -2695,7 +2695,8 @@ fn bool_flag(value: bool) -> u8 {
 mod tests {
     use super::{
         ascii_line_end_object_pair, ascii_primitive_render_command, ascii_render_command,
-        render_primitive_payload_fields_text, AsciiScenePresenter,
+        render_primitive_payload_fields_text, window_object_density_percent,
+        AsciiScenePresenter,
     };
     use crate::{
         hud_model::{
@@ -2717,6 +2718,15 @@ mod tests {
     };
     use mdt_world::parse_world_bundle;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn window_object_density_percent_handles_zero_window_and_rounding_edges() {
+        assert_eq!(window_object_density_percent(1, 0), 0);
+        assert_eq!(window_object_density_percent(0, 3), 0);
+        assert_eq!(window_object_density_percent(1, 2), 50);
+        assert_eq!(window_object_density_percent(2, 3), 66);
+        assert_eq!(window_object_density_percent(3, 3), 100);
+    }
 
     fn runtime_stack_test_scene() -> RenderModel {
         RenderModel {
