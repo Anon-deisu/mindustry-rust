@@ -722,6 +722,68 @@ mod tests {
     }
 
     #[test]
+    fn parse_packet_and_logic_transport_and_labels_are_stable() {
+        assert_eq!(RuntimeCustomPacketRelayEncoding::Text.label(), "text");
+        assert_eq!(RuntimeCustomPacketRelayEncoding::Binary.label(), "binary");
+        assert_eq!(RuntimeCustomPacketRelayEncoding::LogicData.label(), "logic");
+
+        assert_eq!(
+            parse_packet_transport("--relay-client-packet", "tcp").unwrap(),
+            RuntimeCustomPacketRelayTransport::Packet(ClientPacketTransport::Tcp)
+        );
+        assert_eq!(
+            parse_packet_transport("--relay-client-packet", "udp").unwrap(),
+            RuntimeCustomPacketRelayTransport::Packet(ClientPacketTransport::Udp)
+        );
+        assert_eq!(
+            parse_logic_transport("--relay-client-logic-data", "reliable").unwrap(),
+            RuntimeCustomPacketRelayTransport::LogicData(ClientLogicDataTransport::Reliable)
+        );
+        assert_eq!(
+            parse_logic_transport("--relay-client-logic-data", "unreliable").unwrap(),
+            RuntimeCustomPacketRelayTransport::LogicData(ClientLogicDataTransport::Unreliable)
+        );
+        assert_eq!(
+            RuntimeCustomPacketRelayTransport::Packet(ClientPacketTransport::Tcp).label(),
+            "tcp"
+        );
+        assert_eq!(
+            RuntimeCustomPacketRelayTransport::Packet(ClientPacketTransport::Udp).label(),
+            "udp"
+        );
+        assert_eq!(
+            RuntimeCustomPacketRelayTransport::LogicData(ClientLogicDataTransport::Reliable)
+                .label(),
+            "reliable"
+        );
+        assert_eq!(
+            RuntimeCustomPacketRelayTransport::LogicData(ClientLogicDataTransport::Unreliable)
+                .label(),
+            "unreliable"
+        );
+    }
+
+    #[test]
+    fn parse_packet_and_logic_transport_reject_invalid_values_with_expected_messages() {
+        assert_eq!(
+            parse_packet_transport("--relay-client-packet", "TCP").unwrap(),
+            RuntimeCustomPacketRelayTransport::Packet(ClientPacketTransport::Tcp)
+        );
+        assert_eq!(
+            parse_logic_transport("--relay-client-logic-data", "UDP").unwrap(),
+            RuntimeCustomPacketRelayTransport::LogicData(ClientLogicDataTransport::Unreliable)
+        );
+        assert_eq!(
+            parse_packet_transport("--relay-client-packet", "serial").unwrap_err(),
+            "invalid --relay-client-packet transport, expected <reliable|unreliable|tcp|udp>"
+        );
+        assert_eq!(
+            parse_logic_transport("--relay-client-logic-data", "serial").unwrap_err(),
+            "invalid --relay-client-logic-data transport, expected <reliable|unreliable|tcp|udp>"
+        );
+    }
+
+    #[test]
     fn runtime_custom_packet_relay_state_tracks_text_binary_and_logic_actions() {
         let mut state = RuntimeCustomPacketRelayState::default();
         state.register(&RuntimeCustomPacketRelaySpec::Text {
