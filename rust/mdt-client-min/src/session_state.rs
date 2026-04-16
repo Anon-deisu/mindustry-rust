@@ -1405,6 +1405,18 @@ fn liquid_amount_bits_is_zero(amount_bits: u32) -> bool {
     f32::from_bits(amount_bits) == 0.0
 }
 
+#[cfg(test)]
+mod liquid_amount_bits_is_zero_tests {
+    use super::liquid_amount_bits_is_zero;
+
+    #[test]
+    fn liquid_amount_bits_is_zero_treats_zero_and_negative_zero_as_zero() {
+        assert!(liquid_amount_bits_is_zero(0.0f32.to_bits()));
+        assert!(liquid_amount_bits_is_zero((-0.0f32).to_bits()));
+        assert!(!liquid_amount_bits_is_zero(1.0f32.to_bits()));
+    }
+}
+
 fn resource_delta_standard_entity_id(unit: Option<UnitRefProjection>) -> Option<i32> {
     match unit {
         Some(UnitRefProjection { kind: 2, value }) => Some(value),
