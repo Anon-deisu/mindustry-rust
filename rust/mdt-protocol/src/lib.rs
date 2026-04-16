@@ -808,6 +808,16 @@ mod tests {
     }
 
     #[test]
+    fn decode_framework_message_rejects_unknown_type_without_trailing_bytes() {
+        let encoded = vec![FRAMEWORK_MESSAGE_PREFIX, 9];
+
+        assert!(matches!(
+            decode_framework_message(&encoded),
+            Err(FrameworkCodecError::UnknownType(9))
+        ));
+    }
+
+    #[test]
     fn codec_error_display_strings_remain_stable() {
         assert_eq!(
             PacketCodecError::TooShort.to_string(),
