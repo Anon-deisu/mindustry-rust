@@ -84,33 +84,10 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                     state.state_snapshot_business_projection = Some(business_projection);
                     match parsed_core_data {
                         Ok(core_data) => {
-                            let core_inventory = derive_state_snapshot_core_inventory_transition(
-                                None,
-                                Some(&core_data),
-                            );
-                            state.last_state_snapshot_core_data = Some(core_data.clone());
-                            state.last_good_state_snapshot_core_data = Some(core_data);
-                            state.last_state_snapshot_core_data_duplicate_team_count =
-                                core_inventory.inventory.duplicate_team_count;
-                            state.last_state_snapshot_core_data_duplicate_item_count =
-                                core_inventory.inventory.duplicate_item_count;
-                            state.state_snapshot_core_data_duplicate_team_count_total = state
-                                .state_snapshot_core_data_duplicate_team_count_total
-                                .saturating_add(
-                                    core_inventory.inventory.duplicate_team_count as u64,
-                                );
-                            state.state_snapshot_core_data_duplicate_item_count_total = state
-                                .state_snapshot_core_data_duplicate_item_count_total
-                                .saturating_add(
-                                    core_inventory.inventory.duplicate_item_count as u64,
-                                );
-                            state.clear_state_snapshot_core_data_parse_failure();
+                            state.apply_state_snapshot_core_data(core_data);
                         }
                         Err(error) => {
-                            state.last_state_snapshot_core_data = None;
-                            state.last_state_snapshot_core_data_duplicate_team_count = 0;
-                            state.last_state_snapshot_core_data_duplicate_item_count = 0;
-                            state.record_state_snapshot_core_data_parse_failure(
+                            state.apply_state_snapshot_core_data_parse_failure(
                                 error.to_string(),
                                 parsed_core_data_len,
                             );

@@ -7296,6 +7296,35 @@ impl SessionState {
         self.last_state_snapshot_core_data_parse_error_payload_len = None;
     }
 
+    pub fn apply_state_snapshot_core_data(&mut self, core_data: AppliedStateSnapshotCoreData) {
+        let core_inventory =
+            derive_state_snapshot_core_inventory_transition(None, Some(&core_data));
+        self.last_state_snapshot_core_data = Some(core_data.clone());
+        self.last_good_state_snapshot_core_data = Some(core_data);
+        self.last_state_snapshot_core_data_duplicate_team_count =
+            core_inventory.inventory.duplicate_team_count;
+        self.last_state_snapshot_core_data_duplicate_item_count =
+            core_inventory.inventory.duplicate_item_count;
+        self.state_snapshot_core_data_duplicate_team_count_total = self
+            .state_snapshot_core_data_duplicate_team_count_total
+            .saturating_add(core_inventory.inventory.duplicate_team_count as u64);
+        self.state_snapshot_core_data_duplicate_item_count_total = self
+            .state_snapshot_core_data_duplicate_item_count_total
+            .saturating_add(core_inventory.inventory.duplicate_item_count as u64);
+        self.clear_state_snapshot_core_data_parse_failure();
+    }
+
+    pub fn apply_state_snapshot_core_data_parse_failure(
+        &mut self,
+        error: String,
+        payload_len: usize,
+    ) {
+        self.last_state_snapshot_core_data = None;
+        self.last_state_snapshot_core_data_duplicate_team_count = 0;
+        self.last_state_snapshot_core_data_duplicate_item_count = 0;
+        self.record_state_snapshot_core_data_parse_failure(error, payload_len);
+    }
+
     pub fn record_hidden_snapshot_parse_failure(&mut self, error: String, payload_len: usize) {
         self.failed_hidden_snapshot_parse_count =
             self.failed_hidden_snapshot_parse_count.saturating_add(1);
@@ -9871,6 +9900,87 @@ mod tests {
 
         assert_eq!(state.last_state_snapshot_core_data_parse_error, None);
         assert_eq!(state.last_state_snapshot_core_data_parse_error_payload_len, None);
+    }
+
+    #[test]
+    fn session_state_apply_state_snapshot_core_data_updates_duplicate_metrics() {
+        let mut state = SessionState::default();
+        state.last_state_snapshot_core_data_parse_error =
+            Some("stateSnapshot coreData trailing bytes".to_string());
+        state.last_state_snapshot_core_data_parse_error_payload_len = Some(34);
+
+        state.apply_state_snapshot_core_data(AppliedStateSnapshotCoreData {
+            team_count: 2,
+            teams: vec![
+                AppliedStateSnapshotCoreDataTeam {
+                    team_id: 1,
+                    items: vec![
+                        AppliedStateSnapshotCoreDataItem {
+                            item_id: 0,
+                            amount: 10,
+                        },
+                        AppliedStateSnapshotCoreDataItem {
+                            item_id: 0,
+                            amount: 20,
+                        },
+                    ],
+                },
+                AppliedStateSnapshotCoreDataTeam {
+                    team_id: 1,
+                    items: vec![AppliedStateSnapshotCoreDataItem {
+                        item_id: 2,
+                        amount: 30,
+                    }],
+                },
+            ],
+        });
+
+        assert!(state.last_state_snapshot_core_data.is_some());
+        assert_eq!(
+            state.last_good_state_snapshot_core_data,
+            state.last_state_snapshot_core_data
+        );
+        assert_eq!(state.last_state_snapshot_core_data_duplicate_team_count, 1);
+        assert_eq!(state.last_state_snapshot_core_data_duplicate_item_count, 1);
+        assert_eq!(state.state_snapshot_core_data_duplicate_team_count_total, 1);
+        assert_eq!(state.state_snapshot_core_data_duplicate_item_count_total, 1);
+        assert_eq!(state.last_state_snapshot_core_data_parse_error, None);
+        assert_eq!(state.last_state_snapshot_core_data_parse_error_payload_len, None);
+    }
+
+    #[test]
+    fn session_state_apply_state_snapshot_core_data_parse_failure_preserves_last_good_core_data() {
+        let mut state = SessionState::default();
+        let core_data = AppliedStateSnapshotCoreData {
+            team_count: 1,
+            teams: vec![AppliedStateSnapshotCoreDataTeam {
+                team_id: 1,
+                items: vec![AppliedStateSnapshotCoreDataItem {
+                    item_id: 0,
+                    amount: 10,
+                }],
+            }],
+        };
+        state.apply_state_snapshot_core_data(core_data.clone());
+
+        state.apply_state_snapshot_core_data_parse_failure(
+            "stateSnapshot coreData trailing bytes".to_string(),
+            34,
+        );
+
+        assert_eq!(state.last_state_snapshot_core_data, None);
+        assert_eq!(state.last_good_state_snapshot_core_data, Some(core_data));
+        assert_eq!(state.last_state_snapshot_core_data_duplicate_team_count, 0);
+        assert_eq!(state.last_state_snapshot_core_data_duplicate_item_count, 0);
+        assert_eq!(state.failed_state_snapshot_core_data_parse_count, 1);
+        assert_eq!(
+            state.last_state_snapshot_core_data_parse_error.as_deref(),
+            Some("stateSnapshot coreData trailing bytes")
+        );
+        assert_eq!(
+            state.last_state_snapshot_core_data_parse_error_payload_len,
+            Some(34)
+        );
     }
 
     #[test]
