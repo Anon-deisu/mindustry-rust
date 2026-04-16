@@ -251,6 +251,26 @@ mod tests {
     }
 
     #[test]
+    fn changed_team_ids_since_without_previous_returns_all_team_ids() {
+        let semantics = StateSnapshotCoreInventorySemantics {
+            inventory_by_team: BTreeMap::from([
+                (1u8, BTreeMap::from([(0u16, 10)])),
+                (2u8, BTreeMap::from([(4u16, 40)])),
+            ]),
+            item_entry_count: 2,
+            total_amount: 50,
+            nonzero_item_count: 2,
+            duplicate_team_count: 0,
+            duplicate_item_count: 0,
+        };
+
+        assert_eq!(
+            semantics.changed_team_ids_since(None),
+            BTreeSet::from([1u8, 2u8])
+        );
+    }
+
+    #[test]
     fn changed_team_ids_since_reports_added_removed_and_modified_teams() {
         let previous = BTreeMap::from([
             (1u8, BTreeMap::from([(0u16, 10)])),
