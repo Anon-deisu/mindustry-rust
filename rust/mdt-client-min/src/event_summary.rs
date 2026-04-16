@@ -1658,6 +1658,27 @@ mod tests {
     }
 
     #[test]
+    fn format_effect_requested_and_reliable_requested_summary_keeps_bit_labels_stable() {
+        let data_object = TypeIoObject::Int(7);
+
+        assert_eq!(
+            format_effect_requested_summary(
+                Some(14),
+                32.5,
+                -4.0,
+                90.0,
+                0x1122_3344,
+                Some(&data_object),
+            ),
+            "effect_requested: effect_id=Some(14) x_bits=0x42020000 y_bits=0xc0800000 rotation_bits=0x42b40000 color_rgba=0x11223344 data_object=Some(Int(7))"
+        );
+        assert_eq!(
+            format_effect_reliable_requested_summary(Some(21), -5.0, 6.5, 180.0, 0xaabb_ccdd),
+            "effect_reliable_requested: effect_id=Some(21) x_bits=0xc0a00000 y_bits=0x40d00000 rotation_bits=0x43340000 color_rgba=0xaabbccdd"
+        );
+    }
+
+    #[test]
     fn summarize_client_packet_events_includes_build_and_effect_events() {
         let lines = summarize_client_packet_events(&[
             ClientSessionEvent::EffectRequested {
