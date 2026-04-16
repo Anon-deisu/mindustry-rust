@@ -498,6 +498,25 @@ mod tests {
     }
 
     #[test]
+    fn save_post_load_unknown_count_helpers_match_unknown_coverage_summary() {
+        let observation = test_observation();
+        let summary = observation.unknown_coverage_summary();
+
+        assert_eq!(
+            observation.unknown_building_tail_count(),
+            summary.building_tail_unknown_count
+        );
+        assert_eq!(
+            observation.unknown_marker_model_count(),
+            summary.marker_unknown_count
+        );
+        assert_eq!(
+            observation.unknown_custom_chunk_count(),
+            summary.custom_chunk_unknown_count
+        );
+    }
+
+    #[test]
     fn post_load_world_apply_bundle_reports_source_region_readiness() {
         let observation = test_observation();
         let bundle = observation.post_load_world_apply_bundle();
