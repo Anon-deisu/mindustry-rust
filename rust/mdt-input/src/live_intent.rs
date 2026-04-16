@@ -1423,4 +1423,41 @@ mod tests {
             "move=0,0 aim=0,0 mining=none building=off active=0 transient=none"
         );
     }
+
+    #[test]
+    fn clear_transient_edges_clears_only_transient_state() {
+        let mut state = LiveIntentState {
+            move_axis: (1.0, -1.0),
+            aim_axis: (8.0, 12.0),
+            mining_tile: Some((7, 8)),
+            building: true,
+            last_config_tap_tile: Some((3, 4)),
+            config_tap_count: 2,
+            last_build_pulse: Some(BuildPulse {
+                tile: (9, 10),
+                breaking: true,
+            }),
+            build_pulse_count: 3,
+            active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
+            pressed_actions: vec![BinaryAction::Chat],
+            released_actions: vec![BinaryAction::Interact],
+        };
+
+        state.clear_transient_edges();
+
+        assert_eq!(state.move_axis, (1.0, -1.0));
+        assert_eq!(state.aim_axis, (8.0, 12.0));
+        assert_eq!(state.mining_tile, Some((7, 8)));
+        assert!(state.building);
+        assert_eq!(state.config_tap_count, 2);
+        assert_eq!(state.build_pulse_count, 3);
+        assert_eq!(
+            state.active_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+        assert!(state.last_config_tap_tile.is_none());
+        assert!(state.last_build_pulse.is_none());
+        assert!(state.pressed_actions.is_empty());
+        assert!(state.released_actions.is_empty());
+    }
 }
