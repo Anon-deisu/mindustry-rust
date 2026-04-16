@@ -746,6 +746,34 @@ mod tests {
     }
 
     #[test]
+    fn runtime_static_fog_seed_rejects_duplicate_static_fog_chunks_and_keeps_singleton_seed() {
+        let observation = test_observation();
+
+        let singleton_seed = runtime_static_fog_seed(&observation.custom_chunks)
+            .expect("single static-fog-data chunk should seed");
+        assert_eq!(singleton_seed.source_chunk_name, "static-fog-data");
+        assert_eq!(singleton_seed.source_chunk_sha256, "fog");
+        assert_eq!(singleton_seed.width, 2);
+        assert_eq!(singleton_seed.height, 2);
+        assert_eq!(singleton_seed.teams.len(), 2);
+        assert_eq!(singleton_seed.teams[0].team_id, 1);
+        assert_eq!(singleton_seed.teams[0].discovered_count, 3);
+        assert_eq!(singleton_seed.teams[1].team_id, 2);
+        assert_eq!(singleton_seed.teams[1].discovered_indices, vec![1, 3]);
+
+        let mut duplicated_chunks = observation.custom_chunks.clone();
+        duplicated_chunks.push(CustomChunkEntry {
+            name: "static-fog-data".to_string(),
+            chunk_len: 1,
+            chunk_bytes: vec![10],
+            chunk_sha256: "fog-duplicate".to_string(),
+            parsed: ParsedCustomChunk::Unknown,
+        });
+
+        assert!(runtime_static_fog_seed(&duplicated_chunks).is_none());
+    }
+
+    #[test]
     fn runtime_seed_plan_blocks_damaged_static_fog_data_chunk() {
         let mut observation = test_observation();
         observation.custom_chunks.truncate(1);
