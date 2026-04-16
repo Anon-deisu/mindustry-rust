@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn non_finite_axes_are_normalized_before_mapping() {
+    fn normalize_axis_rejects_non_finite_axes_and_keeps_finite_axes() {
         let mut mapper = StatelessIntentMapper::default();
 
         assert_eq!(
@@ -530,6 +530,16 @@ mod tests {
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+            ]
+        );
+
+        assert_eq!(
+            mapper.map_snapshot(&snapshot((0.5, -0.75), (1.25, 2.5), &[])),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.5, y: -0.75 },
+                PlayerIntent::SetAimAxis { x: 1.25, y: 2.5 },
                 PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::SetBuilding { building: false },
             ]
