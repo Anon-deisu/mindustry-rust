@@ -236,6 +236,27 @@ mod tests {
     }
 
     #[test]
+    fn handle_framework_message_ignores_discover_host_and_keep_alive() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let server_addr = server.local_addr().unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let driver = UdpSessionDriver::new(client, server_addr).unwrap();
+        let mut report = UdpTickReport::default();
+
+        driver
+            .handle_framework_message(FrameworkMessage::DiscoverHost, &mut report)
+            .unwrap();
+        driver
+            .handle_framework_message(FrameworkMessage::KeepAlive, &mut report)
+            .unwrap();
+
+        assert_eq!(report.outbound_framework_messages, 0);
+        assert_eq!(report.inbound_framework_messages, 0);
+        assert_eq!(report.outbound_packets, 0);
+        assert_eq!(report.inbound_packets, 0);
+    }
+
+    #[test]
     fn world_stream_ready_over_udp_surfaces_pending_tcp_connect_confirm() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let timing = ClientSessionTiming {
