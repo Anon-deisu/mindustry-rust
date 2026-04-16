@@ -208,6 +208,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_world_pos_parses_comma_and_colon_pairs_and_rejects_invalid_input() {
+        assert_eq!(parse_world_pos("12.5, -3.25"), Some((12.5, -3.25)));
+        assert_eq!(parse_world_pos(" 8 : 16 "), Some((8.0, 16.0)));
+        assert_eq!(parse_world_pos("NaN,1"), None);
+        assert_eq!(parse_world_pos("1,inf"), None);
+        assert_eq!(parse_world_pos("not-a-position"), None);
+    }
+
+    #[test]
     fn resolve_runtime_custom_packet_command_target_uses_runtime_entity_position_for_unit_routes() {
         let entry = RuntimeCustomPacketSurfaceSummaryEntry {
             key: "logic.unit".to_string(),
