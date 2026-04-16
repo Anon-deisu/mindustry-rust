@@ -937,7 +937,16 @@ fn summarize_kick_hint_from(
     reason_text: Option<&str>,
     reason_ordinal: Option<i32>,
 ) -> (Option<&'static str>, Option<&'static str>) {
-    let normalized_reason = match reason_text {
+    normalize_kick_reason(reason_text, reason_ordinal)
+        .map(kick_hint_for_reason)
+        .unwrap_or((None, None))
+}
+
+fn normalize_kick_reason(
+    reason_text: Option<&str>,
+    reason_ordinal: Option<i32>,
+) -> Option<&'static str> {
+    match reason_text {
         Some("banned") => Some("banned"),
         Some("clientOutdated") => Some("clientOutdated"),
         Some("recentKick") => Some("recentKick"),
@@ -951,66 +960,68 @@ fn summarize_kick_hint_from(
         Some("playerLimit") => Some("playerLimit"),
         Some("serverRestarting") => Some("serverRestarting"),
         _ => reason_ordinal.and_then(summarize_kick_reason_name_from_ordinal),
-    };
+    }
+}
 
-    match normalized_reason {
-        Some("banned") => (
+fn kick_hint_for_reason(reason: &'static str) -> (Option<&'static str>, Option<&'static str>) {
+    match reason {
+        "banned" => (
             Some("Banned"),
             Some(
                 "server reports this identity or name is banned; use a different account or ask the server admin to review the ban.",
             ),
         ),
-        Some("clientOutdated") => (
+        "clientOutdated" => (
             Some("ClientOutdated"),
             Some("client build is outdated; upgrade this client to the server version."),
         ),
-        Some("recentKick") => (
+        "recentKick" => (
             Some("RecentKick"),
             Some(
                 "server still remembers a recent kick; wait for the cooldown to expire before reconnecting.",
             ),
         ),
-        Some("nameInUse") => (
+        "nameInUse" => (
             Some("NameInUse"),
             Some("player name is already in use; retry with a different --name value."),
         ),
-        Some("idInUse") => (
+        "idInUse" => (
             Some("IdInUse"),
             Some(
                 "uuid or usid is already in use; wait for the old session to clear or regenerate the connect identity.",
             ),
         ),
-        Some("nameEmpty") => (
+        "nameEmpty" => (
             Some("NameEmpty"),
             Some(
                 "player name is empty or invalid; set --name to a non-empty value accepted by the server.",
             ),
         ),
-        Some("serverOutdated") => (
+        "serverOutdated" => (
             Some("ServerOutdated"),
             Some(
                 "server build is older than this client; use a matching server or older client build.",
             ),
         ),
-        Some("customClient") => (
+        "customClient" => (
             Some("CustomClientRejected"),
             Some(
                 "server rejected custom clients; connect to a server that allows custom clients.",
             ),
         ),
-        Some("typeMismatch") => (
+        "typeMismatch" => (
             Some("TypeMismatch"),
             Some("version type/protocol mismatch; align client/server version type and mod set."),
         ),
-        Some("whitelist") => (
+        "whitelist" => (
             Some("WhitelistRequired"),
             Some("server requires whitelist access; ask the server admin to whitelist this identity."),
         ),
-        Some("playerLimit") => (
+        "playerLimit" => (
             Some("PlayerLimit"),
             Some("server is full; wait for an open slot or use an identity with reserved access."),
         ),
-        Some("serverRestarting") => (
+        "serverRestarting" => (
             Some("ServerRestarting"),
             Some("server is restarting; retry connection shortly."),
         ),
@@ -1716,6 +1727,27 @@ mod tests {
             format_final_kick_summary(true, Some("banned"), None, Some(1200)),
             "final_kick: kicked=true reason_text=Some(\"banned\") reason_ordinal=None duration_ms=Some(1200) hint_category=Banned hint_text=Some(\"server reports this identity or name is banned; use a different account or ask the server admin to review the ban.\")"
         );
+    }
+
+    #[test]
+    fn summarize_kick_hint_from_prefers_text_over_ordinal_when_both_present() {
+        assert_eq!(
+            summarize_kick_hint_from(Some("banned"), Some(2)),
+            (
+                Some("Banned"),
+                Some(
+                    "server reports this identity or name is banned; use a different account or ask the server admin to review the ban.",
+                ),
+            )
+        );
+    }
+
+    #[test]
+    fn summarize_kick_reason_name_from_ordinal_maps_known_ordinals() {
+        assert_eq!(summarize_kick_reason_name_from_ordinal(1), Some("clientOutdated"));
+        assert_eq!(summarize_kick_reason_name_from_ordinal(3), Some("banned"));
+        assert_eq!(summarize_kick_reason_name_from_ordinal(15), Some("serverRestarting"));
+        assert_eq!(summarize_kick_reason_name_from_ordinal(99), None);
     }
 
     #[test]
