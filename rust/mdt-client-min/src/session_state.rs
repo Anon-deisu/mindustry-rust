@@ -8486,32 +8486,14 @@ impl SessionState {
         trigger_hidden_ids: BTreeSet<i32>,
     ) {
         let previous_hidden_ids = std::mem::take(&mut self.hidden_snapshot_ids);
-        let trigger_count = trigger_hidden_ids.len();
-        let added_ids = trigger_hidden_ids
-            .difference(&previous_hidden_ids)
-            .copied()
-            .collect::<Vec<_>>();
         let removed_ids = previous_hidden_ids
             .difference(&trigger_hidden_ids)
             .copied()
             .collect::<Vec<_>>();
-        let added_sample_ids = added_ids
-            .iter()
-            .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
-            .copied()
-            .collect();
-        let removed_sample_ids = removed_ids
-            .iter()
-            .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
-            .copied()
-            .collect();
-        let typed_runtime_transition = HiddenSnapshotTypedRuntimeTransition {
-            refresh_ids: trigger_hidden_ids
-                .iter()
-                .chain(removed_ids.iter())
-                .copied()
-                .collect(),
-        };
+        let delta_projection =
+            Self::hidden_snapshot_delta_projection(&previous_hidden_ids, &trigger_hidden_ids);
+        let typed_runtime_transition =
+            Self::hidden_snapshot_typed_runtime_transition(&trigger_hidden_ids, &removed_ids);
 
         self.applied_hidden_snapshot_count = self.applied_hidden_snapshot_count.saturating_add(1);
         self.last_hidden_snapshot = Some(applied);
@@ -8539,30 +8521,17 @@ impl SessionState {
             self.clear_entity_snapshot_tombstone(*entity_id);
         }
         self.hidden_snapshot_ids = trigger_hidden_ids;
-        self.hidden_snapshot_delta_projection = Some(HiddenSnapshotDeltaProjection {
-            active_count: trigger_count,
-            added_count: added_ids.len(),
-            removed_count: removed_ids.len(),
-            added_sample_ids,
-            removed_sample_ids,
-        });
-        self.apply_hidden_snapshot_typed_runtime_transition(&typed_runtime_transition);
+        self.hidden_snapshot_delta_projection = Some(delta_projection);
     }
 
     pub fn clear_hidden_snapshot_after_parse_failure(&mut self) {
         let previous_hidden_ids = std::mem::take(&mut self.hidden_snapshot_ids);
         self.last_hidden_snapshot = None;
-        self.hidden_snapshot_delta_projection = Some(HiddenSnapshotDeltaProjection {
-            active_count: 0,
-            added_count: 0,
-            removed_count: previous_hidden_ids.len(),
-            added_sample_ids: Vec::new(),
-            removed_sample_ids: previous_hidden_ids
-                .iter()
-                .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
-                .copied()
-                .collect(),
-        });
+        let cleared_hidden_ids = BTreeSet::new();
+        self.hidden_snapshot_delta_projection = Some(Self::hidden_snapshot_delta_projection(
+            &previous_hidden_ids,
+            &cleared_hidden_ids,
+        ));
         self.last_hidden_lifecycle_removed_ids_sample.clear();
         if previous_hidden_ids.is_empty() {
             self.hidden_snapshot_runtime_rollback = HiddenSnapshotRuntimeRollback::default();
@@ -8571,10 +8540,9 @@ impl SessionState {
 
         self.clear_entity_snapshot_tombstones_for_ids(&previous_hidden_ids);
 
-        let cleared_hidden_ids = BTreeSet::new();
-        let typed_runtime_transition = HiddenSnapshotTypedRuntimeTransition {
-            refresh_ids: previous_hidden_ids.iter().copied().collect(),
-        };
+        let removed_ids = previous_hidden_ids.iter().copied().collect::<Vec<_>>();
+        let typed_runtime_transition =
+            Self::hidden_snapshot_typed_runtime_transition(&cleared_hidden_ids, &removed_ids);
         self.entity_table_projection
             .apply_hidden_ids(&cleared_hidden_ids);
         self.restore_hidden_snapshot_runtime_rollback_for_ids(&previous_hidden_ids);
@@ -8586,6 +8554,49 @@ impl SessionState {
             &typed_runtime_transition,
         );
         self.hidden_snapshot_ids = cleared_hidden_ids;
+    }
+
+    fn hidden_snapshot_delta_projection(
+        previous_hidden_ids: &BTreeSet<i32>,
+        trigger_hidden_ids: &BTreeSet<i32>,
+    ) -> HiddenSnapshotDeltaProjection {
+        let added_ids = trigger_hidden_ids
+            .difference(previous_hidden_ids)
+            .copied()
+            .collect::<Vec<_>>();
+        let removed_ids = previous_hidden_ids
+            .difference(trigger_hidden_ids)
+            .copied()
+            .collect::<Vec<_>>();
+
+        HiddenSnapshotDeltaProjection {
+            active_count: trigger_hidden_ids.len(),
+            added_count: added_ids.len(),
+            removed_count: removed_ids.len(),
+            added_sample_ids: added_ids
+                .iter()
+                .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
+                .copied()
+                .collect(),
+            removed_sample_ids: removed_ids
+                .iter()
+                .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
+                .copied()
+                .collect(),
+        }
+    }
+
+    fn hidden_snapshot_typed_runtime_transition(
+        trigger_hidden_ids: &BTreeSet<i32>,
+        removed_ids: &[i32],
+    ) -> HiddenSnapshotTypedRuntimeTransition {
+        HiddenSnapshotTypedRuntimeTransition {
+            refresh_ids: trigger_hidden_ids
+                .iter()
+                .copied()
+                .chain(removed_ids.iter().copied())
+                .collect(),
+        }
     }
 
     fn capture_hidden_snapshot_runtime_rollback(
@@ -15704,6 +15715,42 @@ mod tests {
         assert_eq!(projection.last_changed_amount, Some(0));
         assert_eq!(projection.authoritative_build_update_count, 0);
         assert_eq!(projection.delta_apply_count, 0);
+    }
+
+    #[test]
+    fn hidden_snapshot_delta_projection_tracks_added_removed_and_samples() {
+        let previous_hidden_ids = BTreeSet::from([1, 2, 3, 4, 5]);
+        let trigger_hidden_ids = BTreeSet::from([3, 4, 6, 7]);
+
+        assert_eq!(
+            SessionState::hidden_snapshot_delta_projection(
+                &previous_hidden_ids,
+                &trigger_hidden_ids
+            ),
+            HiddenSnapshotDeltaProjection {
+                active_count: 4,
+                added_count: 2,
+                removed_count: 3,
+                added_sample_ids: vec![6, 7],
+                removed_sample_ids: vec![1, 2, 5],
+            }
+        );
+    }
+
+    #[test]
+    fn hidden_snapshot_typed_runtime_transition_merges_trigger_and_removed_ids() {
+        let trigger_hidden_ids = BTreeSet::from([3, 4]);
+        let removed_ids = vec![4, 5, 6];
+
+        assert_eq!(
+            SessionState::hidden_snapshot_typed_runtime_transition(
+                &trigger_hidden_ids,
+                &removed_ids
+            ),
+            HiddenSnapshotTypedRuntimeTransition {
+                refresh_ids: BTreeSet::from([3, 4, 5, 6]),
+            }
+        );
     }
 
     #[test]
