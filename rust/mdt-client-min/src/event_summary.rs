@@ -1722,6 +1722,14 @@ mod tests {
     }
 
     #[test]
+    fn format_binary_packet_summary_handles_empty_payload_without_hex_prefix() {
+        assert_eq!(
+            format_binary_packet_summary("client_binary_packet", "reliable", "empty", &[]),
+            "client_binary_packet: transport=reliable type=\"empty\" len=0 hex_prefix="
+        );
+    }
+
+    #[test]
     fn encode_hex_text_formats_empty_and_preserves_leading_zeroes() {
         assert_eq!(encode_hex_text(&[]), "");
         assert_eq!(encode_hex_text(&[0x00, 0x0a, 0x01, 0x10, 0xab]), "000a0110ab");
