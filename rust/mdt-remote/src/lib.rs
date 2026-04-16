@@ -3224,6 +3224,27 @@ mod tests {
     }
 
     #[test]
+    fn remote_flow_from_targets_maps_known_values_and_rejects_unknown() {
+        assert_eq!(
+            remote_flow_from_targets("client").unwrap(),
+            RemoteFlow::ClientToServer
+        );
+        assert_eq!(
+            remote_flow_from_targets("server").unwrap(),
+            RemoteFlow::ServerToClient
+        );
+        assert_eq!(
+            remote_flow_from_targets("both").unwrap(),
+            RemoteFlow::Bidirectional
+        );
+        assert!(matches!(
+            remote_flow_from_targets("spectator"),
+            Err(RemoteManifestError::InvalidRemotePacketMetadata(message))
+                if message == "unsupported remote targets: spectator"
+        ));
+    }
+
+    #[test]
     fn param_is_wire_included_client_server_respects_caller_side_flags() {
         let cases = [
             (RemoteFlow::ClientToServer, false, false, false),
