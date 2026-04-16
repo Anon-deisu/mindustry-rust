@@ -476,4 +476,14 @@ mod tests {
             .to_string()
             .contains("output paths for registry and high-frequency must not overlap"));
     }
+
+    #[test]
+    fn reject_overlapping_output_paths_allows_distinct_paths_with_missing_registry() {
+        assert!(reject_overlapping_output_paths(
+            None,
+            Some(Path::new("build/mdt-remote/remote-high-frequency.rs")),
+            Some(Path::new("build/mdt-output/remote-inbound-dispatch.rs")),
+        )
+        .is_ok());
+    }
 }
