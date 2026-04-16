@@ -2772,6 +2772,12 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_optional_i32_label_maps_none_and_some() {
+        assert_eq!(super::optional_i32_label(None), "none");
+        assert_eq!(super::optional_i32_label(Some(404)), "404");
+    }
+
+    #[test]
     fn ascii_presenter_bool_flag_maps_false_and_true() {
         assert_eq!(super::bool_flag(false), 0);
         assert_eq!(super::bool_flag(true), 1);
