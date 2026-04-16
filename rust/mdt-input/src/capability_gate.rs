@@ -346,7 +346,9 @@ fn optional_u8_label(value: Option<u8>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_mode::{CommandModeStanceSelection, CommandUnitRef};
+    use crate::command_mode::{
+        CommandModeCommandSelection, CommandModeStanceSelection, CommandUnitRef,
+    };
     use crate::intent::{BuildPulse, PlayerIntent};
 
     fn context() -> CapabilityContext {
@@ -447,6 +449,25 @@ mod tests {
             "unit=controlled-unit-live mining=on building=on command=on mode=target+command+stance decision=missing-command-target"
         );
         assert!(!evaluation.allowed());
+    }
+
+    #[test]
+    fn command_request_summary_label_covers_none_command_and_disabled_stance() {
+        assert_eq!(
+            CapabilityCommandRequest::SetCommand(CommandModeCommandSelection {
+                command_id: None,
+            })
+            .summary_label(),
+            "command=none"
+        );
+        assert_eq!(
+            CapabilityCommandRequest::SetStance(CommandModeStanceSelection {
+                stance_id: Some(3),
+                enabled: false,
+            })
+            .summary_label(),
+            "stance=3:off"
+        );
     }
 
     #[test]
