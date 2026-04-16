@@ -540,6 +540,12 @@ mod tests {
     }
 
     #[test]
+    fn encode_hex_formats_empty_and_preserves_leading_zeroes() {
+        assert_eq!(encode_hex(&[]), "");
+        assert_eq!(encode_hex(&[0x00, 0x01, 0x0a, 0x10]), "00010a10");
+    }
+
+    #[test]
     fn small_packet_stays_uncompressed() {
         let payload = stream_begin_payload(7, 300, 2);
         let encoded = encode_packet(STREAM_BEGIN_PACKET_ID, &payload, false).unwrap();
