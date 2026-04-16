@@ -1594,6 +1594,69 @@ mod tests {
     }
 
     #[test]
+    fn runtime_chat_active_detects_any_chat_signal_and_stays_empty_for_zero_state() {
+        let cases = [
+            ("empty", RuntimeChatObservability::default(), false),
+            (
+                "server_message_count",
+                RuntimeChatObservability {
+                    server_message_count: 1,
+                    ..RuntimeChatObservability::default()
+                },
+                true,
+            ),
+            (
+                "last_server_message",
+                RuntimeChatObservability {
+                    last_server_message: Some("server".to_string()),
+                    ..RuntimeChatObservability::default()
+                },
+                true,
+            ),
+            (
+                "chat_message_count",
+                RuntimeChatObservability {
+                    chat_message_count: 1,
+                    ..RuntimeChatObservability::default()
+                },
+                true,
+            ),
+            (
+                "last_chat_message",
+                RuntimeChatObservability {
+                    last_chat_message: Some("chat".to_string()),
+                    ..RuntimeChatObservability::default()
+                },
+                true,
+            ),
+            (
+                "last_chat_unformatted",
+                RuntimeChatObservability {
+                    last_chat_unformatted: Some("raw".to_string()),
+                    ..RuntimeChatObservability::default()
+                },
+                true,
+            ),
+            (
+                "last_chat_sender_entity_id",
+                RuntimeChatObservability {
+                    last_chat_sender_entity_id: Some(7),
+                    ..RuntimeChatObservability::default()
+                },
+                true,
+            ),
+        ];
+
+        for (case_name, chat, expected) in cases {
+            assert_eq!(
+                super::runtime_chat_active(&chat),
+                expected,
+                "case {case_name}"
+            );
+        }
+    }
+
+    #[test]
     fn runtime_ui_stack_summary_drops_completed_prompt_layers_from_foreground() {
         let hud = HudModel {
             runtime_ui: Some(RuntimeUiObservability {
