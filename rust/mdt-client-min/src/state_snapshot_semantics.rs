@@ -260,6 +260,30 @@ mod tests {
     }
 
     #[test]
+    fn from_previous_clones_inventory_and_clears_duplicate_counters() {
+        let previous_inventory = BTreeMap::from([
+            (2u8, BTreeMap::from([(1u16, 11)])),
+            (5u8, BTreeMap::from([(7u16, 70)])),
+        ]);
+
+        let semantics = StateSnapshotCoreInventorySemantics::from_previous(
+            StateSnapshotCoreInventoryPrevious {
+                inventory_by_team: &previous_inventory,
+                item_entry_count: 2,
+                total_amount: 81,
+                nonzero_item_count: 2,
+            },
+        );
+
+        assert_eq!(semantics.inventory_by_team, previous_inventory);
+        assert_eq!(semantics.item_entry_count, 2);
+        assert_eq!(semantics.total_amount, 81);
+        assert_eq!(semantics.nonzero_item_count, 2);
+        assert_eq!(semantics.duplicate_team_count, 0);
+        assert_eq!(semantics.duplicate_item_count, 0);
+    }
+
+    #[test]
     fn derive_transition_without_previous_or_core_data_yields_empty_unsynced_inventory() {
         let transition = derive_state_snapshot_core_inventory_transition(None, None);
 
