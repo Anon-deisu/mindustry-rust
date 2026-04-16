@@ -6969,6 +6969,19 @@ mod tests {
     }
 
     #[test]
+    fn runtime_snapshot_method_label_formats_none_and_known_method_names() {
+        let cases = [
+            (None, "none"),
+            (Some(HighFrequencyRemoteMethod::ClientSnapshot), "clientSnapshot"),
+            (Some(HighFrequencyRemoteMethod::StateSnapshot), "stateSnapshot"),
+        ];
+
+        for (method, expected) in cases {
+            assert_eq!(runtime_snapshot_method_label(method), expected);
+        }
+    }
+
+    #[test]
     fn render_runtime_adapter_appends_visible_runtime_live_unit_object() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
