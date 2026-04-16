@@ -612,6 +612,31 @@ mod tests {
     }
 
     #[test]
+    fn runtime_readiness_can_apply_now_rejects_blocked_or_deferred_regions() {
+        let blocked_region = SavePostLoadRuntimeRegionReadiness {
+            kind: SavePostLoadRuntimeRegionKind::Markers,
+            source_region_name: "markers",
+            step_count: 2,
+            disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+            blockers: vec![SavePostLoadConsumerBlocker::ContractIssue(
+                SavePostLoadWorldIssue::MarkerRegionMismatch,
+            )],
+        };
+        let deferred_region = SavePostLoadRuntimeRegionReadiness {
+            kind: SavePostLoadRuntimeRegionKind::CustomChunks,
+            source_region_name: "custom",
+            step_count: 1,
+            disposition: SavePostLoadConsumerRuntimeDisposition::Deferred,
+            blockers: Vec::new(),
+        };
+
+        assert!(!blocked_region.can_apply_now());
+        assert!(blocked_region.has_blockers());
+        assert!(!deferred_region.can_apply_now());
+        assert!(!deferred_region.has_blockers());
+    }
+
+    #[test]
     fn source_regions_preserve_first_seen_order_and_dedup_blockers() {
         let readiness = SavePostLoadRuntimeReadiness {
             can_seed_runtime_apply: false,
