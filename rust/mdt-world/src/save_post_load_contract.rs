@@ -788,6 +788,36 @@ mod tests {
     }
 
     #[test]
+    fn save_post_load_world_contract_summary_and_detail_labels_are_stable() {
+        let contract = SavePostLoadWorldContract {
+            has_world_graph: true,
+            tile_surface_consistent: false,
+            overlay_surface_consistent: true,
+            marker_surface_consistent: false,
+            static_fog_surface_consistent: true,
+            entity_surface_consistent: false,
+            unknown_coverage: crate::WorldLoadUnknownCoverageSummary {
+                building_tail_unknown_count: 1,
+                marker_unknown_count: 2,
+                custom_chunk_unknown_count: 3,
+            },
+            issues: vec![
+                SavePostLoadWorldIssue::TileSurfaceIndexMismatch,
+                SavePostLoadWorldIssue::EntitySummaryMismatch,
+            ],
+        };
+
+        assert_eq!(
+            contract.summary_label(),
+            "project=0 graph=1 tile=0 overlay=1 marker=0 fog=1 entity=0 issues=2"
+        );
+        assert_eq!(
+            contract.detail_label(),
+            "project=0 graph=1 tile=0 overlay=1 marker=0 fog=1 entity=0 issues=tile-surface-index,entity-summary"
+        );
+    }
+
+    #[test]
     fn projection_contract_flags_tile_surface_breakage() {
         let mut observation = test_observation();
         observation.map.world.tiles[0].building_center_index = None;
