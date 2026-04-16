@@ -324,7 +324,7 @@ mod tests {
         SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldOwnershipStatus,
         SavePostLoadRuntimeWorldOwnershipSurface, SavePostLoadRuntimeWorldSurfaceKind,
         SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlanGroup,
-        UnknownMarkerModel, WorldModel,
+        UnknownMarkerModel, WorldLoadUnknownCoverageSummary, WorldModel,
     };
 
     #[test]
@@ -447,6 +447,18 @@ mod tests {
         assert_eq!(
             bundle.unknown_coverage_summary(),
             observation.unknown_coverage_summary()
+        );
+    }
+
+    #[test]
+    fn unknown_coverage_summary_counts_unknown_markers_chunks_and_tails() {
+        assert_eq!(
+            test_observation().unknown_coverage_summary(),
+            WorldLoadUnknownCoverageSummary {
+                building_tail_unknown_count: 0,
+                marker_unknown_count: 2,
+                custom_chunk_unknown_count: 0,
+            }
         );
     }
 
