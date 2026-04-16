@@ -498,6 +498,27 @@ mod tests {
     }
 
     #[test]
+    fn abilities_into_prefix_reports_truncated_second_ability_without_polluting_target() {
+        let mut bytes = Vec::new();
+        write_abilities(
+            &mut bytes,
+            &[AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }],
+        );
+        bytes.pop();
+        let mut abilities = vec![AbilityRaw { data: 99.0 }];
+
+        assert!(matches!(
+            read_abilities_into_prefix(&bytes, &mut abilities),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 5,
+                needed: 4,
+                remaining: 3,
+            })
+        ));
+        assert_eq!(abilities, vec![AbilityRaw { data: 99.0 }]);
+    }
+
+    #[test]
     fn abilities_into_rejects_trailing_payload() {
         let bytes = vec![1, 0x41, 0x48, 0x00, 0x00, 0xff];
         let mut abilities = vec![AbilityRaw { data: 99.0 }];
