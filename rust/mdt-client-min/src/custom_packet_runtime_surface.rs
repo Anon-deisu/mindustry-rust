@@ -1925,6 +1925,16 @@ mod tests {
     }
 
     #[test]
+    fn parse_text_world_pos_requires_top_level_json_x_and_y() {
+        assert_eq!(
+            parse_text_world_pos("{\"x\":12.5,\"y\":-4}"),
+            Some((12.5, -4.0, "json_xy"))
+        );
+        assert_eq!(parse_text_world_pos("{\"x\":12.5}"), None);
+        assert_eq!(parse_text_world_pos("{\"y\":-4}"), None);
+    }
+
+    #[test]
     fn parse_text_literals_reject_trailing_garbage() {
         assert_eq!(parse_text_bool("{\"value\":falsehood}"), None);
         assert_eq!(parse_text_f64("{\"value\":12abc}"), None);
