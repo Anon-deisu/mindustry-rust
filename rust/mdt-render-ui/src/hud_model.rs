@@ -1998,6 +1998,21 @@ mod tests {
     }
 
     #[test]
+    fn optional_numeric_labels_format_some_and_none() {
+        assert_eq!(super::optional_i32_label(None), "none");
+        assert_eq!(super::optional_i32_label(Some(-42)), "-42");
+
+        assert_eq!(super::optional_u32_label(None), "none");
+        assert_eq!(super::optional_u32_label(Some(42)), "42");
+
+        assert_eq!(super::optional_usize_label(None), "none");
+        assert_eq!(super::optional_usize_label(Some(42)), "42");
+
+        assert_eq!(super::optional_u64_label(None), "none");
+        assert_eq!(super::optional_u64_label(Some(42)), "42");
+    }
+
+    #[test]
     fn world_position_text_formats_some_and_none() {
         assert_eq!(super::world_position_text(None), "none");
         assert_eq!(
