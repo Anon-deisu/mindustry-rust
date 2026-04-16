@@ -59954,4 +59954,14 @@ mod tests {
         assert_eq!(summary.link_count, 3);
         assert!(summary.links.is_empty());
     }
+
+    #[test]
+    fn world_enter_blocking_tag_label_maps_known_and_unknown_reasons() {
+        assert_eq!(world_enter_blocking_tag_label("missing-transport"), "Missing transport");
+        assert_eq!(world_enter_blocking_tag_label("missing-world"), "Missing world");
+        assert_eq!(
+            world_enter_blocking_tag_label("anything-else"),
+            "Unknown block reason"
+        );
+    }
 }
