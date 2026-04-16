@@ -1945,6 +1945,23 @@ mod tests {
     }
 
     #[test]
+    fn payload_header_build_block_id_preserves_signed_boundary() {
+        let mut bytes = Vec::new();
+        write_payload_build_header(&mut bytes, 0x8000, 9);
+
+        let (header, consumed) = read_payload_header_prefix(&bytes).unwrap();
+        assert_eq!(consumed, 5);
+        match header {
+            TypedPayload::Build(build) => {
+                assert_eq!(build.block_id_raw, 0x8000);
+                assert_eq!(build.block_id_i16(), i16::MIN);
+                assert_eq!(build.build_revision, 9);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
     fn unpack_point2_restores_signed_coordinates() {
         let packed = pack_point2(-10, 300);
         assert_eq!(unpack_point2(packed), (-10, 300));
