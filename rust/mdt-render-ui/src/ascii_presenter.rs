@@ -2748,6 +2748,14 @@ mod tests {
     }
 
     #[test]
+    fn compact_build_inspector_text_handles_whitespace_and_truncation() {
+        assert_eq!(
+            super::compact_build_inspector_text(" \t\r\nab cd", 6),
+            "____ab~"
+        );
+    }
+
+    #[test]
     fn ascii_presenter_renders_projected_scene_layers() {
         let bundle = parse_world_bundle(&decode_hex(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
