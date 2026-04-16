@@ -7819,6 +7819,14 @@ mod tests {
     }
 
     #[test]
+    fn runtime_world_label_overlay_ttl_ticks_clamps_non_finite_and_low_duration() {
+        assert_eq!(runtime_world_label_overlay_ttl_ticks(f32::NAN), 0);
+        assert_eq!(runtime_world_label_overlay_ttl_ticks(-1.0), 1);
+        assert_eq!(runtime_world_label_overlay_ttl_ticks(0.0), 1);
+        assert_eq!(runtime_world_label_overlay_ttl_ticks(0.5), 30);
+    }
+
+    #[test]
     fn render_runtime_adapter_surfaces_build_plan_content_config_icons() {
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
