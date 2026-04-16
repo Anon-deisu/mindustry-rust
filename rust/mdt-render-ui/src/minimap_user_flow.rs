@@ -1003,6 +1003,24 @@ mod tests {
     }
 
     #[test]
+    fn minimap_user_flow_label_helpers_are_stable() {
+        assert_eq!(MinimapUserFocusState::Inside.label(), "inside");
+        assert_eq!(MinimapUserFocusState::Outside.label(), "outside");
+        assert_eq!(MinimapUserFocusState::Missing.label(), "missing");
+
+        assert_eq!(MinimapPanAxisDirection::None.label(), "hold");
+        assert_eq!(MinimapPanAxisDirection::Left.label(), "left");
+        assert_eq!(MinimapPanAxisDirection::Right.label(), "right");
+        assert_eq!(MinimapPanAxisDirection::Up.label(), "up");
+        assert_eq!(MinimapPanAxisDirection::Down.label(), "down");
+
+        assert_eq!(MinimapUserTargetKind::None.label(), "none");
+        assert_eq!(MinimapUserTargetKind::Plan.label(), "plan");
+        assert_eq!(MinimapUserTargetKind::Marker.label(), "marker");
+        assert_eq!(MinimapUserTargetKind::Player.label(), "player");
+    }
+
+    #[test]
     fn shared_prefix_label_keeps_summary_prefix_stable_for_none_and_focus_states() {
         let missing = flow_model(false, false, false, false);
         assert_eq!(
