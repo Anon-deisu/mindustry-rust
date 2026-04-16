@@ -456,6 +456,21 @@ mod tests {
     }
 
     #[test]
+    fn movement_probe_controller_config_roundtrips_initial_step() {
+        let controller = MovementProbeController::new(MovementProbeConfig {
+            step: (2.5, -3.75),
+        });
+
+        assert_eq!(
+            controller.config(),
+            MovementProbeConfig {
+                step: (2.5, -3.75),
+            }
+        );
+        assert_eq!(controller.last_step_at_ms(), None);
+    }
+
+    #[test]
     fn has_movement_distinguishes_zero_and_non_finite_axes() {
         assert!(!RuntimeInputSample {
             position: None,
