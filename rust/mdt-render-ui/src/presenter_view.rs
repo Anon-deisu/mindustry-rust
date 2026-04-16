@@ -2929,6 +2929,7 @@ mod tests {
     use super::{
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         compose_build_ui_queue_text_from_hud, crop_origin, crop_window, crop_window_to_focus,
+        clamp_window_origin,
         format_build_queue_head_text, format_build_strip_queue_status_text,
         format_build_config_alignment_text, format_build_ui_queue_detail_text,
         format_build_ui_queue_summary_text,
@@ -6295,6 +6296,15 @@ mod tests {
         assert_eq!(window.origin_y, 9);
         assert_eq!(window.width, 0);
         assert_eq!(window.height, 0);
+    }
+
+    #[test]
+    fn clamp_window_origin_clamps_oversized_windows_and_keeps_boundaries() {
+        assert_eq!(clamp_window_origin(0, 4, 10), 0);
+        assert_eq!(clamp_window_origin(6, 4, 10), 6);
+        assert_eq!(clamp_window_origin(7, 4, 10), 6);
+        assert_eq!(clamp_window_origin(3, 12, 10), 0);
+        assert_eq!(clamp_window_origin(3, 4, 0), 0);
     }
 
     #[test]
