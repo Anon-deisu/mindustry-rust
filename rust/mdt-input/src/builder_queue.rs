@@ -4909,4 +4909,49 @@ mod tests {
             Some(BuilderQueueFrontPromotion::ExplicitMoveToFront)
         );
     }
+
+    #[test]
+    fn builder_queue_labels_are_stable() {
+        assert_eq!(BuilderQueueStage::Queued.label(), "queued");
+        assert_eq!(BuilderQueueStage::InFlight.label(), "in-flight");
+
+        assert_eq!(
+            BuilderQueueSkipReason::ObservationMissing.label(),
+            "observation-missing"
+        );
+        assert_eq!(BuilderQueueSkipReason::OutOfRange.label(), "out-of-range");
+        assert_eq!(
+            BuilderQueueSkipReason::RequestedSkip.label(),
+            "requested-skip"
+        );
+
+        assert_eq!(
+            BuilderQueueFrontPromotion::EnqueueFront.label(),
+            "enqueue-front"
+        );
+        assert_eq!(
+            BuilderQueueFrontPromotion::BeginInFlight.label(),
+            "begin-in-flight"
+        );
+        assert_eq!(
+            BuilderQueueFrontPromotion::ExplicitMoveToFront.label(),
+            "explicit-move-to-front"
+        );
+        assert_eq!(
+            BuilderQueueFrontPromotion::ExecutionDeferredToTail.label(),
+            "execution-deferred-to-tail"
+        );
+        assert_eq!(
+            BuilderQueueFrontPromotion::ActivityReorderedToReachable.label(),
+            "activity-reordered-to-reachable"
+        );
+        assert_eq!(
+            BuilderQueueFrontPromotion::ActivityClosestInRangeFallback.label(),
+            "activity-closest-in-range-fallback"
+        );
+        assert_eq!(
+            BuilderQueueFrontPromotion::ValidationAdvancedHead.label(),
+            "validation-advanced-head"
+        );
+    }
 }
