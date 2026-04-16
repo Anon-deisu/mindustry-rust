@@ -816,8 +816,8 @@ fn read_text_from_candidates(
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_hex_text, read_text_from_candidates, set_input_root_once, world_stream_candidates,
-        CliArgs,
+        connect_candidates, decode_hex_text, read_text_from_candidates, set_input_root_once,
+        snapshot_candidates, with_optional_input_root, world_stream_candidates, CliArgs,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -896,6 +896,54 @@ mod tests {
                 PathBuf::from("/repo/rust/fixtures/world-streams/archipelago-6567-world-stream.hex"),
                 PathBuf::from("/repo/fixtures/world-streams/archipelago-6567-world-stream.hex"),
             ]
+        );
+    }
+
+    #[test]
+    fn connect_and_snapshot_candidates_prepend_input_root_and_preserve_fixture_fallbacks() {
+        let args = CliArgs {
+            output_dir: PathBuf::from("out"),
+            input_root: Some(PathBuf::from("custom-input")),
+        };
+        let tests_resources = Path::new("tests/resources");
+
+        assert_eq!(
+            with_optional_input_root(
+                "fixture.hex",
+                args.input_root.as_deref(),
+                vec![tests_resources.join("fixture.hex")]
+            ),
+            vec![
+                PathBuf::from("custom-input/fixture.hex"),
+                PathBuf::from("tests/resources/fixture.hex"),
+            ]
+        );
+        assert_eq!(
+            connect_candidates(&args, tests_resources),
+            vec![
+                PathBuf::from("custom-input/connect-packet.hex"),
+                PathBuf::from("tests/resources/connect-packet.hex"),
+            ]
+        );
+        assert_eq!(
+            snapshot_candidates(&args, tests_resources),
+            vec![
+                PathBuf::from("custom-input/snapshot-goldens.txt"),
+                PathBuf::from("tests/resources/snapshot-goldens.txt"),
+            ]
+        );
+
+        let no_root_args = CliArgs {
+            output_dir: PathBuf::from("out"),
+            input_root: None,
+        };
+        assert_eq!(
+            connect_candidates(&no_root_args, tests_resources),
+            vec![PathBuf::from("tests/resources/connect-packet.hex")]
+        );
+        assert_eq!(
+            snapshot_candidates(&no_root_args, tests_resources),
+            vec![PathBuf::from("tests/resources/snapshot-goldens.txt")]
         );
     }
 
