@@ -2756,6 +2756,12 @@ mod tests {
     }
 
     #[test]
+    fn optional_build_tile_text_handles_some_and_none() {
+        assert_eq!(super::optional_build_tile_text(Some((12, 34))), "12:34");
+        assert_eq!(super::optional_build_tile_text(None), "-");
+    }
+
+    #[test]
     fn ascii_presenter_renders_projected_scene_layers() {
         let bundle = parse_world_bundle(&decode_hex(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
