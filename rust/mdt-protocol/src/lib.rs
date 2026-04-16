@@ -558,6 +558,16 @@ mod tests {
     }
 
     #[test]
+    fn read_lz4_length_accumulates_ff_runs_and_stops_on_non_ff() {
+        let bytes = [0xff, 0xff, 0x05, 0xaa];
+        let mut pos = 0usize;
+
+        assert_eq!(read_lz4_length(&bytes, &mut pos).unwrap(), 0xff + 0xff + 0x05);
+        assert_eq!(pos, 3);
+        assert_eq!(bytes[pos], 0xaa);
+    }
+
+    #[test]
     fn small_packet_stays_uncompressed() {
         let payload = stream_begin_payload(7, 300, 2);
         let encoded = encode_packet(STREAM_BEGIN_PACKET_ID, &payload, false).unwrap();
