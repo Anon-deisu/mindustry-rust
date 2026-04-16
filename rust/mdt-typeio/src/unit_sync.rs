@@ -405,6 +405,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn read_flagged_f32_returns_none_when_bit_is_clear() {
+        let mut reader = PrimitiveReader::new(&[]);
+
+        assert_eq!(read_flagged_f32(&mut reader, 0, 2).unwrap(), None);
+        assert_eq!(reader.position(), 0);
+    }
+
+    #[test]
+    fn read_flagged_f32_reads_value_when_bit_is_set() {
+        let bytes = 2.5f32.to_bits().to_be_bytes();
+        let mut reader = PrimitiveReader::new(&bytes);
+
+        assert_eq!(read_flagged_f32(&mut reader, 1 << 2, 2).unwrap(), Some(2.5));
+        assert_eq!(reader.position(), 4);
+    }
+
+    #[test]
     fn abilities_round_trip_two_entries() {
         let abilities = vec![AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }];
         let mut bytes = Vec::new();
