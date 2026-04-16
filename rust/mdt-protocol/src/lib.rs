@@ -568,6 +568,24 @@ mod tests {
     }
 
     #[test]
+    fn lz4_block_consumed_len_rejects_truncated_lz4_sequences() {
+        let mut pos = 0usize;
+        assert!(matches!(
+            read_lz4_length(&[0xff], &mut pos),
+            Err(PacketCodecError::TooShort)
+        ));
+
+        assert!(matches!(
+            lz4_block_consumed_len(&[0xf0, 0xff], 16),
+            Err(PacketCodecError::TooShort)
+        ));
+        assert!(matches!(
+            lz4_block_consumed_len(&[0x0f, 0x01, 0x00, 0xff], 24),
+            Err(PacketCodecError::TooShort)
+        ));
+    }
+
+    #[test]
     fn lz4_block_consumed_len_matches_lz4_flex_block_output_without_trailing_bytes() {
         let payload = (0u8..=127).collect::<Vec<_>>();
         let compressed = lz4_flex::block::compress(&payload);
