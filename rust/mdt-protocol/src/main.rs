@@ -150,6 +150,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_preserves_relative_output_dir_verbatim() {
+        let output_dir = parse_args(vec!["./out dir".to_string()].into_iter()).unwrap();
+
+        assert_eq!(output_dir, PathBuf::from("./out dir"));
+    }
+
+    #[test]
     fn parse_args_rejects_missing_output_dir() {
         let err = parse_args(Vec::<String>::new().into_iter()).unwrap_err();
 
