@@ -759,6 +759,18 @@ mod tests {
     }
 
     #[test]
+    fn connect_compatibility_warning_code_as_str_maps_all_variants_stably() {
+        assert_eq!(
+            ConnectCompatibilityWarningCode::BuildUnknown.as_str(),
+            "build_unknown"
+        );
+        assert_eq!(
+            ConnectCompatibilityWarningCode::VersionTypeCustomLike.as_str(),
+            "version_type_custom_like"
+        );
+    }
+
+    #[test]
     fn strict_connect_build_rejects_missing_or_invalid_build_metadata() {
         assert_eq!(
             strict_connect_build(b"number = 8\nbuild = custom build\ntype = official\n"),
