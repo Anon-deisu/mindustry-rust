@@ -1362,9 +1362,18 @@ mod tests {
         RuntimeLiveEntitySummaryObservability, RuntimeMenuObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiNoticeLayerKind,
         RuntimeUiObservability, RuntimeUiPromptLayerKind, RuntimeUiStackForegroundSummaryKind,
-        RuntimeUiStackSummary, RuntimeWorldPositionObservability, runtime_notice_layers,
-        runtime_prompt_layers,
+        RuntimeUiStackSummary, RuntimeWorldPositionObservability, percent_of,
+        runtime_notice_layers, runtime_prompt_layers,
     };
+
+    #[test]
+    fn percent_of_handles_zero_total_and_rounding_boundary() {
+        assert_eq!(percent_of(1, 0), 0);
+        assert_eq!(percent_of(0, 3), 0);
+        assert_eq!(percent_of(1, 3), 33);
+        assert_eq!(percent_of(2, 3), 66);
+        assert_eq!(percent_of(3, 3), 100);
+    }
 
     #[test]
     fn runtime_ui_stack_summary_tracks_foreground_and_layer_order() {
