@@ -26,6 +26,8 @@ mod tests {
         presenter.present(scene, hud);
     }
 
+    fn accept_presenter<P: ScenePresenter>(_presenter: &mut P) {}
+
     #[test]
     fn scene_present_trait_compiles_with_render_and_hud_refs() {
         let mut presenter = DummyPresenter { calls: 0 };
@@ -35,5 +37,14 @@ mod tests {
         drive_presenter(&mut presenter, &scene, &hud);
 
         assert_eq!(presenter.calls, 1);
+    }
+
+    #[test]
+    fn scene_present_trait_accepts_dummy_presenter_without_state() {
+        let mut presenter = DummyPresenter { calls: 0 };
+
+        accept_presenter(&mut presenter);
+
+        assert_eq!(presenter.calls, 0);
     }
 }
