@@ -131,7 +131,7 @@ fn write_text(path: PathBuf, contents: String, label: &str) -> Result<(), Box<dy
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_args, USAGE};
+    use super::{decode_hex, parse_args, USAGE};
     use std::path::PathBuf;
 
     #[test]
@@ -147,5 +147,11 @@ mod tests {
         let output_dir = parse_args(vec!["out".to_string()].into_iter()).unwrap();
 
         assert_eq!(output_dir, PathBuf::from("out"));
+    }
+
+    #[test]
+    fn decode_hex_ignores_whitespace_and_rejects_odd_length() {
+        assert_eq!(decode_hex("0a 0B\n1c\t2D").unwrap(), vec![0x0a, 0x0b, 0x1c, 0x2d]);
+        assert!(decode_hex("abc").is_err());
     }
 }
