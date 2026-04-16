@@ -398,6 +398,34 @@ mod tests {
         assert!(panel.is_none());
     }
 
+    fn empty_flow_panel() -> BuildUserFlowPanelModel {
+        BuildUserFlowPanelModel {
+            next_action: "hold",
+            blockers: Vec::new(),
+            route: Vec::new(),
+            minimap_next_action: "inspect",
+            focus_state: MinimapUserFocusState::Inside,
+            pan_horizontal: MinimapPanAxisDirection::None,
+            pan_vertical: MinimapPanAxisDirection::None,
+            target_kind: MinimapUserTargetKind::Plan,
+            config_scope: "single",
+            authority_state: BuildInteractionAuthorityState::None,
+            authority_pending_match: None,
+            authority_source: None,
+            authority_block_name: None,
+            head_tile: None,
+        }
+    }
+
+    #[test]
+    fn build_user_flow_route_detail_label_formats_empty_blockers_and_route_with_stable_prefix() {
+        let panel = empty_flow_panel();
+        assert_eq!(
+            panel.route_detail_label(),
+            "next=hold minimap=inspect blockers=none route=none"
+        );
+    }
+
     #[test]
     fn build_user_flow_route_tracks_ordered_place_blockers_and_commit_path() {
         let panel = build_user_flow_from_panels(
