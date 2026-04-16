@@ -7193,6 +7193,12 @@ impl SessionState {
         self.last_loaded_world_block_snapshot_extra_entry_parse_error = Some(error);
     }
 
+    pub fn record_effect_data_parse_failure(&mut self, error: Option<String>) {
+        self.last_effect_data_parse_failed = true;
+        self.failed_effect_data_parse_count = self.failed_effect_data_parse_count.saturating_add(1);
+        self.last_effect_data_parse_error = error;
+    }
+
     pub fn record_block_snapshot_parse_failure(&mut self, error: String, payload_len: usize) {
         self.failed_block_snapshot_parse_count =
             self.failed_block_snapshot_parse_count.saturating_add(1);
@@ -9677,6 +9683,20 @@ mod tests {
             Some("blockSnapshot trailing bytes")
         );
         assert_eq!(state.last_block_snapshot_parse_error_payload_len, Some(19));
+    }
+
+    #[test]
+    fn session_state_effect_data_parse_failure_helper_tracks_error_text_and_count() {
+        let mut state = SessionState::default();
+
+        state.record_effect_data_parse_failure(Some("effect data trailing bytes".to_string()));
+
+        assert!(state.last_effect_data_parse_failed);
+        assert_eq!(state.failed_effect_data_parse_count, 1);
+        assert_eq!(
+            state.last_effect_data_parse_error.as_deref(),
+            Some("effect data trailing bytes")
+        );
     }
 
     #[test]

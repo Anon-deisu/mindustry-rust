@@ -5479,12 +5479,13 @@ impl ClientSession {
                             &effect_input_view,
                         ),
                     );
-                    self.state.last_effect_data_parse_failed = business_input.parse_failed;
                     if business_input.parse_failed {
-                        self.state.failed_effect_data_parse_count =
-                            self.state.failed_effect_data_parse_count.saturating_add(1);
+                        self.state
+                            .record_effect_data_parse_failure(business_input.parse_error.clone());
+                    } else {
+                        self.state.last_effect_data_parse_failed = false;
+                        self.state.last_effect_data_parse_error = None;
                     }
-                    self.state.last_effect_data_parse_error = business_input.parse_error.clone();
                     Ok(ClientSessionEvent::EffectRequested {
                         effect_id: effect.effect_id,
                         x: effect.x,
