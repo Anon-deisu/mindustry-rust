@@ -4534,7 +4534,10 @@ fn typed_runtime_building_model(
                 .get(&build_pos)
                 .copied();
             let runtime = configured.item_bridge_runtime_by_build_pos.get(&build_pos);
-            if link.is_none() && runtime.is_none() {
+            if link.is_none()
+                && runtime.is_none()
+                && !matches!(block_name, "bridge-conduit" | "phase-conduit")
+            {
                 return None;
             }
 
@@ -11336,6 +11339,76 @@ mod tests {
                 Some(0x30),
                 Some(0x10),
                 Some(88),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_gives_liquid_bridge_family_empty_shells() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0012i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            303,
+            Some("bridge-conduit".to_string()),
+            Some(2),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f20_0000),
+            Some(0x3f10_0000),
+            Some(125),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4050_0000),
+            Some(false),
+            Some(0x32),
+            Some(0x12),
+            Some(90),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                303,
+                "bridge-conduit",
+                TypedBuildingRuntimeKind::ItemBridge,
+                TypedBuildingRuntimeValue::ItemBridge {
+                    link: None,
+                    warmup_bits: None,
+                    incoming_count: None,
+                    moved: None,
+                    buffer_index: None,
+                    buffer_capacity: None,
+                    buffer_normalized_index: None,
+                    buffer_entry_count: None,
+                },
+                Vec::new(),
+                Some(2),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f20_0000),
+                Some(0x3f10_0000),
+                Some(125),
+                Some(true),
+                Some(0x4050_0000),
+                Some(false),
+                Some(0x32),
+                Some(0x12),
+                Some(90),
                 None,
                 None,
                 None,
