@@ -2772,6 +2772,12 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_bool_flag_maps_false_and_true() {
+        assert_eq!(super::bool_flag(false), 0);
+        assert_eq!(super::bool_flag(true), 1);
+    }
+
+    #[test]
     fn build_config_pending_match_text_maps_all_states_stably() {
         assert_eq!(super::build_config_pending_match_text(Some(true)), "match");
         assert_eq!(super::build_config_pending_match_text(Some(false)), "mismatch");
