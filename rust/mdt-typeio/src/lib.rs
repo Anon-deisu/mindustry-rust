@@ -1831,6 +1831,37 @@ mod tests {
     }
 
     #[test]
+    fn plan_prefix_reader_leaves_trailing_bytes_untouched() {
+        let mut bytes = Vec::new();
+        write_plan_place(&mut bytes, 1, 2, 1, CONVEYOR_BLOCK_ID, 3, 4);
+        let consumed = bytes.len();
+        bytes.extend_from_slice(&[0xaa, 0xbb]);
+
+        let (plan, prefix_len) = read_plan_prefix(&bytes).unwrap();
+        assert_eq!(prefix_len, consumed);
+        assert_eq!(
+            plan,
+            BuildPlanRaw {
+                breaking: false,
+                packed_position: pack_point2(1, 2),
+                x: 1,
+                y: 2,
+                block_id: Some(CONVEYOR_BLOCK_ID),
+                rotation: 1,
+                has_config: true,
+                config: TypeIoObject::Point2 { x: 3, y: 4 },
+            }
+        );
+        assert!(matches!(
+            read_plan(&bytes),
+            Err(TypeIoReadError::TrailingBytes {
+                consumed,
+                total
+            }) if consumed == prefix_len && total == bytes.len()
+        ));
+    }
+
+    #[test]
     fn payload_header_codecs_round_trip_expected_variants() {
         let mut bytes = Vec::new();
         write_payload_null(&mut bytes);
