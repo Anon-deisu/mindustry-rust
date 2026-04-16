@@ -1812,6 +1812,16 @@ mod tests {
     }
 
     #[test]
+    fn parse_text_bool_accepts_numeric_and_case_insensitive_literals() {
+        assert_eq!(parse_text_bool(" TRUE "), Some(true));
+        assert_eq!(parse_text_bool("false"), Some(false));
+        assert_eq!(parse_text_bool("1"), Some(true));
+        assert_eq!(parse_text_bool("0"), Some(false));
+        assert_eq!(parse_text_bool("{\"value\":true}"), Some(true));
+        assert_eq!(parse_text_bool("{\"value\":0}"), None);
+    }
+
+    #[test]
     fn parse_text_world_pos_ignores_nested_fields() {
         assert_eq!(
             parse_text_world_pos("{\"nested\":{\"x\":12,\"y\":-4}}"),
