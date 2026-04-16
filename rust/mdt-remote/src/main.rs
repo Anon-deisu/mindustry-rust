@@ -224,8 +224,8 @@ fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
 mod tests {
     use super::{
         default_high_frequency_output_path, default_inbound_dispatch_output_path,
-        emit_outputs, normalize_path_for_overlap, parse_args, reject_overlapping_output_paths,
-        resolve_cli_path, USAGE,
+        emit_outputs, normalize_path_for_overlap, parse_args, paths_overlap,
+        reject_overlapping_output_paths, resolve_cli_path, USAGE,
     };
     use std::{
         env, fs,
@@ -434,6 +434,30 @@ mod tests {
             Some(Path::new("build/mdt-remote/remote-registry.rs")),
             Some(Path::new("build/mdt-remote/./remote-registry.rs")),
             Some(Path::new("build/mdt-remote/remote-inbound-dispatch.rs")),
+        )
+        .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("output paths for registry and high-frequency must not overlap"));
+    }
+
+    #[test]
+    fn paths_overlap_marks_same_and_ancestor_paths_as_overlapping() {
+        let same_path = Path::new("build/mdt-remote/remote-registry.rs");
+        let parent_path = Path::new("build/mdt-remote");
+        let sibling_path = Path::new("build/mdt-remote/remote-inbound-dispatch.rs");
+        let other_root = Path::new("build/mdt-output/remote-registry.rs");
+
+        assert!(paths_overlap(same_path, same_path));
+        assert!(paths_overlap(parent_path, same_path));
+        assert!(paths_overlap(same_path, parent_path));
+        assert!(!paths_overlap(sibling_path, other_root));
+
+        let err = reject_overlapping_output_paths(
+            Some(parent_path),
+            Some(same_path),
+            Some(Path::new("build/mdt-output/remote-inbound-dispatch.rs")),
         )
         .unwrap_err();
 
