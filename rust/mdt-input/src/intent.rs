@@ -213,4 +213,12 @@ mod tests {
             "hold=interact"
         );
     }
+
+    #[test]
+    fn player_intent_summary_label_formats_press_interact_stably() {
+        assert_eq!(
+            PlayerIntent::ActionPressed(BinaryAction::Interact).summary_label(),
+            "press=interact"
+        );
+    }
 }
