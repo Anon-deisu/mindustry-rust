@@ -903,7 +903,10 @@ fn skip_ws(bytes: &[u8], mut cursor: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_json_string_literal, ObjectivesProjection, RulesProjection};
+    use super::{
+        parse_json_string_literal, parse_json_usize_array_literal, ObjectivesProjection,
+        RulesProjection,
+    };
 
     fn apply_mixed_update_sequence(
         rules: &mut RulesProjection,
@@ -929,6 +932,18 @@ mod tests {
 
         rules.apply_set_rules_json(r#"{"waveTimer":true}"#);
         rules.apply_set_rule_patch("pvp", "false");
+    }
+
+    #[test]
+    fn parse_json_usize_array_literal_handles_whitespace_and_invalid_entries() {
+        assert_eq!(
+            parse_json_usize_array_literal(" [ 1 , 2 , 3 ] "),
+            Some(vec![1, 2, 3])
+        );
+        assert_eq!(parse_json_usize_array_literal("[\n 4,\n 5 \n]"), Some(vec![4, 5]));
+        assert_eq!(parse_json_usize_array_literal("[1, -2, 3]"), None);
+        assert_eq!(parse_json_usize_array_literal("{\"a\":1}"), None);
+        assert_eq!(parse_json_usize_array_literal("[1, {\"a\":2}]"), None);
     }
 
     #[test]
