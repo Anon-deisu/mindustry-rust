@@ -808,6 +808,55 @@ mod tests {
     }
 
     #[test]
+    fn codec_error_display_strings_remain_stable() {
+        assert_eq!(
+            PacketCodecError::TooShort.to_string(),
+            "packet buffer too short"
+        );
+        assert_eq!(
+            PacketCodecError::UnsupportedCompression(7).to_string(),
+            "unsupported compression flag: 7"
+        );
+        assert_eq!(
+            PacketCodecError::LengthOverflow(42).to_string(),
+            "payload too large for u16 length: 42"
+        );
+        assert_eq!(
+            PacketCodecError::TrailingBytes(3).to_string(),
+            "unexpected trailing bytes: 3"
+        );
+        let mut bad_lz4 = lz4_flex::block::compress(b"codec");
+        bad_lz4.truncate(1);
+        let lz4_error = lz4_flex::block::decompress(&bad_lz4, 5).unwrap_err();
+        assert!(
+            PacketCodecError::from(lz4_error)
+                .to_string()
+                .starts_with("lz4 decode failed: ")
+        );
+
+        assert_eq!(
+            FrameworkCodecError::TooShort.to_string(),
+            "framework message buffer too short"
+        );
+        assert_eq!(
+            FrameworkCodecError::InvalidPrefix(254).to_string(),
+            "invalid framework prefix: 254"
+        );
+        assert_eq!(
+            FrameworkCodecError::UnknownType(9).to_string(),
+            "unknown framework message type: 9"
+        );
+        assert_eq!(
+            FrameworkCodecError::InvalidReplyFlag(2).to_string(),
+            "invalid ping reply flag: 2"
+        );
+        assert_eq!(
+            FrameworkCodecError::TrailingBytes(1).to_string(),
+            "unexpected trailing bytes: 1"
+        );
+    }
+
+    #[test]
     fn zlib_round_trip() {
         let payload = (0u8..=255).cycle().take(4096).collect::<Vec<_>>();
         let encoded = deflate_zlib(&payload).unwrap();
