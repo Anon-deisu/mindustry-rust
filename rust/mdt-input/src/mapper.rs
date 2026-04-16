@@ -267,6 +267,14 @@ mod tests {
     }
 
     #[test]
+    fn bool_count_and_option_count_map_flags_to_counts() {
+        assert_eq!(bool_count(true), 1);
+        assert_eq!(bool_count(false), 0);
+        assert_eq!(option_count(true), 1);
+        assert_eq!(option_count(false), 0);
+    }
+
+    #[test]
     fn stateless_intent_mapper_reports_sampling_mode() {
         assert_eq!(
             StatelessIntentMapper::new(IntentSamplingMode::EdgeMapped).sampling_mode(),
