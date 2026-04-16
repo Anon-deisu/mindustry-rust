@@ -233,6 +233,24 @@ mod tests {
     }
 
     #[test]
+    fn changed_team_ids_since_returns_empty_for_identical_inventories() {
+        let inventory = BTreeMap::from([
+            (1u8, BTreeMap::from([(0u16, 10)])),
+            (2u8, BTreeMap::from([(4u16, 40)])),
+        ]);
+        let semantics = StateSnapshotCoreInventorySemantics {
+            inventory_by_team: inventory.clone(),
+            item_entry_count: 2,
+            total_amount: 50,
+            nonzero_item_count: 2,
+            duplicate_team_count: 0,
+            duplicate_item_count: 0,
+        };
+
+        assert!(semantics.changed_team_ids_since(Some(&inventory)).is_empty());
+    }
+
+    #[test]
     fn derive_transition_without_core_data_reuses_previous_inventory_without_duplicates() {
         let previous_inventory = BTreeMap::from([
             (1u8, BTreeMap::from([(0u16, 10), (2u16, 0)])),
