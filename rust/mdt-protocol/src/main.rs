@@ -150,6 +150,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_rejects_missing_output_dir() {
+        let err = parse_args(Vec::<String>::new().into_iter()).unwrap_err();
+
+        assert_eq!(err.to_string(), USAGE);
+    }
+
+    #[test]
     fn decode_hex_ignores_whitespace_and_rejects_odd_length() {
         assert_eq!(decode_hex("0a 0B\n1c\t2D").unwrap(), vec![0x0a, 0x0b, 0x1c, 0x2d]);
         assert!(decode_hex("abc").is_err());
