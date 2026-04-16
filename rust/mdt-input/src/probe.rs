@@ -471,6 +471,25 @@ mod tests {
     }
 
     #[test]
+    fn sample_runtime_input_snapshot_emits_fire_boost_chat_in_stable_order() {
+        let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
+            position: Some((1.0, 2.0)),
+            pointer: Some((3.0, 4.0)),
+            velocity: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: true,
+            boosting: true,
+            chatting: true,
+        });
+
+        assert_eq!(
+            snapshot.active_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost, BinaryAction::Chat]
+        );
+    }
+
+    #[test]
     fn has_movement_distinguishes_zero_and_non_finite_axes() {
         assert!(!RuntimeInputSample {
             position: None,
