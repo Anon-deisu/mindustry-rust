@@ -7237,6 +7237,13 @@ impl SessionState {
         self.last_hidden_snapshot_parse_error_payload_len = Some(payload_len);
     }
 
+    pub fn record_entity_snapshot_parse_failure(&mut self, error: String) {
+        self.failed_entity_snapshot_parse_count =
+            self.failed_entity_snapshot_parse_count.saturating_add(1);
+        self.last_entity_snapshot_parse_error = Some(error);
+        self.last_entity_snapshot_local_player_sync_applied = false;
+    }
+
     pub fn record_set_flag(&mut self, flag: &Option<String>, add: bool) {
         self.received_set_flag_count = self.received_set_flag_count.saturating_add(1);
         self.last_set_flag = flag.clone();
@@ -9767,6 +9774,21 @@ mod tests {
             state.last_hidden_snapshot_parse_error_payload_len,
             Some(17)
         );
+    }
+
+    #[test]
+    fn session_state_entity_snapshot_parse_failure_helper_tracks_error_text_and_resets_local_sync() {
+        let mut state = SessionState::default();
+        state.last_entity_snapshot_local_player_sync_applied = true;
+
+        state.record_entity_snapshot_parse_failure("entitySnapshot decode error".to_string());
+
+        assert_eq!(state.failed_entity_snapshot_parse_count, 1);
+        assert_eq!(
+            state.last_entity_snapshot_parse_error.as_deref(),
+            Some("entitySnapshot decode error")
+        );
+        assert!(!state.last_entity_snapshot_local_player_sync_applied);
     }
 
     #[test]

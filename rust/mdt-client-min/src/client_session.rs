@@ -5776,15 +5776,8 @@ impl ClientSession {
                                                 ) {
                                                     Ok(rows) => rows,
                                                     Err(error) => {
-                                                        self.state.failed_entity_snapshot_parse_count = self
-                                                            .state
-                                                            .failed_entity_snapshot_parse_count
-                                                            .saturating_add(1);
-                                                        self.state.last_entity_snapshot_parse_error =
-                                                            Some(error);
                                                         self.state
-                                                            .last_entity_snapshot_local_player_sync_applied =
-                                                            false;
+                                                            .record_entity_snapshot_parse_failure(error);
                                                         return Ok(ClientSessionEvent::SnapshotReceived(
                                                             snapshot.method,
                                                         ));
@@ -5916,37 +5909,23 @@ impl ClientSession {
                                                 }
                                             }
                                             Err(error) => {
-                                                self.state.failed_entity_snapshot_parse_count =
-                                                    self.state
-                                                        .failed_entity_snapshot_parse_count
-                                                        .saturating_add(1);
-                                                self.state.last_entity_snapshot_parse_error =
-                                                    Some(error.to_string());
                                                 self.state
-                                                    .last_entity_snapshot_local_player_sync_applied =
-                                                    false;
+                                                    .record_entity_snapshot_parse_failure(
+                                                        error.to_string(),
+                                                    );
                                             }
                                         }
                                     }
                                     Err(error) => {
-                                        self.state.failed_entity_snapshot_parse_count = self
-                                            .state
-                                            .failed_entity_snapshot_parse_count
-                                            .saturating_add(1);
-                                        self.state.last_entity_snapshot_parse_error = Some(error);
-                                        self.state.last_entity_snapshot_local_player_sync_applied =
-                                            false;
+                                        self.state
+                                            .record_entity_snapshot_parse_failure(error);
                                     }
                                 }
                             }
                             None => {
-                                self.state.failed_entity_snapshot_parse_count = self
-                                    .state
-                                    .failed_entity_snapshot_parse_count
-                                    .saturating_add(1);
-                                self.state.last_entity_snapshot_parse_error =
-                                    Some("truncated_entity_snapshot_payload".to_string());
-                                self.state.last_entity_snapshot_local_player_sync_applied = false;
+                                self.state.record_entity_snapshot_parse_failure(
+                                    "truncated_entity_snapshot_payload".to_string(),
+                                );
                             }
                         }
                     } else if snapshot.method == HighFrequencyRemoteMethod::BlockSnapshot {
