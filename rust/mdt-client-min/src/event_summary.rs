@@ -1751,6 +1751,17 @@ mod tests {
     }
 
     #[test]
+    fn summarize_kick_hint_from_falls_back_to_ordinal_when_text_is_unknown() {
+        assert_eq!(
+            summarize_kick_hint_from(Some("unknown"), Some(1)),
+            (
+                Some("ClientOutdated"),
+                Some("client build is outdated; upgrade this client to the server version."),
+            )
+        );
+    }
+
+    #[test]
     fn format_logic_data_summary_keeps_kind_and_preview_stable() {
         let value = TypeIoObject::ObjectArray(vec![
             TypeIoObject::Int(7),
