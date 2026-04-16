@@ -2965,6 +2965,7 @@ mod tests {
         format_runtime_world_reload_detail_text_from_loading,
         format_runtime_world_reload_panel_text,
         format_runtime_world_reload_text_if_loading_nonempty,
+        format_runtime_session_reload_banner_text,
         format_runtime_core_binding_detail_text,
         format_runtime_core_binding_detail_text_if_nonempty,
         format_runtime_core_binding_panel_text,
@@ -3575,6 +3576,26 @@ mod tests {
         assert_eq!(
             format_runtime_world_reload_detail_text(&panel),
             "reloadd:lw1:cl0:rd1:cc0:p5:d6:r7"
+        );
+    }
+
+    #[test]
+    fn format_runtime_session_reload_banner_text_handles_some_and_none() {
+        assert_eq!(format_runtime_session_reload_banner_text(None), None);
+
+        let panel = RuntimeWorldReloadPanelModel {
+            had_loaded_world: true,
+            had_client_loaded: false,
+            was_ready_to_enter_world: true,
+            had_connect_confirm_sent: false,
+            cleared_pending_packets: 5,
+            cleared_deferred_inbound_packets: 6,
+            cleared_replayed_loading_events: 7,
+        };
+
+        assert_eq!(
+            format_runtime_session_reload_banner_text(Some(&panel)),
+            Some("RELOAD @lw1:cl0:rd1:cc0:p5:d6:r7".to_string())
         );
     }
 
