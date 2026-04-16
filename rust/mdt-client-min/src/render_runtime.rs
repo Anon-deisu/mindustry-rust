@@ -6924,6 +6924,39 @@ mod tests {
     }
 
     #[test]
+    fn runtime_state_snapshot_applied_event_label_formats_projection_and_none() {
+        let projection = StateSnapshotAppliedProjection {
+            wave: 12,
+            enemies: 34,
+            tps: 60,
+            gameplay_state: crate::session_state::GameplayStateProjection::Paused,
+            gameplay_state_transition_count: 5,
+            wave_advanced: true,
+            wave_advance_from: Some(10),
+            wave_advance_to: Some(11),
+            apply_count: 8,
+            net_seconds_delta: -3,
+            net_seconds_rollback: false,
+            time_regress_count: 2,
+            wave_regress_count: 4,
+            core_inventory_team_count: 1,
+            core_inventory_item_entry_count: 2,
+            core_inventory_total_amount: 77,
+            core_inventory_changed_team_count: 3,
+            core_inventory_changed_team_sample: vec![5, 8],
+            core_parse_failed: true,
+            core_parse_fail_count: 9,
+            used_last_good_core_fallback: false,
+        };
+
+        assert_eq!(
+            runtime_state_snapshot_applied_event_label(Some(&projection)),
+            "w12:spause:gt5:adv1@10->11:app8:nd-3:rb0:tr2:wr4:cpf9:fb0"
+        );
+        assert_eq!(runtime_state_snapshot_applied_event_label(None), "none");
+    }
+
+    #[test]
     fn render_runtime_adapter_appends_visible_runtime_live_unit_object() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
