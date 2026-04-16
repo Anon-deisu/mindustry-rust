@@ -1924,6 +1924,40 @@ mod tests {
     }
 
     #[test]
+    fn payload_summary_payload_type_id_maps_none_unit_and_build() {
+        assert_eq!(
+            PayloadSummary {
+                kind: "null",
+                payload_present: false,
+                payload_type: None,
+                prefix_len: 1,
+            }
+            .payload_type_id(),
+            None
+        );
+        assert_eq!(
+            PayloadSummary {
+                kind: "unit",
+                payload_present: true,
+                payload_type: Some(PayloadType::Unit),
+                prefix_len: 3,
+            }
+            .payload_type_id(),
+            Some(0)
+        );
+        assert_eq!(
+            PayloadSummary {
+                kind: "build",
+                payload_present: true,
+                payload_type: Some(PayloadType::Build),
+                prefix_len: 5,
+            }
+            .payload_type_id(),
+            Some(1)
+        );
+    }
+
+    #[test]
     fn basic_codec_prefix_readers_leave_trailing_bytes_untouched() {
         let mut bytes = Vec::new();
         write_string(&mut bytes, Some("abc"));
