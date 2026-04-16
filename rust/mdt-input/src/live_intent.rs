@@ -477,6 +477,25 @@ mod tests {
     }
 
     #[test]
+    fn runtime_snapshot_apply_key_normalizes_nonfinite_axes_and_preserves_action_order() {
+        let state = LiveIntentState {
+            move_axis: (f32::NAN, 12.0),
+            aim_axis: (24.0, f32::NEG_INFINITY),
+            active_actions: vec![BinaryAction::Chat, BinaryAction::Boost, BinaryAction::Fire],
+            ..LiveIntentState::default()
+        };
+
+        let key = runtime_snapshot_apply_key(&state);
+
+        assert_eq!(key.0, (0.0, 0.0));
+        assert_eq!(key.1, (0.0, 0.0));
+        assert_eq!(
+            key.8,
+            vec![BinaryAction::Chat, BinaryAction::Boost, BinaryAction::Fire]
+        );
+    }
+
+    #[test]
     fn live_sampling_mode_keeps_action_active_without_held_intents() {
         let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
         let mut state = LiveIntentState::default();
