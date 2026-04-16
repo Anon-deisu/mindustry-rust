@@ -455,6 +455,17 @@ mod tests {
     }
 
     #[test]
+    fn finite_logic_world_pos_rejects_non_finite_values_and_labels_source() {
+        assert_eq!(finite_logic_world_pos(f64::NAN, 9.0, "vec2"), None);
+        assert_eq!(finite_logic_world_pos(7.0, f64::INFINITY, "vec2"), None);
+
+        let extraction = finite_logic_world_pos(12.5, -7.25, "vec2_nested")
+            .expect("expected finite world pos");
+        assert_eq!(extraction.value, (12.5, -7.25));
+        assert_eq!(extraction.source, "vec2_nested");
+    }
+
+    #[test]
     fn logic_world_pos_shape_detects_invalid_vec2_payloads() {
         assert!(has_logic_world_pos_payload(&TypeIoObject::Vec2 {
             x: f32::NAN,
