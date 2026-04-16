@@ -1945,6 +1945,39 @@ mod tests {
     }
 
     #[test]
+    fn payload_header_label_helpers_cover_null_unit_and_build() {
+        let cases = [
+            (
+                TypedPayload::<BuildPayloadHeader, UnitPayloadHeader>::Null,
+                "null",
+                false,
+                None,
+            ),
+            (
+                TypedPayload::Unit(UnitPayloadHeader { class_id: 7 }),
+                "unit",
+                true,
+                Some(PayloadType::Unit),
+            ),
+            (
+                TypedPayload::Build(BuildPayloadHeader {
+                    block_id_raw: 0x8123,
+                    build_revision: 4,
+                }),
+                "build",
+                true,
+                Some(PayloadType::Build),
+            ),
+        ];
+
+        for (value, kind, present, payload_type) in cases {
+            assert_eq!(value.kind(), kind);
+            assert_eq!(value.payload_present(), present);
+            assert_eq!(value.payload_type(), payload_type);
+        }
+    }
+
+    #[test]
     fn payload_header_build_block_id_preserves_signed_boundary() {
         let mut bytes = Vec::new();
         write_payload_build_header(&mut bytes, 0x8000, 9);
