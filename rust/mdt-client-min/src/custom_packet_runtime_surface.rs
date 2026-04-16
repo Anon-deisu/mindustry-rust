@@ -1856,6 +1856,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_text_i32_u8_and_compact_world_pos_cover_json_fallbacks_and_trimming() {
+        assert_eq!(parse_text_i32("{\"id\":7}"), Some(7));
+        assert_eq!(parse_text_i32("{\"buildPos\":-12}"), Some(-12));
+        assert_eq!(parse_text_i32("{\"unitId\":42}"), Some(42));
+        assert_eq!(parse_text_u8("{\"team\":3}"), Some(3));
+        assert_eq!(parse_text_u8("{\"value\":255}"), Some(255));
+        assert_eq!(format_compact_world_pos(12.0, -4.5), "12,-4.5");
+        assert_eq!(format_compact_world_pos(0.25, 8.0), "0.25,8");
+    }
+
+    #[test]
+    fn parse_text_i32_and_u8_accept_trimmed_literals_and_reject_out_of_range_values() {
+        assert_eq!(parse_text_i32("  -17 "), Some(-17));
+        assert_eq!(parse_text_i32("2147483648"), None);
+        assert_eq!(parse_text_u8(" 08 "), Some(8));
+        assert_eq!(parse_text_u8("256"), None);
+    }
+
+    #[test]
     fn parse_text_world_pos_ignores_nested_fields() {
         assert_eq!(
             parse_text_world_pos("{\"nested\":{\"x\":12,\"y\":-4}}"),
