@@ -1053,4 +1053,22 @@ mod tests {
         assert_eq!(bool_label(true), "yes");
         assert_eq!(bool_label(false), "no");
     }
+
+    #[test]
+    fn runtime_seed_plan_summary_and_detail_labels_use_bool_labels() {
+        let observation = test_observation();
+        let plan = observation.runtime_seed_plan();
+        let regions = plan.source_regions();
+
+        assert_eq!(plan.summary_label(), "seed=no steps=14 regions=4");
+        assert_eq!(
+            plan.detail_label(),
+            "seed=no steps=14 regions=[region=map world=1 remaps=0 plans=0 markers=0 fog=0 chunks=0 buildings=1 loadable=0 skipped=0 total=2,region=entities world=0 remaps=2 plans=2 markers=0 fog=0 chunks=0 buildings=0 loadable=2 skipped=1 total=7,region=markers world=0 remaps=0 plans=0 markers=2 fog=0 chunks=0 buildings=0 loadable=0 skipped=0 total=2,region=custom world=0 remaps=0 plans=0 markers=0 fog=1 chunks=2 buildings=0 loadable=0 skipped=0 total=3]"
+        );
+        assert_eq!(
+            regions[0].summary_label(),
+            "region=map world=1 remaps=0 plans=0 markers=0 fog=0 chunks=0 buildings=1 loadable=0 skipped=0 total=2"
+        );
+        assert_eq!(regions[0].detail_label(), regions[0].summary_label());
+    }
 }
