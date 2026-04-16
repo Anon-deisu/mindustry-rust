@@ -1027,14 +1027,14 @@ fn unpack_point2(value: i32) -> (i16, i16) {
 #[cfg(test)]
 mod tests {
     use super::{
-        effect_contract, effect_contract_name, lightning_path_points,
+        effect_contract, effect_contract_name, finite_world_position_bits,
+        lightning_path_points,
         observe_runtime_effect_binding_state, observe_runtime_effect_overlay_binding_state,
         observe_runtime_effect_overlay_source_binding_state,
         observe_runtime_effect_source_binding_state, resolve_runtime_effect_overlay_position,
         resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
-        EffectRuntimeBindingState, EffectRuntimeInputView, RuntimeEffectBinding,
-        RuntimeEffectOverlay,
-        RuntimeEffectContract,
+        world_bits_are_finite, EffectRuntimeBindingState, EffectRuntimeInputView,
+        RuntimeEffectBinding, RuntimeEffectContract, RuntimeEffectOverlay,
     };
     use crate::session_state::{
         EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
@@ -1380,6 +1380,18 @@ mod tests {
             ])),
             None
         );
+    }
+
+    #[test]
+    fn world_bits_are_finite_rejects_non_finite_bits_and_accepts_finite_bits() {
+        assert!(world_bits_are_finite((1.5f32.to_bits(), (-2.25f32).to_bits())));
+        assert!(!world_bits_are_finite((f32::INFINITY.to_bits(), 0.0f32.to_bits())));
+        assert!(!world_bits_are_finite((0.0f32.to_bits(), f32::NAN.to_bits())));
+        assert_eq!(
+            finite_world_position_bits(7.5, -2.25),
+            Some((7.5f32.to_bits(), (-2.25f32).to_bits()))
+        );
+        assert_eq!(finite_world_position_bits(f32::NEG_INFINITY, 1.0), None);
     }
 
     #[test]
