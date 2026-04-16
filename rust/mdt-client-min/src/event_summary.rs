@@ -1722,6 +1722,13 @@ mod tests {
     }
 
     #[test]
+    fn encode_hex_text_formats_empty_and_preserves_leading_zeroes() {
+        assert_eq!(encode_hex_text(&[]), "");
+        assert_eq!(encode_hex_text(&[0x00, 0x0a, 0x01, 0x10, 0xab]), "000a0110ab");
+        assert_eq!(encode_hex_text(&[0x12, 0x34, 0x56]), "123456");
+    }
+
+    #[test]
     fn format_final_kick_summary_keeps_hint_category_and_text_stable() {
         assert_eq!(
             format_final_kick_summary(true, Some("banned"), None, Some(1200)),
