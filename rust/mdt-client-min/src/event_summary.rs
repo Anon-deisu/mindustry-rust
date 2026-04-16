@@ -1693,6 +1693,32 @@ mod tests {
     }
 
     #[test]
+    fn format_binary_packet_summary_uses_hex_prefix_and_length() {
+        let contents = vec![
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f, 0xaa, 0xbb, 0xcc, 0xdd,
+        ];
+
+        assert_eq!(
+            format_binary_packet_summary(
+                "server_binary_packet",
+                "unreliable",
+                "payload",
+                &contents,
+            ),
+            "server_binary_packet: transport=unreliable type=\"payload\" len=20 hex_prefix=000102030405060708090a0b0c0d0e0f"
+        );
+    }
+
+    #[test]
+    fn format_final_kick_summary_keeps_hint_category_and_text_stable() {
+        assert_eq!(
+            format_final_kick_summary(true, Some("banned"), None, Some(1200)),
+            "final_kick: kicked=true reason_text=Some(\"banned\") reason_ordinal=None duration_ms=Some(1200) hint_category=Banned hint_text=Some(\"server reports this identity or name is banned; use a different account or ask the server admin to review the ban.\")"
+        );
+    }
+
+    #[test]
     fn summarize_client_packet_events_includes_build_and_effect_events() {
         let lines = summarize_client_packet_events(&[
             ClientSessionEvent::EffectRequested {
