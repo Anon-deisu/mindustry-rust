@@ -1,8 +1,8 @@
 use crate::session_state::{
     AppliedBlockSnapshotEnvelope, AppliedHiddenSnapshotIds, AppliedStateSnapshot,
     AppliedStateSnapshotCoreData, AppliedStateSnapshotCoreDataItem,
-    AppliedStateSnapshotCoreDataTeam, BlockSnapshotHeadProjection, GameplayStateProjection,
-    SessionState, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
+    AppliedStateSnapshotCoreDataTeam, GameplayStateProjection, SessionState,
+    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
 };
 use crate::state_snapshot_semantics::{
     derive_state_snapshot_core_inventory_transition, StateSnapshotCoreInventoryPrevious,
@@ -112,56 +112,8 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                 Ok(parsed) => {
                     state.applied_block_snapshot_count =
                         state.applied_block_snapshot_count.saturating_add(1);
-                    let head_projection = parsed.first_build_pos.zip(parsed.first_block_id).map(
-                        |(build_pos, block_id)| BlockSnapshotHeadProjection {
-                            build_pos,
-                            block_id,
-                            health_bits: parsed.first_health_bits,
-                            rotation: parsed.first_rotation,
-                            team_id: parsed.first_team_id,
-                            io_version: parsed.first_io_version,
-                            enabled: parsed.first_enabled,
-                            module_bitmask: parsed.first_module_bitmask,
-                            time_scale_bits: parsed.first_time_scale_bits,
-                            time_scale_duration_bits: parsed.first_time_scale_duration_bits,
-                            last_disabler_pos: parsed.first_last_disabler_pos,
-                            legacy_consume_connected: parsed.first_legacy_consume_connected,
-                            efficiency: parsed.first_efficiency,
-                            optional_efficiency: parsed.first_optional_efficiency,
-                            visible_flags: parsed.first_visible_flags,
-                        },
-                    );
-                    if !state.suppress_block_snapshot_head_table_apply {
-                        if let Some(head) = head_projection.as_ref() {
-                            state.building_table_projection.apply_block_snapshot_head(
-                                head.build_pos,
-                                head.block_id,
-                                None,
-                                head.rotation,
-                                head.team_id,
-                                head.io_version,
-                                head.module_bitmask,
-                                head.time_scale_bits,
-                                head.time_scale_duration_bits,
-                                head.last_disabler_pos,
-                                head.legacy_consume_connected,
-                                None,
-                                head.health_bits,
-                                head.enabled,
-                                head.efficiency,
-                                head.optional_efficiency,
-                                head.visible_flags,
-                                None,
-                                None,
-                                None,
-                            );
-                            state.refresh_runtime_typed_building_from_tables(head.build_pos);
-                        }
-                    }
-                    state.block_snapshot_head_projection = head_projection;
+                    state.apply_block_snapshot_head_envelope(&parsed);
                     state.last_block_snapshot = Some(parsed);
-                    state.last_block_snapshot_parse_error = None;
-                    state.last_block_snapshot_parse_error_payload_len = None;
                 }
                 Err(error) => {
                     state.record_block_snapshot_parse_failure(error.to_string(), snapshot.payload.len());

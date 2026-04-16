@@ -7094,6 +7094,68 @@ impl SessionState {
         }
     }
 
+    pub fn block_snapshot_head_projection_from_envelope(
+        envelope: &AppliedBlockSnapshotEnvelope,
+    ) -> Option<BlockSnapshotHeadProjection> {
+        envelope
+            .first_build_pos
+            .zip(envelope.first_block_id)
+            .map(|(build_pos, block_id)| BlockSnapshotHeadProjection {
+                build_pos,
+                block_id,
+                health_bits: envelope.first_health_bits,
+                rotation: envelope.first_rotation,
+                team_id: envelope.first_team_id,
+                io_version: envelope.first_io_version,
+                enabled: envelope.first_enabled,
+                module_bitmask: envelope.first_module_bitmask,
+                time_scale_bits: envelope.first_time_scale_bits,
+                time_scale_duration_bits: envelope.first_time_scale_duration_bits,
+                last_disabler_pos: envelope.first_last_disabler_pos,
+                legacy_consume_connected: envelope.first_legacy_consume_connected,
+                efficiency: envelope.first_efficiency,
+                optional_efficiency: envelope.first_optional_efficiency,
+                visible_flags: envelope.first_visible_flags,
+            })
+    }
+
+    pub fn apply_block_snapshot_head_envelope(
+        &mut self,
+        envelope: &AppliedBlockSnapshotEnvelope,
+    ) {
+        let head_projection = Self::block_snapshot_head_projection_from_envelope(envelope);
+        if !self.suppress_block_snapshot_head_table_apply {
+            if let Some(head) = head_projection.as_ref() {
+                self.building_table_projection.apply_block_snapshot_head(
+                    head.build_pos,
+                    head.block_id,
+                    None,
+                    head.rotation,
+                    head.team_id,
+                    head.io_version,
+                    head.module_bitmask,
+                    head.time_scale_bits,
+                    head.time_scale_duration_bits,
+                    head.last_disabler_pos,
+                    head.legacy_consume_connected,
+                    None,
+                    head.health_bits,
+                    head.enabled,
+                    head.efficiency,
+                    head.optional_efficiency,
+                    head.visible_flags,
+                    None,
+                    None,
+                    None,
+                );
+                self.refresh_runtime_typed_building_from_tables(head.build_pos);
+            }
+        }
+        self.block_snapshot_head_projection = head_projection;
+        self.last_block_snapshot_parse_error = None;
+        self.last_block_snapshot_parse_error_payload_len = None;
+    }
+
     pub fn rebuild_runtime_typed_entity_projection_from_tables(&mut self) {
         let mut projection = TypedRuntimeEntityProjection::default();
         for (&entity_id, entity) in &self.entity_table_projection.by_entity_id {
@@ -9858,6 +9920,98 @@ mod tests {
             Some("blockSnapshot trailing bytes")
         );
         assert_eq!(state.last_block_snapshot_parse_error_payload_len, Some(19));
+    }
+
+    #[test]
+    fn block_snapshot_head_projection_from_envelope_maps_first_entry_fields() {
+        let envelope = AppliedBlockSnapshotEnvelope {
+            amount: 1,
+            data_len: 24,
+            first_build_pos: Some(321),
+            first_block_id: Some(45),
+            first_health_bits: Some(0x3f80_0000),
+            first_rotation: Some(2),
+            first_team_id: Some(4),
+            first_io_version: Some(6),
+            first_enabled: Some(true),
+            first_module_bitmask: Some(7),
+            first_time_scale_bits: Some(0x4000_0000),
+            first_time_scale_duration_bits: Some(0x4040_0000),
+            first_last_disabler_pos: Some(654),
+            first_legacy_consume_connected: Some(false),
+            first_efficiency: Some(8),
+            first_optional_efficiency: Some(9),
+            first_visible_flags: Some(10),
+        };
+
+        assert_eq!(
+            SessionState::block_snapshot_head_projection_from_envelope(&envelope),
+            Some(BlockSnapshotHeadProjection {
+                build_pos: 321,
+                block_id: 45,
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(2),
+                team_id: Some(4),
+                io_version: Some(6),
+                enabled: Some(true),
+                module_bitmask: Some(7),
+                time_scale_bits: Some(0x4000_0000),
+                time_scale_duration_bits: Some(0x4040_0000),
+                last_disabler_pos: Some(654),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(8),
+                optional_efficiency: Some(9),
+                visible_flags: Some(10),
+            })
+        );
+    }
+
+    #[test]
+    fn apply_block_snapshot_head_envelope_updates_projection_and_respects_suppression() {
+        let envelope = AppliedBlockSnapshotEnvelope {
+            amount: 1,
+            data_len: 24,
+            first_build_pos: Some(321),
+            first_block_id: Some(45),
+            first_health_bits: Some(0x3f80_0000),
+            first_rotation: Some(2),
+            first_team_id: Some(4),
+            first_io_version: Some(6),
+            first_enabled: Some(true),
+            first_module_bitmask: Some(7),
+            first_time_scale_bits: Some(0x4000_0000),
+            first_time_scale_duration_bits: Some(0x4040_0000),
+            first_last_disabler_pos: Some(654),
+            first_legacy_consume_connected: Some(false),
+            first_efficiency: Some(8),
+            first_optional_efficiency: Some(9),
+            first_visible_flags: Some(10),
+        };
+
+        let mut state = SessionState::default();
+        state.last_block_snapshot_parse_error = Some("old".to_string());
+        state.last_block_snapshot_parse_error_payload_len = Some(99);
+        state.apply_block_snapshot_head_envelope(&envelope);
+
+        assert_eq!(
+            state.block_snapshot_head_projection,
+            SessionState::block_snapshot_head_projection_from_envelope(&envelope)
+        );
+        assert!(state
+            .building_table_projection
+            .by_build_pos
+            .contains_key(&321));
+        assert_eq!(state.last_block_snapshot_parse_error, None);
+        assert_eq!(state.last_block_snapshot_parse_error_payload_len, None);
+
+        let mut suppressed = SessionState::default();
+        suppressed.suppress_block_snapshot_head_table_apply = true;
+        suppressed.apply_block_snapshot_head_envelope(&envelope);
+        assert_eq!(
+            suppressed.block_snapshot_head_projection,
+            SessionState::block_snapshot_head_projection_from_envelope(&envelope)
+        );
+        assert!(suppressed.building_table_projection.by_build_pos.is_empty());
     }
 
     #[test]
