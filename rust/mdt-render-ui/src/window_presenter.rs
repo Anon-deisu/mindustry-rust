@@ -4913,6 +4913,18 @@ mod tests {
         assert_eq!(super::scaled_surface_metrics(&clamped_frame, 2), Some((6, 8, 48)));
     }
 
+    #[test]
+    fn frame_interval_for_fps_clamps_zero_and_scales_regular_rates() {
+        assert_eq!(
+            super::frame_interval_for_fps(0),
+            std::time::Duration::from_secs(1)
+        );
+        assert_eq!(
+            super::frame_interval_for_fps(60),
+            std::time::Duration::from_nanos(16_666_666)
+        );
+    }
+
     fn runtime_command_rect_objects(
         family: &str,
         left: f32,
