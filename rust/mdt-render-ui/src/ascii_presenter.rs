@@ -2762,6 +2762,41 @@ mod tests {
     }
 
     #[test]
+    fn build_config_outcome_compact_text_maps_all_variants_stably() {
+        assert_eq!(
+            super::build_config_outcome_compact_text(Some(
+                crate::BuildConfigOutcomeObservability::Applied
+            )),
+            "applied"
+        );
+        assert_eq!(
+            super::build_config_outcome_compact_text(Some(
+                crate::BuildConfigOutcomeObservability::RejectedMissingBuilding
+            )),
+            "rej-miss-build"
+        );
+        assert_eq!(
+            super::build_config_outcome_compact_text(Some(
+                crate::BuildConfigOutcomeObservability::RejectedMissingBlockMetadata
+            )),
+            "rej-miss-meta"
+        );
+        assert_eq!(
+            super::build_config_outcome_compact_text(Some(
+                crate::BuildConfigOutcomeObservability::RejectedUnsupportedBlock
+            )),
+            "rej-unsupported-block"
+        );
+        assert_eq!(
+            super::build_config_outcome_compact_text(Some(
+                crate::BuildConfigOutcomeObservability::RejectedUnsupportedConfigType
+            )),
+            "rej-unsupported-cfg"
+        );
+        assert_eq!(super::build_config_outcome_compact_text(None), "none");
+    }
+
+    #[test]
     fn ascii_presenter_renders_projected_scene_layers() {
         let bundle = parse_world_bundle(&decode_hex(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
