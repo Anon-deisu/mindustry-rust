@@ -406,6 +406,12 @@ mod tests {
     }
 
     #[test]
+    fn action_order_key_places_interact_after_movement_and_core_actions() {
+        assert!(action_order_key(&BinaryAction::MoveUp) < action_order_key(&BinaryAction::Fire));
+        assert!(action_order_key(&BinaryAction::Fire) < action_order_key(&BinaryAction::Interact));
+    }
+
+    #[test]
     fn action_edge_order_is_stable_across_input_permutations() {
         let mut mapper = StatelessIntentMapper::default();
 
