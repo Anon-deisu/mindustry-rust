@@ -1083,6 +1083,29 @@ mod tests {
     }
 
     #[test]
+    fn save_post_load_runtime_seed_region_empty_boundary_labels_and_counts() {
+        let region = SavePostLoadRuntimeSeedRegion {
+            source_region_name: "empty",
+            world_seed: None,
+            entity_remap_seeds: Vec::new(),
+            team_plan_seeds: Vec::new(),
+            marker_seeds: Vec::new(),
+            static_fog_seed: None,
+            custom_chunk_seeds: Vec::new(),
+            building_seeds: Vec::new(),
+            loadable_entity_seeds: Vec::new(),
+            skipped_entity_seeds: Vec::new(),
+        };
+
+        assert_eq!(region.seed_step_count(), 0);
+        assert_eq!(
+            region.summary_label(),
+            "region=empty world=0 remaps=0 plans=0 markers=0 fog=0 chunks=0 buildings=0 loadable=0 skipped=0 total=0"
+        );
+        assert_eq!(region.detail_label(), region.summary_label());
+    }
+
+    #[test]
     fn runtime_seed_plan_summary_and_detail_labels_use_bool_labels() {
         let observation = test_observation();
         let plan = observation.runtime_seed_plan();
