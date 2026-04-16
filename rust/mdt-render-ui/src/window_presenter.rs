@@ -5835,6 +5835,16 @@ mod tests {
     }
 
     #[test]
+    fn window_minimap_focus_color_maps_focus_states() {
+        assert_eq!(super::window_minimap_focus_color(None), COLOR_MARKER);
+        assert_eq!(super::window_minimap_focus_color(Some(true)), COLOR_MARKER);
+        assert_eq!(
+            super::window_minimap_focus_color(Some(false)),
+            COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL
+        );
+    }
+
+    #[test]
     fn window_minimap_viewport_color_tracks_coverage_density_and_visibility_bands() {
         assert_eq!(super::window_minimap_viewport_band(0, 2, 11, 50), "warn");
         assert_eq!(super::window_minimap_viewport_band(11, 2, 2, 29), "partial");
