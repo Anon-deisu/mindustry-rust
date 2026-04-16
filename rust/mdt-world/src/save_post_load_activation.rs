@@ -276,6 +276,40 @@ mod tests {
     }
 
     #[test]
+    fn activation_candidate_extractors_copy_building_and_entity_fields_stably() {
+        let observation = test_observation();
+        let world = &observation.map.world;
+        let center = &world.building_centers[0];
+        let entity = &observation.world_entity_chunks[0];
+
+        assert_eq!(
+            building_activation_candidate(world, 0, center),
+            SavePostLoadBuildingActivationCandidate {
+                center_index: 0,
+                tile_index: 0,
+                x: 0,
+                y: 0,
+                block_id: 0x0153,
+                revision: 0,
+                tail_kind: "core",
+                center_reference_valid: true,
+            }
+        );
+        assert_eq!(
+            entity_activation_candidate(entity),
+            SavePostLoadEntityActivationCandidate {
+                entity_id: 42,
+                source_class_id: 255,
+                effective_class_id: Some(3),
+                source_name: "flare".to_string(),
+                effective_name: Some("flare".to_string()),
+                chunk_len: 3,
+                body_len: 2,
+            }
+        );
+    }
+
+    #[test]
     fn activation_surface_reports_duplicate_entity_ids_and_invalid_building_reference() {
         let mut observation = test_observation();
         observation.world_entity_chunks[1].entity_id = 42;
