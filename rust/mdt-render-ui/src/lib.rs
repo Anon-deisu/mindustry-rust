@@ -46,3 +46,25 @@ pub use window_presenter::{
     BackendSignal, MinifbWindowBackend, PpmSequenceBackend, WindowBackend, WindowFrame,
     WindowPresenter, WindowRunStats,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel, RenderViewWindow,
+        RuntimeHudTextObservability, RuntimeLoadingObservability, RuntimeMenuObservability,
+        RuntimeUiObservability,
+    };
+
+    #[test]
+    fn public_reexports_import_render_and_hud_api_compile() {
+        let _ = std::any::type_name::<BuildUiObservability>();
+        let _ = std::any::type_name::<HudModel>();
+        let _ = std::any::type_name::<RenderModel>();
+        let _ = std::any::type_name::<RenderViewWindow>();
+        let _ = std::any::type_name::<BuildQueueHeadStage>();
+        let _ = std::any::type_name::<RuntimeHudTextObservability>();
+        let _ = std::any::type_name::<RuntimeLoadingObservability>();
+        let _ = std::any::type_name::<RuntimeMenuObservability>();
+        let _ = std::any::type_name::<RuntimeUiObservability>();
+    }
+}
