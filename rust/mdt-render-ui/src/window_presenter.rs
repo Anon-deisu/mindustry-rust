@@ -4845,6 +4845,39 @@ mod tests {
         assert_eq!(super::optional_build_tile_status_text(Some((5, 9))), "5:9");
     }
 
+    #[test]
+    fn scaled_surface_metrics_clamps_zero_dimensions_and_tile_pixels() {
+        let zero_frame = WindowFrame {
+            frame_id: 0,
+            title: String::new(),
+            wave_text: None,
+            session_banner_text: None,
+            status_text: String::new(),
+            build_strip_text: None,
+            build_strip_detail_text: None,
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 0,
+            height: 0,
+            minimap_inset: None,
+            pixels: Vec::new(),
+        };
+
+        assert_eq!(super::scaled_surface_metrics(&zero_frame, 0), Some((1, 1, 1)));
+
+        let clamped_frame = WindowFrame {
+            width: 3,
+            height: 4,
+            ..zero_frame.clone()
+        };
+
+        assert_eq!(super::scaled_surface_metrics(&clamped_frame, 0), Some((3, 4, 12)));
+        assert_eq!(super::scaled_surface_metrics(&clamped_frame, 2), Some((6, 8, 48)));
+    }
+
     fn runtime_command_rect_objects(
         family: &str,
         left: f32,
