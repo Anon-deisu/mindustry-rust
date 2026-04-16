@@ -3189,7 +3189,7 @@ mod tests {
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, build_runtime_world_reload_panel_model,
         build_config_alignment_label, build_config_authority_source_label,
-        build_config_pending_match_label,
+        build_config_pending_match_label, BuildConfigHeadModel,
         build_interaction_authority_label, compact_panel_text, minimap_coverage_label,
         minimap_viewport_band,
         minimap_visibility_label, runtime_notice_state_kind, runtime_notice_state_text,
@@ -3579,6 +3579,83 @@ mod tests {
                 BuildConfigAuthoritySourceObservability::ConstructFinish
             )),
             "constructFinish"
+        );
+    }
+
+    #[test]
+    fn build_config_labels_map_head_tile_and_outcome_variants() {
+        assert_eq!(super::build_config_head_label(None), "none");
+        assert_eq!(super::build_config_tile_label(None), "none");
+        assert_eq!(super::build_config_outcome_label(None), "none");
+
+        let queued_head = BuildConfigHeadModel {
+            x: 10,
+            y: 12,
+            breaking: false,
+            block_id: Some(7),
+            rotation: Some(3),
+            stage: BuildQueueHeadStage::Queued,
+        };
+        let in_flight_head = BuildConfigHeadModel {
+            stage: BuildQueueHeadStage::InFlight,
+            ..queued_head.clone()
+        };
+        let finished_head = BuildConfigHeadModel {
+            stage: BuildQueueHeadStage::Finished,
+            ..queued_head.clone()
+        };
+        let removed_head = BuildConfigHeadModel {
+            stage: BuildQueueHeadStage::Removed,
+            breaking: true,
+            ..queued_head
+        };
+
+        assert_eq!(
+            super::build_config_head_label(Some(&queued_head)),
+            "queued@10:12:place:b7:r3"
+        );
+        assert_eq!(
+            super::build_config_head_label(Some(&in_flight_head)),
+            "flight@10:12:place:b7:r3"
+        );
+        assert_eq!(
+            super::build_config_head_label(Some(&finished_head)),
+            "finish@10:12:place:b7:r3"
+        );
+        assert_eq!(
+            super::build_config_head_label(Some(&removed_head)),
+            "remove@10:12:break:b7:r3"
+        );
+
+        assert_eq!(super::build_config_tile_label(Some((15, 27))), "15:27");
+
+        assert_eq!(
+            super::build_config_outcome_label(Some(BuildConfigOutcomeObservability::Applied)),
+            "applied"
+        );
+        assert_eq!(
+            super::build_config_outcome_label(Some(
+                BuildConfigOutcomeObservability::RejectedMissingBuilding
+            )),
+            "rejected-missing-building"
+        );
+        assert_eq!(
+            super::build_config_outcome_label(Some(
+                BuildConfigOutcomeObservability::RejectedMissingBlockMetadata
+            )),
+            "rejected-missing-block-metadata"
+        );
+        assert_eq!(
+            super::build_config_outcome_label(Some(
+                BuildConfigOutcomeObservability::RejectedUnsupportedBlock
+            )),
+            "rejected-unsupported-block"
+        );
+        assert_eq!(
+            super::build_config_outcome_label(Some(
+                BuildConfigOutcomeObservability::RejectedUnsupportedConfigType
+            )),
+            "rejected-unsupported-config-type"
         );
     }
 
