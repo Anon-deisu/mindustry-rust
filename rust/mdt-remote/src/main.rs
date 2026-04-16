@@ -300,6 +300,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_manifest_only_and_leaves_optional_outputs_empty() {
+        let parsed = parse_args(vec!["manifest.json".to_string()].into_iter())
+            .expect("manifest-only arguments should parse");
+
+        assert_eq!(
+            parsed,
+            ("manifest.json".to_string(), None, None, None)
+        );
+    }
+
+    #[test]
     fn resolve_cli_path_keeps_absolute_paths_and_joins_relative_paths() {
         let original_dir = env::current_dir().expect("current dir");
         let temp_dir = env::temp_dir().join(format!(
