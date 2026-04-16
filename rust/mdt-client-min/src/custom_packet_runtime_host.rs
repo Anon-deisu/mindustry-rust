@@ -838,6 +838,14 @@ mod tests {
     }
 
     #[test]
+    fn format_coord_formats_integer_and_fractional_values_stably() {
+        assert_eq!(format_coord(12.0), "12");
+        assert_eq!(format_coord(-7.0), "-7");
+        assert_eq!(format_coord(12.5), "12.5");
+        assert_eq!(format_coord(-0.25), "-0.25");
+    }
+
+    #[test]
     fn runtime_custom_packet_host_queues_bound_actions_only_for_changed_entries() {
         let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
             &[logic_pos_spec(), build_spec()],
