@@ -1176,4 +1176,52 @@ mod tests {
             team_plan_counts: vec![1, 1],
         }
     }
+
+    #[test]
+    fn extend_unique_blockers_keeps_first_seen_order_and_skips_duplicates() {
+        let mut blockers = vec![SavePostLoadConsumerBlocker::DuplicateEntityId(9)];
+        let snapshot = blockers.clone();
+
+        extend_unique_blockers(&mut blockers, &[]);
+
+        assert_eq!(blockers, snapshot);
+
+        extend_unique_blockers(
+            &mut blockers,
+            &[
+                SavePostLoadConsumerBlocker::DuplicateEntityId(9),
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::EntitySummaryMismatch,
+                ),
+                SavePostLoadConsumerBlocker::DuplicateEntityId(4),
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::EntitySummaryMismatch,
+                ),
+                SavePostLoadConsumerBlocker::DuplicateEntityId(4),
+                SavePostLoadConsumerBlocker::SkippedEntity {
+                    entity_index: 1,
+                    entity_id: 99,
+                    source_name: "mod-unit".to_string(),
+                    effective_name: None,
+                },
+            ],
+        );
+
+        assert_eq!(
+            blockers,
+            vec![
+                SavePostLoadConsumerBlocker::DuplicateEntityId(9),
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::EntitySummaryMismatch,
+                ),
+                SavePostLoadConsumerBlocker::DuplicateEntityId(4),
+                SavePostLoadConsumerBlocker::SkippedEntity {
+                    entity_index: 1,
+                    entity_id: 99,
+                    source_name: "mod-unit".to_string(),
+                    effective_name: None,
+                },
+            ]
+        );
+    }
 }
