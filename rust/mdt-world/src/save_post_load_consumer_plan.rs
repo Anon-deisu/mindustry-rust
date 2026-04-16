@@ -887,6 +887,25 @@ mod tests {
     }
 
     #[test]
+    fn stage_requires_world_shell_marks_only_world_shell_sensitive_stages() {
+        let cases = [
+            (SavePostLoadConsumerStageKind::WorldShell, false),
+            (SavePostLoadConsumerStageKind::EntityRemaps, false),
+            (SavePostLoadConsumerStageKind::TeamPlans, true),
+            (SavePostLoadConsumerStageKind::Markers, true),
+            (SavePostLoadConsumerStageKind::StaticFog, true),
+            (SavePostLoadConsumerStageKind::CustomChunks, false),
+            (SavePostLoadConsumerStageKind::Buildings, true),
+            (SavePostLoadConsumerStageKind::LoadableEntities, true),
+            (SavePostLoadConsumerStageKind::SkippedEntities, false),
+        ];
+
+        for (kind, expected) in cases {
+            assert_eq!(stage_requires_world_shell(kind), expected, "{kind:?}");
+        }
+    }
+
+    #[test]
     fn consumer_runtime_helper_marks_zero_step_apply_now_stage_ready() {
         let mut observation = test_observation();
         observation.custom_chunks.clear();
