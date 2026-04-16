@@ -1887,6 +1887,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_text_world_pos_reads_top_level_json_xy_and_rejects_non_finite_values() {
+        assert_eq!(
+            parse_text_world_pos("{\"x\":12.5,\"y\":-4}"),
+            Some((12.5, -4.0, "json_xy"))
+        );
+        assert_eq!(
+            parse_text_world_pos("{\"x\":null,\"y\":-4}"),
+            None
+        );
+        assert_eq!(
+            parse_text_world_pos("{\"x\":12,\"y\":Infinity}"),
+            None
+        );
+    }
+
+    #[test]
     fn parse_text_world_pos_ignores_nested_fields() {
         assert_eq!(
             parse_text_world_pos("{\"nested\":{\"x\":12,\"y\":-4}}"),
