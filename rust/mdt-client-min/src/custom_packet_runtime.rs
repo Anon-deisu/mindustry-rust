@@ -1179,6 +1179,14 @@ mod tests {
     }
 
     #[test]
+    fn truncate_for_preview_counts_unicode_scalars_and_appends_ellipsis() {
+        assert_eq!(truncate_for_preview("hello", 5), "hello");
+        assert_eq!(truncate_for_preview("a🙂bc", 2), "a🙂...");
+        assert_eq!(truncate_for_preview("你好世界", 3), "你好世...");
+        assert_eq!(truncate_for_preview("🙂", 0), "...");
+    }
+
+    #[test]
     fn runtime_custom_packet_semantics_state_bridges_native_remote_message_events() {
         let mut state = RuntimeCustomPacketSemanticsState::default();
         for (key, semantic) in [
