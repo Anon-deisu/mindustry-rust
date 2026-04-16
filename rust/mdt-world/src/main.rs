@@ -815,7 +815,10 @@ fn read_text_from_candidates(
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_hex_text, read_text_from_candidates, world_stream_candidates, CliArgs};
+    use super::{
+        decode_hex_text, read_text_from_candidates, set_input_root_once, world_stream_candidates,
+        CliArgs,
+    };
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -836,6 +839,21 @@ mod tests {
     #[test]
     fn decode_hex_text_accepts_empty_input() {
         assert_eq!(decode_hex_text("").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn set_input_root_once_rejects_duplicate_assignment_and_overwrites_with_latest_value() {
+        let mut input_root = None;
+
+        set_input_root_once(&mut input_root, PathBuf::from("first")).unwrap();
+        assert_eq!(input_root, Some(PathBuf::from("first")));
+
+        let err = set_input_root_once(&mut input_root, PathBuf::from("second")).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "duplicate --input-root provided; latest value was second"
+        );
+        assert_eq!(input_root, Some(PathBuf::from("second")));
     }
 
     #[test]
