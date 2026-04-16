@@ -3190,7 +3190,8 @@ mod tests {
         build_runtime_world_label_panel, build_runtime_world_reload_panel_model,
         build_config_alignment_label, build_config_authority_source_label,
         build_config_pending_match_label,
-        compact_panel_text, minimap_coverage_label, minimap_viewport_band,
+        build_interaction_authority_label, compact_panel_text, minimap_coverage_label,
+        minimap_viewport_band,
         minimap_visibility_label, runtime_notice_state_kind, runtime_notice_state_text,
         BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
         BuildInteractionSelectionState, BuildMinimapAssistPanelModel, PresenterViewWindow,
@@ -3578,6 +3579,45 @@ mod tests {
                 BuildConfigAuthoritySourceObservability::ConstructFinish
             )),
             "constructFinish"
+        );
+    }
+
+    #[test]
+    fn build_interaction_authority_label_maps_all_variants_stably() {
+        assert_eq!(build_interaction_authority_label(BuildInteractionAuthorityState::None), "none");
+        assert_eq!(
+            build_interaction_authority_label(BuildInteractionAuthorityState::Applied),
+            "applied"
+        );
+        assert_eq!(
+            build_interaction_authority_label(BuildInteractionAuthorityState::Cleared),
+            "cleared"
+        );
+        assert_eq!(
+            build_interaction_authority_label(BuildInteractionAuthorityState::Rollback),
+            "rollback"
+        );
+        assert_eq!(
+            build_interaction_authority_label(
+                BuildInteractionAuthorityState::RejectedMissingBuilding
+            ),
+            "rejected-missing-building"
+        );
+        assert_eq!(
+            build_interaction_authority_label(
+                BuildInteractionAuthorityState::RejectedMissingBlockMetadata
+            ),
+            "rejected-missing-metadata"
+        );
+        assert_eq!(
+            build_interaction_authority_label(BuildInteractionAuthorityState::RejectedUnsupportedBlock),
+            "rejected-unsupported-block"
+        );
+        assert_eq!(
+            build_interaction_authority_label(
+                BuildInteractionAuthorityState::RejectedUnsupportedConfigType
+            ),
+            "rejected-unsupported-config"
         );
     }
 
