@@ -568,6 +568,22 @@ mod tests {
     }
 
     #[test]
+    fn read_lz4_length_handles_empty_input_and_stops_on_first_non_ff() {
+        let mut empty_pos = 0usize;
+        assert!(matches!(
+            read_lz4_length(&[], &mut empty_pos),
+            Err(PacketCodecError::TooShort)
+        ));
+        assert_eq!(empty_pos, 0);
+
+        let bytes = [0xff, 0xff, 0x04, 0xaa];
+        let mut pos = 0usize;
+        assert_eq!(read_lz4_length(&bytes, &mut pos).unwrap(), 0xff + 0xff + 0x04);
+        assert_eq!(pos, 3);
+        assert_eq!(bytes[pos], 0xaa);
+    }
+
+    #[test]
     fn lz4_block_consumed_len_rejects_truncated_lz4_sequences() {
         let mut pos = 0usize;
         assert!(matches!(
