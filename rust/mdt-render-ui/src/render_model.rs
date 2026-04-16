@@ -1589,11 +1589,12 @@ fn object_visible_in_window(
 #[cfg(test)]
 mod tests {
     use super::{
-        object_visible_in_window, parse_prefixed_hex_u32, parse_prefixed_or_decimal_u32_bits,
-        RenderIconPrimitiveFamily, RenderModel, RenderObject, RenderObjectSemanticFamily,
-        RenderObjectSemanticKind, RenderPipelineLayerSummary, RenderPipelineSummary,
-        RenderPrimitive, RenderPrimitiveKind, RenderPrimitivePayloadValue,
+        detail_counts_text, object_visible_in_window, parse_prefixed_hex_u32,
+        parse_prefixed_or_decimal_u32_bits, RenderIconPrimitiveFamily, RenderModel, RenderObject,
+        RenderObjectSemanticFamily, RenderObjectSemanticKind, RenderPipelineLayerSummary,
+        RenderPipelineSummary, RenderPrimitive, RenderPrimitiveKind, RenderPrimitivePayloadValue,
         RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
+        sort_detail_counts,
     };
 
     #[test]
@@ -1642,6 +1643,49 @@ mod tests {
         assert!(!object_visible_in_window(&negative_tile, tile_size, window));
         assert!(!object_visible_in_window(&lower_edge, 0.0, window));
         assert!(!object_visible_in_window(&lower_edge, f32::NAN, window));
+    }
+
+    #[test]
+    fn sort_detail_counts_orders_labels_lexicographically() {
+        let mut detail_counts = vec![
+            RenderSemanticDetailCount {
+                label: "runtime-world-label",
+                count: 2,
+            },
+            RenderSemanticDetailCount {
+                label: "marker-line",
+                count: 1,
+            },
+            RenderSemanticDetailCount {
+                label: "plan-build",
+                count: 3,
+            },
+        ];
+
+        sort_detail_counts(&mut detail_counts);
+
+        assert_eq!(
+            detail_counts,
+            vec![
+                RenderSemanticDetailCount {
+                    label: "marker-line",
+                    count: 1,
+                },
+                RenderSemanticDetailCount {
+                    label: "plan-build",
+                    count: 3,
+                },
+                RenderSemanticDetailCount {
+                    label: "runtime-world-label",
+                    count: 2,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn detail_counts_text_returns_none_for_empty_input() {
+        assert_eq!(detail_counts_text(&[]), None);
     }
 
     #[test]
