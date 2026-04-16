@@ -47,3 +47,13 @@ pub use probe::{
     MovementProbeController, MovementProbeUpdate, RuntimeInputSample, RuntimeInputSampleKind,
     RuntimeInputState,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crate_root_reexports_block_offset_smoke() {
+        assert_eq!(block_offset(2), TILE_SIZE / 2.0);
+    }
+}
