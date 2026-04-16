@@ -1650,6 +1650,14 @@ mod tests {
     }
 
     #[test]
+    fn format_begin_break_summary_keeps_field_order_stable() {
+        assert_eq!(
+            format_begin_break_summary(100, 99, 1, 2, 42),
+            "begin_break: x=100 y=99 team_id=1 builder_kind=2 builder_value=42"
+        );
+    }
+
+    #[test]
     fn summarize_client_packet_events_includes_build_and_effect_events() {
         let lines = summarize_client_packet_events(&[
             ClientSessionEvent::EffectRequested {
