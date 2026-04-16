@@ -6991,6 +6991,26 @@ mod tests {
     }
 
     #[test]
+    fn project_window_minimap_helpers_cover_boundaries_rounding_and_clamping() {
+        assert_eq!(
+            super::project_window_minimap_point((0, 0), 5, 5, 3, 3),
+            Some((0, 2))
+        );
+        assert_eq!(
+            super::project_window_minimap_point((4, 4), 5, 5, 3, 3),
+            Some((2, 0))
+        );
+        assert_eq!(super::project_window_minimap_point((0, 0), 0, 5, 3, 3), None);
+        assert_eq!(super::project_window_minimap_x(0, 0, 7), 0);
+        assert_eq!(super::project_window_minimap_x(4, 5, 3), 2);
+        assert_eq!(super::project_window_minimap_y(0, 0, 7), 0);
+        assert_eq!(super::project_window_minimap_y(4, 5, 3), 2);
+        assert_eq!(super::project_window_minimap_span(0, 5, 3), 1);
+        assert_eq!(super::project_window_minimap_span(1, 3, 5), 2);
+        assert_eq!(super::project_window_minimap_span(3, 3, 5), 5);
+    }
+
+    #[test]
     fn runtime_world_to_minimap_tile_clamps_and_rejects_nonfinite_input() {
         assert_eq!(runtime_world_to_minimap_tile(f32::NAN, 8), 0);
         assert_eq!(runtime_world_to_minimap_tile(f32::INFINITY, 8), 0);
