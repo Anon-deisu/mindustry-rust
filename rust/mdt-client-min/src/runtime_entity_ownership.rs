@@ -181,8 +181,8 @@ fn unit_allows_heuristic_player_ownership(unit: &TypedRuntimeUnitEntity) -> bool
 #[cfg(test)]
 mod tests {
     use super::{
-        record_conflict_units, resolve_typed_runtime_entity_ownership,
-        unique_latest_claim_entity_id,
+        authoritative_player_controller_entity_id, record_conflict_units,
+        resolve_typed_runtime_entity_ownership, unique_latest_claim_entity_id,
     };
     use crate::session_state::{
         EntityPlayerSemanticProjection, EntityUnitSemanticProjection, TypedRuntimeEntityBase,
@@ -497,6 +497,46 @@ mod tests {
         assert_eq!(
             resolution.ownership_conflict_unit_sample,
             vec![42, 7, 19, 23]
+        );
+    }
+
+    #[test]
+    fn authoritative_player_controller_entity_id_requires_zero_controller_type_and_existing_player() {
+        let player_entity_id = 101;
+        let TypedRuntimeEntityModel::Unit(unit_with_player) =
+            unit(202, 0, Some(player_entity_id), 1)
+        else {
+            unreachable!("unit helper must return unit model");
+        };
+        let TypedRuntimeEntityModel::Unit(unit_with_missing_player) =
+            unit(202, 0, Some(player_entity_id), 1)
+        else {
+            unreachable!("unit helper must return unit model");
+        };
+        let TypedRuntimeEntityModel::Unit(unit_with_nonzero_controller_type) =
+            unit(202, 1, Some(player_entity_id), 1)
+        else {
+            unreachable!("unit helper must return unit model");
+        };
+        let by_entity_id = BTreeMap::from([(player_entity_id, player(player_entity_id, 0, 7))]);
+
+        assert_eq!(
+            authoritative_player_controller_entity_id(&unit_with_player, &by_entity_id),
+            Some(player_entity_id)
+        );
+        assert_eq!(
+            authoritative_player_controller_entity_id(
+                &unit_with_missing_player,
+                &BTreeMap::new()
+            ),
+            None
+        );
+        assert_eq!(
+            authoritative_player_controller_entity_id(
+                &unit_with_nonzero_controller_type,
+                &by_entity_id
+            ),
+            None
         );
     }
 
