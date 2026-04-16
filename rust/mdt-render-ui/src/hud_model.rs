@@ -1870,4 +1870,11 @@ mod tests {
             "0123456789ab"
         );
     }
+
+    #[test]
+    fn optional_bool_label_formats_none_true_and_false() {
+        assert_eq!(super::optional_bool_label(None), "none");
+        assert_eq!(super::optional_bool_label(Some(true)), "1");
+        assert_eq!(super::optional_bool_label(Some(false)), "0");
+    }
 }
