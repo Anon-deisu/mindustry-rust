@@ -167,6 +167,14 @@ mod tests {
     }
 
     #[test]
+    fn player_intent_summary_label_formats_config_tap_coordinates_stable() {
+        assert_eq!(
+            PlayerIntent::ConfigTap { tile: (-3, 4) }.summary_label(),
+            "tap=-3,4"
+        );
+    }
+
+    #[test]
     fn player_intent_summary_label_formats_building_on_and_off() {
         assert_eq!(
             PlayerIntent::SetBuilding { building: true }.summary_label(),
