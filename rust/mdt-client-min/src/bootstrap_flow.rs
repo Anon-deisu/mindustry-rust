@@ -416,6 +416,13 @@ mod tests {
     }
 
     #[test]
+    fn read_big_endian_helpers_decode_stream_header_fields() {
+        assert_eq!(read_i32_be(&[0x01, 0x02, 0x03, 0x04]), 0x0102_0304);
+        assert_eq!(read_i32_be(&[0xff, 0xff, 0xff, 0xff]), -1);
+        assert_eq!(read_u16_be(&[0x05, 0x06]), 0x0506);
+    }
+
+    #[test]
     fn encodes_real_connect_packet_payload_as_wire_packet() {
         let payload = sample_connect_payload();
         let envelope = ConnectPacketEnvelope::from_payload(&payload).unwrap();
