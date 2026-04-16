@@ -320,6 +320,8 @@ mod tests {
     use crate::{
         CustomChunkEntry, MarkerEntry, MarkerModel, ParsedCustomChunk, SaveEntityChunkObservation,
         SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
+        SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldOwnershipStatus,
+        SavePostLoadRuntimeWorldOwnershipSurface, SavePostLoadRuntimeWorldSurfaceKind,
         SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlanGroup,
         UnknownMarkerModel, WorldModel,
     };
@@ -541,6 +543,42 @@ mod tests {
         assert_eq!(
             decision.detail_label(),
             "seed=0 semantics=0 shell=0/0 apply=0 wait=0 block=5 defer=0 own=0/9 claim=0/5 readiness_sources=4 ownership_sources=4"
+        );
+    }
+
+    #[test]
+    fn save_post_load_runtime_world_ownership_summary_and_detail_labels_use_bool_labels() {
+        let ownership = SavePostLoadRuntimeWorldOwnership {
+            world_shell_ready: true,
+            surfaces: vec![
+                SavePostLoadRuntimeWorldOwnershipSurface {
+                    kind: SavePostLoadRuntimeWorldSurfaceKind::WorldShell,
+                    source_region_name: "test",
+                    required_step_count: 3,
+                    claimed_step_count: 3,
+                    status: SavePostLoadRuntimeWorldOwnershipStatus::Owned,
+                    blockers: Vec::new(),
+                    failed_steps: Vec::new(),
+                },
+                SavePostLoadRuntimeWorldOwnershipSurface {
+                    kind: SavePostLoadRuntimeWorldSurfaceKind::Markers,
+                    source_region_name: "test",
+                    required_step_count: 2,
+                    claimed_step_count: 0,
+                    status: SavePostLoadRuntimeWorldOwnershipStatus::Blocked,
+                    blockers: Vec::new(),
+                    failed_steps: Vec::new(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            ownership.summary_label(),
+            "shell=yes semantics=no own=1/2 claim=3/5 wait=0 block=1 fail=0 defer=0 absent=0 regions=1"
+        );
+        assert_eq!(
+            ownership.detail_label(),
+            "shell=yes semantics=no own=1/2 claim=3/5 wait=0 block=1 fail=0 defer=0 absent=0 regions=[region=test own=1/2 claim=3/5 wait=0 block=1 fail=0 defer=0 absent=0]"
         );
     }
 
