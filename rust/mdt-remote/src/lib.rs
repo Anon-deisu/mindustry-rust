@@ -4550,6 +4550,29 @@ mod tests {
     }
 
     #[test]
+    fn remote_packet_definition_key_formats_flow_and_included_params_stably() {
+        let packet = test_remote_packet(
+            0,
+            7,
+            "mindustry.gen.DemoCallPacket",
+            "mindustry.core.NetClient",
+            "demoPacket",
+            "client",
+            "normal",
+            false,
+            vec![
+                test_param("enabled", "boolean", true, true),
+                test_param("count", "int", true, false),
+            ],
+        );
+
+        assert_eq!(
+            remote_packet_definition_key(&packet, RemoteFlow::ClientToServer),
+            "demoPacket|ClientToServer|false|[\"boolean\", \"int\"]|[Bool, Int]"
+        );
+    }
+
+    #[test]
     fn remote_priority_from_str_maps_known_values_and_rejects_unknown() {
         assert_eq!(
             remote_priority_from_str("low").unwrap(),
