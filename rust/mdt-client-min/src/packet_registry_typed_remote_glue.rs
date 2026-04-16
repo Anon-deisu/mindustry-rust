@@ -258,4 +258,18 @@ mod tests {
             other => panic!("expected InvalidPacketSequence error, got {other:?}"),
         }
     }
+
+    #[test]
+    fn packet_registry_typed_remote_glue_rejects_missing_client_snapshot_packet() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        manifest.remote_packets.retain(|entry| entry.method != "clientSnapshot");
+
+        let error = PacketRegistryTypedRemoteGlue::from_remote_manifest(&manifest).unwrap_err();
+        match error {
+            RemoteManifestError::MissingHighFrequencyPacket(method_name) => {
+                assert_eq!(method_name, "clientSnapshot");
+            }
+            other => panic!("expected MissingHighFrequencyPacket error, got {other:?}"),
+        }
+    }
 }
