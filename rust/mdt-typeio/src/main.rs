@@ -35,6 +35,16 @@ mod tests {
     }
 
     #[test]
+    fn rejects_multiple_extra_arguments() {
+        let err = parse_args(
+            vec!["out".to_string(), "extra1".to_string(), "extra2".to_string()].into_iter(),
+        )
+        .unwrap_err();
+
+        assert_eq!(err, USAGE);
+    }
+
+    #[test]
     fn accepts_single_output_dir() {
         let output_dir = parse_args(vec!["out".to_string()].into_iter()).unwrap();
 
