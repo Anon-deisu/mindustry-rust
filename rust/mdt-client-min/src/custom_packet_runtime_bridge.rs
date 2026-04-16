@@ -681,6 +681,37 @@ mod tests {
     }
 
     #[test]
+    fn parse_encoding_and_semantic_map_known_and_unknown_tokens() {
+        assert_eq!(
+            parse_encoding("text"),
+            Some(RuntimeCustomPacketSemanticEncoding::Text)
+        );
+        assert_eq!(
+            parse_encoding("binary"),
+            Some(RuntimeCustomPacketSemanticEncoding::Binary)
+        );
+        assert_eq!(
+            parse_encoding("logic"),
+            Some(RuntimeCustomPacketSemanticEncoding::LogicData)
+        );
+        assert_eq!(parse_encoding("json"), None);
+
+        assert_eq!(
+            parse_semantic("server_message"),
+            Some(RuntimeCustomPacketSemanticKind::ServerMessage)
+        );
+        assert_eq!(
+            parse_semantic("world_pos"),
+            Some(RuntimeCustomPacketSemanticKind::WorldPos)
+        );
+        assert_eq!(
+            parse_semantic("number"),
+            Some(RuntimeCustomPacketSemanticKind::Number)
+        );
+        assert_eq!(parse_semantic("unknown"), None);
+    }
+
+    #[test]
     fn parse_surface_reset_rejects_trailing_junk_and_unterminated_quotes() {
         assert!(
             parse_surface_reset(
