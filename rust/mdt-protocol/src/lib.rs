@@ -576,6 +576,22 @@ mod tests {
     }
 
     #[test]
+    fn stream_chunk_payload_rejects_length_overflow_and_encodes_header() {
+        let payload = vec![0x11, 0x22, 0x33, 0x44];
+        let encoded = stream_chunk_payload(0x0102_0304, &payload).unwrap();
+
+        assert_eq!(&encoded[..4], &0x0102_0304i32.to_be_bytes());
+        assert_eq!(&encoded[4..6], &(payload.len() as u16).to_be_bytes());
+        assert_eq!(&encoded[6..], payload.as_slice());
+
+        let overflow = vec![0u8; 65_536];
+        assert!(matches!(
+            stream_chunk_payload(7, &overflow),
+            Err(PacketCodecError::LengthOverflow(65_536))
+        ));
+    }
+
+    #[test]
     fn forced_uncompressed_packet_round_trips() {
         let payload = stream_chunk_payload(7, &(1u8..=48).collect::<Vec<_>>()).unwrap();
         let encoded = encode_packet(STREAM_CHUNK_PACKET_ID, &payload, true).unwrap();
