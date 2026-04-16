@@ -1679,6 +1679,20 @@ mod tests {
     }
 
     #[test]
+    fn format_text_packet_summary_escapes_and_truncates_preview() {
+        let contents = format!("{}{}\n{}", "a".repeat(94), "", "b".repeat(10));
+        let expected_preview = format!("{}\\n...", "a".repeat(94));
+
+        assert_eq!(
+            format_text_packet_summary("client_packet", "reliable", "chat", &contents),
+            format!(
+                "client_packet: transport=reliable type=\"chat\" len={} preview={expected_preview:?}",
+                contents.len()
+            )
+        );
+    }
+
+    #[test]
     fn summarize_client_packet_events_includes_build_and_effect_events() {
         let lines = summarize_client_packet_events(&[
             ClientSessionEvent::EffectRequested {
