@@ -7819,6 +7819,26 @@ mod tests {
     }
 
     #[test]
+    fn runtime_world_reload_label_formats_none_and_projection_fields() {
+        assert_eq!(runtime_world_reload_label(None), "none");
+
+        let projection = WorldReloadProjection {
+            had_loaded_world: true,
+            had_client_loaded: false,
+            was_ready_to_enter_world: true,
+            had_connect_confirm_sent: false,
+            cleared_pending_packets: 3,
+            cleared_deferred_inbound_packets: 0,
+            cleared_replayed_loading_events: 7,
+        };
+
+        assert_eq!(
+            runtime_world_reload_label(Some(&projection)),
+            "@lw1:cl0:rd1:cc0:p3:d0:r7"
+        );
+    }
+
+    #[test]
     fn runtime_world_label_overlay_ttl_ticks_clamps_non_finite_and_low_duration() {
         assert_eq!(runtime_world_label_overlay_ttl_ticks(f32::NAN), 0);
         assert_eq!(runtime_world_label_overlay_ttl_ticks(-1.0), 1);
