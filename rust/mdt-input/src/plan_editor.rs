@@ -647,6 +647,43 @@ mod tests {
     }
 
     #[test]
+    fn plan_point_config_family_labels_are_stable() {
+        assert_eq!(PlanPointConfigFamily::None.label(), "none");
+        assert_eq!(PlanPointConfigFamily::Point.label(), "point");
+        assert_eq!(PlanPointConfigFamily::Points.label(), "points");
+
+        let summary = PlanCollectionSummary::from_plans(&[
+            PlanEditorPlan {
+                x: 0,
+                y: 0,
+                rotation: 0,
+                breaking: false,
+                block: PlanBlockMeta::with_size(1),
+                point_config: PlanPointConfig::None,
+            },
+            PlanEditorPlan {
+                x: 1,
+                y: 1,
+                rotation: 1,
+                breaking: false,
+                block: PlanBlockMeta::with_size(1),
+                point_config: PlanPointConfig::Point(PlanPoint { x: 2, y: 3 }),
+            },
+            PlanEditorPlan {
+                x: 2,
+                y: 2,
+                rotation: 2,
+                breaking: false,
+                block: PlanBlockMeta::with_size(1),
+                point_config: PlanPointConfig::Points(vec![PlanPoint { x: 4, y: 5 }]),
+            },
+        ]);
+
+        assert_eq!(summary.point_config_label(), "none=1 point=1 points=1 total=2");
+        assert_eq!(summary.point_config_family_counts, [1, 1, 1]);
+    }
+
+    #[test]
     fn world_to_tile_matches_java_rounding_for_negative_half_tile() {
         assert_eq!(world_to_tile(4.0), 1);
         assert_eq!(world_to_tile(-4.0), 0);
