@@ -1915,6 +1915,12 @@ fn tile_world_coords(x: i32, y: i32) -> (f32, f32) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn rotation_radians_returns_zero_for_non_finite_bits_and_converts_finite_degrees() {
+        assert_eq!(rotation_radians(f32::NAN.to_bits()), 0.0);
+        assert!((rotation_radians(180.0f32.to_bits()) - std::f32::consts::PI).abs() < 1e-6);
+    }
+
     fn test_line_projections_for_overlay(
         overlay: &RuntimeEffectOverlay,
         target_x_bits: u32,
