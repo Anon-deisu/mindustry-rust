@@ -53,6 +53,13 @@ mod tests {
     }
 
     #[test]
+    fn decode_hex_rejects_odd_length_input() {
+        let err = decode_hex("0a0").expect_err("odd-length input should fail");
+
+        assert_eq!(err, "hex input length must be even");
+    }
+
+    #[test]
     fn read_world_stream_bytes_uses_default_fixture() {
         let bytes = read_world_stream_bytes(None).unwrap();
         assert!(!bytes.is_empty());
