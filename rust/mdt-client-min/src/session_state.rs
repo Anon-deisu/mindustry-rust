@@ -7199,6 +7199,11 @@ impl SessionState {
         self.last_effect_data_parse_error = error;
     }
 
+    pub fn clear_effect_data_parse_failure(&mut self) {
+        self.last_effect_data_parse_failed = false;
+        self.last_effect_data_parse_error = None;
+    }
+
     pub fn record_block_snapshot_parse_failure(&mut self, error: String, payload_len: usize) {
         self.failed_block_snapshot_parse_count =
             self.failed_block_snapshot_parse_count.saturating_add(1);
@@ -9704,6 +9709,20 @@ mod tests {
             state.last_effect_data_parse_error.as_deref(),
             Some("effect data trailing bytes")
         );
+    }
+
+    #[test]
+    fn session_state_clear_effect_data_parse_failure_clears_last_error_fields() {
+        let mut state = SessionState::default();
+        state.last_effect_data_parse_failed = true;
+        state.failed_effect_data_parse_count = 3;
+        state.last_effect_data_parse_error = Some("stale effect data".to_string());
+
+        state.clear_effect_data_parse_failure();
+
+        assert!(!state.last_effect_data_parse_failed);
+        assert_eq!(state.failed_effect_data_parse_count, 3);
+        assert_eq!(state.last_effect_data_parse_error, None);
     }
 
     #[test]

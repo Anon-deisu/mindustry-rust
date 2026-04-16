@@ -5483,8 +5483,7 @@ impl ClientSession {
                         self.state
                             .record_effect_data_parse_failure(business_input.parse_error.clone());
                     } else {
-                        self.state.last_effect_data_parse_failed = false;
-                        self.state.last_effect_data_parse_error = None;
+                        self.state.clear_effect_data_parse_failure();
                     }
                     Ok(ClientSessionEvent::EffectRequested {
                         effect_id: effect.effect_id,
