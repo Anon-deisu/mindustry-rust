@@ -53,9 +53,10 @@ mod tests {
         project_hud_model, project_render_model, project_render_model_with_player_position,
         project_render_model_with_view_window, project_scene_models,
         project_scene_models_with_player_position, project_scene_models_with_view_window,
-        BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel, RenderViewWindow,
-        RuntimeHudTextObservability, RuntimeLoadingObservability, RuntimeMenuObservability,
-        RuntimeUiObservability, ScenePresenter,
+        BackendSignal, BuildQueueHeadStage, BuildUiObservability, HudModel, MinifbWindowBackend,
+        PpmSequenceBackend, RenderModel, RenderViewWindow, RuntimeHudTextObservability,
+        RuntimeLoadingObservability, RuntimeMenuObservability, RuntimeUiObservability,
+        ScenePresenter, WindowBackend, WindowFrame, WindowPresenter, WindowRunStats,
     };
 
     #[test]
@@ -89,5 +90,16 @@ mod tests {
 
         let mut presenter = DummyScenePresenter;
         presenter.present(&RenderModel::default(), &HudModel::default());
+    }
+
+    #[test]
+    fn public_reexports_import_window_backend_api_compile() {
+        let _ = std::any::type_name::<BackendSignal>();
+        let _ = std::any::type_name::<MinifbWindowBackend>();
+        let _ = std::any::type_name::<PpmSequenceBackend>();
+        let _ = std::any::type_name::<dyn WindowBackend>();
+        let _ = std::any::type_name::<WindowFrame>();
+        let _ = std::any::type_name::<WindowPresenter<MinifbWindowBackend>>();
+        let _ = std::any::type_name::<WindowRunStats>();
     }
 }
