@@ -2653,6 +2653,34 @@ mod tests {
     }
 
     #[test]
+    fn payload_header_reader_rejects_truncated_typed_headers() {
+        assert_eq!(
+            read_payload_header(&[1, PayloadType::Unit.id()]).unwrap_err(),
+            TypeIoReadError::UnexpectedEof {
+                position: 2,
+                needed: 1,
+                remaining: 0,
+            }
+        );
+        assert_eq!(
+            read_payload_header(&[1, PayloadType::Build.id(), 0x12]).unwrap_err(),
+            TypeIoReadError::UnexpectedEof {
+                position: 2,
+                needed: 2,
+                remaining: 1,
+            }
+        );
+        assert_eq!(
+            read_payload_header(&[1, PayloadType::Build.id(), 0x12, 0x34]).unwrap_err(),
+            TypeIoReadError::UnexpectedEof {
+                position: 4,
+                needed: 1,
+                remaining: 0,
+            }
+        );
+    }
+
+    #[test]
     fn payload_header_reader_rejects_non_binary_presence_flags() {
         assert_eq!(
             read_payload_header(&[2]).unwrap_err(),
