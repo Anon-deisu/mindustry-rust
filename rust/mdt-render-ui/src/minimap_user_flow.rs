@@ -1002,6 +1002,41 @@ mod tests {
         assert_eq!(super::pair_label(Some(("left", "right"))), "left:right");
     }
 
+    #[test]
+    fn shared_prefix_label_keeps_summary_prefix_stable_for_none_and_focus_states() {
+        let missing = flow_model(false, false, false, false);
+        assert_eq!(
+            missing.shared_prefix_label(),
+            "next=hold focus=missing vis=hidden cover=offscreen pan=hold target=none"
+        );
+        assert_eq!(missing.summary_label(), missing.shared_prefix_label());
+
+        let focused = MinimapUserFlowPanelModel {
+            next_action: "inspect",
+            focus_state: MinimapUserFocusState::Inside,
+            pan_horizontal: MinimapPanAxisDirection::Right,
+            pan_vertical: MinimapPanAxisDirection::Down,
+            target_kind: MinimapUserTargetKind::Marker,
+            focus_tile: Some((3, 4)),
+            window_clamped_left: true,
+            window_clamped_top: false,
+            window_clamped_right: false,
+            window_clamped_bottom: true,
+            focus_offset_x: Some(-2),
+            focus_offset_y: Some(5),
+            overlay_target_count: 1,
+            visible_tile_count: 5,
+            visible_map_percent: 25,
+            unknown_tile_percent: 50,
+            window_coverage_percent: 75,
+        };
+        assert_eq!(
+            focused.shared_prefix_label(),
+            "next=inspect focus=inside vis=mixed cover=partial pan=right+down target=marker"
+        );
+        assert_eq!(focused.summary_label(), focused.shared_prefix_label());
+    }
+
     fn build_top_left_summary() -> HudSummary {
         HudSummary {
             player_name: "operator".to_string(),
