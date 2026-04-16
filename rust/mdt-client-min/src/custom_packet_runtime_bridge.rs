@@ -814,6 +814,10 @@ mod tests {
             parse_debug_string_prefix("\"alpha\\\"beta\" tail"),
             Some(("alpha\"beta".to_string(), " tail"))
         );
+        assert_eq!(
+            parse_debug_string_prefix("\"line\\nbreak\""),
+            Some(("line\nbreak".to_string(), ""))
+        );
         assert_eq!(parse_debug_string_prefix("\"unterminated"), None);
         assert_eq!(parse_debug_string_prefix("not_a_string"), None);
     }
