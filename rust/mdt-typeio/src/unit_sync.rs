@@ -677,6 +677,52 @@ mod tests {
     }
 
     #[test]
+    fn read_weapon_mounts_into_prefix_rejects_truncated_second_mount() {
+        let bytes = vec![
+            2,
+            0b0000_0001,
+            0x41,
+            0x48,
+            0x00,
+            0x00,
+            0x40,
+            0x20,
+            0x00,
+            0x00,
+            0b0000_0010,
+            0xc1,
+            0x10,
+            0x00,
+            0x00,
+            0x41,
+        ];
+        let mut mounts = vec![WeaponMountRaw {
+            shoot: false,
+            rotate: false,
+            aim_x: 99.0,
+            aim_y: 99.0,
+        }];
+
+        assert!(matches!(
+            read_weapon_mounts_into_prefix(&bytes, &mut mounts),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 15,
+                needed: 4,
+                remaining: 1,
+            })
+        ));
+        assert_eq!(
+            mounts,
+            vec![WeaponMountRaw {
+                shoot: false,
+                rotate: false,
+                aim_x: 99.0,
+                aim_y: 99.0,
+            }]
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "weapon mount count exceeds wire byte capacity")]
     fn write_weapon_mounts_rejects_counts_outside_u8_range() {
         let mounts = vec![
