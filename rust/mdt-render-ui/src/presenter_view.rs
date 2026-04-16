@@ -2945,6 +2945,7 @@ mod tests {
         format_runtime_command_group_lines,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
         format_runtime_command_mode_detail_text, format_runtime_command_mode_panel_text,
+        runtime_ui_text_len,
         format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_command_rect_text, format_runtime_command_stance_text,
@@ -4991,6 +4992,13 @@ mod tests {
         };
 
         assert_eq!(format_runtime_ui_notice_detail_text(&panel), None);
+    }
+
+    #[test]
+    fn runtime_ui_text_len_counts_none_empty_and_unicode_stably() {
+        assert_eq!(runtime_ui_text_len(None), 0);
+        assert_eq!(runtime_ui_text_len(Some("")), 0);
+        assert_eq!(runtime_ui_text_len(Some("a🙂")), 2);
     }
 
     #[test]
