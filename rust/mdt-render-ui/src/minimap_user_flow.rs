@@ -273,11 +273,12 @@ fn pan_vertical_direction(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_minimap_user_flow_panel, MinimapPanAxisDirection, MinimapUserFlowPanelModel,
-        MinimapUserFocusState, MinimapUserTargetKind,
+        build_minimap_user_flow_panel, pan_horizontal_direction, pan_vertical_direction,
+        MinimapPanAxisDirection, MinimapUserFlowPanelModel, MinimapUserFocusState,
+        MinimapUserTargetKind,
     };
     use crate::hud_model::{HudMinimapSummary, HudSummary, HudViewWindowSummary};
-    use crate::panel_model::PresenterViewWindow;
+    use crate::panel_model::{MinimapPanelModel, PresenterViewWindow};
     use crate::{HudModel, RenderModel, RenderObject, Viewport};
 
     fn flow_model(
@@ -307,6 +308,64 @@ mod tests {
         }
     }
 
+    fn minimap_panel(
+        focus_in_window: Option<bool>,
+        focus_offset_x: Option<isize>,
+        focus_offset_y: Option<isize>,
+    ) -> MinimapPanelModel {
+        MinimapPanelModel {
+            map_width: 10,
+            map_height: 10,
+            window: PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 4,
+                height: 4,
+            },
+            window_last_x: 0,
+            window_last_y: 0,
+            window_clamped_left: false,
+            window_clamped_top: false,
+            window_clamped_right: false,
+            window_clamped_bottom: false,
+            window_tile_count: 0,
+            window_coverage_percent: 0,
+            map_tile_count: 0,
+            known_tile_count: 0,
+            known_tile_percent: 0,
+            unknown_tile_count: 0,
+            unknown_tile_percent: 0,
+            focus_tile: None,
+            focus_in_window,
+            focus_offset_x,
+            focus_offset_y,
+            overlay_visible: false,
+            fog_enabled: false,
+            visible_tile_count: 0,
+            visible_known_percent: 0,
+            hidden_tile_count: 0,
+            hidden_known_percent: 0,
+            tracked_object_count: 0,
+            window_tracked_object_count: 0,
+            outside_window_count: 0,
+            player_count: 0,
+            window_player_count: 0,
+            marker_count: 0,
+            window_marker_count: 0,
+            plan_count: 0,
+            window_plan_count: 0,
+            block_count: 0,
+            window_block_count: 0,
+            runtime_count: 0,
+            window_runtime_count: 0,
+            terrain_count: 0,
+            window_terrain_count: 0,
+            unknown_count: 0,
+            window_unknown_count: 0,
+            detail_counts: Vec::new(),
+        }
+    }
+
     #[test]
     fn minimap_user_flow_clamp_label_orders_flags_and_handles_none() {
         assert_eq!(flow_model(false, false, false, false).clamp_label(), "none");
@@ -316,6 +375,43 @@ mod tests {
         assert_eq!(flow_model(false, false, false, true).clamp_label(), "B");
         assert_eq!(flow_model(true, true, true, true).clamp_label(), "LTRB");
         assert_eq!(flow_model(true, false, true, true).clamp_label(), "LRB");
+    }
+
+    #[test]
+    fn minimap_user_flow_pan_directions_respect_offscreen_focus_signs() {
+        let left_up = minimap_panel(Some(false), Some(-3), Some(-2));
+        assert_eq!(
+            pan_horizontal_direction(&left_up),
+            MinimapPanAxisDirection::Left
+        );
+        assert_eq!(pan_vertical_direction(&left_up), MinimapPanAxisDirection::Up);
+
+        let right_down = minimap_panel(Some(false), Some(5), Some(4));
+        assert_eq!(
+            pan_horizontal_direction(&right_down),
+            MinimapPanAxisDirection::Right
+        );
+        assert_eq!(
+            pan_vertical_direction(&right_down),
+            MinimapPanAxisDirection::Down
+        );
+
+        let aligned = minimap_panel(Some(false), Some(0), Some(0));
+        assert_eq!(
+            pan_horizontal_direction(&aligned),
+            MinimapPanAxisDirection::None
+        );
+        assert_eq!(
+            pan_vertical_direction(&aligned),
+            MinimapPanAxisDirection::None
+        );
+
+        let inside = minimap_panel(Some(true), Some(-8), Some(9));
+        assert_eq!(
+            pan_horizontal_direction(&inside),
+            MinimapPanAxisDirection::None
+        );
+        assert_eq!(pan_vertical_direction(&inside), MinimapPanAxisDirection::None);
     }
 
     #[test]
