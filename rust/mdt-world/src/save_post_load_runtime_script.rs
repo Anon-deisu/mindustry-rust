@@ -352,6 +352,50 @@ mod tests {
         assert!(stage_steps.is_empty());
     }
 
+    #[test]
+    fn runtime_apply_step_targets_world_semantics_partitions_world_and_auxiliary_steps() {
+        let cases = [
+            (SavePostLoadRuntimeApplyStep::WorldShell, true),
+            (
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 0,
+                    plan_index: 0,
+                },
+                true,
+            ),
+            (SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 }, true),
+            (SavePostLoadRuntimeApplyStep::StaticFog, true),
+            (
+                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
+                true,
+            ),
+            (
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
+                true,
+            ),
+            (
+                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
+                false,
+            ),
+            (
+                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 },
+                false,
+            ),
+            (
+                SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 0 },
+                false,
+            ),
+        ];
+
+        for (step, expected) in cases {
+            assert_eq!(
+                step.targets_world_semantics(),
+                expected,
+                "unexpected world semantics partition for {step:?}"
+            );
+        }
+    }
+
     fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {
         observation.world_entity_chunks[1].class_id = 3;
         observation.world_entity_chunks[1].custom_name = None;
