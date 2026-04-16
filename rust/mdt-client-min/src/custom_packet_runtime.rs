@@ -1149,6 +1149,14 @@ mod tests {
     }
 
     #[test]
+    fn f64_to_u8_rejects_fractional_and_out_of_range_values() {
+        assert_eq!(f64_to_u8(0.0), Some(0));
+        assert_eq!(f64_to_u8(255.0), Some(255));
+        assert_eq!(f64_to_u8(255.5), None);
+        assert_eq!(f64_to_u8(256.0), None);
+    }
+
+    #[test]
     fn json_field_has_object_key_boundary_rejects_prefix_collisions() {
         assert!(extract_json_field_value("{\"foo\":1}", "foo").is_some());
         assert_eq!(extract_json_field_value("{\"foobar\":1}", "foo"), None);
