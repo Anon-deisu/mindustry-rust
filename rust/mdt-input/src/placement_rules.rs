@@ -405,6 +405,28 @@ mod tests {
     }
 
     #[test]
+    fn placement_bounds_calculates_center_and_extent_for_even_and_odd_sizes() {
+        assert_eq!(
+            placement_bounds(10, 10, 1),
+            super::PlacementBounds {
+                left: 76.0,
+                right: 84.0,
+                bottom: 76.0,
+                top: 84.0,
+            }
+        );
+        assert_eq!(
+            placement_bounds(10, 10, 2),
+            super::PlacementBounds {
+                left: 76.0,
+                right: 92.0,
+                bottom: 76.0,
+                top: 92.0,
+            }
+        );
+    }
+
+    #[test]
     fn repair_derelict_candidate_returns_build_plan_candidate_when_gate_passes() {
         let observation = RepairDerelictObservation {
             player_dead: false,
