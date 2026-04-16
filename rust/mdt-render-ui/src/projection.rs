@@ -1603,6 +1603,35 @@ mod tests {
     }
 
     #[test]
+    fn tile_in_window_includes_edges_and_rejects_outside_tiles() {
+        let cases = [
+            ("left edge included", 2, 3, 2, 3, 4, 5, true),
+            ("top edge included", 5, 3, 2, 3, 4, 5, true),
+            ("right edge excluded", 6, 4, 2, 3, 4, 5, false),
+            ("bottom edge excluded", 4, 8, 2, 3, 4, 5, false),
+            ("negative x rejected", -1, 4, 2, 3, 4, 5, false),
+            ("negative y rejected", 4, -1, 2, 3, 4, 5, false),
+        ];
+
+        for (label, tile_x, tile_y, window_x, window_y, window_width, window_height, expected) in
+            cases
+        {
+            assert_eq!(
+                super::tile_in_window(
+                    tile_x,
+                    tile_y,
+                    window_x,
+                    window_y,
+                    window_width,
+                    window_height
+                ),
+                expected,
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
     fn hud_minimap_focus_tile_is_none_for_non_finite_player_position() {
         let bundle = parse_world_bundle(&decode_hex(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
