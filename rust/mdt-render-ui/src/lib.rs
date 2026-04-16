@@ -50,9 +50,12 @@ pub use window_presenter::{
 #[cfg(test)]
 mod tests {
     use super::{
+        project_hud_model, project_render_model, project_render_model_with_player_position,
+        project_render_model_with_view_window, project_scene_models,
+        project_scene_models_with_player_position, project_scene_models_with_view_window,
         BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel, RenderViewWindow,
         RuntimeHudTextObservability, RuntimeLoadingObservability, RuntimeMenuObservability,
-        RuntimeUiObservability,
+        RuntimeUiObservability, ScenePresenter,
     };
 
     #[test]
@@ -66,5 +69,25 @@ mod tests {
         let _ = std::any::type_name::<RuntimeLoadingObservability>();
         let _ = std::any::type_name::<RuntimeMenuObservability>();
         let _ = std::any::type_name::<RuntimeUiObservability>();
+    }
+
+    #[test]
+    fn public_reexports_import_projection_and_scene_api_compile() {
+        let _ = project_render_model;
+        let _ = project_render_model_with_player_position;
+        let _ = project_render_model_with_view_window;
+        let _ = project_scene_models;
+        let _ = project_scene_models_with_player_position;
+        let _ = project_scene_models_with_view_window;
+        let _ = project_hud_model;
+
+        struct DummyScenePresenter;
+
+        impl ScenePresenter for DummyScenePresenter {
+            fn present(&mut self, _scene: &RenderModel, _hud: &HudModel) {}
+        }
+
+        let mut presenter = DummyScenePresenter;
+        presenter.present(&RenderModel::default(), &HudModel::default());
     }
 }
