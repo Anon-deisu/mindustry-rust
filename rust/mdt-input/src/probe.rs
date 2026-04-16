@@ -643,6 +643,24 @@ mod tests {
     }
 
     #[test]
+    fn sample_runtime_input_snapshot_keeps_pointer_priority_and_empty_actions_stable() {
+        let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
+            position: Some((5.0, 6.0)),
+            pointer: Some((16.0, 24.0)),
+            velocity: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        });
+
+        assert_eq!(snapshot.move_axis, (0.0, 0.0));
+        assert_eq!(snapshot.aim_axis, (16.0, 24.0));
+        assert!(snapshot.active_actions.is_empty());
+    }
+
+    #[test]
     fn sample_runtime_input_snapshot_ignores_non_finite_pointer_and_position() {
         let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
             position: Some((f32::INFINITY, 6.0)),
