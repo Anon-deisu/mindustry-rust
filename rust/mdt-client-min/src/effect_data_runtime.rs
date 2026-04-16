@@ -505,8 +505,9 @@ fn finite_vec2_position_bits(x: f32, y: f32) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::{
-        derive_effect_data_business_input, derive_effect_data_semantic, position_hint_from_value,
-        EffectDataBusinessHint, EffectDataBusinessInput, EffectDataBusinessTargetHint,
+        derive_effect_data_business_input, derive_effect_data_semantic, finite_vec2_position_bits,
+        position_hint_from_value, EffectDataBusinessHint, EffectDataBusinessInput,
+        EffectDataBusinessTargetHint,
     };
     use crate::session_state::{EffectBusinessContentKind, EffectDataSemantic};
     use mdt_typeio::{
@@ -1061,6 +1062,16 @@ mod tests {
 
         assert_eq!(input.contract_name, Some("lightning"));
         assert_eq!(input.primary, None);
+    }
+
+    #[test]
+    fn finite_vec2_position_bits_rejects_non_finite_and_keeps_bits_for_finite_values() {
+        assert_eq!(
+            finite_vec2_position_bits(1.5, -2.25),
+            Some((1.5f32.to_bits(), (-2.25f32).to_bits()))
+        );
+        assert_eq!(finite_vec2_position_bits(f32::INFINITY, 2.0), None);
+        assert_eq!(finite_vec2_position_bits(1.0, f32::NAN), None);
     }
 
     #[test]
