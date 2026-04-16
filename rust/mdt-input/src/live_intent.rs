@@ -496,6 +496,36 @@ mod tests {
     }
 
     #[test]
+    fn runtime_snapshot_apply_key_distinguishes_transient_counts() {
+        let base = LiveIntentState {
+            move_axis: (1.0, 2.0),
+            aim_axis: (3.0, 4.0),
+            mining_tile: Some((5, 6)),
+            building: true,
+            last_config_tap_tile: Some((7, 8)),
+            config_tap_count: 1,
+            last_build_pulse: Some(BuildPulse {
+                tile: (9, 10),
+                breaking: false,
+            }),
+            build_pulse_count: 1,
+            active_actions: vec![BinaryAction::Fire],
+            pressed_actions: Vec::new(),
+            released_actions: Vec::new(),
+        };
+        let bumped_counts = LiveIntentState {
+            config_tap_count: 2,
+            build_pulse_count: 3,
+            ..base.clone()
+        };
+
+        assert_ne!(
+            runtime_snapshot_apply_key(&base),
+            runtime_snapshot_apply_key(&bumped_counts)
+        );
+    }
+
+    #[test]
     fn live_sampling_mode_keeps_action_active_without_held_intents() {
         let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
         let mut state = LiveIntentState::default();
