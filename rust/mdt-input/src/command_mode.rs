@@ -840,6 +840,19 @@ mod tests {
     }
 
     #[test]
+    fn command_mode_projection_summary_labels_active_when_only_active_flag_is_set() {
+        let summary = CommandModeProjectionSummary {
+            active: true,
+            ..CommandModeProjectionSummary::default()
+        };
+
+        assert!(!summary.is_empty());
+        assert_eq!(summary.summary_label(), "active");
+        assert_eq!(summary.recent_selection_label(), "none");
+        assert_eq!(summary.recent_control_group_label(), "none");
+    }
+
+    #[test]
     fn command_mode_state_projection_tracks_selection_and_recent_command_state() {
         let mut state = CommandModeState::default();
         state.bind_control_group(2, &[9, 9, 7]);
