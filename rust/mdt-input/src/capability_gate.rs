@@ -777,4 +777,17 @@ mod tests {
         assert_eq!(optional_i16_label(Some(-7)), "-7");
         assert_eq!(optional_i16_label(Some(42)), "42");
     }
+
+    fn optional_i32_label(value: Option<i32>) -> String {
+        value
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    #[test]
+    fn optional_i32_label_formats_none_and_signed_values() {
+        assert_eq!(optional_i32_label(None), "none");
+        assert_eq!(optional_i32_label(Some(-7)), "-7");
+        assert_eq!(optional_i32_label(Some(42)), "42");
+    }
 }
