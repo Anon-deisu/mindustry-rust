@@ -7193,6 +7193,14 @@ impl SessionState {
         self.last_loaded_world_block_snapshot_extra_entry_parse_error = Some(error);
     }
 
+    pub fn clear_loaded_world_block_snapshot_extra_entry_parse_failure(
+        &mut self,
+        entry_count: usize,
+    ) {
+        self.last_loaded_world_block_snapshot_extra_entry_count = entry_count;
+        self.last_loaded_world_block_snapshot_extra_entry_parse_error = None;
+    }
+
     pub fn record_effect_data_parse_failure(&mut self, error: Option<String>) {
         self.last_effect_data_parse_failed = true;
         self.failed_effect_data_parse_count = self.failed_effect_data_parse_count.saturating_add(1);
@@ -9677,6 +9685,27 @@ mod tests {
         assert_eq!(
             state.last_loaded_world_block_snapshot_extra_entry_parse_error.as_deref(),
             Some("loaded_world_block_snapshot_entry_1_missing_center")
+        );
+    }
+
+    #[test]
+    fn session_state_clear_loaded_world_block_snapshot_extra_entry_parse_failure_clears_last_error_fields() {
+        let mut state = SessionState::default();
+        state.last_loaded_world_block_snapshot_extra_entry_count = 2;
+        state.failed_loaded_world_block_snapshot_extra_entry_parse_count = 7;
+        state.last_loaded_world_block_snapshot_extra_entry_parse_error =
+            Some("loaded_world_block_snapshot_entry_1_missing_center".to_string());
+
+        state.clear_loaded_world_block_snapshot_extra_entry_parse_failure(4);
+
+        assert_eq!(state.last_loaded_world_block_snapshot_extra_entry_count, 4);
+        assert_eq!(
+            state.failed_loaded_world_block_snapshot_extra_entry_parse_count,
+            7
+        );
+        assert_eq!(
+            state.last_loaded_world_block_snapshot_extra_entry_parse_error,
+            None
         );
     }
 

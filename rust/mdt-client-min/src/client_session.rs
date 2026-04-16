@@ -7560,9 +7560,7 @@ impl ClientSession {
         match self.collect_block_snapshot_entries_from_loaded_world(payload) {
             Ok(LoadedWorldBlockSnapshotEntryCollection::Complete(entries)) => {
                 self.state
-                    .last_loaded_world_block_snapshot_extra_entry_count = entries.len();
-                self.state
-                    .last_loaded_world_block_snapshot_extra_entry_parse_error = None;
+                    .clear_loaded_world_block_snapshot_extra_entry_parse_failure(entries.len());
                 self.state
                     .applied_loaded_world_block_snapshot_extra_entry_count = self
                     .state
@@ -31345,6 +31343,57 @@ mod tests {
                 .last_loaded_world_block_snapshot_extra_entry_parse_error
                 .as_deref(),
             Some(expected_error.as_str())
+        );
+    }
+
+    #[test]
+    fn loaded_world_block_snapshot_success_clears_prior_extra_entry_parse_failure() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let (payload, entries) = build_loaded_world_block_snapshot_payload(&session, 2);
+        let mut malformed_payload = payload.clone();
+        malformed_payload.push(0xff);
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::BlockSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+
+        let malformed_packet = encode_packet(packet_id, &malformed_payload, false).unwrap();
+        session.ingest_packet_bytes(&malformed_packet).unwrap();
+        assert_eq!(
+            session
+                .state()
+                .failed_loaded_world_block_snapshot_extra_entry_parse_count,
+            1
+        );
+        assert!(
+            session
+                .state()
+                .last_loaded_world_block_snapshot_extra_entry_parse_error
+                .is_some()
+        );
+
+        let valid_packet = encode_packet(packet_id, &payload, false).unwrap();
+        session.ingest_packet_bytes(&valid_packet).unwrap();
+
+        assert_eq!(
+            session
+                .state()
+                .last_loaded_world_block_snapshot_extra_entry_count,
+            entries.len()
+        );
+        assert_eq!(
+            session
+                .state()
+                .failed_loaded_world_block_snapshot_extra_entry_parse_count,
+            1
+        );
+        assert_eq!(
+            session
+                .state()
+                .last_loaded_world_block_snapshot_extra_entry_parse_error,
+            None
         );
     }
 
