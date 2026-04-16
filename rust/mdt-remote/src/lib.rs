@@ -4563,6 +4563,18 @@ mod tests {
     }
 
     #[test]
+    fn remote_param_kind_maps_block_ref_and_opaque_fallback() {
+        assert_eq!(
+            remote_param_kind("mindustry.world.Block"),
+            RemoteParamKind::BlockRef
+        );
+        assert_eq!(
+            remote_param_kind("mindustry.entities.units.UnitCommand"),
+            RemoteParamKind::Opaque
+        );
+    }
+
+    #[test]
     fn remote_family_selector_normalizes_client_and_server_flow() {
         assert_eq!(
             CustomChannelRemoteFamily::ClientPacketReliable.selector().flow,
