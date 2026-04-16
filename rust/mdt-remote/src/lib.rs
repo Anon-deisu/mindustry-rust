@@ -3205,6 +3205,28 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn param_is_wire_included_client_server_respects_caller_side_flags() {
+        let cases = [
+            (RemoteFlow::ClientToServer, false, false, false),
+            (RemoteFlow::ClientToServer, false, true, false),
+            (RemoteFlow::ClientToServer, true, false, true),
+            (RemoteFlow::ClientToServer, true, true, true),
+            (RemoteFlow::ServerToClient, false, false, false),
+            (RemoteFlow::ServerToClient, false, true, true),
+            (RemoteFlow::ServerToClient, true, false, false),
+            (RemoteFlow::ServerToClient, true, true, true),
+        ];
+
+        for (flow, caller_is_client, caller_is_server, expected) in cases {
+            assert_eq!(
+                param_is_wire_included_client_server(caller_is_client, caller_is_server, flow),
+                expected,
+                "flow={flow:?}, caller_is_client={caller_is_client}, caller_is_server={caller_is_server}"
+            );
+        }
+    }
+
     const SAMPLE_MANIFEST: &str = r#"{
   "schema": "mdt.remote.manifest.v1",
   "generator": {
