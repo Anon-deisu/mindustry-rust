@@ -805,4 +805,24 @@ mod tests {
             Err(ConnectVersionPropertiesError::InvalidUtf8("type"))
         );
     }
+
+    #[test]
+    fn parse_connect_build_number_handles_success_and_failure_cases() {
+        assert_eq!(
+            parse_connect_build_number("146", "build"),
+            Ok(146)
+        );
+        assert_eq!(
+            parse_connect_build_number("-7", "build"),
+            Ok(-7)
+        );
+        assert_eq!(
+            parse_connect_build_number("", "build"),
+            Err(ConnectVersionPropertiesError::EmptyValue("build"))
+        );
+        assert_eq!(
+            parse_connect_build_number("nope", "build"),
+            Err(ConnectVersionPropertiesError::InvalidBuildNumber)
+        );
+    }
 }
