@@ -772,6 +772,31 @@ mod tests {
     }
 
     #[test]
+    fn save_post_load_world_contract_can_project_world_shell_requires_all_surface_flags() {
+        let contract = SavePostLoadWorldContract {
+            has_world_graph: true,
+            tile_surface_consistent: true,
+            overlay_surface_consistent: true,
+            marker_surface_consistent: true,
+            static_fog_surface_consistent: true,
+            entity_surface_consistent: true,
+            unknown_coverage: WorldLoadUnknownCoverageSummary {
+                building_tail_unknown_count: 0,
+                marker_unknown_count: 0,
+                custom_chunk_unknown_count: 0,
+            },
+            issues: Vec::new(),
+        };
+
+        assert!(contract.can_project_world_shell());
+
+        let mut broken_contract = contract.clone();
+        broken_contract.marker_surface_consistent = false;
+
+        assert!(!broken_contract.can_project_world_shell());
+    }
+
+    #[test]
     fn save_post_load_world_issue_labels_cover_all_variants() {
         let cases = [
             (
