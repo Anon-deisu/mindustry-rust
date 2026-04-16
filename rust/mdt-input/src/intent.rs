@@ -185,4 +185,16 @@ mod tests {
             "release=interact"
         );
     }
+
+    #[test]
+    fn player_intent_summary_label_formats_fractional_axes_without_regression() {
+        assert_eq!(
+            PlayerIntent::SetMoveAxis { x: 1.5, y: -0.25 }.summary_label(),
+            "move=1.5,-0.25"
+        );
+        assert_eq!(
+            PlayerIntent::SetAimAxis { x: -2.5, y: 3.125 }.summary_label(),
+            "aim=-2.5,3.125"
+        );
+    }
 }
