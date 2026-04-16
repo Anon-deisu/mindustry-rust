@@ -6439,6 +6439,25 @@ mod tests {
     }
 
     #[test]
+    fn format_minimap_window_counts_text_formats_expected_separators_and_zero_counts() {
+        let mut panel = sample_minimap_panel();
+        panel.window_tracked_object_count = 0;
+        panel.outside_window_count = 0;
+        panel.window_player_count = 1;
+        panel.window_marker_count = 0;
+        panel.window_plan_count = 2;
+        panel.window_block_count = 0;
+        panel.window_runtime_count = 3;
+        panel.window_terrain_count = 0;
+        panel.window_unknown_count = 4;
+
+        assert_eq!(
+            super::format_minimap_window_counts_text("miniwin:", ":", &panel),
+            "miniwin:tracked=0:outside=0:player=1:marker=0:plan=2:block=0:runtime=3:terrain=0:unknown=4"
+        );
+    }
+
+    #[test]
     fn format_build_queue_head_text_handles_none_and_preserves_field_order() {
         let head = crate::BuildQueueHeadObservability {
             x: 10,
