@@ -224,10 +224,10 @@ fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
 mod tests {
     use super::{
         default_high_frequency_output_path, default_inbound_dispatch_output_path,
-        emit_outputs, parse_args, reject_overlapping_output_paths, USAGE,
+        emit_outputs, parse_args, reject_overlapping_output_paths, resolve_cli_path, USAGE,
     };
     use std::{
-        fs,
+        env, fs,
         path::Path,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -296,6 +296,33 @@ mod tests {
 
         let err = parse_args(Vec::<String>::new().into_iter()).unwrap_err();
         assert_eq!(err, USAGE);
+    }
+
+    #[test]
+    fn resolve_cli_path_keeps_absolute_paths_and_joins_relative_paths() {
+        let original_dir = env::current_dir().expect("current dir");
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-resolve-cli-path-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        env::set_current_dir(&temp_dir).unwrap();
+
+        let absolute_path = temp_dir.join("registry.rs");
+        let relative_path = Path::new("out/registry.rs");
+
+        assert_eq!(resolve_cli_path(&absolute_path).unwrap(), absolute_path);
+        assert_eq!(
+            resolve_cli_path(relative_path).unwrap(),
+            temp_dir.join(relative_path)
+        );
+
+        env::set_current_dir(&original_dir).unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
