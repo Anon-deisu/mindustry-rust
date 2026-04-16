@@ -363,7 +363,7 @@ fn typeio_error_to_string(error: TypeIoReadError) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_non_null_string_prefix, read_typeio_bytes_prefix,
+        decode_logic_data_payload, decode_non_null_string_prefix, read_typeio_bytes_prefix,
         TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
         TypedInboundRemoteDispatch, TypedInboundRemoteDispatcher,
     };
@@ -405,6 +405,30 @@ mod tests {
         assert_eq!(
             read_typeio_bytes_prefix(&payload[..4]).unwrap_err(),
             "bytes payload truncated: expected 3 bytes"
+        );
+    }
+
+    #[test]
+    fn decode_logic_data_payload_rejects_truncated_object_prefix_and_trailing_bytes() {
+        let value = TypeIoObject::Int(7);
+        let payload = encode_logic_payload("logic.alpha", &value);
+
+        let mut truncated_payload = payload.clone();
+        truncated_payload.pop();
+        assert_eq!(
+            decode_logic_data_payload(&truncated_payload).unwrap_err(),
+            "unexpected EOF at 1: need 4 bytes, only 3 remaining"
+        );
+
+        let mut trailing_payload = payload.clone();
+        trailing_payload.push(0xff);
+        assert_eq!(
+            decode_logic_data_payload(&trailing_payload).unwrap_err(),
+            format!(
+                "payload has trailing bytes: consumed {}, total {}",
+                trailing_payload.len() - 1,
+                trailing_payload.len()
+            )
         );
     }
 
