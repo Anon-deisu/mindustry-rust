@@ -4839,6 +4839,12 @@ mod tests {
         );
     }
 
+    #[test]
+    fn optional_build_tile_status_text_handles_some_and_none() {
+        assert_eq!(super::optional_build_tile_status_text(None), "-");
+        assert_eq!(super::optional_build_tile_status_text(Some((5, 9))), "5:9");
+    }
+
     fn runtime_command_rect_objects(
         family: &str,
         left: f32,
