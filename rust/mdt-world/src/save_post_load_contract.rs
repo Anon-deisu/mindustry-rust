@@ -766,6 +766,12 @@ mod tests {
     }
 
     #[test]
+    fn bool_label_formats_true_and_false() {
+        assert_eq!(bool_label(true), "1");
+        assert_eq!(bool_label(false), "0");
+    }
+
+    #[test]
     fn projection_contract_flags_tile_surface_breakage() {
         let mut observation = test_observation();
         observation.map.world.tiles[0].building_center_index = None;
