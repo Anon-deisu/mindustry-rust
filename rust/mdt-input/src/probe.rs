@@ -752,6 +752,48 @@ mod tests {
     }
 
     #[test]
+    fn runtime_input_sample_kind_has_actions_distinguishes_idle_action_only_and_mixed_states() {
+        let idle = RuntimeInputSample {
+            position: None,
+            pointer: None,
+            velocity: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        };
+        assert!(!idle.has_actions());
+        assert_eq!(idle.kind(), RuntimeInputSampleKind::Idle);
+
+        let action_only = RuntimeInputSample {
+            position: None,
+            pointer: None,
+            velocity: (0.0, 0.0),
+            mining_tile: Some((3, 4)),
+            building: true,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        };
+        assert!(action_only.has_actions());
+        assert_eq!(action_only.kind(), RuntimeInputSampleKind::ActionOnly);
+
+        let mixed = RuntimeInputSample {
+            position: Some((5.0, 6.0)),
+            pointer: Some((7.0, 8.0)),
+            velocity: (0.5, -0.25),
+            mining_tile: Some((9, 10)),
+            building: false,
+            shooting: true,
+            boosting: false,
+            chatting: true,
+        };
+        assert!(mixed.has_actions());
+        assert_eq!(mixed.kind(), RuntimeInputSampleKind::Mixed);
+    }
+
+    #[test]
     fn classify_runtime_input_sample_tracks_idle_movement_action_and_mixed_states() {
         assert_eq!(
             classify_runtime_input_sample(RuntimeInputSample {
