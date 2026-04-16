@@ -263,12 +263,17 @@ fn parse_surface_reset(line: &str) -> Option<ParsedSurfaceReset<'_>> {
 }
 
 fn parse_decimal_prefix(value: &str) -> Option<(&str, &str)> {
-    let digits = value
-        .as_bytes()
+    let bytes = value.as_bytes();
+    let sign_len = bytes
+        .first()
+        .is_some_and(|byte| matches!(byte, b'+' | b'-'))
+        .then_some(1)
+        .unwrap_or(0);
+    let digits = bytes[sign_len..]
         .iter()
         .take_while(|byte| byte.is_ascii_digit())
         .count();
-    (digits > 0).then_some(value.split_at(digits))
+    (digits > 0).then_some(value.split_at(sign_len + digits))
 }
 
 fn parse_debug_string_prefix(value: &str) -> Option<(String, &str)> {
@@ -663,6 +668,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_decimal_prefix_parses_signed_numbers_and_stops_at_suffix() {
+        assert_eq!(parse_decimal_prefix(""), None);
+        assert_eq!(parse_decimal_prefix("+"), None);
+        assert_eq!(parse_decimal_prefix("-"), None);
+        assert_eq!(parse_decimal_prefix("abc"), None);
+        assert_eq!(parse_decimal_prefix("+12rest"), Some(("+12", "rest")));
+        assert_eq!(parse_decimal_prefix("-7suffix"), Some(("-7", "suffix")));
+        assert_eq!(parse_decimal_prefix("123abc"), Some(("123", "abc")));
+        assert_eq!(parse_decimal_prefix("-0tail"), Some(("-0", "tail")));
+    }
+
+    #[test]
     fn parse_surface_update_handles_separator_substrings_inside_quoted_key() {
         assert_eq!(
             parse_surface_update(
@@ -789,5 +806,15 @@ mod tests {
             bridge.summary_lines().last().map(String::as_str),
             Some("runtime_custom_packet_bridge_state: routes=1 active_routes=0 surface_resets=0 reconnect_resets=0")
         );
+    }
+
+    #[test]
+    fn parse_debug_string_prefix_rejects_unterminated_strings_and_returns_rest() {
+        assert_eq!(
+            parse_debug_string_prefix("\"alpha\\\"beta\" tail"),
+            Some(("alpha\"beta".to_string(), " tail"))
+        );
+        assert_eq!(parse_debug_string_prefix("\"unterminated"), None);
+        assert_eq!(parse_debug_string_prefix("not_a_string"), None);
     }
 }
