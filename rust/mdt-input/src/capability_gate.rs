@@ -882,5 +882,13 @@ mod tests {
             CapabilityDenyReason::CommandDisabled.label(),
             "command-disabled"
         );
+        assert_eq!(
+            CapabilityDenyReason::MissingBuildBlock.label(),
+            "missing-build-block"
+        );
+        assert_eq!(
+            CapabilityDenyReason::CommandModeInactive.label(),
+            "command-mode-inactive"
+        );
     }
 }
