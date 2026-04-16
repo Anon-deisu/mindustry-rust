@@ -456,6 +456,17 @@ mod tests {
     }
 
     #[test]
+    fn runtime_input_sample_kind_label_formats_all_variants() {
+        assert_eq!(RuntimeInputSampleKind::Idle.label(), "idle");
+        assert_eq!(
+            RuntimeInputSampleKind::MovementOnly.label(),
+            "movement-only"
+        );
+        assert_eq!(RuntimeInputSampleKind::ActionOnly.label(), "action-only");
+        assert_eq!(RuntimeInputSampleKind::Mixed.label(), "mixed");
+    }
+
+    #[test]
     fn sample_runtime_input_snapshot_prefers_pointer_and_maps_actions() {
         let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
             position: Some((5.0, 6.0)),
