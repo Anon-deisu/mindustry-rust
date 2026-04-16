@@ -626,6 +626,23 @@ mod tests {
     }
 
     #[test]
+    fn sample_runtime_input_snapshot_uses_position_when_pointer_is_non_finite_and_actions_are_empty() {
+        let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
+            position: Some((5.0, 6.0)),
+            pointer: Some((f32::NAN, 24.0)),
+            velocity: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        });
+
+        assert_eq!(snapshot.aim_axis, (5.0, 6.0));
+        assert!(snapshot.active_actions.is_empty());
+    }
+
+    #[test]
     fn sample_runtime_input_snapshot_ignores_non_finite_pointer_and_position() {
         let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
             position: Some((f32::INFINITY, 6.0)),
