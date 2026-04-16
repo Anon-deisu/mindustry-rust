@@ -64,4 +64,23 @@ mod tests {
         let bytes = read_world_stream_bytes(None).unwrap();
         assert!(!bytes.is_empty());
     }
+
+    #[test]
+    fn read_world_stream_bytes_reads_custom_fixture_path() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "mdt-render-ui-bin-support-{}-{}.hex",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, "0a 0b\n0c").unwrap();
+
+        let bytes = read_world_stream_bytes(Some(path.as_path())).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(bytes, vec![10, 11, 12]);
+    }
 }
