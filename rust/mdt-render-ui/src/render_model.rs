@@ -3573,4 +3573,51 @@ mod tests {
             "players=0 markers=2 plans=0 blocks=0 runtime=0 terrain=0 unknown=0 detail=marker-line:1,marker-line-end:1"
         );
     }
+
+    #[test]
+    fn render_icon_primitive_family_label_maps_all_variants_stably() {
+        assert_eq!(
+            [
+                RenderIconPrimitiveFamily::RuntimeEffect,
+                RenderIconPrimitiveFamily::RuntimeEffectMarker,
+                RenderIconPrimitiveFamily::RuntimeBuildConfig,
+                RenderIconPrimitiveFamily::RuntimeConfig,
+                RenderIconPrimitiveFamily::RuntimeConfigParseFail,
+                RenderIconPrimitiveFamily::RuntimeConfigNoApply,
+                RenderIconPrimitiveFamily::RuntimeConfigRollback,
+                RenderIconPrimitiveFamily::RuntimeConfigPendingMismatch,
+                RenderIconPrimitiveFamily::RuntimeHealth,
+                RenderIconPrimitiveFamily::RuntimeCommand,
+                RenderIconPrimitiveFamily::RuntimePlace,
+                RenderIconPrimitiveFamily::RuntimeUnitAssemblerProgress,
+                RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand,
+                RenderIconPrimitiveFamily::RuntimeBreak,
+                RenderIconPrimitiveFamily::RuntimeBullet,
+                RenderIconPrimitiveFamily::RuntimeLogicExplosion,
+                RenderIconPrimitiveFamily::RuntimeSoundAt,
+                RenderIconPrimitiveFamily::RuntimeTileAction,
+            ]
+            .map(RenderIconPrimitiveFamily::label),
+            [
+                "runtime-effect-icon",
+                "runtime-effect",
+                "runtime-build-config-icon",
+                "runtime-config",
+                "runtime-config-parse-fail",
+                "runtime-config-noapply",
+                "runtime-config-rollback",
+                "runtime-config-pending-mismatch",
+                "runtime-health",
+                "runtime-command",
+                "runtime-place",
+                "runtime-unit-assembler-progress",
+                "runtime-unit-assembler-command",
+                "runtime-break",
+                "runtime-bullet",
+                "runtime-logic-explosion",
+                "runtime-sound-at",
+                "runtime-tile-action",
+            ]
+        );
+    }
 }
