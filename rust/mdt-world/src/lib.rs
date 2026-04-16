@@ -59964,4 +59964,11 @@ mod tests {
             "Unknown block reason"
         );
     }
+
+    #[test]
+    fn next_apply_now_batch_label_formats_present_and_missing_values() {
+        assert_eq!(next_apply_now_batch_label(Some(3), Some(7)), "3/7");
+        assert_eq!(next_apply_now_batch_label(None, Some(7)), "none");
+        assert_eq!(next_apply_now_batch_label(Some(3), None), "none");
+    }
 }
