@@ -4744,7 +4744,8 @@ fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_stable_minimap_overlay_tiles, color_for_object, compose_frame,
+        collect_stable_minimap_overlay_tiles, color_for_object, compact_build_inspector_text,
+        compose_frame,
         format_render_primitive_payload_fields,
         fit_window_minimap_size, runtime_break_minimap_rects, runtime_command_minimap_rects,
         runtime_command_minimap_tiles, runtime_ping_minimap_tile,
@@ -4782,6 +4783,16 @@ mod tests {
         render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     };
     use std::collections::BTreeMap;
+
+    #[test]
+    fn compact_build_inspector_text_sanitizes_whitespace_truncates_and_falls_back_to_dash() {
+        assert_eq!(compact_build_inspector_text("", 8), "-");
+        assert_eq!(
+            compact_build_inspector_text("alpha \t beta\n", 32),
+            "alpha___beta_"
+        );
+        assert_eq!(compact_build_inspector_text("abcdef", 4), "abcd~");
+    }
 
     #[test]
     fn compose_runtime_ui_status_text_delegates_to_runtime_ui_status_label() {
