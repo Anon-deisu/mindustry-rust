@@ -56,6 +56,21 @@ mod tests {
     }
 
     #[test]
+    fn step_saturating_increments_frames_without_touching_other_stats() {
+        let mut stats = NetLoopStats {
+            frames: u64::MAX,
+            packets_seen: 11,
+            snapshot_packets_seen: 13,
+        };
+
+        step(&mut stats);
+
+        assert_eq!(stats.frames, u64::MAX);
+        assert_eq!(stats.packets_seen, 11);
+        assert_eq!(stats.snapshot_packets_seen, 13);
+    }
+
+    #[test]
     fn ingest_inbound_packet_bytes_decode_failure_leaves_stats_unchanged() {
         let mut stats = NetLoopStats::default();
         stats.frames = 7;
