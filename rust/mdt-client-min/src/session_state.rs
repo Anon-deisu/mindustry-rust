@@ -8519,13 +8519,15 @@ impl SessionState {
             .retain_ids(&trigger_hidden_ids);
         self.entity_table_projection
             .apply_hidden_ids(&trigger_hidden_ids);
-        let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
-        let runtime_transition =
-            self.hidden_snapshot_runtime_transition(&trigger_hidden_ids, local_player_entity_id);
+        let (local_player_entity_id, runtime_transition) =
+            self.build_hidden_snapshot_runtime_transition(&trigger_hidden_ids);
         self.hidden_snapshot_runtime_rollback
             .extend(self.capture_hidden_snapshot_runtime_rollback(&runtime_transition));
-        let hidden_removed_ids = self
-            .apply_hidden_snapshot_runtime_transition(&runtime_transition, local_player_entity_id);
+        let hidden_removed_ids = self.apply_hidden_snapshot_runtime_updates(
+            &runtime_transition,
+            local_player_entity_id,
+            &typed_runtime_transition,
+        );
         self.hidden_lifecycle_remove_count = self
             .hidden_lifecycle_remove_count
             .saturating_add(hidden_removed_ids.len() as u64);
@@ -8576,13 +8578,14 @@ impl SessionState {
         self.entity_table_projection
             .apply_hidden_ids(&cleared_hidden_ids);
         self.restore_hidden_snapshot_runtime_rollback_for_ids(&previous_hidden_ids);
-        let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
-        let runtime_transition =
-            self.hidden_snapshot_runtime_transition(&cleared_hidden_ids, local_player_entity_id);
-        let _ = self
-            .apply_hidden_snapshot_runtime_transition(&runtime_transition, local_player_entity_id);
+        let (local_player_entity_id, runtime_transition) =
+            self.build_hidden_snapshot_runtime_transition(&cleared_hidden_ids);
+        let _ = self.apply_hidden_snapshot_runtime_updates(
+            &runtime_transition,
+            local_player_entity_id,
+            &typed_runtime_transition,
+        );
         self.hidden_snapshot_ids = cleared_hidden_ids;
-        self.apply_hidden_snapshot_typed_runtime_transition(&typed_runtime_transition);
     }
 
     fn capture_hidden_snapshot_runtime_rollback(
@@ -8722,8 +8725,18 @@ impl SessionState {
                 .hidden_snapshot_runtime_owned_cleanup_remove_ids(
                     trigger_hidden_ids,
                     local_player_entity_id,
-                ),
+            ),
         }
+    }
+
+    fn build_hidden_snapshot_runtime_transition(
+        &self,
+        trigger_hidden_ids: &BTreeSet<i32>,
+    ) -> (Option<i32>, HiddenSnapshotRuntimeTransition) {
+        let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
+        let runtime_transition =
+            self.hidden_snapshot_runtime_transition(trigger_hidden_ids, local_player_entity_id);
+        (local_player_entity_id, runtime_transition)
     }
 
     fn apply_hidden_snapshot_runtime_transition(
@@ -8760,6 +8773,18 @@ impl SessionState {
         for entity_id in &transition.auxiliary_cleanup_ids {
             self.clear_entity_snapshot_tombstone(*entity_id);
         }
+        hidden_removed_ids
+    }
+
+    fn apply_hidden_snapshot_runtime_updates(
+        &mut self,
+        transition: &HiddenSnapshotRuntimeTransition,
+        local_player_entity_id: Option<i32>,
+        typed_runtime_transition: &HiddenSnapshotTypedRuntimeTransition,
+    ) -> Vec<i32> {
+        let hidden_removed_ids =
+            self.apply_hidden_snapshot_runtime_transition(transition, local_player_entity_id);
+        self.apply_hidden_snapshot_typed_runtime_transition(typed_runtime_transition);
         hidden_removed_ids
     }
 
