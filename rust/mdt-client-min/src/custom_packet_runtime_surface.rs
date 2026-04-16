@@ -1903,6 +1903,13 @@ mod tests {
     }
 
     #[test]
+    fn format_compact_world_pos_trims_integer_and_fractional_boundaries() {
+        assert_eq!(format_compact_world_pos(3.0, 4.5000), "3,4.5");
+        assert_eq!(format_compact_world_pos(10.1000, -2.0000), "10.1,-2");
+        assert_eq!(format_compact_world_pos(-0.0, 0.0), "-0,0");
+    }
+
+    #[test]
     fn parse_text_world_pos_ignores_nested_fields() {
         assert_eq!(
             parse_text_world_pos("{\"nested\":{\"x\":12,\"y\":-4}}"),
