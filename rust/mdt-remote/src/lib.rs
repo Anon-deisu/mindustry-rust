@@ -4563,6 +4563,36 @@ mod tests {
     }
 
     #[test]
+    fn remote_family_selector_normalizes_client_and_server_flow() {
+        assert_eq!(
+            CustomChannelRemoteFamily::ClientPacketReliable.selector().flow,
+            Some(RemoteFlow::ServerToClient)
+        );
+        assert_eq!(
+            CustomChannelRemoteFamily::ClientBinaryPacketUnreliable
+                .selector()
+                .flow,
+            Some(RemoteFlow::ServerToClient)
+        );
+        assert_eq!(
+            CustomChannelRemoteFamily::ServerPacketReliable.selector().flow,
+            Some(RemoteFlow::ClientToServer)
+        );
+        assert_eq!(
+            CustomChannelRemoteFamily::ClientLogicDataReliable.selector().flow,
+            Some(RemoteFlow::ClientToServer)
+        );
+        assert_eq!(
+            InboundRemoteFamily::ServerPacketReliable.selector().flow,
+            Some(RemoteFlow::ClientToServer)
+        );
+        assert_eq!(
+            InboundRemoteFamily::ClientLogicDataUnreliable.selector().flow,
+            Some(RemoteFlow::ClientToServer)
+        );
+    }
+
+    #[test]
     fn remote_packet_definition_key_formats_flow_and_included_params_stably() {
         let packet = test_remote_packet(
             0,
