@@ -904,8 +904,8 @@ fn skip_ws(bytes: &[u8], mut cursor: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_json_string_literal, parse_json_usize_array_literal, ObjectivesProjection,
-        RulesProjection,
+        parse_json_f64_literal, parse_json_string_literal, parse_json_usize_array_literal,
+        ObjectivesProjection, RulesProjection,
     };
 
     fn apply_mixed_update_sequence(
@@ -944,6 +944,15 @@ mod tests {
         assert_eq!(parse_json_usize_array_literal("[1, -2, 3]"), None);
         assert_eq!(parse_json_usize_array_literal("{\"a\":1}"), None);
         assert_eq!(parse_json_usize_array_literal("[1, {\"a\":2}]"), None);
+    }
+
+    #[test]
+    fn parse_json_f64_literal_handles_whitespace_and_non_finite_values() {
+        assert_eq!(parse_json_f64_literal(" 1.5 "), Some(1.5));
+        assert_eq!(parse_json_f64_literal(" -0.25 "), Some(-0.25));
+        assert_eq!(parse_json_f64_literal("NaN"), None);
+        assert_eq!(parse_json_f64_literal("inf"), None);
+        assert_eq!(parse_json_f64_literal("not-a-number"), None);
     }
 
     #[test]
