@@ -846,6 +846,21 @@ mod tests {
     }
 
     #[test]
+    fn format_marker_returns_none_for_absent_marker_and_compacts_coordinates() {
+        assert_eq!(format_marker(None), "none");
+        assert_eq!(
+            format_marker(Some(&RuntimeCustomPacketOverlayMarker {
+                key: "logic.pos".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                x: 12.0,
+                y: -0.25,
+            })),
+            "logic.pos@12,-0.25"
+        );
+    }
+
+    #[test]
     fn runtime_custom_packet_host_queues_bound_actions_only_for_changed_entries() {
         let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
             &[logic_pos_spec(), build_spec()],
