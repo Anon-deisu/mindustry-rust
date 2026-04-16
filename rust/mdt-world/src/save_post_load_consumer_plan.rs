@@ -1521,4 +1521,10 @@ mod tests {
             team_plan_counts: vec![1, 1],
         }
     }
+
+    #[test]
+    fn bool_label_formats_true_and_false() {
+        assert_eq!(bool_label(true), "1");
+        assert_eq!(bool_label(false), "0");
+    }
 }
