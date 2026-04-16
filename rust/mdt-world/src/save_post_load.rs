@@ -375,6 +375,41 @@ mod tests {
     }
 
     #[test]
+    fn save_post_load_markers_are_empty_requires_empty_marker_list_and_region() {
+        let empty_observation = SavePostLoadWorldObservation {
+            markers: Vec::new(),
+            marker_region_bytes: Vec::new(),
+            ..test_observation()
+        };
+        assert!(empty_observation.markers_are_empty());
+
+        let markers_only_observation = SavePostLoadWorldObservation {
+            markers: vec![MarkerEntry {
+                id: 99,
+                marker: MarkerModel::Unknown(UnknownMarkerModel {
+                    class_tag: None,
+                    world: true,
+                    minimap: false,
+                    autoscale: false,
+                    draw_layer_bits: None,
+                    x_bits: None,
+                    y_bits: None,
+                }),
+            }],
+            marker_region_bytes: Vec::new(),
+            ..test_observation()
+        };
+        assert!(!markers_only_observation.markers_are_empty());
+
+        let region_only_observation = SavePostLoadWorldObservation {
+            markers: Vec::new(),
+            marker_region_bytes: vec![1, 2, 3],
+            ..test_observation()
+        };
+        assert!(!region_only_observation.markers_are_empty());
+    }
+
+    #[test]
     fn post_load_world_apply_bundle_aggregates_runtime_and_query_surfaces() {
         let observation = SavePostLoadWorldObservation {
             world_entity_chunks: vec![SaveEntityChunkObservation {
