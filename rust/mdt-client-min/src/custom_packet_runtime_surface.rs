@@ -1812,6 +1812,40 @@ mod tests {
     }
 
     #[test]
+    fn runtime_custom_packet_surface_labels_are_stable_for_encodings_semantics_and_transports() {
+        assert_eq!(encoding_label(RuntimeCustomPacketSemanticEncoding::Text), "text");
+        assert_eq!(encoding_label(RuntimeCustomPacketSemanticEncoding::Binary), "binary");
+        assert_eq!(encoding_label(RuntimeCustomPacketSemanticEncoding::LogicData), "logic");
+
+        assert_eq!(
+            semantic_label(RuntimeCustomPacketSemanticKind::ServerMessage),
+            "server_message"
+        );
+        assert_eq!(
+            semantic_label(RuntimeCustomPacketSemanticKind::ChatMessage),
+            "chat_message"
+        );
+        assert_eq!(semantic_label(RuntimeCustomPacketSemanticKind::HudText), "hud_text");
+        assert_eq!(semantic_label(RuntimeCustomPacketSemanticKind::Announce), "announce");
+        assert_eq!(semantic_label(RuntimeCustomPacketSemanticKind::Clipboard), "clipboard");
+        assert_eq!(semantic_label(RuntimeCustomPacketSemanticKind::OpenUri), "open_uri");
+        assert_eq!(semantic_label(RuntimeCustomPacketSemanticKind::WorldPos), "world_pos");
+        assert_eq!(semantic_label(RuntimeCustomPacketSemanticKind::BuildPos), "build_pos");
+        assert_eq!(semantic_label(RuntimeCustomPacketSemanticKind::Team), "team");
+        assert_eq!(semantic_label(RuntimeCustomPacketSemanticKind::Bool), "bool");
+        assert_eq!(semantic_label(RuntimeCustomPacketSemanticKind::Number), "number");
+
+        assert_eq!(
+            logic_data_transport_label(ClientLogicDataTransport::Reliable),
+            "reliable"
+        );
+        assert_eq!(
+            logic_data_transport_label(ClientLogicDataTransport::Unreliable),
+            "unreliable"
+        );
+    }
+
+    #[test]
     fn parse_text_bool_accepts_numeric_and_case_insensitive_literals() {
         assert_eq!(parse_text_bool(" TRUE "), Some(true));
         assert_eq!(parse_text_bool("false"), Some(false));
