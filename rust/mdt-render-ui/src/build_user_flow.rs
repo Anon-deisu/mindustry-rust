@@ -737,6 +737,35 @@ mod tests {
     }
 
     #[test]
+    fn build_user_flow_pan_label_maps_hold_and_single_axis_directions() {
+        let cases = [
+            (
+                MinimapPanAxisDirection::None,
+                MinimapPanAxisDirection::None,
+                "hold",
+            ),
+            (
+                MinimapPanAxisDirection::None,
+                MinimapPanAxisDirection::Up,
+                "up",
+            ),
+            (
+                MinimapPanAxisDirection::Right,
+                MinimapPanAxisDirection::None,
+                "right",
+            ),
+        ];
+
+        for (pan_horizontal, pan_vertical, expected) in cases {
+            let mut panel = empty_flow_panel();
+            panel.pan_horizontal = pan_horizontal;
+            panel.pan_vertical = pan_vertical;
+
+            assert_eq!(panel.pan_label(), expected);
+        }
+    }
+
+    #[test]
     fn build_user_flow_authority_labels_map_state_and_pending_variants() {
         let cases = [
             (
