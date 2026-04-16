@@ -3934,6 +3934,17 @@ mod tests {
     }
 
     #[test]
+    fn format_runtime_resource_delta_tail_text_keeps_field_order_and_optional_fields_stable() {
+        assert_eq!(
+            super::format_runtime_resource_delta_tail_text(
+                ":last",
+                &empty_runtime_resource_delta_panel(),
+            ),
+            ":lastnone:none:none:none:none:none:proj0/0/0:au0:d0/0/0:chgnone/none/none/none"
+        );
+    }
+
+    #[test]
     fn format_runtime_resource_delta_detail_text_preserves_field_order() {
         let panel = sample_runtime_resource_delta_panel();
 
