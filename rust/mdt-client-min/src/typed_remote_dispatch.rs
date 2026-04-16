@@ -363,7 +363,7 @@ fn typeio_error_to_string(error: TypeIoReadError) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_non_null_string_prefix,
+        decode_non_null_string_prefix, read_typeio_bytes_prefix,
         TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
         TypedInboundRemoteDispatch, TypedInboundRemoteDispatcher,
     };
@@ -391,6 +391,20 @@ mod tests {
         assert_eq!(
             decode_non_null_string_prefix(&null_payload, "packet_type").unwrap_err(),
             "packet_type string is null"
+        );
+    }
+
+    #[test]
+    fn read_typeio_bytes_prefix_handles_exact_length_and_truncated_payload() {
+        let payload = [0x00, 0x03, 0xaa, 0xbb, 0xcc, 0xdd];
+        assert_eq!(
+            read_typeio_bytes_prefix(&payload).unwrap(),
+            (vec![0xaa, 0xbb, 0xcc], 5)
+        );
+
+        assert_eq!(
+            read_typeio_bytes_prefix(&payload[..4]).unwrap_err(),
+            "bytes payload truncated: expected 3 bytes"
         );
     }
 
