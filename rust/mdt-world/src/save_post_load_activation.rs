@@ -612,4 +612,10 @@ mod tests {
             team_plan_counts: vec![1],
         }
     }
+
+    #[test]
+    fn building_tail_kind_maps_empty_and_unknown_stably() {
+        assert_eq!(building_tail_kind(&ParsedBuildingTail::Empty), "empty");
+        assert_eq!(building_tail_kind(&ParsedBuildingTail::Unknown), "unknown");
+    }
 }
