@@ -816,8 +816,9 @@ fn read_text_from_candidates(
 #[cfg(test)]
 mod tests {
     use super::{
-        connect_candidates, decode_hex_text, read_text_from_candidates, set_input_root_once,
-        snapshot_candidates, with_optional_input_root, world_stream_candidates, CliArgs,
+        connect_candidates, decode_hex_text, read_text_from_candidates,
+        repo_root_from_manifest_dir, set_input_root_once, snapshot_candidates,
+        with_optional_input_root, world_stream_candidates, CliArgs,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -974,5 +975,16 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn repo_root_from_manifest_dir_returns_workspace_root() {
+        let expected = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .to_path_buf();
+
+        assert_eq!(repo_root_from_manifest_dir().unwrap(), expected);
     }
 }
