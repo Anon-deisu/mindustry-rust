@@ -834,6 +834,11 @@ mod tests {
     }
 
     #[test]
+    fn decode_hex_text_accepts_empty_input() {
+        assert_eq!(decode_hex_text("").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
     fn world_stream_candidates_with_input_root_only_checks_explicit_path() {
         let args = CliArgs {
             output_dir: PathBuf::from("out"),
