@@ -1518,6 +1518,17 @@ mod tests {
     }
 
     #[test]
+    fn read_object_safe_prefix_parses_value_and_reports_consumed_bytes() {
+        let mut bytes = vec![1];
+        bytes.extend_from_slice(&42i32.to_be_bytes());
+        bytes.extend_from_slice(&[0xaa, 0xbb]);
+
+        let (value, consumed) = read_object_safe_prefix(&bytes).unwrap();
+        assert_eq!(value, TypeIoObject::Int(42));
+        assert_eq!(consumed, 5);
+    }
+
+    #[test]
     fn serializes_supported_object_types() {
         let cases = vec![
             (TypeIoObject::Null, vec![0]),
