@@ -43214,33 +43214,37 @@ mod tests {
     #[test]
     fn deconstruct_finish_clears_power_node_configured_block_projection_state() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
-        let build_pos = pack_point2(58, 80);
-        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_SURGE_TOWER);
+        for (build_pos, block_name, link_target) in [
+            (pack_point2(58, 80), BLOCK_NAME_SURGE_TOWER, pack_point2(1, 0)),
+            (pack_point2(59, 81), BLOCK_NAME_BEAM_LINK, pack_point2(2, 0)),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
 
-        ingest_construct_finish_for_block_config_test(
-            &mut session,
-            &manifest,
-            build_pos,
-            block_id,
-            &TypeIoObject::PackedPoint2Array(vec![pack_point2(1, 0)]),
-        );
-        assert!(session
-            .state()
-            .configured_block_projection
-            .power_node_links_by_build_pos
-            .contains_key(&build_pos));
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::PackedPoint2Array(vec![link_target]),
+            );
+            assert!(session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .contains_key(&build_pos));
 
-        ingest_deconstruct_finish_for_block_config_test(
-            &mut session,
-            &manifest,
-            build_pos,
-            block_id,
-        );
-        assert!(!session
-            .state()
-            .configured_block_projection
-            .power_node_links_by_build_pos
-            .contains_key(&build_pos));
+            ingest_deconstruct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+            );
+            assert!(!session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .contains_key(&build_pos));
+        }
     }
 
     #[test]
