@@ -2554,6 +2554,29 @@ mod tests {
     }
 
     #[test]
+    fn payload_summary_prefix_reader_reuses_header_prefix_and_reports_prefix_len() {
+        let mut bytes = Vec::new();
+        write_payload_build_header(&mut bytes, 0x8123, 7);
+        bytes.push(0xdd);
+
+        let (summary, consumed) = read_payload_summary_prefix(&bytes).unwrap();
+        assert_eq!(
+            summary,
+            PayloadSummary {
+                kind: "build",
+                payload_present: true,
+                payload_type: Some(PayloadType::Build),
+                prefix_len: 5,
+            }
+        );
+        assert_eq!(consumed, 5);
+        assert!(matches!(
+            read_payload_summary(&bytes),
+            Err(TypeIoReadError::TrailingBytes { consumed: 5, total }) if total == bytes.len()
+        ));
+    }
+
+    #[test]
     fn payload_header_reader_rejects_unknown_payload_type_ids() {
         let bytes = [1u8, 9u8];
         assert!(matches!(
