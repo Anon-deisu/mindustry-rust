@@ -18762,6 +18762,22 @@ mod tests {
     }
 
     #[test]
+    fn normalize_message_block_text_trims_whitespace_and_limits_newlines() {
+        let input = format!(
+            "  alpha{}beta  ",
+            "\n".repeat(MESSAGE_BLOCK_MAX_NEWLINES + 2)
+        );
+
+        assert_eq!(
+            normalize_message_block_text(&input),
+            Some(format!(
+                "alpha{}beta",
+                "\n".repeat(MESSAGE_BLOCK_MAX_NEWLINES + 1)
+            ))
+        );
+    }
+
+    #[test]
     fn entity_snapshot_packet_refreshes_local_player_unit_id() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
