@@ -1509,4 +1509,23 @@ mod tests {
         assert!(state.pressed_actions.is_empty());
         assert!(state.released_actions.is_empty());
     }
+
+    #[test]
+    fn push_unique_and_remove_action_keep_action_lists_deduped() {
+        let mut actions = vec![BinaryAction::Fire];
+
+        push_unique(&mut actions, BinaryAction::Fire);
+        push_unique(&mut actions, BinaryAction::Boost);
+        push_unique(&mut actions, BinaryAction::Boost);
+        assert_eq!(actions, vec![BinaryAction::Fire, BinaryAction::Boost]);
+
+        remove_action(&mut actions, BinaryAction::Fire);
+        assert_eq!(actions, vec![BinaryAction::Boost]);
+
+        remove_action(&mut actions, BinaryAction::Fire);
+        assert_eq!(actions, vec![BinaryAction::Boost]);
+
+        remove_action(&mut actions, BinaryAction::Boost);
+        assert!(actions.is_empty());
+    }
 }
