@@ -1536,10 +1536,9 @@ fn compose_frame_status_text(
         parts.push(hud.status_text.clone());
     }
     if let Some(summary_text) = compose_hud_status_text_from_hud(hud, |summary| {
-        Some(format!(
-            "hud:team={} sel={} plans={} mk={} map={}x{}",
+        Some(format_hud_summary_text(
             summary.team_id,
-            compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+            summary.selected_block.as_str(),
             summary.plan_count,
             summary.marker_count,
             summary.map_width,
@@ -1576,6 +1575,25 @@ fn compose_zoom_status_text(scene: &RenderModel) -> Option<String> {
     (zoom != 1.0).then(|| format!("zoom={zoom:.2}"))
 }
 
+fn format_hud_summary_text(
+    team_id: impl std::fmt::Display,
+    selected_block: &str,
+    plan_count: usize,
+    marker_count: usize,
+    map_width: usize,
+    map_height: usize,
+) -> String {
+    format!(
+        "hud:team={} sel={} plans={} mk={} map={}x{}",
+        team_id,
+        compact_runtime_ui_text(Some(selected_block)),
+        plan_count,
+        marker_count,
+        map_width,
+        map_height,
+    )
+}
+
 fn compose_frame_panel_lines(
     scene: &RenderModel,
     hud: &HudModel,
@@ -1583,10 +1601,9 @@ fn compose_frame_panel_lines(
 ) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(summary_text) = compose_hud_status_text_from_hud(hud, |summary| {
-        Some(format!(
-            "hud:team={} sel={} plans={} mk={} map={}x{}",
+        Some(format_hud_summary_text(
             summary.team_id,
-            compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+            summary.selected_block.as_str(),
             summary.plan_count,
             summary.marker_count,
             summary.map_width,
