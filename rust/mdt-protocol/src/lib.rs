@@ -546,6 +546,18 @@ mod tests {
     }
 
     #[test]
+    fn sha256_hex_formats_empty_and_known_digest() {
+        assert_eq!(
+            sha256_hex(&[]),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
     fn small_packet_stays_uncompressed() {
         let payload = stream_begin_payload(7, 300, 2);
         let encoded = encode_packet(STREAM_BEGIN_PACKET_ID, &payload, false).unwrap();
