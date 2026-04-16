@@ -4518,6 +4518,28 @@ mod tests {
     }
 
     #[test]
+    fn high_frequency_method_names_and_missing_packet_error_display_are_stable() {
+        let names = HighFrequencyRemoteMethod::ordered()
+            .into_iter()
+            .map(HighFrequencyRemoteMethod::method_name)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            vec![
+                "clientSnapshot",
+                "stateSnapshot",
+                "entitySnapshot",
+                "blockSnapshot",
+                "hiddenSnapshot",
+            ]
+        );
+        assert_eq!(
+            RemoteManifestError::MissingHighFrequencyPacket("blockSnapshot").to_string(),
+            "missing high-frequency remote packet in manifest: blockSnapshot"
+        );
+    }
+
+    #[test]
     fn typed_high_frequency_lookup_rejects_flow_only_decoys() {
         let manifest = RemoteManifest {
             schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
