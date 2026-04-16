@@ -2757,6 +2757,58 @@ mod tests {
     }
 
     #[test]
+    fn render_model_drops_text_primitives_with_malformed_hex_encoding() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:text:1:text:".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:text:2:text:486".to_string(),
+                    layer: 30,
+                    x: 16.0,
+                    y: 24.0,
+                },
+                RenderObject {
+                    id: "marker:text:3:text:zz".to_string(),
+                    layer: 30,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: "marker:text:4:text:80".to_string(),
+                    layer: 30,
+                    x: 32.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: "marker:text:5:text:48656c6c6f".to_string(),
+                    layer: 30,
+                    x: 40.0,
+                    y: 48.0,
+                },
+            ],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Text {
+                id: "marker:text:5:text:48656c6c6f".to_string(),
+                kind: RenderObjectSemanticKind::MarkerText,
+                layer: 30,
+                x: 40.0,
+                y: 48.0,
+                text: "Hello".to_string(),
+            }]
+        );
+    }
+
+    #[test]
     fn render_model_derives_icon_primitives_from_runtime_icon_markers() {
         let scene = RenderModel {
             viewport: Viewport::default(),
