@@ -73,6 +73,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_preserves_absolute_output_dir_path() {
+        let output_dir = parse_args(vec!["C:/MDT/out".to_string()].into_iter()).unwrap();
+
+        assert_eq!(output_dir, PathBuf::from("C:/MDT/out"));
+    }
+
+    #[test]
     fn parse_args_handles_missing_and_single_output_dir() {
         assert_eq!(
             parse_args(Vec::<String>::new().into_iter()).unwrap_err(),
