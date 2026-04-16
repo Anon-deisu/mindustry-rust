@@ -508,6 +508,54 @@ mod tests {
     }
 
     #[test]
+    fn require_live_controlled_unit_requires_live_owned_unit_and_reports_denial() {
+        let gate = CapabilityGate;
+        let live = context();
+        let dead = CapabilityContext {
+            runtime: RuntimeInputState {
+                dead: true,
+                ..context().runtime
+            },
+            ..context()
+        };
+        let missing = CapabilityContext {
+            runtime: RuntimeInputState {
+                unit_id: None,
+                dead: false,
+                position: Some((0.0, 0.0)),
+                pointer: None,
+            },
+            ..context()
+        };
+
+        assert_eq!(require_live_controlled_unit(&live), None);
+
+        let dead_decision = require_live_controlled_unit(&dead)
+            .expect("dead controlled unit should be denied");
+        assert_eq!(
+            dead_decision,
+            CapabilityDecision::denied(CapabilityDenyReason::ControlledUnitDead)
+        );
+        assert_eq!(dead_decision.reason_label(), "controlled-unit-dead");
+        assert_eq!(
+            gate.summarize(&dead, dead_decision).summary_label(),
+            "unit=controlled-unit-dead mining=on building=on command=on mode=idle decision=controlled-unit-dead"
+        );
+
+        let missing_decision = require_live_controlled_unit(&missing)
+            .expect("missing controlled unit should be denied");
+        assert_eq!(
+            missing_decision,
+            CapabilityDecision::denied(CapabilityDenyReason::MissingControlledUnit)
+        );
+        assert_eq!(missing_decision.reason_label(), "missing-controlled-unit");
+        assert_eq!(
+            gate.summarize(&missing, missing_decision).summary_label(),
+            "unit=missing-controlled-unit mining=on building=on command=on mode=idle decision=missing-controlled-unit"
+        );
+    }
+
+    #[test]
     fn mining_intent_requires_live_controlled_unit_but_clear_is_allowed() {
         let gate = CapabilityGate;
         let missing_unit = CapabilityContext {
