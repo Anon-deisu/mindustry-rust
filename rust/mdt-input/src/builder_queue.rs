@@ -4954,4 +4954,10 @@ mod tests {
             "validation-advanced-head"
         );
     }
+
+    #[test]
+    fn builder_queue_build_selection_source_labels_are_stable() {
+        assert_eq!(BuilderQueueBuildSelectionSource::Head.label(), "head");
+        assert_eq!(BuilderQueueBuildSelectionSource::Fallback.label(), "fallback");
+    }
 }
