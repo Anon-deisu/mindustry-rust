@@ -1077,6 +1077,26 @@ mod tests {
     }
 
     #[test]
+    fn runtime_custom_packet_labels_are_stable() {
+        assert_eq!(RuntimeCustomPacketSemanticEncoding::Text.label(), "text");
+        assert_eq!(RuntimeCustomPacketSemanticEncoding::Binary.label(), "binary");
+        assert_eq!(RuntimeCustomPacketSemanticEncoding::LogicData.label(), "logic");
+        assert_eq!(
+            RuntimeCustomPacketSemanticKind::ServerMessage.label(),
+            "server_message"
+        );
+        assert_eq!(RuntimeCustomPacketSemanticKind::Bool.label(), "bool");
+        assert_eq!(
+            logic_data_transport_label(ClientLogicDataTransport::Reliable),
+            "reliable"
+        );
+        assert_eq!(
+            logic_data_transport_label(ClientLogicDataTransport::Unreliable),
+            "unreliable"
+        );
+    }
+
+    #[test]
     fn runtime_custom_packet_runtime_rejects_non_finite_world_positions() {
         assert_eq!(render_text_world_pos("NaN,9"), Err("invalid_world_pos"));
         assert_eq!(render_text_world_pos("7:inf"), Err("invalid_world_pos"));
