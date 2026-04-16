@@ -4827,6 +4827,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn compose_zoom_status_text_formats_zoom_only_when_zoom_differs_from_one() {
+        let default_scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let zoomed_scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.25,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+
+        assert_eq!(super::compose_zoom_status_text(&default_scene), None);
+        assert_eq!(
+            super::compose_zoom_status_text(&zoomed_scene),
+            Some("zoom=1.25".to_string())
+        );
+    }
+
     fn runtime_stack_test_scene() -> RenderModel {
         RenderModel {
             viewport: Viewport {
