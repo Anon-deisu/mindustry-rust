@@ -568,6 +568,17 @@ mod tests {
     }
 
     #[test]
+    fn lz4_block_consumed_len_matches_lz4_flex_block_output_without_trailing_bytes() {
+        let payload = (0u8..=127).collect::<Vec<_>>();
+        let compressed = lz4_flex::block::compress(&payload);
+
+        assert_eq!(
+            lz4_block_consumed_len(&compressed, payload.len()).unwrap(),
+            compressed.len()
+        );
+    }
+
+    #[test]
     fn small_packet_stays_uncompressed() {
         let payload = stream_begin_payload(7, 300, 2);
         let encoded = encode_packet(STREAM_BEGIN_PACKET_ID, &payload, false).unwrap();
