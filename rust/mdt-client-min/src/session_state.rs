@@ -9363,6 +9363,50 @@ mod tests {
     use super::*;
     use mdt_typeio::pack_point2;
 
+    #[test]
+    fn fallback_rollback_to_known_authority_without_authority_clears_pending_local_and_records_missing_authority() {
+        let mut projection = TileConfigProjection::default();
+        let build_pos = pack_point2(7, 9);
+        let pending = TypeIoObject::Int(42);
+        projection.record_local_intent(build_pos, pending.clone());
+
+        let apply = projection.fallback_rollback_to_known_authority_with_match(
+            Some(build_pos),
+            TileConfigAuthoritySource::ConstructFinish,
+            Some(ConfiguredBlockOutcome::Applied),
+            Some("power-node".to_string()),
+            |pending, authoritative| pending == authoritative,
+        );
+
+        assert_eq!(
+            apply,
+            TileConfigBusinessApply {
+                business_applied: false,
+                cleared_pending_local: true,
+                was_rollback: false,
+                pending_local_match: None,
+                source: None,
+                authoritative_value: None,
+                replaced_local_value: Some(pending.clone()),
+                configured_block_outcome: None,
+                configured_block_name: None,
+            }
+        );
+        assert!(!projection.pending_local_by_build_pos.contains_key(&build_pos));
+        assert_eq!(projection.fallback_missing_authority_count, 1);
+        assert_eq!(projection.rollback_count, 0);
+        assert_eq!(projection.last_business_build_pos, None);
+        assert_eq!(projection.last_business_value, None);
+        assert!(!projection.last_business_applied);
+        assert!(projection.last_cleared_pending_local);
+        assert!(!projection.last_was_rollback);
+        assert_eq!(projection.last_pending_local_match, None);
+        assert_eq!(projection.last_business_source, None);
+        assert_eq!(projection.last_replaced_local_value, Some(pending));
+        assert_eq!(projection.last_configured_block_outcome, None);
+        assert_eq!(projection.last_configured_block_name, None);
+    }
+
     fn expected_typed_runtime_building(
         build_pos: i32,
         block_id: i16,
