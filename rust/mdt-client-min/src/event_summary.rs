@@ -1719,6 +1719,19 @@ mod tests {
     }
 
     #[test]
+    fn format_logic_data_summary_keeps_kind_and_preview_stable() {
+        let value = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::Int(7),
+            TypeIoObject::Bool(true),
+        ]);
+
+        assert_eq!(
+            format_logic_data_summary("client_logic_data", "reliable", "control", &value),
+            "client_logic_data: transport=reliable channel=\"control\" kind=\"object[]\" preview=\"ObjectArray([Int(7), Bool(true)])\""
+        );
+    }
+
+    #[test]
     fn summarize_client_packet_events_includes_build_and_effect_events() {
         let lines = summarize_client_packet_events(&[
             ClientSessionEvent::EffectRequested {
