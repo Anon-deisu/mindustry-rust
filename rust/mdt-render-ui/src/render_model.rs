@@ -1594,7 +1594,7 @@ mod tests {
         RenderObjectSemanticFamily, RenderObjectSemanticKind, RenderPipelineLayerSummary,
         RenderPipelineSummary, RenderPrimitive, RenderPrimitiveKind, RenderPrimitivePayloadValue,
         RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
-        sort_detail_counts,
+        render_line_end_object_pair, sort_detail_counts,
     };
 
     #[test]
@@ -1948,6 +1948,46 @@ mod tests {
             runtime_unit.semantic_family(),
             RenderObjectSemanticFamily::Runtime
         );
+    }
+
+    #[test]
+    fn render_line_end_object_pair_extracts_only_marker_and_hint_line_end_suffixes() {
+        let marker_line_end = RenderObject {
+            id: "marker:line:77:line-end".to_string(),
+            layer: 30,
+            x: 16.0,
+            y: 24.0,
+        };
+        assert_eq!(
+            render_line_end_object_pair(&marker_line_end),
+            Some(("marker:line:77".to_string(), &marker_line_end))
+        );
+
+        let hint_line_end = RenderObject {
+            id: "hint:line:77:line-end".to_string(),
+            layer: 31,
+            x: 8.0,
+            y: 12.0,
+        };
+        assert_eq!(
+            render_line_end_object_pair(&hint_line_end),
+            Some(("hint:line:77".to_string(), &hint_line_end))
+        );
+
+        for id in [
+            "marker:line:77",
+            "marker:line:77:line-end:extra",
+            "hint:line:77",
+            "player:line:77:line-end",
+        ] {
+            let object = RenderObject {
+                id: id.to_string(),
+                layer: 0,
+                x: 0.0,
+                y: 0.0,
+            };
+            assert_eq!(render_line_end_object_pair(&object), None);
+        }
     }
 
     #[test]
