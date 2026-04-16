@@ -45,6 +45,11 @@ mod tests {
     }
 
     #[test]
+    fn decode_hex_accepts_uppercase_hex_digits() {
+        assert_eq!(decode_hex("0A0B0C0D").unwrap(), vec![10, 11, 12, 13]);
+    }
+
+    #[test]
     fn decode_hex_reports_invalid_pair_index() {
         let err = decode_hex("0a zz 0c").expect_err("invalid pair should fail");
 
