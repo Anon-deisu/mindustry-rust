@@ -3206,6 +3206,24 @@ mod tests {
     }
 
     #[test]
+    fn remote_variants_from_str_rejects_duplicates_and_unknown_tokens() {
+        for variants in ["all", "one", "both"] {
+            assert!(remote_variants_from_str(variants).is_ok());
+        }
+
+        assert!(matches!(
+            remote_variants_from_str("all all"),
+            Err(RemoteManifestError::InvalidRemotePacketMetadata(message))
+                if message == "unsupported remote variants: all all"
+        ));
+        assert!(matches!(
+            remote_variants_from_str("many"),
+            Err(RemoteManifestError::InvalidRemotePacketMetadata(message))
+                if message == "unsupported remote variants: many"
+        ));
+    }
+
+    #[test]
     fn param_is_wire_included_client_server_respects_caller_side_flags() {
         let cases = [
             (RemoteFlow::ClientToServer, false, false, false),
