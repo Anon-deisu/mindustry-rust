@@ -456,6 +456,54 @@ mod tests {
     }
 
     #[test]
+    fn has_movement_distinguishes_zero_and_non_finite_axes() {
+        assert!(!RuntimeInputSample {
+            position: None,
+            pointer: None,
+            velocity: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        }
+        .has_movement());
+        assert!(RuntimeInputSample {
+            position: None,
+            pointer: None,
+            velocity: (1.0, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        }
+        .has_movement());
+        assert!(!RuntimeInputSample {
+            position: None,
+            pointer: None,
+            velocity: (f32::NAN, 1.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        }
+        .has_movement());
+        assert!(!RuntimeInputSample {
+            position: None,
+            pointer: None,
+            velocity: (1.0, f32::INFINITY),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        }
+        .has_movement());
+    }
+
+    #[test]
     fn runtime_input_sample_kind_label_formats_all_variants() {
         assert_eq!(RuntimeInputSampleKind::Idle.label(), "idle");
         assert_eq!(
