@@ -1875,6 +1875,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_text_world_pos_accepts_trimmed_pair_syntax_and_reports_source() {
+        assert_eq!(
+            parse_text_world_pos(" 12 : -4 "),
+            Some((12.0, -4.0, "pair_colon"))
+        );
+        assert_eq!(
+            parse_text_world_pos(" 7 , 8 "),
+            Some((7.0, 8.0, "pair_comma"))
+        );
+    }
+
+    #[test]
     fn parse_text_world_pos_ignores_nested_fields() {
         assert_eq!(
             parse_text_world_pos("{\"nested\":{\"x\":12,\"y\":-4}}"),
