@@ -441,6 +441,14 @@ mod tests {
     }
 
     #[test]
+    fn normalize_axis_rejects_non_finite_and_keeps_finite_axes() {
+        assert_eq!(normalize_axis((1.5, -2.25)), (1.5, -2.25));
+        assert_eq!(normalize_axis((f32::NAN, 3.0)), (0.0, 0.0));
+        assert_eq!(normalize_axis((4.0, f32::INFINITY)), (0.0, 0.0));
+        assert_eq!(normalize_axis((f32::NEG_INFINITY, 5.0)), (0.0, 0.0));
+    }
+
+    #[test]
     fn runtime_intent_tracker_ignores_non_finite_axes_in_apply_key() {
         let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
         tracker.state.move_axis = (f32::NAN, 1.0);
