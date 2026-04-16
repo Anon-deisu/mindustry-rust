@@ -3188,7 +3188,8 @@ mod tests {
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, build_runtime_world_reload_panel_model,
-        build_config_authority_source_label, build_config_pending_match_label,
+        build_config_alignment_label, build_config_authority_source_label,
+        build_config_pending_match_label,
         compact_panel_text, minimap_coverage_label, minimap_viewport_band,
         minimap_visibility_label, runtime_notice_state_kind, runtime_notice_state_text,
         BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
@@ -3554,6 +3555,13 @@ mod tests {
         assert_eq!(build_config_pending_match_label(Some(true)), "match");
         assert_eq!(build_config_pending_match_label(Some(false)), "mismatch");
         assert_eq!(build_config_pending_match_label(None), "none");
+    }
+
+    #[test]
+    fn build_config_alignment_label_maps_none_true_and_false_stably() {
+        assert_eq!(build_config_alignment_label(None), "none");
+        assert_eq!(build_config_alignment_label(Some(true)), "match");
+        assert_eq!(build_config_alignment_label(Some(false)), "split");
     }
 
     #[test]
