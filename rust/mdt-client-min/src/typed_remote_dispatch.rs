@@ -587,6 +587,39 @@ mod tests {
     }
 
     #[test]
+    fn typed_dispatch_reports_text_route_label_symmetry() {
+        let manifest = custom_channel_manifest_with_decoys();
+        let inbound_dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let custom_dispatcher =
+            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let payload = encode_text_payload("mod.echo", "hello");
+
+        let inbound = inbound_dispatcher.dispatch(10, &payload).unwrap().unwrap();
+        assert_eq!(inbound.payload_kind_label(), "text");
+        assert_eq!(inbound.route_label(), "serverPacketReliable/text");
+        assert_eq!(
+            inbound,
+            TypedInboundRemoteDispatch::Text {
+                family: InboundRemoteFamily::ServerPacketReliable,
+                packet_type: "mod.echo".to_string(),
+                contents: "hello".to_string(),
+            }
+        );
+
+        let custom = custom_dispatcher.dispatch(5, &payload).unwrap().unwrap();
+        assert_eq!(custom.payload_kind_label(), "text");
+        assert_eq!(custom.route_label(), "clientPacketReliable/text");
+        assert_eq!(
+            custom,
+            TypedCustomChannelRemoteDispatch::Text {
+                family: CustomChannelRemoteFamily::ClientPacketReliable,
+                packet_type: "mod.echo".to_string(),
+                contents: "hello".to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn custom_channel_typed_dispatch_ignores_method_only_decoy_packet_ids() {
         let manifest = custom_channel_manifest_with_decoys();
         let dispatcher =
