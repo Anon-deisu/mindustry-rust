@@ -131,8 +131,8 @@ fn write_text(path: PathBuf, contents: String, label: &str) -> Result<(), Box<dy
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_hex, parse_args, USAGE};
-    use std::path::PathBuf;
+    use super::{decode_hex, parse_args, repo_root_from_manifest_dir, USAGE};
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn rejects_extra_arguments() {
@@ -171,5 +171,17 @@ mod tests {
     #[test]
     fn decode_hex_accepts_empty_input() {
         assert_eq!(decode_hex("").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn repo_root_from_manifest_dir_resolves_two_levels_up_from_manifest_dir() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let expected = manifest_dir
+            .parent()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .expect("repo root");
+
+        assert_eq!(repo_root_from_manifest_dir().unwrap(), expected);
     }
 }
