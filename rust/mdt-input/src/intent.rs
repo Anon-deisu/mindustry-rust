@@ -96,6 +96,26 @@ mod tests {
     }
 
     #[test]
+    fn build_pulse_summary_label_formats_break_and_place() {
+        assert_eq!(
+            BuildPulse {
+                tile: (9, 10),
+                breaking: true,
+            }
+            .summary_label(),
+            "pulse=9,10,break"
+        );
+        assert_eq!(
+            BuildPulse {
+                tile: (9, 10),
+                breaking: false,
+            }
+            .summary_label(),
+            "pulse=9,10,place"
+        );
+    }
+
+    #[test]
     fn player_intent_summary_label_compacts_axes_build_and_actions() {
         assert_eq!(
             PlayerIntent::SetMoveAxis { x: 1.0, y: -1.0 }.summary_label(),
