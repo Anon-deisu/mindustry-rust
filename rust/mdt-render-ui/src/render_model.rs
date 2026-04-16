@@ -1589,11 +1589,11 @@ fn object_visible_in_window(
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_prefixed_hex_u32, parse_prefixed_or_decimal_u32_bits, RenderIconPrimitiveFamily,
-        RenderModel, RenderObject, RenderObjectSemanticFamily, RenderObjectSemanticKind,
-        RenderPipelineLayerSummary, RenderPipelineSummary, RenderPrimitive, RenderPrimitiveKind,
-        RenderPrimitivePayloadValue, RenderSemanticDetailCount, RenderSemanticSummary,
-        RenderViewWindow, Viewport,
+        object_visible_in_window, parse_prefixed_hex_u32, parse_prefixed_or_decimal_u32_bits,
+        RenderIconPrimitiveFamily, RenderModel, RenderObject, RenderObjectSemanticFamily,
+        RenderObjectSemanticKind, RenderPipelineLayerSummary, RenderPipelineSummary,
+        RenderPrimitive, RenderPrimitiveKind, RenderPrimitivePayloadValue,
+        RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
     };
 
     #[test]
@@ -1607,6 +1607,41 @@ mod tests {
         assert_eq!(parse_prefixed_or_decimal_u32_bits("4294967295"), Some(u32::MAX));
         assert_eq!(parse_prefixed_or_decimal_u32_bits("0xzz"), None);
         assert_eq!(parse_prefixed_or_decimal_u32_bits("not-a-number"), None);
+    }
+
+    #[test]
+    fn object_visible_in_window_rejects_invalid_tiles_and_respects_window_bounds() {
+        let window = RenderViewWindow {
+            origin_x: 3,
+            origin_y: 4,
+            width: 2,
+            height: 2,
+        };
+        let tile_size = 16.0;
+        let lower_edge = RenderObject {
+            id: "marker:lower-edge".to_string(),
+            layer: 30,
+            x: 3.0 * tile_size,
+            y: 4.0 * tile_size,
+        };
+        let upper_edge = RenderObject {
+            id: "marker:upper-edge".to_string(),
+            layer: 30,
+            x: 5.0 * tile_size,
+            y: 6.0 * tile_size,
+        };
+        let negative_tile = RenderObject {
+            id: "marker:negative-tile".to_string(),
+            layer: 30,
+            x: -tile_size,
+            y: 4.0 * tile_size,
+        };
+
+        assert!(object_visible_in_window(&lower_edge, tile_size, window));
+        assert!(!object_visible_in_window(&upper_edge, tile_size, window));
+        assert!(!object_visible_in_window(&negative_tile, tile_size, window));
+        assert!(!object_visible_in_window(&lower_edge, 0.0, window));
+        assert!(!object_visible_in_window(&lower_edge, f32::NAN, window));
     }
 
     #[test]
