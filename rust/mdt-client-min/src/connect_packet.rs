@@ -584,6 +584,13 @@ mod tests {
     }
 
     #[test]
+    fn encode_base64_encodes_short_inputs_with_padding() {
+        assert_eq!(encode_base64(b""), "");
+        assert_eq!(encode_base64(b"f"), "Zg==");
+        assert_eq!(encode_base64(b"fo"), "Zm8=");
+    }
+
+    #[test]
     fn server_observed_uuid_appends_crc32_bytes() {
         let spec = ConnectPacketSpec {
             version: -1,
