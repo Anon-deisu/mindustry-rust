@@ -2048,4 +2048,23 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn effect_position_hint_kind_and_path_cover_point2_and_vec2_variants() {
+        let point2_hint = TypeIoEffectPositionHint::from_object_match(TypeIoObjectMatch {
+            value: &TypeIoObject::Point2 { x: 10, y: 20 },
+            path: vec![1, 2],
+        })
+        .unwrap();
+        assert_eq!(point2_hint.kind(), "point2");
+        assert_eq!(point2_hint.path(), [1, 2]);
+
+        let vec2_hint = TypeIoEffectPositionHint::from_object_match(TypeIoObjectMatch {
+            value: &TypeIoObject::Vec2 { x: 1.5, y: -2.25 },
+            path: vec![3, 4],
+        })
+        .unwrap();
+        assert_eq!(vec2_hint.kind(), "vec2");
+        assert_eq!(vec2_hint.path(), [3, 4]);
+    }
 }
