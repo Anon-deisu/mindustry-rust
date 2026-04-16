@@ -154,4 +154,10 @@ mod tests {
         assert_eq!(decode_hex("0a 0B\n1c\t2D").unwrap(), vec![0x0a, 0x0b, 0x1c, 0x2d]);
         assert!(decode_hex("abc").is_err());
     }
+
+    #[test]
+    fn decode_hex_rejects_invalid_hex_digits() {
+        assert!(decode_hex("zz").is_err());
+        assert!(decode_hex("0g").is_err());
+    }
 }
