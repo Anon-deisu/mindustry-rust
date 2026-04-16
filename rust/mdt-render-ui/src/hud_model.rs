@@ -1,3 +1,8 @@
+use crate::presenter_view::{
+    compact_runtime_ui_text, format_optional_bool_flag, format_runtime_live_effect_summary_text,
+    format_runtime_live_entity_summary_text,
+};
+
 /// UI/HUD-specific view-model data.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HudModel {
@@ -284,6 +289,48 @@ pub struct RuntimeUiObservability {
     pub markers: RuntimeMarkerObservability,
     pub session: RuntimeSessionObservability,
     pub live: RuntimeLiveSummaryObservability,
+}
+
+impl RuntimeUiObservability {
+    pub(crate) fn status_label(&self) -> String {
+        let hud_text = &self.hud_text;
+        let toast = &self.toast;
+        let menu = &self.menu;
+        let text_input = &self.text_input;
+        let live = &self.live;
+        format!(
+            "ui:hud={}/{}/{}@{}/{}:ann={}@{}:info={}@{}:toast={}/{}@{}/{}:popup={}/{}:clip{}:uri{}:choice={}/{}:tin={}@{}:{}/{}/{}#{}:n{}:e{}:live=ent={}:fx={}",
+            hud_text.set_count,
+            hud_text.set_reliable_count,
+            hud_text.hide_count,
+            compact_runtime_ui_text(hud_text.last_message.as_deref()),
+            compact_runtime_ui_text(hud_text.last_reliable_message.as_deref()),
+            hud_text.announce_count,
+            compact_runtime_ui_text(hud_text.last_announce_message.as_deref()),
+            hud_text.info_message_count,
+            compact_runtime_ui_text(hud_text.last_info_message.as_deref()),
+            toast.info_count,
+            toast.warning_count,
+            compact_runtime_ui_text(toast.last_info_message.as_deref()),
+            compact_runtime_ui_text(toast.last_warning_text.as_deref()),
+            toast.info_popup_count,
+            toast.info_popup_reliable_count,
+            toast.clipboard_count,
+            toast.open_uri_count,
+            menu.menu_choose_count,
+            menu.text_input_result_count,
+            text_input.open_count,
+            optional_i32_label(text_input.last_id),
+            compact_runtime_ui_text(text_input.last_title.as_deref()),
+            compact_runtime_ui_text(text_input.last_message.as_deref()),
+            compact_runtime_ui_text(text_input.last_default_text.as_deref()),
+            text_input.last_length.unwrap_or_default(),
+            format_optional_bool_flag(text_input.last_numeric),
+            format_optional_bool_flag(text_input.last_allow_empty),
+            format_runtime_live_entity_summary_text(&live.entity),
+            format_runtime_live_effect_summary_text(&live.effect),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

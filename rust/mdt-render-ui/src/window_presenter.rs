@@ -35,9 +35,7 @@ use crate::{
         format_runtime_core_binding_detail_text_if_nonempty,
         format_runtime_core_binding_panel_text_if_nonempty,
         format_runtime_live_effect_detail_text, format_runtime_live_effect_panel_text,
-        format_runtime_live_effect_summary_text,
         format_runtime_live_entity_detail_text, format_runtime_live_entity_panel_text,
-        format_runtime_live_entity_summary_text,
         format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
         format_runtime_kick_detail_text_if_nonempty, format_runtime_kick_row_text,
         format_runtime_loading_detail_text_if_nonempty, format_runtime_loading_row_text,
@@ -2798,43 +2796,7 @@ fn compose_hud_detail_status_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String {
-    let hud_text = &runtime_ui.hud_text;
-    let toast = &runtime_ui.toast;
-    let menu = &runtime_ui.menu;
-    let text_input = &runtime_ui.text_input;
-    let live = &runtime_ui.live;
-    format!(
-        "ui:hud={}/{}/{}@{}/{}:ann={}@{}:info={}@{}:toast={}/{}@{}/{}:popup={}/{}:clip{}:uri{}:choice={}/{}:tin={}@{}:{}/{}/{}#{}:n{}:e{}:live=ent={}:fx={}",
-        hud_text.set_count,
-        hud_text.set_reliable_count,
-        hud_text.hide_count,
-        compact_runtime_ui_text(hud_text.last_message.as_deref()),
-        compact_runtime_ui_text(hud_text.last_reliable_message.as_deref()),
-        hud_text.announce_count,
-        compact_runtime_ui_text(hud_text.last_announce_message.as_deref()),
-        hud_text.info_message_count,
-        compact_runtime_ui_text(hud_text.last_info_message.as_deref()),
-        toast.info_count,
-        toast.warning_count,
-        compact_runtime_ui_text(toast.last_info_message.as_deref()),
-        compact_runtime_ui_text(toast.last_warning_text.as_deref()),
-        toast.info_popup_count,
-        toast.info_popup_reliable_count,
-        toast.clipboard_count,
-        toast.open_uri_count,
-        menu.menu_choose_count,
-        menu.text_input_result_count,
-        text_input.open_count,
-        optional_i32_label(text_input.last_id),
-        compact_runtime_ui_text(text_input.last_title.as_deref()),
-        compact_runtime_ui_text(text_input.last_message.as_deref()),
-        compact_runtime_ui_text(text_input.last_default_text.as_deref()),
-        text_input.last_length.unwrap_or_default(),
-        format_optional_bool_flag(text_input.last_numeric),
-        format_optional_bool_flag(text_input.last_allow_empty),
-        format_runtime_live_entity_summary_text(&live.entity),
-        format_runtime_live_effect_summary_text(&live.effect),
-    )
+    runtime_ui.status_label()
 }
 
 fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
@@ -3496,12 +3458,6 @@ fn compose_build_strip_queue_text(
 
 fn compose_build_strip_queue_fallback_text(build_ui: &BuildUiObservability) -> String {
     format_build_strip_queue_fallback_text_from_build_ui(build_ui)
-}
-
-fn optional_i32_label(value: Option<i32>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
 }
 
 fn bool_flag(value: bool) -> char {
@@ -4799,6 +4755,39 @@ mod tests {
         render_model::{RenderPrimitivePayload, RenderPrimitivePayloadValue},
     };
     use std::collections::BTreeMap;
+
+    #[test]
+    fn compose_runtime_ui_status_text_delegates_to_runtime_ui_status_label() {
+        let runtime_ui = RuntimeUiObservability {
+            hud_text: RuntimeHudTextObservability {
+                set_count: 1,
+                last_message: Some("hud".to_string()),
+                ..RuntimeHudTextObservability::default()
+            },
+            toast: RuntimeToastObservability {
+                info_count: 2,
+                last_info_message: Some("toast".to_string()),
+                ..RuntimeToastObservability::default()
+            },
+            text_input: RuntimeTextInputObservability {
+                open_count: 3,
+                last_id: Some(404),
+                last_title: Some("title".to_string()),
+                ..RuntimeTextInputObservability::default()
+            },
+            menu: RuntimeMenuObservability {
+                menu_choose_count: 4,
+                text_input_result_count: 5,
+                ..RuntimeMenuObservability::default()
+            },
+            ..RuntimeUiObservability::default()
+        };
+
+        assert_eq!(
+            super::compose_runtime_ui_status_text(&runtime_ui),
+            runtime_ui.status_label()
+        );
+    }
 
     fn runtime_stack_test_scene() -> RenderModel {
         RenderModel {
