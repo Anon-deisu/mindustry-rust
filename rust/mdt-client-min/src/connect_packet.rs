@@ -837,4 +837,12 @@ mod tests {
             Err(ConnectVersionPropertiesError::InvalidBuildNumber)
         );
     }
+
+    #[test]
+    fn trim_ascii_strips_ascii_whitespace_only() {
+        assert_eq!(trim_ascii(b"\t  hello \r\n"), b"hello");
+
+        let padded = " \u{00a0}héllo\u{00a0} ".as_bytes();
+        assert_eq!(trim_ascii(padded), " héllo ".as_bytes());
+    }
 }
