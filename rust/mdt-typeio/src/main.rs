@@ -59,6 +59,13 @@ mod tests {
     }
 
     #[test]
+    fn accepts_nested_relative_output_dir_path() {
+        let output_dir = parse_args(vec!["out/nested".to_string()].into_iter()).unwrap();
+
+        assert_eq!(output_dir, PathBuf::from("out/nested"));
+    }
+
+    #[test]
     fn parse_args_handles_missing_and_single_output_dir() {
         assert_eq!(
             parse_args(Vec::<String>::new().into_iter()).unwrap_err(),
