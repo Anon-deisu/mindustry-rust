@@ -259,9 +259,17 @@ fn parse_finite_f32(flag: &str, value: &str) -> Result<f32, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_args, Args, ParseOutcome};
+    use super::{animated_player_position, parse_args, Args, ParseOutcome};
     use std::path::PathBuf;
     use std::time::Duration;
+
+    #[test]
+    fn animated_player_position_keeps_origin_and_applies_offset_at_zero_elapsed() {
+        assert_eq!(
+            animated_player_position((32.0, 48.0), Duration::ZERO),
+            (32.0, 60.0)
+        );
+    }
 
     #[test]
     fn parse_args_accepts_window_configuration() {
