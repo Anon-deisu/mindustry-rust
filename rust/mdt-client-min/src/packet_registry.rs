@@ -718,6 +718,54 @@ mod tests {
     }
 
     #[test]
+    fn remote_packet_classification_route_label_formats_all_variants() {
+        assert_eq!(
+            RemotePacketClassification::HighFrequency {
+                method: HighFrequencyRemoteMethod::StateSnapshot,
+            }
+            .route_label(),
+            format!(
+                "high_frequency/{}",
+                HighFrequencyRemoteMethod::StateSnapshot.method_name()
+            )
+        );
+        assert_eq!(
+            RemotePacketClassification::CustomChannel {
+                family: CustomChannelRemoteFamily::ServerPacketReliable,
+                payload_kind: CustomChannelRemotePayloadKind::Binary,
+            }
+            .route_label(),
+            format!(
+                "custom_channel/{}:{}",
+                CustomChannelRemoteFamily::ServerPacketReliable.method_name(),
+                CustomChannelRemotePayloadKind::Binary.label()
+            )
+        );
+        assert_eq!(
+            RemotePacketClassification::InboundRemote {
+                family: InboundRemoteFamily::ServerPacketReliable,
+                payload_kind: CustomChannelRemotePayloadKind::Text,
+            }
+            .route_label(),
+            format!(
+                "inbound_remote/{}:{}",
+                InboundRemoteFamily::ServerPacketReliable.method_name(),
+                CustomChannelRemotePayloadKind::Text.label()
+            )
+        );
+        assert_eq!(
+            RemotePacketClassification::WellKnown {
+                method: WellKnownRemoteMethod::SetRules,
+            }
+            .route_label(),
+            format!(
+                "well_known/{}",
+                WellKnownRemoteMethod::SetRules.method_name()
+            )
+        );
+    }
+
+    #[test]
     fn custom_channel_remote_family_registry_prefers_typed_signature_over_method_name_only() {
         let manifest = custom_channel_remote_family_manifest_with_decoys();
         let registry = CustomChannelPacketRegistry::from_remote_manifest(&manifest).unwrap();
