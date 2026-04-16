@@ -904,8 +904,9 @@ fn skip_ws(bytes: &[u8], mut cursor: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_json_bool_literal, parse_json_f64_literal, parse_json_string_literal,
-        parse_json_usize_array_literal, ObjectivesProjection, RulesProjection,
+        object_field_status, parse_json_bool_literal, parse_json_f64_literal,
+        parse_json_string_literal, parse_json_usize_array_literal, ObjectFieldStatus,
+        ObjectivesProjection, RulesProjection,
     };
 
     fn apply_mixed_update_sequence(
@@ -962,6 +963,22 @@ mod tests {
         assert_eq!(parse_json_bool_literal("TRUE"), None);
         assert_eq!(parse_json_bool_literal("1"), None);
         assert_eq!(parse_json_bool_literal("{\"value\":true}"), None);
+    }
+
+    #[test]
+    fn object_field_status_rejects_prefix_key_collisions_and_invalid_json() {
+        assert_eq!(
+            object_field_status(r#"{"foo":1,"foobar":2}"#, "foo"),
+            ObjectFieldStatus::Present("1")
+        );
+        assert_eq!(
+            object_field_status(r#"{"foobar":2}"#, "foo"),
+            ObjectFieldStatus::Missing
+        );
+        assert_eq!(
+            object_field_status(r#"{"foo":1"#, "foo"),
+            ObjectFieldStatus::Invalid
+        );
     }
 
     #[test]
