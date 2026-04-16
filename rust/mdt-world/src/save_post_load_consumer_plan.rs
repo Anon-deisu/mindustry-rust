@@ -906,6 +906,28 @@ mod tests {
     }
 
     #[test]
+    fn blocker_blocks_stage_routes_duplicate_entity_ids_only_to_loadable_entities() {
+        let blocker = SavePostLoadConsumerBlocker::DuplicateEntityId(42);
+
+        assert!(blocker_blocks_stage(
+            &blocker,
+            SavePostLoadConsumerStageKind::LoadableEntities
+        ));
+        assert!(!blocker_blocks_stage(
+            &blocker,
+            SavePostLoadConsumerStageKind::WorldShell
+        ));
+        assert!(!blocker_blocks_stage(
+            &blocker,
+            SavePostLoadConsumerStageKind::Buildings
+        ));
+        assert!(!blocker_blocks_stage(
+            &blocker,
+            SavePostLoadConsumerStageKind::SkippedEntities
+        ));
+    }
+
+    #[test]
     fn consumer_runtime_helper_marks_zero_step_apply_now_stage_ready() {
         let mut observation = test_observation();
         observation.custom_chunks.clear();
