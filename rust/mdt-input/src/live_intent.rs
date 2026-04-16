@@ -458,6 +458,16 @@ mod tests {
     }
 
     #[test]
+    fn live_intent_labels_format_compactly() {
+        assert_eq!(axis_label((0.0, -2.5)), "0,-2.5");
+        assert_eq!(axis_label((3.0, 4.0)), "3,4");
+        assert_eq!(tile_label(None), "none");
+        assert_eq!(tile_label(Some((7, 9))), "7,9");
+        assert_eq!(bool_label(true), "on");
+        assert_eq!(bool_label(false), "off");
+    }
+
+    #[test]
     fn runtime_intent_tracker_ignores_non_finite_axes_in_apply_key() {
         let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
         tracker.state.move_axis = (f32::NAN, 1.0);
