@@ -886,8 +886,8 @@ mod tests {
         SaveEntityClassSummary, SaveEntityPostLoadClassSummary, SaveEntityPostLoadKind,
         SaveEntityPostLoadSummary, SaveEntityRemapEntry, SaveEntityRemapSummary,
         SaveMapRegionObservation, SavePostLoadRuntimeWorldOwnershipStatus,
-        SavePostLoadRuntimeWorldSurfaceKind, StaticFogChunk, StaticFogTeam, TeamPlan,
-        TeamPlanGroup, TileModel, TypeIoValue, WorldModel,
+        SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldSurfaceKind, StaticFogChunk,
+        StaticFogTeam, TeamPlan, TeamPlanGroup, TileModel, TypeIoValue, WorldModel,
     };
 
     #[test]
@@ -1014,6 +1014,35 @@ mod tests {
             source_region.detail_label(),
             "region=map exec=1 fail=0 wait=0 block=1 defer=0 total=2"
         );
+    }
+
+    #[test]
+    fn save_post_load_runtime_world_semantics_execution_summary_and_detail_labels_use_bool_labels() {
+        let execution = SavePostLoadRuntimeWorldSemanticsExecution {
+            world_shell_ready: false,
+            executed_steps: Vec::new(),
+            failed_steps: Vec::new(),
+            awaiting_world_shell_steps: Vec::new(),
+            blocked_steps: Vec::new(),
+            deferred_steps: Vec::new(),
+            world_shell: None,
+            ownership: SavePostLoadRuntimeWorldOwnership {
+                world_shell_ready: false,
+                surfaces: Vec::new(),
+            },
+            issues: Vec::new(),
+        };
+
+        assert_eq!(
+            execution.summary_label(),
+            "shell=no semantics=no exec=0 fail=0 wait=0 block=0 defer=0 total=0 sources=0 issues=0 live=no"
+        );
+        assert_eq!(
+            execution.detail_label(),
+            "shell=no semantics=no exec=0 fail=0 wait=0 block=0 defer=0 total=0 sources=[] issues=0 live=no"
+        );
+        assert!(!execution.can_apply_world_semantics());
+        assert!(!execution.can_activate_live_runtime());
     }
 
     #[test]
