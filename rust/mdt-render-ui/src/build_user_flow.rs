@@ -1201,6 +1201,39 @@ mod tests {
     }
 
     #[test]
+    fn build_user_flow_summary_label_keeps_prefix_pan_and_authority_stable() {
+        let panel = BuildUserFlowPanelModel {
+            next_action: "survey",
+            blockers: vec![BuildUserFlowBlocker::Resolve],
+            route: vec!["resolve", "commit"],
+            minimap_next_action: "seek",
+            focus_state: MinimapUserFocusState::Outside,
+            pan_horizontal: MinimapPanAxisDirection::Left,
+            pan_vertical: MinimapPanAxisDirection::Up,
+            target_kind: MinimapUserTargetKind::Plan,
+            config_scope: "multi",
+            authority_state: BuildInteractionAuthorityState::Cleared,
+            authority_pending_match: Some(true),
+            authority_source: None,
+            authority_block_name: Some("router".to_string()),
+            head_tile: Some((2, 3)),
+        };
+
+        assert_eq!(
+            panel.pan_label(),
+            "left+up"
+        );
+        assert_eq!(
+            panel.summary_label(),
+            "next=survey minimap=seek focus=outside pan=left+up target=plan scope=multi"
+        );
+        assert_eq!(
+            panel.detail_label(),
+            "next=survey minimap=seek focus=outside pan=left+up target=plan scope=multi route=resolve+commit authority=cleared pending=match blockers=resolve src=none block=router head=2,3"
+        );
+    }
+
+    #[test]
     fn join_or_none_formats_empty_and_ordered_labels_with_stable_prefix() {
         assert_eq!(BuildUserFlowPanelModel::join_or_none(&[]), "none");
         assert_eq!(
