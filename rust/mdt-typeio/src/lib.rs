@@ -2269,6 +2269,36 @@ mod tests {
     }
 
     #[test]
+    fn read_capped_strings_from_reader_enforces_cap_and_order() {
+        let mut overflow_reader = PrimitiveReader::new(&[3]);
+        assert_eq!(
+            read_capped_strings_from_reader(&mut overflow_reader, "trace ips count", 2),
+            Err(TypeIoReadError::LengthLimitExceeded {
+                field: "trace ips count",
+                length: 3,
+                max: 2,
+                position: 0,
+            })
+        );
+
+        let mut bytes = vec![3];
+        write_string(&mut bytes, Some("alpha"));
+        write_string(&mut bytes, None);
+        write_string(&mut bytes, Some("omega"));
+        let mut reader = PrimitiveReader::new(&bytes);
+
+        assert_eq!(
+            read_capped_strings_from_reader(&mut reader, "trace ips count", 3).unwrap(),
+            vec![
+                Some("alpha".to_string()),
+                None,
+                Some("omega".to_string()),
+            ]
+        );
+        assert_eq!(reader.position(), bytes.len());
+    }
+
+    #[test]
     fn unit_ref_codec_handles_null_standard_block_and_truncation() {
         assert_eq!(read_unit_ref(&[0, 0, 0, 0, 0]).unwrap(), UnitRefRaw::Null);
         assert_eq!(
