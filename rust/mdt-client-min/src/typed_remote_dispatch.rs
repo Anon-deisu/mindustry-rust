@@ -363,6 +363,7 @@ fn typeio_error_to_string(error: TypeIoReadError) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
+        decode_non_null_string_prefix,
         TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
         TypedInboundRemoteDispatch, TypedInboundRemoteDispatcher,
     };
@@ -372,6 +373,26 @@ mod tests {
         RemotePacketEntry, RemoteParamEntry, WireSpec, REMOTE_MANIFEST_SCHEMA_V1,
     };
     use mdt_typeio::{write_object, write_string, TypeIoObject};
+
+    #[test]
+    fn decode_non_null_string_prefix_rejects_null_and_consumes_exact_prefix() {
+        let mut encoded = Vec::new();
+        write_string(&mut encoded, Some("alpha"));
+        let mut payload = encoded.clone();
+        payload.extend_from_slice(&[0xaa, 0xbb]);
+
+        assert_eq!(
+            decode_non_null_string_prefix(&payload, "packet_type").unwrap(),
+            ("alpha".to_string(), encoded.len())
+        );
+
+        let mut null_payload = Vec::new();
+        write_string(&mut null_payload, None);
+        assert_eq!(
+            decode_non_null_string_prefix(&null_payload, "packet_type").unwrap_err(),
+            "packet_type string is null"
+        );
+    }
 
     #[test]
     fn typed_dispatch_ignores_method_only_decoy_packet_ids() {
