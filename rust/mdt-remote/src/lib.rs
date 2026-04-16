@@ -4511,6 +4511,13 @@ mod tests {
     }
 
     #[test]
+    fn remote_priority_as_str_maps_all_variants_stably() {
+        assert_eq!(RemotePriority::Low.as_str(), "low");
+        assert_eq!(RemotePriority::Normal.as_str(), "normal");
+        assert_eq!(RemotePriority::High.as_str(), "high");
+    }
+
+    #[test]
     fn typed_high_frequency_lookup_rejects_flow_only_decoys() {
         let manifest = RemoteManifest {
             schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
