@@ -558,6 +558,13 @@ mod tests {
     }
 
     #[test]
+    fn normalize_vector_rejects_non_finite_and_keeps_finite_axes() {
+        assert_eq!(normalize_vector((12.0, 34.0)), (12.0, 34.0));
+        assert_eq!(normalize_vector((f32::INFINITY, 34.0)), (0.0, 0.0));
+        assert_eq!(normalize_vector((12.0, f32::NAN)), (0.0, 0.0));
+    }
+
+    #[test]
     fn resolve_probe_pointer_prefers_locked_then_runtime_then_fallback() {
         assert_eq!(
             resolve_probe_pointer(Some((12.0, 34.0)), Some((56.0, 78.0)), (90.0, 91.0)),
