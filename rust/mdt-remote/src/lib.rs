@@ -4540,6 +4540,16 @@ mod tests {
     }
 
     #[test]
+    fn remote_flow_and_param_kind_names_are_stable() {
+        assert_eq!(remote_flow_name(RemoteFlow::ClientToServer), "ClientToServer");
+        assert_eq!(remote_flow_name(RemoteFlow::ServerToClient), "ServerToClient");
+        assert_eq!(remote_flow_name(RemoteFlow::Bidirectional), "Bidirectional");
+        assert_eq!(remote_param_kind_name(RemoteParamKind::Bool), "Bool");
+        assert_eq!(remote_param_kind_name(RemoteParamKind::BuildPlanQueue), "BuildPlanQueue");
+        assert_eq!(remote_param_kind_name(RemoteParamKind::Opaque), "Opaque");
+    }
+
+    #[test]
     fn typed_high_frequency_lookup_rejects_flow_only_decoys() {
         let manifest = RemoteManifest {
             schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
