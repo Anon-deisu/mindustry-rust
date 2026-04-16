@@ -723,6 +723,88 @@ mod tests {
     }
 
     #[test]
+    fn recent_selection_label_maps_all_combinations() {
+        let cases = [
+            (
+                CommandModeProjectionSummary {
+                    has_recent_target: false,
+                    has_recent_command_selection: false,
+                    has_recent_stance_selection: false,
+                    ..CommandModeProjectionSummary::default()
+                },
+                "none",
+            ),
+            (
+                CommandModeProjectionSummary {
+                    has_recent_target: true,
+                    has_recent_command_selection: false,
+                    has_recent_stance_selection: false,
+                    ..CommandModeProjectionSummary::default()
+                },
+                "target",
+            ),
+            (
+                CommandModeProjectionSummary {
+                    has_recent_target: false,
+                    has_recent_command_selection: true,
+                    has_recent_stance_selection: false,
+                    ..CommandModeProjectionSummary::default()
+                },
+                "command",
+            ),
+            (
+                CommandModeProjectionSummary {
+                    has_recent_target: false,
+                    has_recent_command_selection: false,
+                    has_recent_stance_selection: true,
+                    ..CommandModeProjectionSummary::default()
+                },
+                "stance",
+            ),
+            (
+                CommandModeProjectionSummary {
+                    has_recent_target: true,
+                    has_recent_command_selection: true,
+                    has_recent_stance_selection: false,
+                    ..CommandModeProjectionSummary::default()
+                },
+                "target+command",
+            ),
+            (
+                CommandModeProjectionSummary {
+                    has_recent_target: true,
+                    has_recent_command_selection: false,
+                    has_recent_stance_selection: true,
+                    ..CommandModeProjectionSummary::default()
+                },
+                "target+stance",
+            ),
+            (
+                CommandModeProjectionSummary {
+                    has_recent_target: false,
+                    has_recent_command_selection: true,
+                    has_recent_stance_selection: true,
+                    ..CommandModeProjectionSummary::default()
+                },
+                "command+stance",
+            ),
+            (
+                CommandModeProjectionSummary {
+                    has_recent_target: true,
+                    has_recent_command_selection: true,
+                    has_recent_stance_selection: true,
+                    ..CommandModeProjectionSummary::default()
+                },
+                "target+command+stance",
+            ),
+        ];
+
+        for (summary, expected) in cases {
+            assert_eq!(summary.recent_selection_label(), expected);
+        }
+    }
+
+    #[test]
     fn command_mode_state_projection_tracks_selection_and_recent_command_state() {
         let mut state = CommandModeState::default();
         state.bind_control_group(2, &[9, 9, 7]);
