@@ -647,6 +647,37 @@ mod tests {
     }
 
     #[test]
+    fn plan_point_config_map_points_applies_mapper_to_none_point_and_points() {
+        let mut none = PlanPointConfig::None;
+        let mut point = PlanPointConfig::Point(PlanPoint { x: 1, y: 2 });
+        let mut points = PlanPointConfig::Points(vec![
+            PlanPoint { x: -1, y: 0 },
+            PlanPoint { x: 3, y: 4 },
+        ]);
+        let mut mapper_calls = 0;
+        let mut mapper = |point: &mut PlanPoint| {
+            mapper_calls += 1;
+            point.x += 10;
+            point.y -= 1;
+        };
+
+        none.map_points(&mut mapper);
+        point.map_points(&mut mapper);
+        points.map_points(&mut mapper);
+
+        assert_eq!(mapper_calls, 3);
+        assert_eq!(none, PlanPointConfig::None);
+        assert_eq!(point, PlanPointConfig::Point(PlanPoint { x: 11, y: 1 }));
+        assert_eq!(
+            points,
+            PlanPointConfig::Points(vec![
+                PlanPoint { x: 9, y: -1 },
+                PlanPoint { x: 13, y: 3 },
+            ])
+        );
+    }
+
+    #[test]
     fn plan_point_config_family_labels_are_stable() {
         assert_eq!(PlanPointConfigFamily::None.label(), "none");
         assert_eq!(PlanPointConfigFamily::Point.label(), "point");
