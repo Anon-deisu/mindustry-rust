@@ -4914,6 +4914,13 @@ mod tests {
     fn builder_queue_labels_are_stable() {
         assert_eq!(BuilderQueueStage::Queued.label(), "queued");
         assert_eq!(BuilderQueueStage::InFlight.label(), "in-flight");
+        assert_eq!(BuilderQueueTransition::Started.label(), "started");
+        assert_eq!(BuilderQueueTransition::Rejected.label(), "rejected");
+        assert_eq!(BuilderQueueTransition::Finished.label(), "finished");
+        assert_eq!(
+            BuilderQueueTransition::RemovedInvalidHead.label(),
+            "removed-invalid-head"
+        );
 
         assert_eq!(
             BuilderQueueSkipReason::ObservationMissing.label(),
