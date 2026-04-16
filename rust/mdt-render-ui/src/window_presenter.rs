@@ -2114,30 +2114,7 @@ fn compose_frame_panel_lines(
     {
         lines.push(format!("RUNTIME-KICK-DETAIL: {runtime_kick_detail_text}"));
     }
-    if let Some(runtime_loading_text) = compose_runtime_loading_text_from_hud(hud, |panel| {
-        Some(format_runtime_loading_row_text(panel))
-    }) {
-        lines.push(format!("RUNTIME-LOADING: {runtime_loading_text}"));
-    }
-    if let Some(runtime_loading_detail_text) =
-        compose_runtime_loading_text_from_hud(hud, format_runtime_loading_detail_text_if_nonempty)
-    {
-        lines.push(format!(
-            "RUNTIME-LOADING-DETAIL: {runtime_loading_detail_text}"
-        ));
-    }
-    if let Some(runtime_world_reload_text) =
-        compose_runtime_loading_text_from_hud(hud, format_runtime_world_reload_text_if_loading_nonempty)
-    {
-        lines.push(format!("RUNTIME-WORLD-RELOAD: {runtime_world_reload_text}"));
-    }
-    if let Some(runtime_world_reload_detail_text) =
-        compose_runtime_loading_text_from_hud(hud, format_runtime_world_reload_detail_text_from_loading)
-    {
-        lines.push(format!(
-            "RUNTIME-WORLD-RELOAD-DETAIL: {runtime_world_reload_detail_text}"
-        ));
-    }
+    append_runtime_loading_status_lines(&mut lines, hud);
     if let Some(runtime_core_binding_text) = compose_runtime_core_binding_text_from_hud(
         hud,
         format_runtime_core_binding_panel_text_if_nonempty,
@@ -2191,6 +2168,39 @@ fn compose_frame_panel_lines(
         ));
     }
     lines
+}
+
+fn append_runtime_loading_status_lines(lines: &mut Vec<String>, hud: &HudModel) {
+    if let Some(runtime_loading_text) =
+        compose_runtime_loading_text_from_hud(hud, |panel| {
+            Some(format_runtime_loading_row_text(panel))
+        })
+    {
+        lines.push(format!("RUNTIME-LOADING: {runtime_loading_text}"));
+    }
+    if let Some(runtime_loading_detail_text) =
+        compose_runtime_loading_text_from_hud(hud, format_runtime_loading_detail_text_if_nonempty)
+    {
+        lines.push(format!(
+            "RUNTIME-LOADING-DETAIL: {runtime_loading_detail_text}"
+        ));
+    }
+    if let Some(runtime_world_reload_text) = compose_runtime_loading_text_from_hud(
+        hud,
+        format_runtime_world_reload_text_if_loading_nonempty,
+    ) {
+        lines.push(format!("RUNTIME-WORLD-RELOAD: {runtime_world_reload_text}"));
+    }
+    if let Some(runtime_world_reload_detail_text) =
+        compose_runtime_loading_text_from_hud(
+            hud,
+            format_runtime_world_reload_detail_text_from_loading,
+        )
+    {
+        lines.push(format!(
+            "RUNTIME-WORLD-RELOAD-DETAIL: {runtime_world_reload_detail_text}"
+        ));
+    }
 }
 
 fn compose_frame_build_strip_text(hud: &HudModel) -> Option<String> {
