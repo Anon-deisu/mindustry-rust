@@ -576,6 +576,16 @@ mod tests {
     }
 
     #[test]
+    fn stream_begin_payload_encodes_id_total_and_kind() {
+        let payload = stream_begin_payload(0x0102_0304, 0x0506_0708, 0x09);
+
+        assert_eq!(
+            payload,
+            vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09]
+        );
+    }
+
+    #[test]
     fn stream_chunk_payload_rejects_length_overflow_and_encodes_header() {
         let payload = vec![0x11, 0x22, 0x33, 0x44];
         let encoded = stream_chunk_payload(0x0102_0304, &payload).unwrap();
