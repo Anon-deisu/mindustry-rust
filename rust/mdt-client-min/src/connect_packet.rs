@@ -835,6 +835,18 @@ mod tests {
     }
 
     #[test]
+    fn version_properties_value_from_bytes_skips_malformed_lines_and_finds_later_key() {
+        assert_eq!(
+            version_properties_value_from_bytes(
+                b"not-a-pair\nbuild = 146\nignored = yes\n",
+                "build"
+            )
+            .unwrap(),
+            Some("146")
+        );
+    }
+
+    #[test]
     fn parse_connect_build_number_handles_success_and_failure_cases() {
         assert_eq!(
             parse_connect_build_number("146", "build"),
