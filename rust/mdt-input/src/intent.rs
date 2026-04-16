@@ -165,4 +165,16 @@ mod tests {
             "release=chat"
         );
     }
+
+    #[test]
+    fn player_intent_summary_label_formats_building_on_and_off() {
+        assert_eq!(
+            PlayerIntent::SetBuilding { building: true }.summary_label(),
+            "building=on"
+        );
+        assert_eq!(
+            PlayerIntent::SetBuilding { building: false }.summary_label(),
+            "building=off"
+        );
+    }
 }
