@@ -786,7 +786,7 @@ fn read_bytes(payload: &[u8], cursor: &mut usize) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ingest_inbound_snapshot, InboundSnapshot};
+    use super::{count_fits_remaining_bytes, ingest_inbound_snapshot, InboundSnapshot};
     use crate::session_state::{
         AppliedBlockSnapshotEnvelope, AppliedHiddenSnapshotIds, AppliedStateSnapshotCoreData,
         AppliedStateSnapshotCoreDataItem, AppliedStateSnapshotCoreDataTeam,
@@ -867,6 +867,15 @@ mod tests {
             Some(HighFrequencyRemoteMethod::EntitySnapshot)
         );
         assert_eq!(state.last_snapshot_packet_id, Some(46));
+    }
+
+    #[test]
+    fn count_fits_remaining_bytes_handles_zero_and_boundary_counts() {
+        assert!(count_fits_remaining_bytes(0, 0, 6));
+        assert!(count_fits_remaining_bytes(0, 5, 6));
+        assert!(count_fits_remaining_bytes(2, 12, 6));
+        assert!(!count_fits_remaining_bytes(3, 12, 6));
+        assert!(!count_fits_remaining_bytes(1, 5, 6));
     }
 
     #[test]
