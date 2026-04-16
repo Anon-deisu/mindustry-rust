@@ -845,4 +845,14 @@ mod tests {
         let padded = " \u{00a0}héllo\u{00a0} ".as_bytes();
         assert_eq!(trim_ascii(padded), " héllo ".as_bytes());
     }
+
+    #[test]
+    fn modified_utf8_len_counts_nul_bmp_and_surrogate_units() {
+        assert_eq!(modified_utf8_len(""), 0);
+        assert_eq!(modified_utf8_len("\0"), 2);
+        assert_eq!(modified_utf8_len("A"), 1);
+        assert_eq!(modified_utf8_len("é"), 2);
+        assert_eq!(modified_utf8_len("漢"), 3);
+        assert_eq!(modified_utf8_len("🙂"), 6);
+    }
 }
