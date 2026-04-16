@@ -3192,6 +3192,19 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../fixtures/remote/remote-manifest-v1.json")
     }
 
+    #[test]
+    fn remote_called_from_str_accepts_known_values_and_rejects_unknown() {
+        for called in ["server", "client", "both", "none"] {
+            assert!(remote_called_from_str(called).is_ok());
+        }
+
+        assert!(matches!(
+            remote_called_from_str("other"),
+            Err(RemoteManifestError::InvalidRemotePacketMetadata(message))
+                if message == "unsupported remote called: other"
+        ));
+    }
+
     const SAMPLE_MANIFEST: &str = r#"{
   "schema": "mdt.remote.manifest.v1",
   "generator": {
