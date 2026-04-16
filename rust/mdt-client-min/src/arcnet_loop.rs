@@ -674,6 +674,25 @@ mod tests {
     }
 
     #[test]
+    fn is_valid_discovery_reply_accepts_host_and_reply_ping_only() {
+        assert!(ArcNetSessionDriver::is_valid_discovery_reply(
+            &FrameworkMessage::DiscoverHost
+        ));
+        assert!(ArcNetSessionDriver::is_valid_discovery_reply(
+            &FrameworkMessage::Ping {
+                id: 7,
+                is_reply: true,
+            }
+        ));
+        assert!(!ArcNetSessionDriver::is_valid_discovery_reply(
+            &FrameworkMessage::Ping {
+                id: 7,
+                is_reply: false,
+            }
+        ));
+    }
+
+    #[test]
     fn discover_first_server_returns_udp_responder_addr() {
         let server = UdpSocket::bind("127.0.0.1:0").unwrap();
         let server_addr = server.local_addr().unwrap();
