@@ -506,8 +506,8 @@ fn finite_vec2_position_bits(x: f32, y: f32) -> Option<(u32, u32)> {
 mod tests {
     use super::{
         derive_effect_data_business_input, derive_effect_data_semantic, finite_vec2_position_bits,
-        position_hint_from_value, EffectDataBusinessHint, EffectDataBusinessInput,
-        EffectDataBusinessTargetHint,
+        lightning_polyline_hint, position_hint_from_value, EffectDataBusinessHint,
+        EffectDataBusinessInput, EffectDataBusinessTargetHint,
     };
     use crate::session_state::{EffectBusinessContentKind, EffectDataSemantic};
     use mdt_typeio::{
@@ -1062,6 +1062,24 @@ mod tests {
 
         assert_eq!(input.contract_name, Some("lightning"));
         assert_eq!(input.primary, None);
+    }
+
+    #[test]
+    fn lightning_polyline_hint_keeps_bits_for_finite_points_and_rejects_non_finite_points() {
+        assert_eq!(
+            lightning_polyline_hint(&TypeIoObject::Vec2Array(vec![(1.5, -2.25), (3.0, 4.0)])),
+            Some(EffectDataBusinessHint::Polyline {
+                points: vec![
+                    (1.5f32.to_bits(), (-2.25f32).to_bits()),
+                    (3.0f32.to_bits(), 4.0f32.to_bits()),
+                ],
+                path: vec![],
+            })
+        );
+        assert_eq!(
+            lightning_polyline_hint(&TypeIoObject::Vec2Array(vec![(f32::NAN, 4.5)])),
+            None
+        );
     }
 
     #[test]
