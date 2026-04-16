@@ -224,11 +224,12 @@ fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
 mod tests {
     use super::{
         default_high_frequency_output_path, default_inbound_dispatch_output_path,
-        emit_outputs, parse_args, reject_overlapping_output_paths, resolve_cli_path, USAGE,
+        emit_outputs, normalize_path_for_overlap, parse_args, reject_overlapping_output_paths,
+        resolve_cli_path, USAGE,
     };
     use std::{
         env, fs,
-        path::Path,
+        path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -323,6 +324,18 @@ mod tests {
 
         env::set_current_dir(&original_dir).unwrap();
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn normalize_path_for_overlap_collapses_dot_segments_and_preserves_leading_parents() {
+        assert_eq!(
+            normalize_path_for_overlap(Path::new("./build/../remote/registry.rs")),
+            PathBuf::from("remote/registry.rs")
+        );
+        assert_eq!(
+            normalize_path_for_overlap(Path::new("../remote/./registry.rs")),
+            PathBuf::from("../remote/registry.rs")
+        );
     }
 
     #[test]
