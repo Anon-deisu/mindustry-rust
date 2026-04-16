@@ -3189,7 +3189,7 @@ mod tests {
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, build_runtime_world_reload_panel_model,
         build_config_authority_source_label, build_config_pending_match_label,
-        compact_panel_text,
+        compact_panel_text, minimap_viewport_band,
         BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
         BuildInteractionSelectionState, BuildMinimapAssistPanelModel, PresenterViewWindow,
         RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
@@ -4172,6 +4172,23 @@ mod tests {
 
         panel.window_coverage_percent = 64;
         assert_eq!(panel.window_coverage_label(), "partial");
+    }
+
+    #[test]
+    fn minimap_viewport_band_returns_warn_at_low_coverage_and_sparse_window() {
+        assert_eq!(minimap_viewport_band(10, 20, 11, 20), "warn");
+        assert_eq!(minimap_viewport_band(80, 20, 0, 5), "warn");
+    }
+
+    #[test]
+    fn minimap_viewport_band_returns_partial_for_mid_band_thresholds() {
+        assert_eq!(minimap_viewport_band(50, 20, 17, 20), "partial");
+        assert_eq!(minimap_viewport_band(80, 20, 17, 30), "partial");
+    }
+
+    #[test]
+    fn minimap_viewport_band_returns_full_only_above_all_thresholds() {
+        assert_eq!(minimap_viewport_band(80, 20, 17, 20), "full");
     }
 
     #[test]
