@@ -1149,6 +1149,13 @@ mod tests {
     }
 
     #[test]
+    fn json_field_has_object_key_boundary_rejects_prefix_collisions() {
+        assert!(extract_json_field_value("{\"foo\":1}", "foo").is_some());
+        assert_eq!(extract_json_field_value("{\"foobar\":1}", "foo"), None);
+        assert_eq!(extract_json_field_value("{\"bar\":2}", "foo"), None);
+    }
+
+    #[test]
     fn parse_text_literals_reject_trailing_garbage() {
         assert_eq!(parse_text_bool("{\"value\":falsehood}"), None);
         assert_eq!(parse_text_f64("{\"value\":12abc}"), None);
