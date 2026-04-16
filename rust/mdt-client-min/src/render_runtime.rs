@@ -7772,6 +7772,21 @@ mod tests {
     }
 
     #[test]
+    fn runtime_hidden_snapshot_label_formats_none_and_sample_ids_with_remaining() {
+        let mut state = SessionState::default();
+
+        assert_eq!(runtime_hidden_snapshot_label(&state), "none");
+
+        state.last_hidden_snapshot = Some(crate::session_state::AppliedHiddenSnapshotIds {
+            count: 5,
+            first_id: Some(100),
+            sample_ids: vec![100, 200],
+        });
+
+        assert_eq!(runtime_hidden_snapshot_label(&state), "5@100,200+3");
+    }
+
+    #[test]
     fn render_runtime_adapter_surfaces_build_plan_content_config_icons() {
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
