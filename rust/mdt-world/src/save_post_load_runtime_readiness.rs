@@ -388,6 +388,52 @@ mod tests {
     }
 
     #[test]
+    fn region_kind_maps_all_consumer_stage_kinds_to_runtime_region_kinds() {
+        let cases = [
+            (
+                SavePostLoadConsumerStageKind::WorldShell,
+                SavePostLoadRuntimeRegionKind::WorldShell,
+            ),
+            (
+                SavePostLoadConsumerStageKind::EntityRemaps,
+                SavePostLoadRuntimeRegionKind::EntityRemaps,
+            ),
+            (
+                SavePostLoadConsumerStageKind::TeamPlans,
+                SavePostLoadRuntimeRegionKind::TeamPlans,
+            ),
+            (
+                SavePostLoadConsumerStageKind::Markers,
+                SavePostLoadRuntimeRegionKind::Markers,
+            ),
+            (
+                SavePostLoadConsumerStageKind::StaticFog,
+                SavePostLoadRuntimeRegionKind::StaticFog,
+            ),
+            (
+                SavePostLoadConsumerStageKind::CustomChunks,
+                SavePostLoadRuntimeRegionKind::CustomChunks,
+            ),
+            (
+                SavePostLoadConsumerStageKind::Buildings,
+                SavePostLoadRuntimeRegionKind::Buildings,
+            ),
+            (
+                SavePostLoadConsumerStageKind::LoadableEntities,
+                SavePostLoadRuntimeRegionKind::LoadableEntities,
+            ),
+            (
+                SavePostLoadConsumerStageKind::SkippedEntities,
+                SavePostLoadRuntimeRegionKind::SkippedEntities,
+            ),
+        ];
+
+        for (stage_kind, expected_kind) in cases {
+            assert_eq!(region_kind(stage_kind), expected_kind);
+        }
+    }
+
+    #[test]
     fn runtime_readiness_tracks_blocked_awaiting_and_deferred_regions_by_source_region() {
         let mut observation = test_observation();
         observation.world_entity_chunks[2].entity_id = 42;
