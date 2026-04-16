@@ -267,6 +267,18 @@ mod tests {
     }
 
     #[test]
+    fn stateless_intent_mapper_reports_sampling_mode() {
+        assert_eq!(
+            StatelessIntentMapper::new(IntentSamplingMode::EdgeMapped).sampling_mode(),
+            IntentSamplingMode::EdgeMapped
+        );
+        assert_eq!(
+            StatelessIntentMapper::new(IntentSamplingMode::LiveSampling).sampling_mode(),
+            IntentSamplingMode::LiveSampling
+        );
+    }
+
+    #[test]
     fn press_hold_release_edges_are_emitted() {
         let mut mapper = StatelessIntentMapper::default();
 
