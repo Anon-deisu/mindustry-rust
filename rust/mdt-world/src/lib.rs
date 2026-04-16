@@ -59966,6 +59966,62 @@ mod tests {
     }
 
     #[test]
+    fn runtime_seed_region_and_disposition_labels_are_stable() {
+        assert_eq!(
+            runtime_region_kind_label(SavePostLoadRuntimeRegionKind::WorldShell),
+            "world-shell"
+        );
+        assert_eq!(
+            runtime_region_kind_label(SavePostLoadRuntimeRegionKind::EntityRemaps),
+            "entity-remaps"
+        );
+        assert_eq!(
+            runtime_region_kind_label(SavePostLoadRuntimeRegionKind::TeamPlans),
+            "team-plans"
+        );
+        assert_eq!(
+            runtime_region_kind_label(SavePostLoadRuntimeRegionKind::Markers),
+            "markers"
+        );
+        assert_eq!(
+            runtime_region_kind_label(SavePostLoadRuntimeRegionKind::StaticFog),
+            "static-fog"
+        );
+        assert_eq!(
+            runtime_region_kind_label(SavePostLoadRuntimeRegionKind::CustomChunks),
+            "custom-chunks"
+        );
+        assert_eq!(
+            runtime_region_kind_label(SavePostLoadRuntimeRegionKind::Buildings),
+            "buildings"
+        );
+        assert_eq!(
+            runtime_region_kind_label(SavePostLoadRuntimeRegionKind::LoadableEntities),
+            "loadable-entities"
+        );
+        assert_eq!(
+            runtime_region_kind_label(SavePostLoadRuntimeRegionKind::SkippedEntities),
+            "skipped-entities"
+        );
+        assert_eq!(
+            runtime_disposition_label(SavePostLoadConsumerRuntimeDisposition::ApplyNow),
+            "apply"
+        );
+        assert_eq!(
+            runtime_disposition_label(SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell),
+            "wait"
+        );
+        assert_eq!(
+            runtime_disposition_label(SavePostLoadConsumerRuntimeDisposition::Blocked),
+            "block"
+        );
+        assert_eq!(
+            runtime_disposition_label(SavePostLoadConsumerRuntimeDisposition::Deferred),
+            "defer"
+        );
+    }
+
+    #[test]
     fn next_apply_now_batch_label_formats_present_and_missing_values() {
         assert_eq!(next_apply_now_batch_label(Some(3), Some(7)), "3/7");
         assert_eq!(next_apply_now_batch_label(None, Some(7)), "none");
