@@ -865,6 +865,34 @@ mod tests {
     }
 
     #[test]
+    fn runtime_world_ownership_marks_empty_skipped_entities_surface_absent() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let ownership = observation.runtime_world_ownership();
+        let skipped_surface = ownership
+            .surface(SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities)
+            .unwrap();
+
+        assert!(ownership.can_apply_world_semantics());
+        assert!(ownership.can_activate_live_runtime());
+        assert_eq!(skipped_surface.status, SavePostLoadRuntimeWorldOwnershipStatus::Absent);
+        assert_eq!(skipped_surface.status.label(), "absent");
+        assert_eq!(
+            skipped_surface.summary_label(),
+            "skipped-entities:absent:0/0 blockers=0 failed=0"
+        );
+        assert_eq!(
+            skipped_surface.detail_label(),
+            "kind=skipped-entities region=entities status=absent claim=0/0 blockers=0 failed=0"
+        );
+        assert!(!skipped_surface.has_blockers());
+        assert!(!skipped_surface.has_failures());
+        assert_eq!(ownership.absent_surface_count(), 1);
+        assert_eq!(ownership.summary_label(), "shell=yes semantics=yes own=8/9 claim=14/14 wait=0 block=0 fail=0 defer=0 absent=1 regions=4");
+    }
+
+    #[test]
     fn runtime_world_ownership_requires_ready_flag_for_world_semantics() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
