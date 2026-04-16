@@ -972,6 +972,26 @@ mod tests {
     }
 
     #[test]
+    fn runtime_world_shell_query_helpers_return_missing_slices_and_zero_owned_counts() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let execution = observation.execute_runtime_apply();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::CustomChunks),
+            0
+        );
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities),
+            0
+        );
+        assert_eq!(shell.loadable_entities_for_effective_class_id(99), None);
+        assert_eq!(shell.loadable_entities_for_effective_name("unknown"), None);
+    }
+
+    #[test]
     fn save_post_load_runtime_execution_summary_and_detail_labels_use_bool_labels() {
         let execution = SavePostLoadRuntimeApplyExecution {
             can_seed_runtime_apply: true,
