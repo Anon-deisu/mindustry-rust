@@ -426,6 +426,47 @@ fn increment_effect_runtime_binding_state_counters(
     }
 }
 
+#[cfg(test)]
+mod increment_effect_runtime_binding_state_counters_tests {
+    use super::{increment_effect_runtime_binding_state_counters, EffectRuntimeBindingState};
+
+    #[test]
+    fn increment_effect_runtime_binding_state_counters_treats_none_as_noop_and_tracks_each_state() {
+        let mut follow_count = 0;
+        let mut reject_count = 0;
+        let mut fallback_count = 0;
+
+        increment_effect_runtime_binding_state_counters(
+            None,
+            &mut follow_count,
+            &mut reject_count,
+            &mut fallback_count,
+        );
+        assert_eq!((follow_count, reject_count, fallback_count), (0, 0, 0));
+
+        increment_effect_runtime_binding_state_counters(
+            Some(EffectRuntimeBindingState::ParentFollow),
+            &mut follow_count,
+            &mut reject_count,
+            &mut fallback_count,
+        );
+        increment_effect_runtime_binding_state_counters(
+            Some(EffectRuntimeBindingState::BindingRejected),
+            &mut follow_count,
+            &mut reject_count,
+            &mut fallback_count,
+        );
+        increment_effect_runtime_binding_state_counters(
+            Some(EffectRuntimeBindingState::UnresolvedFallback),
+            &mut follow_count,
+            &mut reject_count,
+            &mut fallback_count,
+        );
+
+        assert_eq!((follow_count, reject_count, fallback_count), (1, 1, 1));
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConfiguredContentRef {
     pub content_type: u8,
