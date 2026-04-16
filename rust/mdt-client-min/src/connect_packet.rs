@@ -819,6 +819,22 @@ mod tests {
     }
 
     #[test]
+    fn version_properties_value_from_bytes_prefers_first_match_and_trims_crlf() {
+        assert_eq!(
+            version_properties_value_from_bytes(
+                b"build = 146\r\nbuild = 999\n",
+                "build"
+            )
+            .unwrap(),
+            Some("146")
+        );
+        assert_eq!(
+            version_properties_value_from_bytes(b"type = official\r\n", "number").unwrap(),
+            None
+        );
+    }
+
+    #[test]
     fn parse_connect_build_number_handles_success_and_failure_cases() {
         assert_eq!(
             parse_connect_build_number("146", "build"),
