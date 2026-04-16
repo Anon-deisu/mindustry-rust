@@ -559,6 +559,36 @@ mod tests {
     }
 
     #[test]
+    fn sanitize_bootstrap_player_position_bits_keeps_finite_bits_and_rejects_non_finite_values() {
+        let connect_payload = sample_connect_payload();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        let mut login = LoginBootstrap::from_stream_packets(
+            &connect_payload,
+            &begin_packet,
+            &chunk_packets,
+            "fr",
+        )
+        .unwrap();
+
+        login.bootstrap.player_x_bits = 123.5_f32.to_bits();
+        login.bootstrap.player_y_bits = (-45.25_f32).to_bits();
+        assert_eq!(
+            sanitize_bootstrap_player_position_bits(&login.bootstrap),
+            Some((123.5_f32.to_bits(), (-45.25_f32).to_bits()))
+        );
+
+        login.bootstrap.player_x_bits = f32::NAN.to_bits();
+        login.bootstrap.player_y_bits = 77.0_f32.to_bits();
+        assert_eq!(sanitize_bootstrap_player_position_bits(&login.bootstrap), None);
+
+        login.bootstrap.player_x_bits = 88.0_f32.to_bits();
+        login.bootstrap.player_y_bits = f32::INFINITY.to_bits();
+        assert_eq!(sanitize_bootstrap_player_position_bits(&login.bootstrap), None);
+    }
+
+    #[test]
     fn reset_finish_connecting_lifecycle_clears_finish_connecting_state() {
         let mut state = SessionState::default();
         state.client_loaded = true;
