@@ -1140,6 +1140,13 @@ mod tests {
     }
 
     #[test]
+    fn recent_control_group_operation_label_maps_all_variants() {
+        assert_eq!(CommandModeRecentControlGroupOperation::Bind.label(), "group-bind");
+        assert_eq!(CommandModeRecentControlGroupOperation::Recall.label(), "group-recall");
+        assert_eq!(CommandModeRecentControlGroupOperation::Clear.label(), "group-clear");
+    }
+
+    #[test]
     fn bind_control_group_moves_units_across_groups_exclusively() {
         let mut state = CommandModeState::default();
         state.bind_control_group(1, &[10, 20]);
