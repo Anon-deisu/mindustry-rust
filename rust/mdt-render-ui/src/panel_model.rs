@@ -3189,8 +3189,8 @@ mod tests {
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, build_runtime_world_reload_panel_model,
         build_config_authority_source_label, build_config_pending_match_label,
-        compact_panel_text, minimap_viewport_band, runtime_notice_state_kind,
-        runtime_notice_state_text,
+        compact_panel_text, minimap_coverage_label, minimap_viewport_band,
+        minimap_visibility_label, runtime_notice_state_kind, runtime_notice_state_text,
         BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
         BuildInteractionSelectionState, BuildMinimapAssistPanelModel, PresenterViewWindow,
         RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
@@ -4173,6 +4173,19 @@ mod tests {
 
         panel.window_coverage_percent = 64;
         assert_eq!(panel.window_coverage_label(), "partial");
+    }
+
+    #[test]
+    fn minimap_visibility_and_coverage_labels_cover_threshold_edges() {
+        assert_eq!(minimap_visibility_label(0, 100), "unseen");
+        assert_eq!(minimap_visibility_label(0, 99), "hidden");
+        assert_eq!(minimap_visibility_label(1, 0), "mapped");
+        assert_eq!(minimap_visibility_label(1, 1), "mixed");
+
+        assert_eq!(minimap_coverage_label(0), "offscreen");
+        assert_eq!(minimap_coverage_label(1), "partial");
+        assert_eq!(minimap_coverage_label(99), "partial");
+        assert_eq!(minimap_coverage_label(100), "full");
     }
 
     #[test]
