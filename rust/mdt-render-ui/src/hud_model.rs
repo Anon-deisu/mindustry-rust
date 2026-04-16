@@ -1996,4 +1996,16 @@ mod tests {
         assert_eq!(super::optional_bool_label(Some(true)), "1");
         assert_eq!(super::optional_bool_label(Some(false)), "0");
     }
+
+    #[test]
+    fn world_position_text_formats_some_and_none() {
+        assert_eq!(super::world_position_text(None), "none");
+        assert_eq!(
+            super::world_position_text(Some(&RuntimeWorldPositionObservability {
+                x_bits: 12.5f32.to_bits(),
+                y_bits: (-3.25f32).to_bits(),
+            })),
+            "12.5:-3.2"
+        );
+    }
 }
