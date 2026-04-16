@@ -1542,6 +1542,23 @@ mod tests {
     }
 
     #[test]
+    fn read_object_safe_prefix_rejects_nested_object_array_payload() {
+        let value = TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![
+            TypeIoObject::Int(7),
+        ])]);
+        let mut bytes = Vec::new();
+        write_object(&mut bytes, &value);
+
+        assert_eq!(
+            read_object_safe_prefix(&bytes).unwrap_err(),
+            TypeIoReadError::NestedArrayNotAllowed {
+                type_id: 22,
+                position: 5,
+            }
+        );
+    }
+
+    #[test]
     fn read_object_safe_prefix_parses_value_and_reports_consumed_bytes() {
         let mut bytes = vec![1];
         bytes.extend_from_slice(&42i32.to_be_bytes());
