@@ -1910,6 +1910,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_text_world_pos_rejects_malformed_pair_syntax() {
+        assert_eq!(parse_text_world_pos("12:"), None);
+        assert_eq!(parse_text_world_pos(":34"), None);
+        assert_eq!(parse_text_world_pos("12,34,56"), None);
+    }
+
+    #[test]
     fn parse_text_world_pos_ignores_nested_fields() {
         assert_eq!(
             parse_text_world_pos("{\"nested\":{\"x\":12,\"y\":-4}}"),
