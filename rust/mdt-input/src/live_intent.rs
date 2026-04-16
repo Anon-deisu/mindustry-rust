@@ -449,6 +449,15 @@ mod tests {
     }
 
     #[test]
+    fn axis_value_label_formats_zero_integral_and_fractional_values() {
+        assert_eq!(axis_value_label(0.0), "0");
+        assert_eq!(axis_value_label(-0.0), "0");
+        assert_eq!(axis_value_label(12.0), "12");
+        assert_eq!(axis_value_label(-7.0), "-7");
+        assert_eq!(axis_value_label(3.25), "3.25");
+    }
+
+    #[test]
     fn runtime_intent_tracker_ignores_non_finite_axes_in_apply_key() {
         let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
         tracker.state.move_axis = (f32::NAN, 1.0);
