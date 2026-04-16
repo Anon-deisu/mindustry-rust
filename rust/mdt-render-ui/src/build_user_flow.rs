@@ -1302,6 +1302,22 @@ mod tests {
     }
 
     #[test]
+    fn build_user_flow_attention_helpers_distinguish_passive_and_problem_states() {
+        assert!(!super::authority_needs_attention(
+            BuildInteractionAuthorityState::None
+        ));
+        assert!(!super::authority_needs_attention(
+            BuildInteractionAuthorityState::Applied
+        ));
+        assert!(super::authority_needs_attention(
+            BuildInteractionAuthorityState::RejectedMissingBuilding
+        ));
+        assert!(!super::authority_pending_match_needs_attention(None));
+        assert!(!super::authority_pending_match_needs_attention(Some(true)));
+        assert!(super::authority_pending_match_needs_attention(Some(false)));
+    }
+
+    #[test]
     fn join_or_none_formats_empty_and_ordered_labels_with_stable_prefix() {
         assert_eq!(BuildUserFlowPanelModel::join_or_none(&[]), "none");
         assert_eq!(
