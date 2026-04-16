@@ -167,4 +167,9 @@ mod tests {
         assert!(decode_hex("zz").is_err());
         assert!(decode_hex("0g").is_err());
     }
+
+    #[test]
+    fn decode_hex_accepts_empty_input() {
+        assert_eq!(decode_hex("").unwrap(), Vec::<u8>::new());
+    }
 }
