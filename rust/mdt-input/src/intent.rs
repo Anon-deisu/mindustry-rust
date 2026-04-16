@@ -197,4 +197,12 @@ mod tests {
             "aim=-2.5,3.125"
         );
     }
+
+    #[test]
+    fn player_intent_summary_label_formats_hold_interact_stably() {
+        assert_eq!(
+            PlayerIntent::ActionHeld(BinaryAction::Interact).summary_label(),
+            "hold=interact"
+        );
+    }
 }
