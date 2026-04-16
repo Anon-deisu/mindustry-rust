@@ -1689,6 +1689,31 @@ mod tests {
     }
 
     #[test]
+    fn detail_counts_text_formats_single_and_multiple_counts_with_stable_separators() {
+        assert_eq!(detail_counts_text(&[]), None);
+        assert_eq!(
+            detail_counts_text(&[RenderSemanticDetailCount {
+                label: "runtime-world-label",
+                count: 1,
+            }]),
+            Some("runtime-world-label:1".to_string())
+        );
+        assert_eq!(
+            detail_counts_text(&[
+                RenderSemanticDetailCount {
+                    label: "runtime-effect",
+                    count: 2,
+                },
+                RenderSemanticDetailCount {
+                    label: "runtime-world-label",
+                    count: 3,
+                },
+            ]),
+            Some("runtime-effect:2,runtime-world-label:3".to_string())
+        );
+    }
+
+    #[test]
     fn semantic_kind_from_id_supports_known_prefixes_aliases_and_runtime_patterns() {
         assert_eq!(
             RenderObjectSemanticKind::from_id("player:7"),
