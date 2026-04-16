@@ -327,6 +327,27 @@ mod tests {
     }
 
     #[test]
+    fn resolve_cli_path_preserves_dot_segments_when_joining_relative_paths() {
+        let original_dir = env::current_dir().expect("current dir");
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-resolve-cli-path-dot-segments-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        env::set_current_dir(&temp_dir).unwrap();
+
+        let dot_path = Path::new("out/./registry.rs");
+        assert_eq!(resolve_cli_path(dot_path).unwrap(), temp_dir.join(dot_path));
+
+        env::set_current_dir(&original_dir).unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn normalize_path_for_overlap_collapses_dot_segments_and_preserves_leading_parents() {
         assert_eq!(
             normalize_path_for_overlap(Path::new("./build/../remote/registry.rs")),
