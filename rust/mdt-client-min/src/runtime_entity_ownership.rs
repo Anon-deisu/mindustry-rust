@@ -180,7 +180,10 @@ fn unit_allows_heuristic_player_ownership(unit: &TypedRuntimeUnitEntity) -> bool
 
 #[cfg(test)]
 mod tests {
-    use super::{record_conflict_units, resolve_typed_runtime_entity_ownership};
+    use super::{
+        record_conflict_units, resolve_typed_runtime_entity_ownership,
+        unique_latest_claim_entity_id,
+    };
     use crate::session_state::{
         EntityPlayerSemanticProjection, EntityUnitSemanticProjection, TypedRuntimeEntityBase,
         TypedRuntimeEntityModel, TypedRuntimePlayerEntity, TypedRuntimeUnitEntity,
@@ -271,6 +274,21 @@ mod tests {
             nested_unit_payloads: Vec::new(),
         });
         TypedRuntimeEntityModel::Unit(unit_model)
+    }
+
+    #[test]
+    fn unique_latest_claim_entity_id_prefers_single_latest_claim_and_rejects_ties() {
+        assert_eq!(unique_latest_claim_entity_id(&[]), None);
+        assert_eq!(unique_latest_claim_entity_id(&[(3, 11)]), Some(11));
+        assert_eq!(
+            unique_latest_claim_entity_id(&[(2, 7), (5, 9), (4, 3)]),
+            Some(9)
+        );
+        assert_eq!(unique_latest_claim_entity_id(&[(5, 7), (5, 9)]), None);
+        assert_eq!(
+            unique_latest_claim_entity_id(&[(1, 4), (3, 8), (3, 12), (2, 6)]),
+            None
+        );
     }
 
     #[test]
