@@ -772,6 +772,22 @@ mod tests {
     }
 
     #[test]
+    fn save_post_load_world_issue_labels_are_stable() {
+        assert_eq!(
+            SavePostLoadWorldIssue::EmptyWorldGraph.label(),
+            "empty-world-graph"
+        );
+        assert_eq!(
+            SavePostLoadWorldIssue::DuplicateWorldEntityIds.label(),
+            "duplicate-world-entity-ids"
+        );
+        assert_eq!(
+            SavePostLoadWorldIssue::EntitySummaryMismatch.label(),
+            "entity-summary"
+        );
+    }
+
+    #[test]
     fn projection_contract_flags_tile_surface_breakage() {
         let mut observation = test_observation();
         observation.map.world.tiles[0].building_center_index = None;
