@@ -592,6 +592,16 @@ mod tests {
     }
 
     #[test]
+    fn checked_stream_total_len_handles_zero_and_boundary_lengths() {
+        assert_eq!(checked_stream_total_len(0).unwrap(), 0);
+        assert_eq!(checked_stream_total_len(i32::MAX as usize).unwrap(), i32::MAX);
+        assert_eq!(
+            checked_stream_total_len(i32::MAX as usize + 1).unwrap_err(),
+            format!("stream payload too large: {}", i32::MAX as usize + 1)
+        );
+    }
+
+    #[test]
     fn forced_uncompressed_packet_round_trips() {
         let payload = stream_chunk_payload(7, &(1u8..=48).collect::<Vec<_>>()).unwrap();
         let encoded = encode_packet(STREAM_CHUNK_PACKET_ID, &payload, true).unwrap();
