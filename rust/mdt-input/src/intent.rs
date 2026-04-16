@@ -177,4 +177,12 @@ mod tests {
             "building=off"
         );
     }
+
+    #[test]
+    fn player_intent_summary_label_formats_release_interact_stably() {
+        assert_eq!(
+            PlayerIntent::ActionReleased(BinaryAction::Interact).summary_label(),
+            "release=interact"
+        );
+    }
 }
