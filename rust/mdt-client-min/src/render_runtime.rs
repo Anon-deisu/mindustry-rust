@@ -6776,6 +6776,18 @@ mod tests {
         ))
     }
 
+    #[test]
+    fn runtime_world_xy_bits_from_tile_pos_scales_tile_coordinates_by_eight_and_preserves_sign() {
+        assert_eq!(
+            runtime_world_xy_bits_from_tile_pos(pack_runtime_point2(1, 2)),
+            (8.0f32.to_bits(), 16.0f32.to_bits())
+        );
+        assert_eq!(
+            runtime_world_xy_bits_from_tile_pos(pack_runtime_point2(-3, 4)),
+            ((-24.0f32).to_bits(), 32.0f32.to_bits())
+        );
+    }
+
     fn ingest_sample_world(session: &mut ClientSession) {
         let compressed_world_stream = sample_world_stream_bytes();
         let (begin_packet, chunk_packets) =
