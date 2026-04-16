@@ -2762,6 +2762,13 @@ mod tests {
     }
 
     #[test]
+    fn build_config_pending_match_text_maps_all_states_stably() {
+        assert_eq!(super::build_config_pending_match_text(Some(true)), "match");
+        assert_eq!(super::build_config_pending_match_text(Some(false)), "mismatch");
+        assert_eq!(super::build_config_pending_match_text(None), "none");
+    }
+
+    #[test]
     fn build_config_outcome_compact_text_maps_all_variants_stably() {
         assert_eq!(
             super::build_config_outcome_compact_text(Some(
