@@ -884,6 +884,11 @@ mod tests {
     }
 
     #[test]
+    fn parse_connect_build_number_accepts_explicit_positive_sign() {
+        assert_eq!(parse_connect_build_number("+7", "build"), Ok(7));
+    }
+
+    #[test]
     fn trim_ascii_strips_ascii_whitespace_only() {
         assert_eq!(trim_ascii(b"\t  hello \r\n"), b"hello");
 
