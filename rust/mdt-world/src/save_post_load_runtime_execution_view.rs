@@ -476,6 +476,80 @@ mod tests {
     }
 
     #[test]
+    fn runtime_apply_execution_view_keeps_sparse_lookup_query_boundaries_stable() {
+        let mut step_status_lookup = BTreeMap::new();
+        step_status_lookup.insert(
+            SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
+            SavePostLoadRuntimeExecutionStepStatus::Executed,
+        );
+        step_status_lookup.insert(
+            SavePostLoadRuntimeApplyStep::StaticFog,
+            SavePostLoadRuntimeExecutionStepStatus::Deferred,
+        );
+        step_status_lookup.insert(
+            SavePostLoadRuntimeApplyStep::Building { center_index: 2 },
+            SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell,
+        );
+
+        let view = SavePostLoadRuntimeApplyExecutionView {
+            can_seed_runtime_apply: false,
+            world_shell_ready: true,
+            step_status_lookup,
+        };
+
+        let status_buckets = view.status_buckets();
+        let source_regions = view.source_regions();
+
+        assert_eq!(view.total_step_count(), 3);
+        assert_eq!(
+            view.step_status(&SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 }),
+            Some(SavePostLoadRuntimeExecutionStepStatus::Executed)
+        );
+        assert_eq!(
+            view.step_status(&SavePostLoadRuntimeApplyStep::Building { center_index: 2 }),
+            Some(SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell)
+        );
+        assert_eq!(view.step_status(&SavePostLoadRuntimeApplyStep::Marker { marker_index: 9 }), None);
+        assert_eq!(
+            status_buckets
+                .iter()
+                .map(|bucket| bucket.status)
+                .collect::<Vec<_>>(),
+            vec![
+                SavePostLoadRuntimeExecutionStepStatus::Executed,
+                SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell,
+                SavePostLoadRuntimeExecutionStepStatus::Deferred,
+            ]
+        );
+        assert_eq!(
+            status_buckets
+                .iter()
+                .map(|bucket| bucket.steps.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                vec![SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 }],
+                vec![SavePostLoadRuntimeApplyStep::Building { center_index: 2 }],
+                vec![SavePostLoadRuntimeApplyStep::StaticFog],
+            ]
+        );
+        assert_eq!(
+            source_regions
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            vec!["entities", "custom", "map"]
+        );
+        assert_eq!(source_regions[0].total_step_count(), 1);
+        assert_eq!(source_regions[1].total_step_count(), 1);
+        assert_eq!(source_regions[2].total_step_count(), 1);
+        assert_eq!(
+            view.source_region("map").map(|region| region.total_step_count()),
+            Some(1)
+        );
+        assert_eq!(view.source_region("missing"), None);
+    }
+
+    #[test]
     fn runtime_apply_execution_view_groups_steps_by_source_region() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
