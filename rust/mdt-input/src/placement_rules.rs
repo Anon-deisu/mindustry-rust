@@ -603,6 +603,28 @@ mod tests {
     }
 
     #[test]
+    fn placement_bounds_handles_negative_coordinates_symmetrically() {
+        assert_eq!(
+            placement_bounds(-10, -10, 1),
+            super::PlacementBounds {
+                left: -84.0,
+                right: -76.0,
+                bottom: -84.0,
+                top: -76.0,
+            }
+        );
+        assert_eq!(
+            placement_bounds(-10, -10, 2),
+            super::PlacementBounds {
+                left: -84.0,
+                right: -68.0,
+                bottom: -84.0,
+                top: -68.0,
+            }
+        );
+    }
+
+    #[test]
     fn repair_derelict_candidate_returns_build_plan_candidate_when_gate_passes() {
         let observation = RepairDerelictObservation {
             player_dead: false,
