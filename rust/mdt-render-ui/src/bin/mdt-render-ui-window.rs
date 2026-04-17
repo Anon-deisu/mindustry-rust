@@ -259,7 +259,7 @@ fn parse_finite_f32(flag: &str, value: &str) -> Result<f32, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{animated_player_position, parse_args, Args, ParseOutcome};
+    use super::{animated_player_position, parse_args, parse_u64, Args, ParseOutcome};
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -413,6 +413,14 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("invalid --duration-ms: must be greater than 0"));
+    }
+
+    #[test]
+    fn parse_u64_rejects_overflow_for_duration_ms() {
+        let err = parse_u64("--duration-ms", "18446744073709551616").unwrap_err();
+
+        assert!(err.contains("invalid --duration-ms:"));
+        assert!(err.contains("number too large"));
     }
 
     #[test]
