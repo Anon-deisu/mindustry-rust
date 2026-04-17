@@ -12,18 +12,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (manifest_path, output_path, high_frequency_output_path, inbound_dispatch_output_path) =
         parse_args(env::args().skip(1))?;
     let output_path = output_path.as_deref().map(resolve_cli_path).transpose()?;
-    let high_frequency_output_path = match high_frequency_output_path {
-        Some(path) => Some(resolve_cli_path(Path::new(&path))?),
-        None => output_path
-            .as_deref()
-            .map(default_high_frequency_output_path),
-    };
-    let inbound_dispatch_output_path = match inbound_dispatch_output_path {
-        Some(path) => Some(resolve_cli_path(Path::new(&path))?),
-        None => output_path
-            .as_deref()
-            .map(default_inbound_dispatch_output_path),
-    };
+    let high_frequency_output_path = resolve_auxiliary_output_path(
+        high_frequency_output_path,
+        output_path.as_deref(),
+        default_high_frequency_output_path,
+    )?;
+    let inbound_dispatch_output_path = resolve_auxiliary_output_path(
+        inbound_dispatch_output_path,
+        output_path.as_deref(),
+        default_inbound_dispatch_output_path,
+    )?;
 
     reject_overlapping_output_paths(
         output_path.as_deref(),
@@ -72,6 +70,17 @@ fn resolve_cli_path(path: &Path) -> io::Result<PathBuf> {
     }
 
     Ok(env::current_dir()?.join(path))
+}
+
+fn resolve_auxiliary_output_path(
+    explicit_output_path: Option<PathBuf>,
+    registry_output_path: Option<&Path>,
+    default_output_path: fn(&Path) -> PathBuf,
+) -> io::Result<Option<PathBuf>> {
+    match explicit_output_path {
+        Some(path) => resolve_cli_path(&path).map(Some),
+        None => Ok(registry_output_path.map(default_output_path)),
+    }
 }
 
 fn default_high_frequency_output_path(output_path: &Path) -> PathBuf {
@@ -252,7 +261,7 @@ mod tests {
         default_high_frequency_output_path, default_inbound_dispatch_output_path,
         emit_outputs, normalize_path_for_overlap, parse_args, paths_overlap,
         reject_overlapping_output_path_pair, reject_overlapping_output_paths,
-        resolve_cli_path, write_output_file, USAGE,
+        resolve_auxiliary_output_path, resolve_cli_path, write_output_file, USAGE,
     };
     use std::{
         env, fs,
@@ -465,6 +474,48 @@ mod tests {
 
         env::set_current_dir(&original_dir).unwrap();
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn resolve_auxiliary_output_path_prefers_explicit_path_over_registry_default() {
+        let original_dir = env::current_dir().expect("current dir");
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-resolve-aux-explicit-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        env::set_current_dir(&temp_dir).unwrap();
+
+        let actual = resolve_auxiliary_output_path(
+            Some(PathBuf::from("explicit/high-frequency.rs")),
+            Some(Path::new("registry.rs")),
+            default_high_frequency_output_path,
+        )
+        .unwrap();
+
+        assert_eq!(actual, Some(temp_dir.join("explicit/high-frequency.rs")));
+
+        env::set_current_dir(&original_dir).unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn resolve_auxiliary_output_path_derives_default_from_registry_path() {
+        let actual = resolve_auxiliary_output_path(
+            None,
+            Some(Path::new("build/mdt-remote/remote-registry.rs")),
+            default_inbound_dispatch_output_path,
+        )
+        .unwrap();
+
+        assert_eq!(
+            actual,
+            Some(PathBuf::from("build/mdt-remote/remote-inbound-dispatch.rs"))
+        );
     }
 
     #[test]
