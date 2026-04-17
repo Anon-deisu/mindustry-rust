@@ -2019,6 +2019,12 @@ mod tests {
 
     #[test]
     fn optional_numeric_labels_format_some_and_none() {
+        assert_eq!(super::optional_u8_label(None), "none");
+        assert_eq!(super::optional_u8_label(Some(u8::MAX)), "255");
+
+        assert_eq!(super::optional_i16_label(None), "none");
+        assert_eq!(super::optional_i16_label(Some(i16::MIN)), "-32768");
+
         assert_eq!(super::optional_i32_label(None), "none");
         assert_eq!(super::optional_i32_label(Some(-42)), "-42");
 
