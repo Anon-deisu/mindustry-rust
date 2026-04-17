@@ -849,6 +849,22 @@ mod tests {
     }
 
     #[test]
+    fn strict_connect_build_prefers_first_build_entry_over_later_duplicates() {
+        assert_eq!(
+            strict_connect_build(b"build = 157.2\nbuild = 999\ntype = official\n"),
+            Ok(157)
+        );
+    }
+
+    #[test]
+    fn strict_connect_build_accepts_dotted_build_with_zero_revision() {
+        assert_eq!(
+            strict_connect_build(b"build = 157.0\ntype = official\n"),
+            Ok(157)
+        );
+    }
+
+    #[test]
     fn embedded_version_properties_track_upstream_157_2_connect_metadata() {
         assert_eq!(default_connect_build(), 157);
         assert_eq!(default_connect_version_type(), "official");
