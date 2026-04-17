@@ -2043,27 +2043,45 @@ pub(crate) fn format_runtime_world_reload_detail_text_from_loading(
     runtime_world_reload_from_loading(loading).map(format_runtime_world_reload_detail_text)
 }
 
-pub(crate) fn format_runtime_session_panel_text(panel: &RuntimeSessionPanelModel) -> String {
+fn runtime_session_segments(
+    bootstrap: Option<String>,
+    core_binding: Option<String>,
+    resource_delta: String,
+    kick: String,
+    loading: String,
+    reconnect: String,
+) -> Vec<String> {
     let mut segments = Vec::new();
-    if !panel.bootstrap.is_empty() {
-        segments.push(format!("bootstrap={}", panel.bootstrap.summary_label()));
+    if let Some(bootstrap) = bootstrap {
+        segments.push(bootstrap);
     }
-    if !panel.core_binding.is_empty() {
-        segments.push(format!(
-            "cb={}",
-            format_runtime_core_binding_panel_text(&panel.core_binding)
-        ));
+    if let Some(core_binding) = core_binding {
+        segments.push(core_binding);
     }
-    segments.push(format!(
-        "rd={}",
-        format_runtime_resource_delta_panel_text(&panel.resource_delta)
-    ));
-    segments.push(format!("k={}", format_runtime_kick_panel_text(&panel.kick)));
-    segments.push(format!("l={}", format_runtime_loading_panel_text(&panel.loading)));
-    segments.push(format!(
-        "r={}",
-        format_runtime_reconnect_panel_text(&panel.reconnect)
-    ));
+    segments.push(resource_delta);
+    segments.push(kick);
+    segments.push(loading);
+    segments.push(reconnect);
+    segments
+}
+
+pub(crate) fn format_runtime_session_panel_text(panel: &RuntimeSessionPanelModel) -> String {
+    let segments = runtime_session_segments(
+        (!panel.bootstrap.is_empty()).then(|| format!("bootstrap={}", panel.bootstrap.summary_label())),
+        (!panel.core_binding.is_empty()).then(|| {
+            format!(
+                "cb={}",
+                format_runtime_core_binding_panel_text(&panel.core_binding)
+            )
+        }),
+        format!(
+            "rd={}",
+            format_runtime_resource_delta_panel_text(&panel.resource_delta)
+        ),
+        format!("k={}", format_runtime_kick_panel_text(&panel.kick)),
+        format!("l={}", format_runtime_loading_panel_text(&panel.loading)),
+        format!("r={}", format_runtime_reconnect_panel_text(&panel.reconnect)),
+    );
     format!("sess:{}", segments.join(";"))
 }
 
@@ -2074,26 +2092,22 @@ pub(crate) fn format_runtime_session_panel_text_if_nonempty(
 }
 
 pub(crate) fn format_runtime_session_detail_text(panel: &RuntimeSessionPanelModel) -> String {
-    let mut segments = Vec::new();
-    if !panel.bootstrap.is_empty() {
-        segments.push(format!("bootstrap({})", panel.bootstrap.detail_label()));
-    }
-    if !panel.core_binding.is_empty() {
-        segments.push(format!(
-            "cb({})",
-            format_runtime_core_binding_detail_text(&panel.core_binding)
-        ));
-    }
-    segments.push(format!(
-        "rd({})",
-        format_runtime_resource_delta_detail_text(&panel.resource_delta)
-    ));
-    segments.push(format!("k({})", format_runtime_kick_detail_text(&panel.kick)));
-    segments.push(format!("l({})", format_runtime_loading_detail_text(&panel.loading)));
-    segments.push(format!(
-        "r({})",
-        format_runtime_reconnect_detail_text(&panel.reconnect)
-    ));
+    let segments = runtime_session_segments(
+        (!panel.bootstrap.is_empty()).then(|| format!("bootstrap({})", panel.bootstrap.detail_label())),
+        (!panel.core_binding.is_empty()).then(|| {
+            format!(
+                "cb({})",
+                format_runtime_core_binding_detail_text(&panel.core_binding)
+            )
+        }),
+        format!(
+            "rd({})",
+            format_runtime_resource_delta_detail_text(&panel.resource_delta)
+        ),
+        format!("k({})", format_runtime_kick_detail_text(&panel.kick)),
+        format!("l({})", format_runtime_loading_detail_text(&panel.loading)),
+        format!("r({})", format_runtime_reconnect_detail_text(&panel.reconnect)),
+    );
     format!("sessd:{}", segments.join(":"))
 }
 
