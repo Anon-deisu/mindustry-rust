@@ -229,4 +229,12 @@ mod tests {
             "press=move-up"
         );
     }
+
+    #[test]
+    fn player_intent_summary_label_formats_release_move_down_stably() {
+        assert_eq!(
+            PlayerIntent::ActionReleased(BinaryAction::MoveDown).summary_label(),
+            "release=move-down"
+        );
+    }
 }
