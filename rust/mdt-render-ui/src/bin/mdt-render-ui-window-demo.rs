@@ -331,6 +331,23 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_rejects_overflow_fps() {
+        let err = parse_args(
+            vec![
+                "--fps".to_string(),
+                "4294967296".to_string(),
+                "--player-x".to_string(),
+                "1".to_string(),
+                "--player-y".to_string(),
+                "2".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid --fps"));
+    }
+
+    #[test]
     fn parse_dimensions_rejects_missing_separator() {
         let err = parse_dimensions("48x24").unwrap_err();
 
