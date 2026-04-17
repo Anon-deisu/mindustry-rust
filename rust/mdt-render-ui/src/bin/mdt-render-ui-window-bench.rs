@@ -302,4 +302,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(err, "invalid --max-view-tiles, expected <width:height>");
     }
+
+    #[test]
+    fn parse_args_rejects_missing_frames_value() {
+        let err = parse_args(vec!["--frames".to_string()].into_iter()).unwrap_err();
+        assert_eq!(err, "missing value for --frames");
+    }
 }
