@@ -838,6 +838,39 @@ mod tests {
     }
 
     #[test]
+    fn decode_framework_message_rejects_short_buffers() {
+        assert!(matches!(
+            decode_framework_message(&[]),
+            Err(FrameworkCodecError::TooShort)
+        ));
+        assert!(matches!(
+            decode_framework_message(&[FRAMEWORK_MESSAGE_PREFIX]),
+            Err(FrameworkCodecError::TooShort)
+        ));
+        assert!(matches!(
+            decode_framework_message(&[
+                FRAMEWORK_MESSAGE_PREFIX,
+                FRAMEWORK_PING_ID,
+                0x00,
+                0x00,
+                0x00,
+                0x01,
+            ]),
+            Err(FrameworkCodecError::TooShort)
+        ));
+        assert!(matches!(
+            decode_framework_message(&[
+                FRAMEWORK_MESSAGE_PREFIX,
+                FRAMEWORK_REGISTER_UDP_ID,
+                0x00,
+                0x00,
+                0x00,
+            ]),
+            Err(FrameworkCodecError::TooShort)
+        ));
+    }
+
+    #[test]
     fn codec_error_display_strings_remain_stable() {
         assert_eq!(
             PacketCodecError::TooShort.to_string(),
