@@ -3191,14 +3191,14 @@ mod tests {
         build_tile_matches_focus_tile,
         build_config_alignment_label, build_config_authority_source_label,
         build_config_pending_match_label, BuildConfigHeadModel,
-        build_interaction_authority_label, compact_panel_text, minimap_coverage_label,
-        minimap_viewport_band,
+        build_interaction_authority_label, compact_panel_text, minimap_clamp_label,
+        minimap_coverage_label, minimap_viewport_band,
         minimap_visibility_label, runtime_notice_state_kind, runtime_notice_state_text,
         BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
-        BuildInteractionSelectionState, BuildMinimapAssistPanelModel, PresenterViewWindow,
-        RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
-        RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind, RuntimeWorldLabelPanelModel,
-        RuntimeWorldReloadPanelModel, world_position_text,
+        BuildInteractionSelectionState, BuildMinimapAssistPanelModel, MinimapPanelModel,
+        PresenterViewWindow, RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind,
+        RuntimeDialogPromptKind, RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind,
+        RuntimeWorldLabelPanelModel, RuntimeWorldReloadPanelModel, world_position_text,
     };
     use crate::{
         hud_model::{
@@ -4252,6 +4252,70 @@ mod tests {
         assert!(!build_tile_matches_focus_tile(Some((-1, 6)), Some((0, 6))));
         assert!(!build_tile_matches_focus_tile(Some((4, -1)), Some((4, 0))));
         assert!(!build_tile_matches_focus_tile(None, Some((4, 6))));
+    }
+
+    #[test]
+    fn minimap_clamp_label_formats_all_sides_in_stable_order_and_handles_empty_state() {
+        let mut panel = MinimapPanelModel {
+            map_width: 0,
+            map_height: 0,
+            window: PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 0,
+                height: 0,
+            },
+            window_last_x: 0,
+            window_last_y: 0,
+            window_clamped_left: false,
+            window_clamped_top: false,
+            window_clamped_right: false,
+            window_clamped_bottom: false,
+            window_tile_count: 0,
+            window_coverage_percent: 0,
+            map_tile_count: 0,
+            known_tile_count: 0,
+            known_tile_percent: 0,
+            unknown_tile_count: 0,
+            unknown_tile_percent: 0,
+            focus_tile: None,
+            focus_in_window: None,
+            focus_offset_x: None,
+            focus_offset_y: None,
+            overlay_visible: false,
+            fog_enabled: false,
+            visible_tile_count: 0,
+            visible_known_percent: 0,
+            hidden_tile_count: 0,
+            hidden_known_percent: 0,
+            tracked_object_count: 0,
+            window_tracked_object_count: 0,
+            outside_window_count: 0,
+            player_count: 0,
+            window_player_count: 0,
+            marker_count: 0,
+            window_marker_count: 0,
+            plan_count: 0,
+            window_plan_count: 0,
+            block_count: 0,
+            window_block_count: 0,
+            runtime_count: 0,
+            window_runtime_count: 0,
+            terrain_count: 0,
+            window_terrain_count: 0,
+            unknown_count: 0,
+            window_unknown_count: 0,
+            detail_counts: Vec::new(),
+        };
+
+        assert_eq!(minimap_clamp_label(&panel), "none");
+
+        panel.window_clamped_left = true;
+        panel.window_clamped_top = true;
+        panel.window_clamped_right = true;
+        panel.window_clamped_bottom = true;
+
+        assert_eq!(minimap_clamp_label(&panel), "left+top+right+bottom");
     }
 
     #[test]
