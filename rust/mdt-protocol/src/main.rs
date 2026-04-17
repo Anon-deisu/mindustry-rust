@@ -114,7 +114,7 @@ fn read_text(path: &Path, label: &str) -> Result<String, Box<dyn Error>> {
     fs::read_to_string(path).map_err(|err| {
         io::Error::new(
             err.kind(),
-            format!("failed to read {label} from {}: {err}", path.display()),
+            format_path_io_error("read", "from", label, path, &err),
         )
         .into()
     })
@@ -124,19 +124,29 @@ fn write_text(path: PathBuf, contents: String, label: &str) -> Result<(), Box<dy
     fs::write(&path, contents).map_err(|err| {
         io::Error::new(
             err.kind(),
-            format!("failed to write {label} to {}: {err}", path.display()),
+            format_path_io_error("write", "to", label, &path, &err),
         )
         .into()
     })
 }
 
+fn format_path_io_error(
+    action: &str,
+    preposition: &str,
+    label: &str,
+    path: &Path,
+    err: &io::Error,
+) -> String {
+    format!("failed to {action} {label} {preposition} {}: {err}", path.display())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_hex, parse_args, read_text, repo_root_from_manifest_dir, strip_whitespace,
-        write_text, USAGE,
+        decode_hex, format_path_io_error, parse_args, read_text, repo_root_from_manifest_dir,
+        strip_whitespace, write_text, USAGE,
     };
-    use std::path::{Path, PathBuf};
+    use std::{io, path::{Path, PathBuf}};
 
     #[test]
     fn rejects_extra_arguments() {
@@ -219,6 +229,19 @@ mod tests {
     #[test]
     fn decode_hex_ignores_unicode_whitespace() {
         assert_eq!(decode_hex("\u{2003}0a\u{2009}0b").unwrap(), vec![0x0a, 0x0b]);
+    }
+
+    #[test]
+    fn format_path_io_error_preserves_label_path_and_action() {
+        let path = Path::new("dir with space/测试.txt");
+        let err = io::Error::new(io::ErrorKind::PermissionDenied, "boom");
+
+        let message = format_path_io_error("read", "from", "connect packet golden", path, &err);
+
+        assert_eq!(
+            message,
+            "failed to read connect packet golden from dir with space/测试.txt: boom"
+        );
     }
 
     #[test]
