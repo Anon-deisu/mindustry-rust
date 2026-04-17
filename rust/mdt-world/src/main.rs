@@ -120,17 +120,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let world_enter_init_summary = mdt_world::parse_world_enter_init_goldens(&compressed)?;
     let world_enter_init_text =
         mdt_world::format_world_enter_init_goldens(&world_enter_init_summary);
-    write_with_context(
-        output_dir.join("world-enter-init-goldens.txt"),
-        world_enter_init_text,
-    )?;
+    write_output_with_context(output_dir, "world-enter-init-goldens.txt", world_enter_init_text)?;
 
     let world_enter_init_state_summary =
         mdt_world::parse_world_enter_init_state_goldens(&compressed)?;
     let world_enter_init_state_text =
         mdt_world::format_world_enter_init_state_goldens(&world_enter_init_state_summary);
-    write_with_context(
-        output_dir.join("world-enter-init-state-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-init-state-goldens.txt",
         world_enter_init_state_text,
     )?;
 
@@ -138,40 +136,41 @@ fn main() -> Result<(), Box<dyn Error>> {
         mdt_world::parse_world_enter_component_goldens(&compressed)?;
     let world_enter_component_text =
         mdt_world::format_world_enter_component_goldens(&world_enter_component_summary);
-    write_with_context(
-        output_dir.join("world-enter-component-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-component-goldens.txt",
         world_enter_component_text,
     )?;
 
     let world_enter_surface_summary = mdt_world::parse_world_enter_surface_goldens(&compressed)?;
     let world_enter_surface_text =
         mdt_world::format_world_enter_surface_goldens(&world_enter_surface_summary);
-    write_with_context(
-        output_dir.join("world-enter-surface-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-surface-goldens.txt",
         world_enter_surface_text,
     )?;
 
     let world_enter_layout_summary = mdt_world::parse_world_enter_layout_goldens(&compressed)?;
     let world_enter_layout_text =
         mdt_world::format_world_enter_layout_goldens(&world_enter_layout_summary);
-    write_with_context(
-        output_dir.join("world-enter-layout-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-layout-goldens.txt",
         world_enter_layout_text,
     )?;
 
     let world_enter_page_summary = mdt_world::parse_world_enter_page_goldens(&compressed)?;
     let world_enter_page_text =
         mdt_world::format_world_enter_page_goldens(&world_enter_page_summary);
-    write_with_context(
-        output_dir.join("world-enter-page-goldens.txt"),
-        world_enter_page_text,
-    )?;
+    write_output_with_context(output_dir, "world-enter-page-goldens.txt", world_enter_page_text)?;
 
     let world_enter_screen_summary = mdt_world::parse_world_enter_screen_goldens(&compressed)?;
     let world_enter_screen_text =
         mdt_world::format_world_enter_screen_goldens(&world_enter_screen_summary);
-    write_with_context(
-        output_dir.join("world-enter-screen-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-screen-goldens.txt",
         world_enter_screen_text,
     )?;
 
@@ -179,8 +178,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         mdt_world::parse_world_enter_transition_goldens(&compressed)?;
     let world_enter_transition_text =
         mdt_world::format_world_enter_transition_goldens(&world_enter_transition_summary);
-    write_with_context(
-        output_dir.join("world-enter-transition-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-transition-goldens.txt",
         world_enter_transition_text,
     )?;
 
@@ -188,48 +188,42 @@ fn main() -> Result<(), Box<dyn Error>> {
         mdt_world::parse_world_enter_world_ready_goldens(&compressed)?;
     let world_enter_world_ready_text =
         mdt_world::format_world_enter_world_ready_goldens(&world_enter_world_ready_summary);
-    write_with_context(
-        output_dir.join("world-enter-world-ready-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-world-ready-goldens.txt",
         world_enter_world_ready_text,
     )?;
 
     let world_enter_play_summary = mdt_world::parse_world_enter_play_goldens(&compressed)?;
     let world_enter_play_text =
         mdt_world::format_world_enter_play_goldens(&world_enter_play_summary);
-    write_with_context(
-        output_dir.join("world-enter-play-goldens.txt"),
-        world_enter_play_text,
-    )?;
+    write_output_with_context(output_dir, "world-enter-play-goldens.txt", world_enter_play_text)?;
 
     let world_enter_runtime_summary = mdt_world::parse_world_enter_runtime_goldens(&compressed)?;
     let world_enter_runtime_text =
         mdt_world::format_world_enter_runtime_goldens(&world_enter_runtime_summary);
-    write_with_context(
-        output_dir.join("world-enter-runtime-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-runtime-goldens.txt",
         world_enter_runtime_text,
     )?;
 
     let world_enter_frame_summary = mdt_world::parse_world_enter_frame_goldens(&compressed)?;
     let world_enter_frame_text =
         mdt_world::format_world_enter_frame_goldens(&world_enter_frame_summary);
-    write_with_context(
-        output_dir.join("world-enter-frame-goldens.txt"),
-        world_enter_frame_text,
-    )?;
+    write_output_with_context(output_dir, "world-enter-frame-goldens.txt", world_enter_frame_text)?;
 
     let world_enter_loop_summary = mdt_world::parse_world_enter_loop_goldens(&compressed)?;
     let world_enter_loop_text =
         mdt_world::format_world_enter_loop_goldens(&world_enter_loop_summary);
-    write_with_context(
-        output_dir.join("world-enter-loop-goldens.txt"),
-        world_enter_loop_text,
-    )?;
+    write_output_with_context(output_dir, "world-enter-loop-goldens.txt", world_enter_loop_text)?;
 
     let world_enter_render_summary = mdt_world::parse_world_enter_render_goldens(&compressed)?;
     let world_enter_render_text =
         mdt_world::format_world_enter_render_goldens(&world_enter_render_summary);
-    write_with_context(
-        output_dir.join("world-enter-render-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-render-goldens.txt",
         world_enter_render_text,
     )?;
 
@@ -237,8 +231,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         mdt_world::parse_world_enter_scene_frame_goldens(&compressed)?;
     let world_enter_scene_frame_text =
         mdt_world::format_world_enter_scene_frame_goldens(&world_enter_scene_frame_summary);
-    write_with_context(
-        output_dir.join("world-enter-scene-frame-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-scene-frame-goldens.txt",
         world_enter_scene_frame_text,
     )?;
 
@@ -246,8 +241,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         mdt_world::parse_world_enter_scene_present_goldens(&compressed)?;
     let world_enter_scene_present_text =
         mdt_world::format_world_enter_scene_present_goldens(&world_enter_scene_present_summary);
-    write_with_context(
-        output_dir.join("world-enter-scene-present-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-scene-present-goldens.txt",
         world_enter_scene_present_text,
     )?;
 
@@ -255,8 +251,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         mdt_world::parse_world_enter_world_shell_goldens(&compressed)?;
     let world_enter_world_shell_text =
         mdt_world::format_world_enter_world_shell_goldens(&world_enter_world_shell_summary);
-    write_with_context(
-        output_dir.join("world-enter-world-shell-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-enter-world-shell-goldens.txt",
         world_enter_world_shell_text,
     )?;
 
