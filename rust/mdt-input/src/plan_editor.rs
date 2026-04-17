@@ -756,6 +756,17 @@ mod tests {
     }
 
     #[test]
+    fn plan_block_meta_with_size_sets_defaults_and_offset() {
+        let block = PlanBlockMeta::with_size(4);
+
+        assert_eq!(block.size, 4);
+        assert_eq!(block.offset, TILE_SIZE / 2.0);
+        assert!(block.rotate);
+        assert!(block.lock_rotation);
+        assert!(!block.invert_flip);
+    }
+
+    #[test]
     fn plan_block_meta_rejects_non_positive_sizes() {
         assert!(std::panic::catch_unwind(|| PlanBlockMeta::with_size(0)).is_err());
         assert!(std::panic::catch_unwind(|| PlanBlockMeta::with_size(-1)).is_err());
