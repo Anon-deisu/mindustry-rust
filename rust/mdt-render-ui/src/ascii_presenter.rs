@@ -2778,6 +2778,23 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_build_config_rollback_source_compact_text_maps_all_states() {
+        assert_eq!(super::build_config_rollback_source_compact_text(None), "none");
+        assert_eq!(
+            super::build_config_rollback_source_compact_text(Some(
+                crate::BuildConfigAuthoritySourceObservability::TileConfig,
+            )),
+            "tilecfg"
+        );
+        assert_eq!(
+            super::build_config_rollback_source_compact_text(Some(
+                crate::BuildConfigAuthoritySourceObservability::ConstructFinish,
+            )),
+            "construct"
+        );
+    }
+
+    #[test]
     fn ascii_presenter_bool_flag_maps_false_and_true() {
         assert_eq!(super::bool_flag(false), 0);
         assert_eq!(super::bool_flag(true), 1);
