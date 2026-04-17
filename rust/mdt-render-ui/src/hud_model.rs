@@ -1740,6 +1740,16 @@ mod tests {
     }
 
     #[test]
+    fn runtime_ui_status_label_preserves_empty_field_order_and_default_markers() {
+        let runtime_ui = RuntimeUiObservability::default();
+
+        assert_eq!(
+            runtime_ui.status_label(),
+            "ui:hud=0/0/0@none/none:ann=0@none:info=0@none:toast=0/0@none/none:popup=0/0:clip0:uri0:choice=0/0:tin=0@none:none/none/none#0:nn:en:live=ent=0/0@none:unone/none:pnone:hn:snone:tp0/0:lastnone/none/none:fx=0/0:ov0@none:unone:dnone:knone:cnone/none:bindnone:r?:hnone:pnone@none:ttlnone"
+        );
+    }
+
+    #[test]
     fn hud_summary_visibility_helpers_compute_counts_and_percentages() {
         let summary = super::HudSummary {
             player_name: "operator".to_string(),
