@@ -589,6 +589,11 @@ mod tests {
     }
 
     #[test]
+    fn decode_base64_accepts_urlsafe_alphabet_variants() {
+        assert_eq!(decode_base64("AA-_").unwrap(), vec![0, 15, 191]);
+    }
+
+    #[test]
     fn encode_base64_encodes_short_inputs_with_padding() {
         assert_eq!(encode_base64(b""), "");
         assert_eq!(encode_base64(b"f"), "Zg==");
