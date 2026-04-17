@@ -928,6 +928,125 @@ mod tests {
     }
 
     #[test]
+    fn contract_issue_blocks_world_shell_and_stage_route_all_variants_stably() {
+        let no_stages: &[SavePostLoadConsumerStageKind] = &[];
+        let building_stage = &[SavePostLoadConsumerStageKind::Buildings];
+        let team_plan_stage = &[SavePostLoadConsumerStageKind::TeamPlans];
+        let marker_stage = &[SavePostLoadConsumerStageKind::Markers];
+        let static_fog_stage = &[SavePostLoadConsumerStageKind::StaticFog];
+        let loadable_entity_stage = &[SavePostLoadConsumerStageKind::LoadableEntities];
+        let cases = [
+            (SavePostLoadWorldIssue::EmptyWorldGraph, true, no_stages),
+            (
+                SavePostLoadWorldIssue::TileSurfaceCountMismatch,
+                true,
+                no_stages,
+            ),
+            (
+                SavePostLoadWorldIssue::TileSurfaceIndexMismatch,
+                true,
+                no_stages,
+            ),
+            (
+                SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                true,
+                building_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::TeamPlanOverlayMismatch,
+                true,
+                team_plan_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::TeamPlanOutOfBounds,
+                true,
+                team_plan_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds,
+                true,
+                team_plan_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::MarkerRegionMismatch,
+                true,
+                marker_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::MarkerOutOfBounds,
+                true,
+                marker_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::DuplicateMarkerIds,
+                false,
+                no_stages,
+            ),
+            (
+                SavePostLoadWorldIssue::StaticFogDimensionMismatch,
+                true,
+                static_fog_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::StaticFogCoverageMismatch,
+                true,
+                static_fog_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
+                true,
+                static_fog_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::DuplicateCustomChunkNames,
+                false,
+                no_stages,
+            ),
+            (
+                SavePostLoadWorldIssue::WorldEntityCountMismatch,
+                true,
+                loadable_entity_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+                true,
+                loadable_entity_stage,
+            ),
+            (
+                SavePostLoadWorldIssue::EntitySummaryMismatch,
+                true,
+                loadable_entity_stage,
+            ),
+        ];
+        let stage_kinds = [
+            SavePostLoadConsumerStageKind::WorldShell,
+            SavePostLoadConsumerStageKind::EntityRemaps,
+            SavePostLoadConsumerStageKind::TeamPlans,
+            SavePostLoadConsumerStageKind::Markers,
+            SavePostLoadConsumerStageKind::StaticFog,
+            SavePostLoadConsumerStageKind::CustomChunks,
+            SavePostLoadConsumerStageKind::Buildings,
+            SavePostLoadConsumerStageKind::LoadableEntities,
+            SavePostLoadConsumerStageKind::SkippedEntities,
+        ];
+
+        for (issue, expected_world_shell, expected_stages) in cases {
+            assert_eq!(
+                contract_issue_blocks_world_shell(issue),
+                expected_world_shell,
+                "{issue:?}"
+            );
+            for kind in stage_kinds {
+                assert_eq!(
+                    contract_issue_blocks_stage(issue, kind),
+                    expected_stages.contains(&kind),
+                    "{issue:?} -> {kind:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn consumer_runtime_helper_marks_zero_step_apply_now_stage_ready() {
         let mut observation = test_observation();
         observation.custom_chunks.clear();
