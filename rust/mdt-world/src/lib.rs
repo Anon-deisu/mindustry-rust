@@ -27236,7 +27236,8 @@ pub fn parse_msav_save(bytes: &[u8]) -> Result<MsavSaveObservation, String> {
     let inflated = inflate_zlib(bytes)?;
     let (envelope, mut reader) =
         parse_msav_envelope_from_inflated(&inflated, bytes.len(), zlib_header)?;
-    let region_names = msav_region_names(envelope.save_version)?;
+    let layout = msav_save_layout_for_version(envelope.save_version)?;
+    let region_names = layout.region_names;
     let mut regions = Vec::with_capacity(region_names.len());
     let mut entities = None;
 
@@ -27324,7 +27325,8 @@ const MSAV_LAYOUT_V11: MsavSaveLayout = MsavSaveLayout {
 };
 
 pub fn write_msav_save(save: &MsavSaveObservation) -> Result<Vec<u8>, String> {
-    let expected_region_names = msav_region_names(save.envelope.save_version)?;
+    let layout = msav_save_layout_for_version(save.envelope.save_version)?;
+    let expected_region_names = layout.region_names;
     validate_msav_save_shape(save, &expected_region_names)?;
 
     let entities_region_bytes = expected_region_names
@@ -27437,6 +27439,15 @@ fn msav_save_layout(save_version: i32) -> Option<&'static MsavSaveLayout> {
         11 => Some(&MSAV_LAYOUT_V11),
         _ => None,
     }
+}
+
+fn msav_save_layout_for_version(save_version: i32) -> Result<&'static MsavSaveLayout, String> {
+    msav_save_layout(save_version).ok_or_else(|| {
+        format!(
+            "unsupported .msav save version for passive parsing: {}",
+            save_version
+        )
+    })
 }
 
 fn cached_save_entity_region_bytes(
@@ -28664,15 +28675,9 @@ fn parse_msav_envelope_from_inflated(
     ))
 }
 
+#[cfg(test)]
 fn msav_region_names(save_version: i32) -> Result<&'static [&'static str], String> {
-    msav_save_layout(save_version)
-        .map(|layout| layout.region_names)
-        .ok_or_else(|| {
-            format!(
-            "unsupported .msav save version for passive parsing: {}",
-            save_version
-        )
-        })
+    msav_save_layout_for_version(save_version).map(|layout| layout.region_names)
 }
 
 fn read_msav_region_observation(
@@ -42988,6 +42993,12 @@ mod tests {
     #[test]
     fn msav_region_names_rejects_unsupported_save_version() {
         let err = msav_region_names(12).unwrap_err();
+        assert!(err.contains("unsupported .msav save version for passive parsing: 12"));
+    }
+
+    #[test]
+    fn msav_save_layout_for_version_rejects_unsupported_save_version() {
+        let err = msav_save_layout_for_version(12).unwrap_err();
         assert!(err.contains("unsupported .msav save version for passive parsing: 12"));
     }
 
