@@ -388,36 +388,7 @@ fn modified_utf8_unit_len(unit: u16) -> usize {
 
 fn decode_base64(input: &str) -> Result<Vec<u8>, ConnectPacketEncodeError> {
     let cleaned = strip_base64_whitespace(input);
-    if cleaned.len() % 4 != 0 {
-        return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
-    }
-
-    let mut effective_len = cleaned.len();
-    while effective_len > 0 && cleaned[effective_len - 1] == '=' {
-        effective_len -= 1;
-    }
-    if effective_len == 0 {
-        if cleaned.len() == 4 {
-            return Ok(Vec::new());
-        }
-        return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
-    }
-    let padding_len = cleaned.len() - effective_len;
-    if padding_len > 2 {
-        return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
-    }
-    match padding_len {
-        0 if effective_len % 4 != 0 => {
-            return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
-        }
-        1 if effective_len % 4 != 3 => {
-            return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
-        }
-        2 if effective_len % 4 != 2 => {
-            return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
-        }
-        _ => {}
-    }
+    let effective_len = decode_base64_effective_len(&cleaned)?;
 
     let output_len = (effective_len * 3) / 4;
     let mut output = Vec::with_capacity(output_len);
@@ -453,6 +424,40 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, ConnectPacketEncodeError> {
     }
 
     Ok(output)
+}
+
+fn decode_base64_effective_len(cleaned: &[char]) -> Result<usize, ConnectPacketEncodeError> {
+    if cleaned.len() % 4 != 0 {
+        return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+    }
+
+    let mut effective_len = cleaned.len();
+    while effective_len > 0 && cleaned[effective_len - 1] == '=' {
+        effective_len -= 1;
+    }
+    if effective_len == 0 {
+        if cleaned.len() == 4 {
+            return Ok(0);
+        }
+        return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+    }
+
+    let padding_len = cleaned.len() - effective_len;
+    if padding_len > 2 {
+        return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+    }
+    match padding_len {
+        0 if effective_len % 4 != 0 => {
+            return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+        }
+        1 if effective_len % 4 != 3 => {
+            return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+        }
+        2 if effective_len % 4 != 2 => {
+            return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+        }
+        _ => Ok(effective_len),
+    }
 }
 
 fn strip_base64_whitespace(input: &str) -> Vec<char> {
@@ -622,6 +627,26 @@ mod tests {
     #[test]
     fn decode_base64_ignores_whitespace_between_quads() {
         assert_eq!(decode_base64(" Z m\n8= \t").unwrap(), b"fo".to_vec());
+    }
+
+    #[test]
+    fn decode_base64_effective_len_tracks_padding_boundaries() {
+        fn chars(text: &str) -> Vec<char> {
+            text.chars().collect()
+        }
+
+        assert_eq!(decode_base64_effective_len(&chars("TQ==")).unwrap(), 2);
+        assert_eq!(decode_base64_effective_len(&chars("TWE=")).unwrap(), 3);
+        assert_eq!(decode_base64_effective_len(&chars("TWFu")).unwrap(), 4);
+        assert_eq!(decode_base64_effective_len(&chars("====")).unwrap(), 0);
+        assert_eq!(
+            decode_base64_effective_len(&chars("A===")).unwrap_err(),
+            ConnectPacketEncodeError::InvalidBase64Length(4)
+        );
+        assert_eq!(
+            decode_base64_effective_len(&chars("")).unwrap_err(),
+            ConnectPacketEncodeError::InvalidBase64Length(0)
+        );
     }
 
     #[test]
