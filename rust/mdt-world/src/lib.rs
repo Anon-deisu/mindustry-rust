@@ -27274,6 +27274,40 @@ pub fn parse_msav_save(bytes: &[u8]) -> Result<MsavSaveObservation, String> {
 /// passive reader.
 pub fn write_msav_save(save: &MsavSaveObservation) -> Result<Vec<u8>, String> {
     let expected_region_names = msav_region_names(save.envelope.save_version)?;
+    validate_msav_save_shape(save, &expected_region_names)?;
+
+    let entities_region_bytes = expected_region_names
+        .contains(&"entities")
+        .then(|| cached_save_entity_region_bytes(save.envelope.save_version, &save.entities))
+        .transpose()?;
+    let mut inflated = Vec::new();
+    inflated.extend_from_slice(&save.envelope.header);
+    inflated.extend_from_slice(&save.envelope.save_version.to_be_bytes());
+
+    for (expected_name, region) in expected_region_names.iter().zip(&save.regions) {
+        if region.name != *expected_name {
+            return Err(format!(
+                "unexpected .msav region order for save version {}: expected {}, got {}",
+                save.envelope.save_version, expected_name, region.name
+            ));
+        }
+        let region_bytes =
+            msav_region_bytes_for_write(region, entities_region_bytes.as_deref())?;
+        let chunk_length: u32 = region_bytes
+            .len()
+            .try_into()
+            .map_err(|_| format!("{}.msav region too large to frame as u32", region.name))?;
+        inflated.extend_from_slice(&chunk_length.to_be_bytes());
+        inflated.extend_from_slice(region_bytes);
+    }
+
+    mdt_protocol::deflate_zlib(&inflated).map_err(|error| error.to_string())
+}
+
+fn validate_msav_save_shape(
+    save: &MsavSaveObservation,
+    expected_region_names: &[&'static str],
+) -> Result<(), String> {
     if save.envelope.header != MSAV_HEADER {
         return Err(format!(
             "unsupported .msav header for writing: expected {:?}, got {:?}",
@@ -27289,13 +27323,6 @@ pub fn write_msav_save(save: &MsavSaveObservation) -> Result<Vec<u8>, String> {
         ));
     }
 
-    let entities_region_bytes = expected_region_names
-        .contains(&"entities")
-        .then(|| cached_save_entity_region_bytes(save.envelope.save_version, &save.entities))
-        .transpose()?;
-    let mut inflated = Vec::new();
-    inflated.extend_from_slice(&save.envelope.header);
-    inflated.extend_from_slice(&save.envelope.save_version.to_be_bytes());
     if let Some(leading_region_length) = save.envelope.leading_region_length {
         let first_region_length = save
             .regions
@@ -27311,37 +27338,26 @@ pub fn write_msav_save(save: &MsavSaveObservation) -> Result<Vec<u8>, String> {
         }
     }
 
-    for (expected_name, region) in expected_region_names.iter().zip(&save.regions) {
-        if region.name != *expected_name {
-            return Err(format!(
-                "unexpected .msav region order for save version {}: expected {}, got {}",
-                save.envelope.save_version, expected_name, region.name
-            ));
-        }
-        let region_bytes = if region.name == "entities" {
-            entities_region_bytes
-                .as_deref()
-                .ok_or_else(|| "missing synthesized .msav entities region bytes".to_string())?
-        } else {
-            if region.chunk_length != region.chunk_bytes.len() {
-                return Err(format!(
-                    "mismatched .msav region length for {}: observed {}, bytes {}",
-                    region.name,
-                    region.chunk_length,
-                    region.chunk_bytes.len()
-                ));
-            }
-            &region.chunk_bytes
-        };
-        let chunk_length: u32 = region_bytes
-            .len()
-            .try_into()
-            .map_err(|_| format!("{}.msav region too large to frame as u32", region.name))?;
-        inflated.extend_from_slice(&chunk_length.to_be_bytes());
-        inflated.extend_from_slice(region_bytes);
-    }
+    Ok(())
+}
 
-    mdt_protocol::deflate_zlib(&inflated).map_err(|error| error.to_string())
+fn msav_region_bytes_for_write<'a>(
+    region: &'a MsavRegionObservation,
+    entities_region_bytes: Option<&'a [u8]>,
+) -> Result<&'a [u8], String> {
+    if region.name == "entities" {
+        return entities_region_bytes
+            .ok_or_else(|| "missing synthesized .msav entities region bytes".to_string());
+    }
+    if region.chunk_length != region.chunk_bytes.len() {
+        return Err(format!(
+            "mismatched .msav region length for {}: observed {}, bytes {}",
+            region.name,
+            region.chunk_length,
+            region.chunk_bytes.len()
+        ));
+    }
+    Ok(&region.chunk_bytes)
 }
 
 fn cached_save_entity_region_bytes(
