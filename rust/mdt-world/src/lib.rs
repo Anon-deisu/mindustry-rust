@@ -27272,6 +27272,57 @@ pub fn parse_msav_save(bytes: &[u8]) -> Result<MsavSaveObservation, String> {
 /// This is intentionally minimal: it preserves the observed envelope fields and
 /// re-emits the region frames in the version-specific order required by the
 /// passive reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MsavEntityRegionReplayPart {
+    Remaps,
+    TeamPlans,
+    WorldEntities,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MsavSaveLayout {
+    region_names: &'static [&'static str],
+    entity_region_replay_parts: &'static [MsavEntityRegionReplayPart],
+}
+
+const MSAV_ENTITY_REGION_WORLD_ONLY: &[MsavEntityRegionReplayPart] =
+    &[MsavEntityRegionReplayPart::WorldEntities];
+const MSAV_ENTITY_REGION_TEAM_AND_WORLD: &[MsavEntityRegionReplayPart] = &[
+    MsavEntityRegionReplayPart::TeamPlans,
+    MsavEntityRegionReplayPart::WorldEntities,
+];
+const MSAV_ENTITY_REGION_REMAP_TEAM_AND_WORLD: &[MsavEntityRegionReplayPart] = &[
+    MsavEntityRegionReplayPart::Remaps,
+    MsavEntityRegionReplayPart::TeamPlans,
+    MsavEntityRegionReplayPart::WorldEntities,
+];
+const MSAV_LAYOUT_V1_V2: MsavSaveLayout = MsavSaveLayout {
+    region_names: &["meta", "content", "map", "entities"],
+    entity_region_replay_parts: MSAV_ENTITY_REGION_WORLD_ONLY,
+};
+const MSAV_LAYOUT_V3_V4: MsavSaveLayout = MsavSaveLayout {
+    region_names: &["meta", "content", "map", "entities"],
+    entity_region_replay_parts: MSAV_ENTITY_REGION_TEAM_AND_WORLD,
+};
+const MSAV_LAYOUT_V5_V6: MsavSaveLayout = MsavSaveLayout {
+    region_names: &["meta", "content", "map", "entities"],
+    entity_region_replay_parts: MSAV_ENTITY_REGION_REMAP_TEAM_AND_WORLD,
+};
+const MSAV_LAYOUT_V7: MsavSaveLayout = MsavSaveLayout {
+    region_names: &["meta", "content", "map", "entities", "custom"],
+    entity_region_replay_parts: MSAV_ENTITY_REGION_REMAP_TEAM_AND_WORLD,
+};
+const MSAV_LAYOUT_V8_V10: MsavSaveLayout = MsavSaveLayout {
+    region_names: &["meta", "content", "map", "entities", "markers", "custom"],
+    entity_region_replay_parts: MSAV_ENTITY_REGION_REMAP_TEAM_AND_WORLD,
+};
+const MSAV_LAYOUT_V11: MsavSaveLayout = MsavSaveLayout {
+    region_names: &[
+        "meta", "content", "patches", "map", "entities", "markers", "custom",
+    ],
+    entity_region_replay_parts: MSAV_ENTITY_REGION_REMAP_TEAM_AND_WORLD,
+};
+
 pub fn write_msav_save(save: &MsavSaveObservation) -> Result<Vec<u8>, String> {
     let expected_region_names = msav_region_names(save.envelope.save_version)?;
     validate_msav_save_shape(save, &expected_region_names)?;
@@ -27360,28 +27411,34 @@ fn msav_region_bytes_for_write<'a>(
     Ok(&region.chunk_bytes)
 }
 
+fn msav_save_layout(save_version: i32) -> Option<&'static MsavSaveLayout> {
+    match save_version {
+        1 | 2 => Some(&MSAV_LAYOUT_V1_V2),
+        3 | 4 => Some(&MSAV_LAYOUT_V3_V4),
+        5 | 6 => Some(&MSAV_LAYOUT_V5_V6),
+        7 => Some(&MSAV_LAYOUT_V7),
+        8..=10 => Some(&MSAV_LAYOUT_V8_V10),
+        11 => Some(&MSAV_LAYOUT_V11),
+        _ => None,
+    }
+}
+
 fn cached_save_entity_region_bytes(
     save_version: i32,
     entities: &SaveEntityRegionObservation,
 ) -> Result<Vec<u8>, String> {
-    match save_version {
-        1 | 2 => Ok(entities.world_entity_bytes.clone()),
-        3 | 4 => Ok(concat_byte_slices(&[
-            &entities.team_region_bytes,
-            &entities.world_entity_bytes,
-        ])),
-        5..=11 => Ok(concat_byte_slices(&[
-            &entities.remap_bytes,
-            &entities.team_region_bytes,
-            &entities.world_entity_bytes,
-        ])),
-        _ => {
-            return Err(format!(
-                "unsupported .msav save version for entity byte replay: {}",
-                save_version
-            ))
-        }
-    }
+    let layout = msav_save_layout(save_version).ok_or_else(|| {
+        format!(
+            "unsupported .msav save version for entity byte replay: {}",
+            save_version
+        )
+    })?;
+    let parts = layout
+        .entity_region_replay_parts
+        .iter()
+        .map(|part| entity_region_replay_part_bytes(*part, entities))
+        .collect::<Vec<_>>();
+    Ok(concat_byte_slices(&parts))
 }
 
 fn concat_byte_slices(parts: &[&[u8]]) -> Vec<u8> {
@@ -27393,6 +27450,17 @@ fn concat_byte_slices(parts: &[&[u8]]) -> Vec<u8> {
         out.extend_from_slice(part);
     }
     out
+}
+
+fn entity_region_replay_part_bytes<'a>(
+    part: MsavEntityRegionReplayPart,
+    entities: &'a SaveEntityRegionObservation,
+) -> &'a [u8] {
+    match part {
+        MsavEntityRegionReplayPart::Remaps => &entities.remap_bytes,
+        MsavEntityRegionReplayPart::TeamPlans => &entities.team_region_bytes,
+        MsavEntityRegionReplayPart::WorldEntities => &entities.world_entity_bytes,
+    }
 }
 
 #[allow(dead_code)]
@@ -28581,18 +28649,14 @@ fn parse_msav_envelope_from_inflated(
 }
 
 fn msav_region_names(save_version: i32) -> Result<&'static [&'static str], String> {
-    match save_version {
-        1..=6 => Ok(&["meta", "content", "map", "entities"]),
-        7 => Ok(&["meta", "content", "map", "entities", "custom"]),
-        8..=10 => Ok(&["meta", "content", "map", "entities", "markers", "custom"]),
-        11 => Ok(&[
-            "meta", "content", "patches", "map", "entities", "markers", "custom",
-        ]),
-        _ => Err(format!(
+    msav_save_layout(save_version)
+        .map(|layout| layout.region_names)
+        .ok_or_else(|| {
+            format!(
             "unsupported .msav save version for passive parsing: {}",
             save_version
-        )),
-    }
+        )
+        })
 }
 
 fn read_msav_region_observation(
@@ -42888,6 +42952,21 @@ mod tests {
                 assert_eq!(lhs.chunk_bytes, rhs.chunk_bytes);
             }
         }
+    }
+
+    #[test]
+    fn msav_save_layout_groups_region_names_and_entity_replay_parts_by_version() {
+        assert_eq!(msav_save_layout(1), Some(&MSAV_LAYOUT_V1_V2));
+        assert_eq!(msav_save_layout(2), Some(&MSAV_LAYOUT_V1_V2));
+        assert_eq!(msav_save_layout(3), Some(&MSAV_LAYOUT_V3_V4));
+        assert_eq!(msav_save_layout(4), Some(&MSAV_LAYOUT_V3_V4));
+        assert_eq!(msav_save_layout(5), Some(&MSAV_LAYOUT_V5_V6));
+        assert_eq!(msav_save_layout(6), Some(&MSAV_LAYOUT_V5_V6));
+        assert_eq!(msav_save_layout(7), Some(&MSAV_LAYOUT_V7));
+        assert_eq!(msav_save_layout(8), Some(&MSAV_LAYOUT_V8_V10));
+        assert_eq!(msav_save_layout(10), Some(&MSAV_LAYOUT_V8_V10));
+        assert_eq!(msav_save_layout(11), Some(&MSAV_LAYOUT_V11));
+        assert_eq!(msav_save_layout(12), None);
     }
 
     #[test]
