@@ -3188,6 +3188,7 @@ mod tests {
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, build_runtime_world_reload_panel_model,
+        build_tile_matches_focus_tile,
         build_config_alignment_label, build_config_authority_source_label,
         build_config_pending_match_label, BuildConfigHeadModel,
         build_interaction_authority_label, compact_panel_text, minimap_coverage_label,
@@ -4242,6 +4243,15 @@ mod tests {
 
         panel.focus_tile = None;
         assert_eq!(panel.focus_anchor_label(), "none");
+    }
+
+    #[test]
+    fn build_tile_matches_focus_tile_matches_exact_tiles_and_rejects_negative_coords() {
+        assert!(build_tile_matches_focus_tile(Some((4, 6)), Some((4, 6))));
+        assert!(!build_tile_matches_focus_tile(Some((4, 6)), Some((6, 4))));
+        assert!(!build_tile_matches_focus_tile(Some((-1, 6)), Some((0, 6))));
+        assert!(!build_tile_matches_focus_tile(Some((4, -1)), Some((4, 0))));
+        assert!(!build_tile_matches_focus_tile(None, Some((4, 6))));
     }
 
     #[test]
