@@ -547,6 +547,24 @@ mod tests {
     }
 
     #[test]
+    fn post_load_world_apply_bundle_readiness_summary_handles_empty_source_regions() {
+        let observation = test_observation();
+        let runtime_readiness = observation.runtime_readiness();
+        let runtime_seed_surface = observation.runtime_seed_surface();
+        let readiness_summary = super::SavePostLoadWorldApplyBundleReadiness {
+            runtime_readiness: &runtime_readiness,
+            runtime_seed_surface: &runtime_seed_surface,
+            source_regions: Vec::new(),
+        };
+
+        assert_eq!(readiness_summary.runtime_readiness, &runtime_readiness);
+        assert_eq!(readiness_summary.runtime_seed_surface, &runtime_seed_surface);
+        assert!(readiness_summary.source_regions.is_empty());
+        assert!(readiness_summary.source_region("entities").is_none());
+        assert!(readiness_summary.source_region("missing").is_none());
+    }
+
+    #[test]
     fn post_load_world_apply_bundle_reports_source_region_ownership() {
         let observation = test_observation();
         let bundle = observation.post_load_world_apply_bundle();
@@ -565,6 +583,24 @@ mod tests {
             ownership_summary.source_region("entities").cloned(),
             runtime_world_ownership.source_region("entities")
         );
+        assert!(ownership_summary.source_region("missing").is_none());
+    }
+
+    #[test]
+    fn post_load_world_apply_bundle_ownership_summary_handles_empty_source_regions() {
+        let observation = test_observation();
+        let runtime_world_ownership = observation.runtime_world_ownership();
+        let ownership_summary = super::SavePostLoadWorldApplyBundleOwnership {
+            runtime_world_ownership: &runtime_world_ownership,
+            source_regions: Vec::new(),
+        };
+
+        assert_eq!(
+            ownership_summary.runtime_world_ownership,
+            &runtime_world_ownership
+        );
+        assert!(ownership_summary.source_regions.is_empty());
+        assert!(ownership_summary.source_region("entities").is_none());
         assert!(ownership_summary.source_region("missing").is_none());
     }
 
