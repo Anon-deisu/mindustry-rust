@@ -200,7 +200,7 @@ fn usage() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_args, Args, ParseOutcome};
+    use super::{parse_args, parse_dimensions, Args, ParseOutcome};
     use std::path::PathBuf;
 
     #[test]
@@ -328,5 +328,12 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("invalid --fps: must be greater than 0"));
+    }
+
+    #[test]
+    fn parse_dimensions_rejects_missing_separator() {
+        let err = parse_dimensions("48x24").unwrap_err();
+
+        assert_eq!(err, "invalid --max-view-tiles, expected <width:height>");
     }
 }
