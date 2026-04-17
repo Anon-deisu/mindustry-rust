@@ -2035,6 +2035,14 @@ mod tests {
     }
 
     #[test]
+    fn payload_type_from_id_maps_known_values_and_rejects_unknown() {
+        assert_eq!(PayloadType::from_id(0), Some(PayloadType::Unit));
+        assert_eq!(PayloadType::from_id(1), Some(PayloadType::Build));
+        assert_eq!(PayloadType::from_id(2), None);
+        assert_eq!(PayloadType::from_id(u8::MAX), None);
+    }
+
+    #[test]
     fn basic_codec_prefix_readers_leave_trailing_bytes_untouched() {
         let mut bytes = Vec::new();
         write_string(&mut bytes, Some("abc"));
@@ -2715,6 +2723,24 @@ mod tests {
             read_payload_summary(&bytes),
             Err(TypeIoReadError::TrailingBytes { consumed: 5, total }) if total == bytes.len()
         ));
+    }
+
+    #[test]
+    fn read_payload_summary_prefix_handles_null_header_and_reports_prefix_len() {
+        let mut bytes = Vec::new();
+        write_payload_null(&mut bytes);
+
+        let (summary, consumed) = read_payload_summary_prefix(&bytes).unwrap();
+        assert_eq!(
+            summary,
+            PayloadSummary {
+                kind: "null",
+                payload_present: false,
+                payload_type: None,
+                prefix_len: 1,
+            }
+        );
+        assert_eq!(consumed, 1);
     }
 
     #[test]
