@@ -180,30 +180,45 @@ where
 {
     if let Some(output_path) = output_path {
         let generated = generate_registry(manifest).map_err(Into::into)?;
-        let generated_high_frequency = high_frequency_output_path
-            .map(|_| generate_high_frequency(manifest).map_err(Into::into))
-            .transpose()?;
-        let generated_inbound_dispatch = inbound_dispatch_output_path
-            .map(|_| generate_inbound_dispatch(manifest).map_err(Into::into))
-            .transpose()?;
+        let generated_high_frequency =
+            generate_optional_output(manifest, high_frequency_output_path, generate_high_frequency)?;
+        let generated_inbound_dispatch = generate_optional_output(
+            manifest,
+            inbound_dispatch_output_path,
+            generate_inbound_dispatch,
+        )?;
 
         write_output_file(output_path, &generated)?;
-        if let Some(high_frequency_output_path) = high_frequency_output_path {
-            write_output_file(
-                high_frequency_output_path,
-                generated_high_frequency.as_deref().expect("generated above"),
-            )?;
-        }
-        if let Some(inbound_dispatch_output_path) = inbound_dispatch_output_path {
-            write_output_file(
-                inbound_dispatch_output_path,
-                generated_inbound_dispatch.as_deref().expect("generated above"),
-            )?;
-        }
+        write_optional_output_file(high_frequency_output_path, generated_high_frequency.as_deref())?;
+        write_optional_output_file(
+            inbound_dispatch_output_path,
+            generated_inbound_dispatch.as_deref(),
+        )?;
         Ok(None)
     } else {
         Ok(Some(generate_registry(manifest).map_err(Into::into)?))
     }
+}
+
+fn generate_optional_output<T, G, E>(
+    manifest: &T,
+    output_path: Option<&Path>,
+    generate: G,
+) -> Result<Option<String>, Box<dyn Error>>
+where
+    G: FnOnce(&T) -> Result<String, E>,
+    E: Into<Box<dyn Error>>,
+{
+    output_path
+        .map(|_| generate(manifest).map_err(Into::into))
+        .transpose()
+}
+
+fn write_optional_output_file(output_path: Option<&Path>, generated: Option<&str>) -> io::Result<()> {
+    if let Some(output_path) = output_path {
+        write_output_file(output_path, generated.expect("generated above"))?;
+    }
+    Ok(())
 }
 
 fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
