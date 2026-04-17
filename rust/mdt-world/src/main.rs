@@ -943,6 +943,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_cli_args_reports_missing_output_dir() {
+        let err = parse_cli_args_from(Vec::<String>::new().into_iter())
+            .err()
+            .unwrap();
+
+        assert_eq!(err.to_string(), format!("missing required <output-dir>\n{USAGE}"));
+    }
+
+    #[test]
     fn world_stream_candidates_with_input_root_only_checks_explicit_path() {
         let args = CliArgs {
             output_dir: PathBuf::from("out"),
