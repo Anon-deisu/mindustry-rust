@@ -388,6 +388,18 @@ mod tests {
     }
 
     #[test]
+    fn source_regions_on_empty_readiness_returns_empty_list() {
+        let readiness = SavePostLoadRuntimeReadiness {
+            can_seed_runtime_apply: false,
+            world_shell_ready: false,
+            regions: Vec::new(),
+        };
+
+        assert_eq!(readiness.source_regions(), Vec::new());
+        assert_eq!(readiness.source_region("entities"), None);
+    }
+
+    #[test]
     fn region_kind_maps_all_consumer_stage_kinds_to_runtime_region_kinds() {
         let cases = [
             (
