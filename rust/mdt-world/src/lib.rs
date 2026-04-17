@@ -27366,30 +27366,15 @@ fn cached_save_entity_region_bytes(
 ) -> Result<Vec<u8>, String> {
     match save_version {
         1 | 2 => Ok(entities.world_entity_bytes.clone()),
-        3 | 4 => {
-            let mut out = Vec::with_capacity(
-                entities
-                    .team_region_bytes
-                    .len()
-                    .saturating_add(entities.world_entity_bytes.len()),
-            );
-            out.extend_from_slice(&entities.team_region_bytes);
-            out.extend_from_slice(&entities.world_entity_bytes);
-            Ok(out)
-        }
-        5..=11 => {
-            let mut out = Vec::with_capacity(
-                entities
-                    .remap_bytes
-                    .len()
-                    .saturating_add(entities.team_region_bytes.len())
-                    .saturating_add(entities.world_entity_bytes.len()),
-            );
-            out.extend_from_slice(&entities.remap_bytes);
-            out.extend_from_slice(&entities.team_region_bytes);
-            out.extend_from_slice(&entities.world_entity_bytes);
-            Ok(out)
-        }
+        3 | 4 => Ok(concat_byte_slices(&[
+            &entities.team_region_bytes,
+            &entities.world_entity_bytes,
+        ])),
+        5..=11 => Ok(concat_byte_slices(&[
+            &entities.remap_bytes,
+            &entities.team_region_bytes,
+            &entities.world_entity_bytes,
+        ])),
         _ => {
             return Err(format!(
                 "unsupported .msav save version for entity byte replay: {}",
@@ -27397,6 +27382,17 @@ fn cached_save_entity_region_bytes(
             ))
         }
     }
+}
+
+fn concat_byte_slices(parts: &[&[u8]]) -> Vec<u8> {
+    let capacity = parts
+        .iter()
+        .fold(0usize, |total, part| total.saturating_add(part.len()));
+    let mut out = Vec::with_capacity(capacity);
+    for part in parts {
+        out.extend_from_slice(part);
+    }
+    out
 }
 
 #[allow(dead_code)]
@@ -42965,6 +42961,32 @@ mod tests {
             reparsed.region("entities").unwrap().chunk_bytes,
             original_entities_bytes
         );
+    }
+
+    #[test]
+    fn writes_msav_save_preserves_cached_entity_region_bytes_for_save3_and_save4() {
+        for save_version in [3, 4] {
+            let original = parse_msav_save(&sample_msav_save_bytes(save_version)).unwrap();
+            let mut save = original.clone();
+            let original_entities_bytes = original.region("entities").unwrap().chunk_bytes.clone();
+            save.entities.team_count = 0;
+            save.entities.total_plans = 0;
+            save.entities.world_entity_count = 0;
+            save.entities.team_plan_groups[0].team_id = 9;
+            save.entities.team_plan_groups[0].plans[0].rotation = 3;
+            save.entities.entity_chunks[0].entity_id = 0x0bad_cafe_u32 as i32;
+            save.entities.entity_chunks[0].body_bytes = vec![0xde, 0xad, 0xbe];
+
+            let rewritten = write_msav_save(&save).unwrap();
+            let reparsed = parse_msav_save(&rewritten).unwrap();
+
+            assert_eq!(reparsed.entities, original.entities, "save_version={save_version}");
+            assert_eq!(
+                reparsed.region("entities").unwrap().chunk_bytes,
+                original_entities_bytes,
+                "save_version={save_version}"
+            );
+        }
     }
 
     #[test]
