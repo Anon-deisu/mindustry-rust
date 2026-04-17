@@ -201,6 +201,13 @@ mod tests {
     }
 
     #[test]
+    fn decode_hex_rejects_single_nibble_after_whitespace_stripping() {
+        let err = decode_hex("\n a\t").unwrap_err();
+
+        assert_eq!(err.to_string(), "hex text must contain an even number of digits");
+    }
+
+    #[test]
     fn decode_hex_ignores_unicode_whitespace() {
         assert_eq!(decode_hex("\u{2003}0a\u{2009}0b").unwrap(), vec![0x0a, 0x0b]);
     }
