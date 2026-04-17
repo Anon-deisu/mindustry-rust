@@ -239,6 +239,16 @@ fn write_optional_output_file(output_path: Option<&Path>, generated: Option<&str
 }
 
 fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
+    ensure_output_parent_dir(path)?;
+    fs::write(path, contents).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("failed to write output file '{}': {error}", path.display()),
+        )
+    })
+}
+
+fn ensure_output_parent_dir(path: &Path) -> io::Result<()> {
     if let Some(parent) = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -255,12 +265,7 @@ fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
         })?;
     }
 
-    fs::write(path, contents).map_err(|error| {
-        io::Error::new(
-            error.kind(),
-            format!("failed to write output file '{}': {error}", path.display()),
-        )
-    })
+    Ok(())
 }
 
 #[cfg(test)]
