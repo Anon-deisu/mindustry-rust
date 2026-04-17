@@ -681,6 +681,66 @@ mod tests {
             .all(|window| window[0].disposition != window[1].disposition));
     }
 
+    #[test]
+    fn extend_unique_blockers_preserves_first_seen_order_and_skips_duplicates() {
+        let mut blockers = vec![
+            SavePostLoadConsumerBlocker::ContractIssue(
+                SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+            ),
+            SavePostLoadConsumerBlocker::DuplicateEntityId(42),
+        ];
+
+        extend_unique_blockers(
+            &mut blockers,
+            &[
+                SavePostLoadConsumerBlocker::DuplicateEntityId(42),
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+                ),
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                ),
+                SavePostLoadConsumerBlocker::InvalidBuildingReference {
+                    center_index: 1,
+                    tile_index: 2,
+                    block_id: 0x1234,
+                },
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+                ),
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::EntitySummaryMismatch,
+                ),
+                SavePostLoadConsumerBlocker::InvalidBuildingReference {
+                    center_index: 1,
+                    tile_index: 2,
+                    block_id: 0x1234,
+                },
+            ],
+        );
+
+        assert_eq!(
+            blockers,
+            vec![
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                ),
+                SavePostLoadConsumerBlocker::DuplicateEntityId(42),
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+                ),
+                SavePostLoadConsumerBlocker::InvalidBuildingReference {
+                    center_index: 1,
+                    tile_index: 2,
+                    block_id: 0x1234,
+                },
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::EntitySummaryMismatch,
+                ),
+            ]
+        );
+    }
+
     fn test_observation() -> SavePostLoadWorldObservation {
         SavePostLoadWorldObservation {
             save_version: 11,
