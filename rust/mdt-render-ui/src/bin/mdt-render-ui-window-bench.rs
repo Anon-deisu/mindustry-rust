@@ -285,4 +285,21 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("invalid --player-x: must be finite"));
     }
+
+    #[test]
+    fn parse_args_rejects_malformed_max_view_tiles_dimensions() {
+        let err = parse_args(
+            vec![
+                "--max-view-tiles".to_string(),
+                "48x24".to_string(),
+                "--player-x".to_string(),
+                "1".to_string(),
+                "--player-y".to_string(),
+                "2".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+        assert_eq!(err, "invalid --max-view-tiles, expected <width:height>");
+    }
 }
