@@ -56,4 +56,19 @@ mod tests {
     fn crate_root_reexports_block_offset_smoke() {
         assert_eq!(block_offset(2), TILE_SIZE / 2.0);
     }
+
+    #[test]
+    fn crate_root_reexports_block_offset_rejects_non_positive_sizes() {
+        assert_eq!(block_offset(1), 0.0);
+        assert_eq!(block_offset(2), TILE_SIZE / 2.0);
+
+        let panic = std::panic::catch_unwind(|| block_offset(0)).unwrap_err();
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&'static str>().copied())
+            .unwrap_or("<non-string panic>");
+
+        assert!(message.contains("plan block size must be positive"), "{message}");
+    }
 }
