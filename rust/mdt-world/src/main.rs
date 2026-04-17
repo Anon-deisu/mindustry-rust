@@ -1015,4 +1015,29 @@ mod tests {
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn create_dir_all_with_context_reports_existing_file_as_directory_error() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mdt-world-create-dir-all-with-context-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let file_path = temp_dir.join("occupied");
+        fs::write(&file_path, b"occupied").unwrap();
+
+        let err = create_dir_all_with_context(&file_path).unwrap_err();
+        assert!(
+            err.to_string()
+                .starts_with("failed to create output directory "),
+            "{err}"
+        );
+        assert!(err.to_string().contains("occupied"), "{err}");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }
