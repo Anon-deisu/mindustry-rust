@@ -2446,6 +2446,20 @@ mod tests {
     }
 
     #[test]
+    fn unit_ref_prefix_reader_reports_consumed_bytes_for_block_variant() {
+        let bytes = [1, 0, 1, 0, 2, 0xaa, 0xbb];
+        let (unit_ref, consumed) = read_unit_ref_prefix(&bytes).unwrap();
+
+        assert_eq!(unit_ref, UnitRefRaw::Block(pack_point2(1, 2)));
+        assert_eq!(consumed, 5);
+        assert_eq!(&bytes[consumed..], &[0xaa, 0xbb]);
+        assert!(matches!(
+            read_unit_ref(&bytes),
+            Err(TypeIoReadError::TrailingBytes { consumed: 5, total }) if total == bytes.len()
+        ));
+    }
+
+    #[test]
     fn item_and_liquid_stack_codecs_handle_empty_single_multiple_and_reader_edges() {
         let empty_items = Vec::<ItemStackRaw>::new();
         let mut item_bytes = Vec::new();
