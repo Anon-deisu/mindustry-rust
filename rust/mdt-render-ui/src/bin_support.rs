@@ -133,6 +133,26 @@ mod tests {
     }
 
     #[test]
+    fn read_world_stream_bytes_propagates_invalid_hex_from_custom_fixture_path() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "mdt-render-ui-bin-support-invalid-hex-{}-{}.hex",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, "0a zz 0c").unwrap();
+
+        let err = read_world_stream_bytes(Some(path.as_path())).unwrap_err();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(err.contains("byte-pair 1"), "{err}");
+        assert!(err.contains("zz"), "{err}");
+    }
+
+    #[test]
     fn read_world_stream_bytes_reports_missing_custom_fixture_path() {
         let mut path = std::env::temp_dir();
         path.push(format!(
