@@ -923,6 +923,32 @@ mod tests {
     }
 
     #[test]
+    fn blocker_blocks_stage_routes_invalid_building_reference_only_to_buildings() {
+        let blocker = SavePostLoadConsumerBlocker::InvalidBuildingReference {
+            center_index: 3,
+            tile_index: 9,
+            block_id: 0x0153,
+        };
+
+        assert!(blocker_blocks_stage(
+            &blocker,
+            SavePostLoadConsumerStageKind::Buildings
+        ));
+        assert!(!blocker_blocks_stage(
+            &blocker,
+            SavePostLoadConsumerStageKind::WorldShell
+        ));
+        assert!(!blocker_blocks_stage(
+            &blocker,
+            SavePostLoadConsumerStageKind::LoadableEntities
+        ));
+        assert!(!blocker_blocks_stage(
+            &blocker,
+            SavePostLoadConsumerStageKind::SkippedEntities
+        ));
+    }
+
+    #[test]
     fn contract_issue_blocks_world_shell_and_stage_route_all_variants_stably() {
         let no_stages: &[SavePostLoadConsumerStageKind] = &[];
         let building_stage = &[SavePostLoadConsumerStageKind::Buildings];
