@@ -28,89 +28,92 @@ fn main() -> Result<(), Box<dyn Error>> {
         "connect-packet.hex",
         &connect_candidates(&args, &tests_resources),
     )?;
-    write_with_context(output_dir.join("connect-packet.hex"), &connect_packet_hex)?;
+    write_output_with_context(output_dir, "connect-packet.hex", &connect_packet_hex)?;
 
     let snapshot_goldens = read_text_from_candidates(
         "snapshot-goldens.txt",
         &snapshot_candidates(&args, &tests_resources),
     )?;
-    write_with_context(output_dir.join("snapshot-goldens.txt"), &snapshot_goldens)?;
+    write_output_with_context(output_dir, "snapshot-goldens.txt", &snapshot_goldens)?;
 
     let world_stream_hex = read_text_from_candidates(
         "world-stream.hex",
         &world_stream_candidates(&args, &tests_resources, &repo_root),
     )?;
-    write_with_context(output_dir.join("world-stream.hex"), &world_stream_hex)?;
+    write_output_with_context(output_dir, "world-stream.hex", &world_stream_hex)?;
 
     let connect_payload = decode_hex_text(&connect_packet_hex)?;
     let packet_serializer_text =
         mdt_protocol::generate_packet_serializer_goldens(&connect_payload)?;
-    write_with_context(
-        output_dir.join("packet-serializer-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "packet-serializer-goldens.txt",
         packet_serializer_text,
     )?;
-    write_with_context(
-        output_dir.join("framework-message-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "framework-message-goldens.txt",
         mdt_protocol::generate_framework_message_goldens()?,
     )?;
-    write_with_context(
-        output_dir.join("typeio-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "typeio-goldens.txt",
         mdt_typeio::generate_typeio_goldens(),
     )?;
 
     let compressed = decode_hex_text(&world_stream_hex)?;
-    write_with_context(
-        output_dir.join("world-stream-transport-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-stream-transport-goldens.txt",
         mdt_protocol::generate_world_stream_transport_goldens(&compressed)?,
     )?;
 
     let summary = mdt_world::parse_world_load_goldens(&compressed)?;
     let text = mdt_world::format_world_load_goldens(&summary);
-    write_with_context(output_dir.join("world-load-goldens.txt"), text)?;
+    write_output_with_context(output_dir, "world-load-goldens.txt", text)?;
 
     let model = mdt_world::parse_world_model(&compressed)?;
     let model_text = mdt_world::format_world_model_goldens(&model);
-    write_with_context(output_dir.join("world-model-goldens.txt"), model_text)?;
+    write_output_with_context(output_dir, "world-model-goldens.txt", model_text)?;
 
     let team_plan_bytes = mdt_world::generate_team_plan_sample_bytes();
     let team_plan_summary = mdt_world::parse_team_plan_goldens(&team_plan_bytes)?;
     let team_plan_text = mdt_world::format_team_plan_goldens(&team_plan_summary);
-    write_with_context(output_dir.join("team-plan-goldens.txt"), team_plan_text)?;
+    write_output_with_context(output_dir, "team-plan-goldens.txt", team_plan_text)?;
 
     let static_fog_bytes = mdt_world::generate_static_fog_sample_bytes();
     let static_fog_summary = mdt_world::parse_static_fog_goldens(&static_fog_bytes)?;
     let static_fog_text = mdt_world::format_static_fog_goldens(&static_fog_summary);
-    write_with_context(output_dir.join("static-fog-goldens.txt"), static_fog_text)?;
+    write_output_with_context(output_dir, "static-fog-goldens.txt", static_fog_text)?;
 
     let marker_bytes = mdt_world::generate_marker_sample_bytes();
     let marker_summary = mdt_world::parse_marker_goldens(&marker_bytes)?;
     let marker_text = mdt_world::format_marker_goldens(&marker_summary);
-    write_with_context(output_dir.join("marker-goldens.txt"), marker_text)?;
+    write_output_with_context(output_dir, "marker-goldens.txt", marker_text)?;
 
     let payload_campaign_compound_summary =
         mdt_world::generate_payload_campaign_compound_goldens()?;
     let payload_campaign_compound_text =
         mdt_world::format_payload_campaign_compound_goldens(&payload_campaign_compound_summary);
-    write_with_context(
-        output_dir.join("payload-campaign-compound-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "payload-campaign-compound-goldens.txt",
         payload_campaign_compound_text,
     )?;
 
     let world_graph_summary = mdt_world::parse_world_graph_goldens(&compressed)?;
     let world_graph_text = mdt_world::format_world_graph_goldens(&world_graph_summary);
-    write_with_context(output_dir.join("world-graph-goldens.txt"), world_graph_text)?;
+    write_output_with_context(output_dir, "world-graph-goldens.txt", world_graph_text)?;
 
     let world_session_summary = mdt_world::parse_world_session_goldens(&compressed)?;
     let world_session_text = mdt_world::format_world_session_goldens(&world_session_summary);
-    write_with_context(
-        output_dir.join("world-session-goldens.txt"),
-        world_session_text,
-    )?;
+    write_output_with_context(output_dir, "world-session-goldens.txt", world_session_text)?;
 
     let world_bootstrap_summary = mdt_world::parse_world_bootstrap_goldens(&compressed)?;
     let world_bootstrap_text = mdt_world::format_world_bootstrap_goldens(&world_bootstrap_summary);
-    write_with_context(
-        output_dir.join("world-bootstrap-goldens.txt"),
+    write_output_with_context(
+        output_dir,
+        "world-bootstrap-goldens.txt",
         world_bootstrap_text,
     )?;
 
@@ -730,6 +733,14 @@ fn create_dir_all_with_context(path: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn write_output_with_context(
+    output_dir: &Path,
+    file_name: &str,
+    contents: impl AsRef<[u8]>,
+) -> Result<(), Box<dyn Error>> {
+    write_with_context(output_dir.join(file_name), contents)
+}
+
 fn write_with_context(
     path: impl AsRef<Path>,
     contents: impl AsRef<[u8]>,
@@ -821,8 +832,9 @@ fn read_text_from_candidates(
 mod tests {
     use super::{
         connect_candidates, create_dir_all_with_context, decode_hex_text, parse_cli_args_from,
-        read_text_from_candidates, repo_root_from_manifest_dir, set_input_root_once, snapshot_candidates,
-        with_optional_input_root, world_stream_candidates, write_with_context, CliArgs, USAGE,
+        read_text_from_candidates, repo_root_from_manifest_dir, set_input_root_once,
+        snapshot_candidates, with_optional_input_root, world_stream_candidates,
+        write_output_with_context, write_with_context, CliArgs, USAGE,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -883,12 +895,14 @@ mod tests {
 
     #[test]
     fn parse_cli_args_accepts_short_input_root_flag() {
-        let args = parse_cli_args_from(vec![
-            "-i".to_string(),
-            "custom-input".to_string(),
-            "out".to_string(),
-        ]
-        .into_iter())
+        let args = parse_cli_args_from(
+            vec![
+                "-i".to_string(),
+                "custom-input".to_string(),
+                "out".to_string(),
+            ]
+            .into_iter(),
+        )
         .unwrap();
 
         assert_eq!(args.output_dir, PathBuf::from("out"));
@@ -897,11 +911,9 @@ mod tests {
 
     #[test]
     fn parse_cli_args_accepts_equals_input_root_flag() {
-        let args = parse_cli_args_from(vec![
-            "--input-root=custom-input".to_string(),
-            "out".to_string(),
-        ]
-        .into_iter())
+        let args = parse_cli_args_from(
+            vec!["--input-root=custom-input".to_string(), "out".to_string()].into_iter(),
+        )
         .unwrap();
 
         assert_eq!(args.output_dir, PathBuf::from("out"));
@@ -914,7 +926,8 @@ mod tests {
             output_dir: PathBuf::from("out"),
             input_root: Some(PathBuf::from("custom-input")),
         };
-        let candidates = world_stream_candidates(&args, Path::new("tests/resources"), Path::new("."));
+        let candidates =
+            world_stream_candidates(&args, Path::new("tests/resources"), Path::new("."));
         assert_eq!(
             candidates,
             vec![PathBuf::from("custom-input/world-stream.hex")]
@@ -943,7 +956,9 @@ mod tests {
             candidates,
             vec![
                 PathBuf::from("tests/resources/world-stream.hex"),
-                PathBuf::from("/repo/rust/fixtures/world-streams/archipelago-6567-world-stream.hex"),
+                PathBuf::from(
+                    "/repo/rust/fixtures/world-streams/archipelago-6567-world-stream.hex"
+                ),
                 PathBuf::from("/repo/fixtures/world-streams/archipelago-6567-world-stream.hex"),
             ]
         );
@@ -1061,6 +1076,29 @@ mod tests {
         write_with_context(&output_path, b"world-snapshot").unwrap();
 
         assert_eq!(fs::read(&output_path).unwrap(), b"world-snapshot");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn write_output_with_context_joins_output_dir_and_file_name() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mdt-world-write-output-with-context-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let nested_dir = temp_dir.join("nested").join("out");
+
+        create_dir_all_with_context(&nested_dir).unwrap();
+        write_output_with_context(&nested_dir, "snapshot.txt", b"world-snapshot").unwrap();
+
+        assert_eq!(
+            fs::read(nested_dir.join("snapshot.txt")).unwrap(),
+            b"world-snapshot"
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
