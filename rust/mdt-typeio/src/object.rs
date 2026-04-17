@@ -1281,6 +1281,22 @@ mod tests {
     }
 
     #[test]
+    fn read_object_prefix_rejects_empty_payload() {
+        match read_object_prefix(&[]).unwrap_err() {
+            TypeIoReadError::UnexpectedEof {
+                position,
+                needed,
+                remaining,
+            } => {
+                assert_eq!(position, 0);
+                assert_eq!(needed, 1);
+                assert_eq!(remaining, 0);
+            }
+            other => panic!("expected UnexpectedEof, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parses_typeio_string_null_marker() {
         let value = read_object(&[4, 0]).unwrap();
         assert_eq!(value, TypeIoObject::String(None));
