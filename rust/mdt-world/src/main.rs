@@ -600,9 +600,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn parse_cli_args() -> Result<CliArgs, Box<dyn Error>> {
+    parse_cli_args_from(env::args().skip(1))
+}
+
+fn parse_cli_args_from(args: impl Iterator<Item = String>) -> Result<CliArgs, Box<dyn Error>> {
     let mut output_dir = None;
     let mut input_root = None;
-    let mut args = env::args().skip(1);
+    let mut args = args;
 
     while let Some(arg) = args.next() {
         if arg == "--input-root" || arg == "-i" {
@@ -816,10 +820,9 @@ fn read_text_from_candidates(
 #[cfg(test)]
 mod tests {
     use super::{
-        connect_candidates, create_dir_all_with_context, decode_hex_text,
-        read_text_from_candidates, repo_root_from_manifest_dir, set_input_root_once,
-        snapshot_candidates, with_optional_input_root, world_stream_candidates,
-        write_with_context, CliArgs,
+        connect_candidates, create_dir_all_with_context, decode_hex_text, parse_cli_args_from,
+        read_text_from_candidates, repo_root_from_manifest_dir, set_input_root_once, snapshot_candidates,
+        with_optional_input_root, world_stream_candidates, write_with_context, CliArgs, USAGE,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -864,6 +867,18 @@ mod tests {
             "duplicate --input-root provided; latest value was second"
         );
         assert_eq!(input_root, Some(PathBuf::from("second")));
+    }
+
+    #[test]
+    fn parse_cli_args_reports_missing_input_root_value() {
+        let err = parse_cli_args_from(vec!["--input-root".to_string()].into_iter())
+            .err()
+            .unwrap();
+
+        assert_eq!(
+            err.to_string(),
+            format!("missing value for --input-root\n{USAGE}")
+        );
     }
 
     #[test]
