@@ -772,6 +772,16 @@ mod tests {
     }
 
     #[test]
+    fn checked_tile_count_and_surface_index_handle_overflow_boundaries() {
+        assert_eq!(checked_tile_count(3, 4), Some(12));
+        assert_eq!(checked_tile_count(usize::MAX, 2), None);
+
+        assert_eq!(checked_surface_index(2, 3, 4), Some(14));
+        assert_eq!(checked_surface_index(0, 2, usize::MAX), None);
+        assert_eq!(checked_surface_index(1, 1, usize::MAX), None);
+    }
+
+    #[test]
     fn save_post_load_world_contract_can_project_world_shell_requires_all_surface_flags() {
         let contract = SavePostLoadWorldContract {
             has_world_graph: true,
