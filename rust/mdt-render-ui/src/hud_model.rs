@@ -2,6 +2,7 @@ use crate::presenter_view::{
     compact_runtime_ui_text, format_optional_bool_flag, format_runtime_live_effect_summary_text,
     format_runtime_live_entity_summary_text,
 };
+use std::fmt::Display;
 
 /// UI/HUD-specific view-model data.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -211,40 +212,34 @@ fn percent_of(part: usize, total: usize) -> usize {
     }
 }
 
-fn optional_i32_label(value: Option<i32>) -> String {
+fn optional_display_label<T: Display>(value: Option<T>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_i32_label(value: Option<i32>) -> String {
+    optional_display_label(value)
 }
 
 fn optional_u8_label(value: Option<u8>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_display_label(value)
 }
 
 fn optional_i16_label(value: Option<i16>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_display_label(value)
 }
 
 fn optional_u32_label(value: Option<u32>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_display_label(value)
 }
 
 fn optional_usize_label(value: Option<usize>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_display_label(value)
 }
 
 fn optional_u64_label(value: Option<u64>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_display_label(value)
 }
 
 fn optional_bool_label(value: Option<bool>) -> &'static str {
