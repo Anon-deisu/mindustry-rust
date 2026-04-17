@@ -199,6 +199,11 @@ mod tests {
     }
 
     #[test]
+    fn decode_hex_accepts_mixed_case_hex_digits() {
+        assert_eq!(decode_hex("0a0B1c2D").unwrap(), vec![0x0a, 0x0b, 0x1c, 0x2d]);
+    }
+
+    #[test]
     fn repo_root_from_manifest_dir_resolves_two_levels_up_from_manifest_dir() {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let expected = manifest_dir
