@@ -1138,12 +1138,17 @@ fn runtime_notice_state_notice_text(panel: &RuntimeNoticeStatePanelModel) -> Str
     )
 }
 
+fn runtime_notice_state_layers(panel: &RuntimeNoticeStatePanelModel) -> (Vec<&'static str>, &'static str) {
+    let layers = panel.layer_labels();
+    let source = layers.last().copied().unwrap_or("none");
+    (layers, source)
+}
+
 pub(crate) fn format_runtime_notice_state_panel_text(
     panel: &RuntimeNoticeStatePanelModel,
 ) -> String {
     let notice_text = runtime_notice_state_notice_text(panel);
-    let layers = panel.layer_labels();
-    let source = layers.last().copied().unwrap_or("none");
+    let (layers, source) = runtime_notice_state_layers(panel);
     let active_layers = if layers.is_empty() {
         "none".to_string()
     } else {
@@ -1159,8 +1164,8 @@ pub(crate) fn format_runtime_notice_state_detail_text(
     panel: &RuntimeNoticeStatePanelModel,
 ) -> String {
     let notice_text = runtime_notice_state_notice_text(panel);
-    let layers = panel.layer_labels().join(">");
-    let source = panel.layer_labels().last().copied().unwrap_or("none");
+    let (layers, source) = runtime_notice_state_layers(panel);
+    let layers = layers.join(">");
     format!(
         "nstated:n={}:src={}:c{}:d{}:l{}:layers={}",
         notice_text,
