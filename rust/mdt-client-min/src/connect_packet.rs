@@ -222,11 +222,6 @@ enum ConnectVersionPropertiesError {
 }
 
 fn strict_connect_build(version_properties: &[u8]) -> Result<i32, ConnectVersionPropertiesError> {
-    let number = version_properties_value_from_bytes(version_properties, "number")?;
-    if let Some(number) = number {
-        return parse_connect_build_number(number, "number");
-    }
-
     let build = strict_version_properties_value(version_properties, "build")?;
     parse_connect_build_number(build, "build")
 }
@@ -259,7 +254,20 @@ fn parse_connect_build_number(
     if value.is_empty() {
         return Err(ConnectVersionPropertiesError::EmptyValue(key));
     }
-    value
+
+    let (build, revision) = value
+        .split_once('.')
+        .map_or((value, None), |(build, revision)| (build, Some(revision)));
+    if build.is_empty() {
+        return Err(ConnectVersionPropertiesError::InvalidBuildNumber);
+    }
+    if let Some(revision) = revision {
+        if revision.is_empty() || revision.parse::<i32>().is_err() {
+            return Err(ConnectVersionPropertiesError::InvalidBuildNumber);
+        }
+    }
+
+    build
         .parse::<i32>()
         .map_err(|_| ConnectVersionPropertiesError::InvalidBuildNumber)
 }
@@ -795,8 +803,16 @@ mod tests {
     #[test]
     fn strict_connect_build_rejects_missing_or_invalid_build_metadata() {
         assert_eq!(
-            strict_connect_build(b"number = 8\nbuild = custom build\ntype = official\n"),
-            Ok(8)
+            strict_connect_build(b"number = 8\nbuild = 157.2\ntype = official\n"),
+            Ok(157)
+        );
+        assert_eq!(
+            strict_connect_build(b"number = 8\nbuild = 156\ntype = official\n"),
+            Ok(156)
+        );
+        assert_eq!(
+            strict_connect_build(b"number = 999\nbuild = 157\ntype = official\n"),
+            Ok(157)
         );
         assert_eq!(
             strict_connect_build(b"type = official\n"),
@@ -804,15 +820,23 @@ mod tests {
         );
         assert_eq!(
             strict_connect_build(b"number = nope\ntype = official\n"),
+            Err(ConnectVersionPropertiesError::MissingKey("build"))
+        );
+        assert_eq!(
+            strict_connect_build(b"build = .2\ntype = official\n"),
             Err(ConnectVersionPropertiesError::InvalidBuildNumber)
         );
         assert_eq!(
-            strict_connect_build(b"number = \xff\ntype = official\n"),
-            Err(ConnectVersionPropertiesError::InvalidUtf8("number"))
+            strict_connect_build(b"build = 157.\ntype = official\n"),
+            Err(ConnectVersionPropertiesError::InvalidBuildNumber)
         );
         assert_eq!(
-            strict_connect_build(b"build = 156\ntype = official\n"),
-            Ok(156)
+            strict_connect_build(b"build = 157.x\ntype = official\n"),
+            Err(ConnectVersionPropertiesError::InvalidBuildNumber)
+        );
+        assert_eq!(
+            strict_connect_build(b"build = custom build\ntype = official\n"),
+            Err(ConnectVersionPropertiesError::InvalidBuildNumber)
         );
         assert_eq!(
             strict_connect_build(b"build = nope\ntype = official\n"),
@@ -822,6 +846,12 @@ mod tests {
             strict_connect_build(b"build = \xff\ntype = official\n"),
             Err(ConnectVersionPropertiesError::InvalidUtf8("build"))
         );
+    }
+
+    #[test]
+    fn embedded_version_properties_track_upstream_157_2_connect_metadata() {
+        assert_eq!(default_connect_build(), 157);
+        assert_eq!(default_connect_version_type(), "official");
     }
 
     #[test]
