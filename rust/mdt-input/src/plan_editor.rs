@@ -678,6 +678,19 @@ mod tests {
     }
 
     #[test]
+    fn plan_point_config_family_reports_all_variants() {
+        assert_eq!(PlanPointConfig::None.family(), PlanPointConfigFamily::None);
+        assert_eq!(
+            PlanPointConfig::Point(PlanPoint { x: 0, y: 0 }).family(),
+            PlanPointConfigFamily::Point
+        );
+        assert_eq!(
+            PlanPointConfig::Points(vec![PlanPoint { x: 1, y: 2 }]).family(),
+            PlanPointConfigFamily::Points
+        );
+    }
+
+    #[test]
     fn plan_point_config_family_labels_are_stable() {
         assert_eq!(PlanPointConfigFamily::None.label(), "none");
         assert_eq!(PlanPointConfigFamily::Point.label(), "point");
