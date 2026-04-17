@@ -27336,23 +27336,39 @@ pub fn write_msav_save(save: &MsavSaveObservation) -> Result<Vec<u8>, String> {
     inflated.extend_from_slice(&save.envelope.save_version.to_be_bytes());
 
     for (expected_name, region) in expected_region_names.iter().zip(&save.regions) {
-        if region.name != *expected_name {
-            return Err(format!(
-                "unexpected .msav region order for save version {}: expected {}, got {}",
-                save.envelope.save_version, expected_name, region.name
-            ));
-        }
-        let region_bytes =
-            msav_region_bytes_for_write(region, entities_region_bytes.as_deref())?;
-        let chunk_length: u32 = region_bytes
-            .len()
-            .try_into()
-            .map_err(|_| format!("{}.msav region too large to frame as u32", region.name))?;
-        inflated.extend_from_slice(&chunk_length.to_be_bytes());
-        inflated.extend_from_slice(region_bytes);
+        append_msav_region_frame(
+            &mut inflated,
+            save.envelope.save_version,
+            expected_name,
+            region,
+            entities_region_bytes.as_deref(),
+        )?;
     }
 
     mdt_protocol::deflate_zlib(&inflated).map_err(|error| error.to_string())
+}
+
+fn append_msav_region_frame(
+    inflated: &mut Vec<u8>,
+    save_version: i32,
+    expected_name: &str,
+    region: &MsavRegionObservation,
+    entities_region_bytes: Option<&[u8]>,
+) -> Result<(), String> {
+    if region.name != expected_name {
+        return Err(format!(
+            "unexpected .msav region order for save version {}: expected {}, got {}",
+            save_version, expected_name, region.name
+        ));
+    }
+    let region_bytes = msav_region_bytes_for_write(region, entities_region_bytes)?;
+    let chunk_length: u32 = region_bytes
+        .len()
+        .try_into()
+        .map_err(|_| format!("{}.msav region too large to frame as u32", region.name))?;
+    inflated.extend_from_slice(&chunk_length.to_be_bytes());
+    inflated.extend_from_slice(region_bytes);
+    Ok(())
 }
 
 fn validate_msav_save_shape(
@@ -43112,6 +43128,38 @@ mod tests {
         let err = cached_save_entity_region_bytes(12, &entities).unwrap_err();
 
         assert!(err.contains("unsupported .msav save version for entity byte replay: 12"));
+    }
+
+    #[test]
+    fn append_msav_region_frame_rejects_expected_name_mismatch() {
+        let mut inflated = Vec::new();
+        let region = MsavRegionObservation {
+            name: "entities",
+            chunk_length: 3,
+            chunk_bytes: vec![0xaa, 0xbb, 0xcc],
+            chunk_sha256: "ignored".to_string(),
+        };
+
+        let err =
+            append_msav_region_frame(&mut inflated, 11, "map", &region, Some(&[1, 2, 3])).unwrap_err();
+
+        assert!(err.contains("unexpected .msav region order for save version 11: expected map, got entities"));
+        assert!(inflated.is_empty());
+    }
+
+    #[test]
+    fn append_msav_region_frame_uses_entities_override_bytes_for_framing() {
+        let mut inflated = Vec::new();
+        let region = MsavRegionObservation {
+            name: "entities",
+            chunk_length: 1,
+            chunk_bytes: vec![0xff],
+            chunk_sha256: "ignored".to_string(),
+        };
+
+        append_msav_region_frame(&mut inflated, 11, "entities", &region, Some(&[1, 2, 3])).unwrap();
+
+        assert_eq!(inflated, vec![0, 0, 0, 3, 1, 2, 3]);
     }
 
     #[test]
