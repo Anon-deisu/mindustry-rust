@@ -65,6 +65,11 @@ mod tests {
     }
 
     #[test]
+    fn decode_hex_accepts_empty_input() {
+        assert_eq!(decode_hex("").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
     fn read_world_stream_bytes_uses_default_fixture() {
         let bytes = read_world_stream_bytes(None).unwrap();
         assert!(!bytes.is_empty());
@@ -87,6 +92,25 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         assert_eq!(bytes, vec![10, 11, 12]);
+    }
+
+    #[test]
+    fn read_world_stream_bytes_rejects_odd_length_custom_fixture_content() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "mdt-render-ui-bin-support-odd-{}-{}.hex",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, "0a0").unwrap();
+
+        let err = read_world_stream_bytes(Some(path.as_path())).unwrap_err();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(err, "hex input length must be even");
     }
 
     #[test]
