@@ -696,6 +696,16 @@ mod tests {
     }
 
     #[test]
+    fn decode_packet_accepts_uncompressed_empty_payload() {
+        let decoded = decode_packet(&[CONNECT_PACKET_ID, 0x00, 0x00, 0x00]).unwrap();
+
+        assert_eq!(decoded.packet_id, CONNECT_PACKET_ID);
+        assert_eq!(decoded.raw_length, 0);
+        assert_eq!(decoded.compression, 0);
+        assert!(decoded.payload.is_empty());
+    }
+
+    #[test]
     fn uncompressed_decode_uses_declared_raw_length() {
         let encoded = vec![
             CONNECT_PACKET_ID,
