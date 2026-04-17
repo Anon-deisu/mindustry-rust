@@ -216,10 +216,14 @@ fn require_non_empty_connect_field(
     field: &'static str,
     value: &str,
 ) -> Result<(), ConnectPacketEncodeError> {
-    if value.trim().is_empty() {
+    if connect_field_is_blank(value) {
         return Err(ConnectPacketEncodeError::EmptyField(field));
     }
     Ok(())
+}
+
+fn connect_field_is_blank(value: &str) -> bool {
+    value.trim().is_empty()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -702,6 +706,27 @@ mod tests {
 
         let err = spec.encode_payload().unwrap_err();
         assert_eq!(err, ConnectPacketEncodeError::InvalidUuidLength(0));
+    }
+
+    #[test]
+    fn connect_field_is_blank_treats_whitespace_only_values_as_blank() {
+        assert!(connect_field_is_blank(""));
+        assert!(connect_field_is_blank("   "));
+        assert!(connect_field_is_blank("\t\r\n"));
+        assert!(!connect_field_is_blank("x"));
+    }
+
+    #[test]
+    fn require_non_empty_connect_field_rejects_blank_values_with_field_name() {
+        assert_eq!(
+            require_non_empty_connect_field("locale", "  "),
+            Err(ConnectPacketEncodeError::EmptyField("locale"))
+        );
+    }
+
+    #[test]
+    fn require_non_empty_connect_field_accepts_non_blank_values() {
+        assert_eq!(require_non_empty_connect_field("name", "  client  "), Ok(()));
     }
 
     #[test]
