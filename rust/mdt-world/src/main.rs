@@ -816,9 +816,10 @@ fn read_text_from_candidates(
 #[cfg(test)]
 mod tests {
     use super::{
-        connect_candidates, decode_hex_text, read_text_from_candidates,
-        repo_root_from_manifest_dir, set_input_root_once, snapshot_candidates,
-        with_optional_input_root, world_stream_candidates, CliArgs,
+        connect_candidates, create_dir_all_with_context, decode_hex_text,
+        read_text_from_candidates, repo_root_from_manifest_dir, set_input_root_once,
+        snapshot_candidates, with_optional_input_root, world_stream_candidates,
+        write_with_context, CliArgs,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -986,5 +987,26 @@ mod tests {
             .to_path_buf();
 
         assert_eq!(repo_root_from_manifest_dir().unwrap(), expected);
+    }
+
+    #[test]
+    fn create_dir_all_and_write_with_context_persist_output_bytes() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mdt-world-write-with-context-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let nested_dir = temp_dir.join("nested").join("out");
+        let output_path = nested_dir.join("snapshot.txt");
+
+        create_dir_all_with_context(&nested_dir).unwrap();
+        write_with_context(&output_path, b"world-snapshot").unwrap();
+
+        assert_eq!(fs::read(&output_path).unwrap(), b"world-snapshot");
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
