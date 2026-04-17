@@ -882,6 +882,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_cli_args_accepts_short_input_root_flag() {
+        let args = parse_cli_args_from(vec![
+            "-i".to_string(),
+            "custom-input".to_string(),
+            "out".to_string(),
+        ]
+        .into_iter())
+        .unwrap();
+
+        assert_eq!(args.output_dir, PathBuf::from("out"));
+        assert_eq!(args.input_root, Some(PathBuf::from("custom-input")));
+    }
+
+    #[test]
     fn world_stream_candidates_with_input_root_only_checks_explicit_path() {
         let args = CliArgs {
             output_dir: PathBuf::from("out"),
