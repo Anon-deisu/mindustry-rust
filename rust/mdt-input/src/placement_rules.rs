@@ -396,6 +396,75 @@ mod tests {
     }
 
     #[test]
+    fn valid_place_against_local_plans_skips_ignored_invalid_plan_size() {
+        let request = PlacementRequest {
+            x: 3,
+            y: 4,
+            size: 1,
+        };
+        let plans = [
+            LocalPlanPlacement {
+                x: 3,
+                y: 4,
+                size: 0,
+                breaking: false,
+                candidate_can_replace_plan: false,
+            },
+            LocalPlanPlacement {
+                x: 20,
+                y: 20,
+                size: 1,
+                breaking: false,
+                candidate_can_replace_plan: false,
+            },
+        ];
+
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(request, &plans, Some(0)),
+            Ok(())
+        );
+        assert!(valid_place_against_local_plans(request, &plans, Some(0)));
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(request, &plans, None),
+            Err(PlacementRejectReason::PlanSizeNonPositive {
+                plan_index: 0,
+                size: 0
+            })
+        );
+    }
+
+    #[test]
+    fn valid_place_against_local_plans_skips_exact_replacement_plan_before_later_overlap() {
+        let request = PlacementRequest {
+            x: 7,
+            y: 9,
+            size: 2,
+        };
+        let plans = [
+            LocalPlanPlacement {
+                x: 7,
+                y: 9,
+                size: 2,
+                breaking: false,
+                candidate_can_replace_plan: true,
+            },
+            LocalPlanPlacement {
+                x: 8,
+                y: 9,
+                size: 2,
+                breaking: false,
+                candidate_can_replace_plan: false,
+            },
+        ];
+
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(request, &plans, None),
+            Err(PlacementRejectReason::PlanOverlapsRequest { plan_index: 1 })
+        );
+        assert!(!valid_place_against_local_plans(request, &plans, None));
+    }
+
+    #[test]
     fn valid_place_against_local_plans_rejects_non_positive_sizes() {
         assert_eq!(
             valid_place_against_local_plans_with_reason(
