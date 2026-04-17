@@ -584,6 +584,11 @@ mod tests {
     }
 
     #[test]
+    fn decode_base64_ignores_whitespace_between_quads() {
+        assert_eq!(decode_base64(" Z m\n8= \t").unwrap(), b"fo".to_vec());
+    }
+
+    #[test]
     fn encode_base64_encodes_short_inputs_with_padding() {
         assert_eq!(encode_base64(b""), "");
         assert_eq!(encode_base64(b"f"), "Zg==");
