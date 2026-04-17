@@ -27439,37 +27439,26 @@ fn msav_region_bytes_for_write<'a>(
     Ok(&region.chunk_bytes)
 }
 
-fn msav_save_layout(save_version: i32) -> Option<&'static MsavSaveLayout> {
-    match save_version {
-        1 | 2 => Some(&MSAV_LAYOUT_V1_V2),
-        3 | 4 => Some(&MSAV_LAYOUT_V3_V4),
-        5 | 6 => Some(&MSAV_LAYOUT_V5_V6),
-        7 => Some(&MSAV_LAYOUT_V7),
-        8..=10 => Some(&MSAV_LAYOUT_V8_V10),
-        11 => Some(&MSAV_LAYOUT_V11),
-        _ => None,
-    }
-}
-
 fn msav_save_layout_for_version(save_version: i32) -> Result<&'static MsavSaveLayout, String> {
-    msav_save_layout(save_version).ok_or_else(|| {
-        format!(
+    match save_version {
+        1 | 2 => Ok(&MSAV_LAYOUT_V1_V2),
+        3 | 4 => Ok(&MSAV_LAYOUT_V3_V4),
+        5 | 6 => Ok(&MSAV_LAYOUT_V5_V6),
+        7 => Ok(&MSAV_LAYOUT_V7),
+        8..=10 => Ok(&MSAV_LAYOUT_V8_V10),
+        11 => Ok(&MSAV_LAYOUT_V11),
+        _ => Err(format!(
             "unsupported .msav save version for passive parsing: {}",
             save_version
-        )
-    })
+        )),
+    }
 }
 
 fn cached_save_entity_region_bytes(
     save_version: i32,
     entities: &SaveEntityRegionObservation,
 ) -> Result<Vec<u8>, String> {
-    let layout = msav_save_layout(save_version).ok_or_else(|| {
-        format!(
-            "unsupported .msav save version for entity byte replay: {}",
-            save_version
-        )
-    })?;
+    let layout = msav_save_layout_for_version(save_version)?;
     let parts = layout
         .entity_region_replay_parts
         .iter()
@@ -42976,17 +42965,16 @@ mod tests {
 
     #[test]
     fn msav_save_layout_groups_region_names_and_entity_replay_parts_by_version() {
-        assert_eq!(msav_save_layout(1), Some(&MSAV_LAYOUT_V1_V2));
-        assert_eq!(msav_save_layout(2), Some(&MSAV_LAYOUT_V1_V2));
-        assert_eq!(msav_save_layout(3), Some(&MSAV_LAYOUT_V3_V4));
-        assert_eq!(msav_save_layout(4), Some(&MSAV_LAYOUT_V3_V4));
-        assert_eq!(msav_save_layout(5), Some(&MSAV_LAYOUT_V5_V6));
-        assert_eq!(msav_save_layout(6), Some(&MSAV_LAYOUT_V5_V6));
-        assert_eq!(msav_save_layout(7), Some(&MSAV_LAYOUT_V7));
-        assert_eq!(msav_save_layout(8), Some(&MSAV_LAYOUT_V8_V10));
-        assert_eq!(msav_save_layout(10), Some(&MSAV_LAYOUT_V8_V10));
-        assert_eq!(msav_save_layout(11), Some(&MSAV_LAYOUT_V11));
-        assert_eq!(msav_save_layout(12), None);
+        assert_eq!(msav_save_layout_for_version(1).unwrap(), &MSAV_LAYOUT_V1_V2);
+        assert_eq!(msav_save_layout_for_version(2).unwrap(), &MSAV_LAYOUT_V1_V2);
+        assert_eq!(msav_save_layout_for_version(3).unwrap(), &MSAV_LAYOUT_V3_V4);
+        assert_eq!(msav_save_layout_for_version(4).unwrap(), &MSAV_LAYOUT_V3_V4);
+        assert_eq!(msav_save_layout_for_version(5).unwrap(), &MSAV_LAYOUT_V5_V6);
+        assert_eq!(msav_save_layout_for_version(6).unwrap(), &MSAV_LAYOUT_V5_V6);
+        assert_eq!(msav_save_layout_for_version(7).unwrap(), &MSAV_LAYOUT_V7);
+        assert_eq!(msav_save_layout_for_version(8).unwrap(), &MSAV_LAYOUT_V8_V10);
+        assert_eq!(msav_save_layout_for_version(10).unwrap(), &MSAV_LAYOUT_V8_V10);
+        assert_eq!(msav_save_layout_for_version(11).unwrap(), &MSAV_LAYOUT_V11);
     }
 
     #[test]
@@ -43137,7 +43125,7 @@ mod tests {
 
         let err = cached_save_entity_region_bytes(12, &entities).unwrap_err();
 
-        assert!(err.contains("unsupported .msav save version for entity byte replay: 12"));
+        assert!(err.contains("unsupported .msav save version for passive parsing: 12"));
     }
 
     #[test]
