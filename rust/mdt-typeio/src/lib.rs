@@ -1978,6 +1978,46 @@ mod tests {
     }
 
     #[test]
+    fn payload_header_summary_preserves_prefix_len_for_null_unit_and_build() {
+        let cases = [
+            (
+                TypedPayload::<BuildPayloadHeader, UnitPayloadHeader>::Null,
+                PayloadSummary {
+                    kind: "null",
+                    payload_present: false,
+                    payload_type: None,
+                    prefix_len: 0,
+                },
+            ),
+            (
+                TypedPayload::Unit(UnitPayloadHeader { class_id: 7 }),
+                PayloadSummary {
+                    kind: "unit",
+                    payload_present: true,
+                    payload_type: Some(PayloadType::Unit),
+                    prefix_len: 1,
+                },
+            ),
+            (
+                TypedPayload::Build(BuildPayloadHeader {
+                    block_id_raw: 0x8123,
+                    build_revision: 4,
+                }),
+                PayloadSummary {
+                    kind: "build",
+                    payload_present: true,
+                    payload_type: Some(PayloadType::Build),
+                    prefix_len: 5,
+                },
+            ),
+        ];
+
+        for (header, expected) in cases {
+            assert_eq!(header.summary(expected.prefix_len), expected);
+        }
+    }
+
+    #[test]
     fn payload_header_build_block_id_preserves_signed_boundary() {
         let mut bytes = Vec::new();
         write_payload_build_header(&mut bytes, 0x8000, 9);
