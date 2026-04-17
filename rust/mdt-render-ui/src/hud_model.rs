@@ -1362,7 +1362,7 @@ mod tests {
         RuntimeLiveEntitySummaryObservability, RuntimeMenuObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiNoticeLayerKind,
         RuntimeUiObservability, RuntimeUiPromptLayerKind, RuntimeUiStackForegroundSummaryKind,
-        RuntimeUiStackSummary, RuntimeWorldPositionObservability, percent_of,
+        RuntimeUiStackSummary, RuntimeWorldPositionObservability, optional_i16_label, percent_of,
         runtime_notice_layers, runtime_prompt_layers,
     };
 
@@ -1373,6 +1373,13 @@ mod tests {
         assert_eq!(percent_of(1, 3), 33);
         assert_eq!(percent_of(2, 3), 66);
         assert_eq!(percent_of(3, 3), 100);
+    }
+
+    #[test]
+    fn optional_i16_label_maps_none_and_some() {
+        assert_eq!(optional_i16_label(None), "none");
+        assert_eq!(optional_i16_label(Some(-12)), "-12");
+        assert_eq!(optional_i16_label(Some(34)), "34");
     }
 
     #[test]
