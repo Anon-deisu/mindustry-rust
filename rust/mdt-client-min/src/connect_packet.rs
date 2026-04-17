@@ -261,15 +261,22 @@ fn parse_connect_build_number(
     if build.is_empty() {
         return Err(ConnectVersionPropertiesError::InvalidBuildNumber);
     }
-    if let Some(revision) = revision {
-        if revision.is_empty() || revision.parse::<i32>().is_err() {
-            return Err(ConnectVersionPropertiesError::InvalidBuildNumber);
-        }
-    }
+    validate_optional_build_revision(revision)?;
 
     build
         .parse::<i32>()
         .map_err(|_| ConnectVersionPropertiesError::InvalidBuildNumber)
+}
+
+fn validate_optional_build_revision(
+    revision: Option<&str>,
+) -> Result<(), ConnectVersionPropertiesError> {
+    if revision
+        .is_some_and(|revision| revision.is_empty() || revision.parse::<i32>().is_err())
+    {
+        return Err(ConnectVersionPropertiesError::InvalidBuildNumber);
+    }
+    Ok(())
 }
 
 fn version_properties_value_from_bytes<'a>(
@@ -861,6 +868,19 @@ mod tests {
         assert_eq!(
             strict_connect_build(b"build = 157.0\ntype = official\n"),
             Ok(157)
+        );
+    }
+
+    #[test]
+    fn parse_connect_build_number_rejects_invalid_revision_but_accepts_zero_revision() {
+        assert_eq!(parse_connect_build_number("157.0", "build"), Ok(157));
+        assert_eq!(
+            parse_connect_build_number("157.", "build"),
+            Err(ConnectVersionPropertiesError::InvalidBuildNumber)
+        );
+        assert_eq!(
+            parse_connect_build_number("157.x", "build"),
+            Err(ConnectVersionPropertiesError::InvalidBuildNumber)
         );
     }
 
