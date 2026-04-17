@@ -114,6 +114,25 @@ mod tests {
     }
 
     #[test]
+    fn read_world_stream_bytes_rejects_non_utf8_custom_fixture_content() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "mdt-render-ui-bin-support-utf8-{}-{}.hex",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, [0xff, 0xfe, 0xfd]).unwrap();
+
+        let err = read_world_stream_bytes(Some(path.as_path())).unwrap_err();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(err.contains("UTF-8") || err.contains("utf-8"), "{err}");
+    }
+
+    #[test]
     fn read_world_stream_bytes_reports_missing_custom_fixture_path() {
         let mut path = std::env::temp_dir();
         path.push(format!(
