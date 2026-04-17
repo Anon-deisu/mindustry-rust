@@ -317,7 +317,7 @@ fn bool_label(value: bool) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::bool_label;
+    use super::{bool_label, unique_match};
     use crate::{
         CustomChunkEntry, MarkerEntry, MarkerModel, ParsedCustomChunk, SaveEntityChunkObservation,
         SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
@@ -342,6 +342,15 @@ mod tests {
     fn bool_label_returns_one_for_true_and_zero_for_false() {
         assert_eq!(bool_label(true), "1");
         assert_eq!(bool_label(false), "0");
+    }
+
+    #[test]
+    fn unique_match_returns_some_only_for_exactly_one_match_and_none_for_zero_or_multiple_matches() {
+        let values = [1, 2, 3, 4, 4];
+
+        assert_eq!(unique_match(values.iter(), |value| *value == 2), Some(&2));
+        assert_eq!(unique_match(values.iter(), |value| *value == 9), None);
+        assert_eq!(unique_match(values.iter(), |value| *value == 4), None);
     }
 
     #[test]
