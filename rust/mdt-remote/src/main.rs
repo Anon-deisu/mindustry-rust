@@ -749,6 +749,35 @@ mod tests {
     }
 
     #[test]
+    fn reject_overlapping_output_paths_rejects_absolute_high_frequency_and_inbound_dispatch_parent_child_overlap_without_registry(
+    ) {
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-absolute-non-registry-overlap-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let high_frequency_path = temp_dir.join("build/mdt-remote");
+        let inbound_dispatch_path = temp_dir.join("build/mdt-remote/remote-inbound-dispatch.rs");
+
+        let err = reject_overlapping_output_paths(
+            None,
+            Some(high_frequency_path.as_path()),
+            Some(inbound_dispatch_path.as_path()),
+        )
+        .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("output paths for high-frequency and inbound-dispatch must not overlap"));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn reject_overlapping_output_path_pair_canonicalizes_and_rejects_overlap() {
         let err = reject_overlapping_output_path_pair(
             "registry",
