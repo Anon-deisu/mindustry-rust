@@ -310,4 +310,26 @@ mod tests {
         assert!(message.contains("packet serializer goldens"), "{message}");
         assert!(message.contains(&dir_path.display().to_string()), "{message}");
     }
+
+    #[test]
+    fn read_text_and_write_text_round_trip_unicode_path_and_contents() {
+        let dir_path = std::env::temp_dir().join(format!(
+            "mdt-protocol-round-trip-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir_path).unwrap();
+
+        let file_path = dir_path.join("golden-娴嬭瘯.txt");
+        let contents = "line 1\n\tline 2 \u{2003}";
+        write_text(file_path.clone(), contents.to_string(), "round trip golden").unwrap();
+
+        let read_back = read_text(&file_path, "round trip golden").unwrap();
+        let _ = std::fs::remove_dir_all(&dir_path);
+
+        assert_eq!(read_back, contents);
+    }
 }
