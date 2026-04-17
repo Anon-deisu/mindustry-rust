@@ -189,6 +189,16 @@ mod tests {
     }
 
     #[test]
+    fn decode_hex_accepts_whitespace_only_input() {
+        assert_eq!(decode_hex(" \n\t\r").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn decode_hex_ignores_unicode_whitespace() {
+        assert_eq!(decode_hex("\u{2003}0a\u{2009}0b").unwrap(), vec![0x0a, 0x0b]);
+    }
+
+    #[test]
     fn repo_root_from_manifest_dir_resolves_two_levels_up_from_manifest_dir() {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let expected = manifest_dir
