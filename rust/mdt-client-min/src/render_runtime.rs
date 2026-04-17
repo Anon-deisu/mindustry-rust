@@ -6788,6 +6788,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn runtime_compact_text_label_sanitizes_whitespace_and_truncates() {
+        assert_eq!(runtime_compact_text_label(None), "none");
+        assert_eq!(runtime_compact_text_label(Some("")), "-");
+        assert_eq!(runtime_compact_text_label(Some("a:b c")), "a_b_c");
+        assert_eq!(
+            runtime_compact_text_label(Some("abcdefghijklmnop")),
+            "abcdefghijkl~"
+        );
+    }
+
     fn ingest_sample_world(session: &mut ClientSession) {
         let compressed_world_stream = sample_world_stream_bytes();
         let (begin_packet, chunk_packets) =
