@@ -131,7 +131,7 @@ fn write_text(path: PathBuf, contents: String, label: &str) -> Result<(), Box<dy
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_hex, parse_args, repo_root_from_manifest_dir, USAGE};
+    use super::{decode_hex, parse_args, read_text, repo_root_from_manifest_dir, USAGE};
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -213,5 +213,23 @@ mod tests {
             .expect("repo root");
 
         assert_eq!(repo_root_from_manifest_dir().unwrap(), expected);
+    }
+
+    #[test]
+    fn read_text_includes_label_and_path_in_error_message() {
+        let missing = std::env::temp_dir().join(format!(
+            "mdt-protocol-read-text-missing-{}-{}.txt",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let err = read_text(&missing, "connect packet golden").unwrap_err();
+        let message = err.to_string();
+
+        assert!(message.contains("connect packet golden"), "{message}");
+        assert!(message.contains(&missing.display().to_string()), "{message}");
     }
 }
