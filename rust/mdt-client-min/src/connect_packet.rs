@@ -114,14 +114,7 @@ impl ConnectPacketSpec {
     fn preflight_and_decode_uuid(&self) -> Result<Vec<u8>, ConnectPacketEncodeError> {
         require_non_empty_connect_field("usid", &self.usid)?;
         require_non_empty_connect_field("uuid", &self.uuid)?;
-        for (index, entry) in self.mods.iter().enumerate() {
-            if entry.trim().is_empty() {
-                return Err(ConnectPacketEncodeError::InvalidModEntry {
-                    index,
-                    reason: "must not be empty",
-                });
-            }
-        }
+        validate_connect_mod_entries(&self.mods)?;
 
         let raw_uuid = decode_base64(&self.uuid)?;
         if raw_uuid.is_empty() {
@@ -135,6 +128,19 @@ fn is_custom_like_version_type(version_type: &str) -> bool {
     let normalized_version_type = version_type.trim();
     normalized_version_type.eq_ignore_ascii_case("custom")
         || normalized_version_type.eq_ignore_ascii_case("custom build")
+}
+
+fn validate_connect_mod_entries(mods: &[String]) -> Result<(), ConnectPacketEncodeError> {
+    for (index, entry) in mods.iter().enumerate() {
+        if entry.trim().is_empty() {
+            return Err(ConnectPacketEncodeError::InvalidModEntry {
+                index,
+                reason: "must not be empty",
+            });
+        }
+    }
+
+    Ok(())
 }
 
 pub fn default_connect_build() -> i32 {
@@ -726,6 +732,17 @@ mod tests {
                 index: 1,
                 reason: "must not be empty",
             }
+        );
+    }
+
+    #[test]
+    fn validate_connect_mod_entries_rejects_blank_entries() {
+        assert_eq!(
+            validate_connect_mod_entries(&["mod-a:1".to_string(), "  ".to_string()]),
+            Err(ConnectPacketEncodeError::InvalidModEntry {
+                index: 1,
+                reason: "must not be empty",
+            })
         );
     }
 
