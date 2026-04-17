@@ -331,6 +331,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_manifest_and_high_frequency_only() {
+        let parsed = parse_args(vec![
+            "manifest.json".to_string(),
+            "high-frequency.rs".to_string(),
+        ]
+        .into_iter())
+        .expect("manifest plus high-frequency output should parse");
+
+        assert_eq!(
+            parsed,
+            (
+                "manifest.json".to_string(),
+                Some(Path::new("high-frequency.rs").to_path_buf()),
+                None,
+                None,
+            )
+        );
+    }
+
+    #[test]
     fn resolve_cli_path_keeps_absolute_paths_and_joins_relative_paths() {
         let original_dir = env::current_dir().expect("current dir");
         let temp_dir = env::temp_dir().join(format!(
@@ -408,6 +428,39 @@ mod tests {
         .unwrap();
 
         assert_eq!(generated, Some("registry".to_string()));
+    }
+
+    #[test]
+    fn emit_outputs_with_only_registry_output_writes_registry_and_skips_auxiliary_generators() {
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-emit-registry-only-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let registry_path = temp_dir.join("registry.rs");
+
+        let generated = emit_outputs(
+            &(),
+            Some(&registry_path),
+            None,
+            None,
+            |_| Ok::<String, Box<dyn std::error::Error>>("registry-body".to_string()),
+            |_| -> Result<String, Box<dyn std::error::Error>> {
+                panic!("high-frequency generation should not run when no path is provided")
+            },
+            |_| -> Result<String, Box<dyn std::error::Error>> {
+                panic!("inbound-dispatch generation should not run when no path is provided")
+            },
+        )
+        .unwrap();
+
+        assert_eq!(generated, None);
+        assert_eq!(fs::read_to_string(&registry_path).unwrap(), "registry-body");
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
