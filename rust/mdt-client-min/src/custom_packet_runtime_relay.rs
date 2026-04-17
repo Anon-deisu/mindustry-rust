@@ -634,6 +634,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn encode_hex_prefix_formats_empty_and_preserves_leading_zeroes() {
+        assert_eq!(encode_hex_prefix(&[]), "");
+        assert_eq!(encode_hex_prefix(&[0x00, 0x01, 0x0a, 0x10]), "00010a10");
+    }
+
+    #[test]
     fn build_runtime_custom_packet_relay_specs_parses_and_deduplicates() {
         let specs = build_runtime_custom_packet_relay_specs(
             &[
