@@ -5137,6 +5137,12 @@ mod tests {
     }
 
     #[test]
+    fn compact_runtime_ui_text_keeps_exact_sanitized_length_without_truncation() {
+        assert_eq!(compact_runtime_ui_text(Some("ab cd\tef\nghi")), "ab_cd_ef_ghi");
+        assert_eq!(compact_runtime_ui_text(Some("ab cd\tef\nghij")), "ab_cd_ef_ghi~");
+    }
+
+    #[test]
     fn format_hud_visibility_detail_text_preserves_field_order() {
         let summary = sample_hud_summary();
         let visibility = sample_hud_visibility_panel();
