@@ -42952,6 +42952,53 @@ mod tests {
     }
 
     #[test]
+    fn write_msav_save_rejects_unsupported_header_for_writing() {
+        let mut save = parse_msav_save(&sample_msav_save_bytes(11)).unwrap();
+        save.envelope.header = *b"NOPE";
+
+        let err = write_msav_save(&save).unwrap_err();
+
+        assert!(err.contains("unsupported .msav header for writing"), "{err}");
+    }
+
+    #[test]
+    fn write_msav_save_rejects_unexpected_region_order_for_save_version() {
+        let mut save = parse_msav_save(&sample_msav_save_bytes(11)).unwrap();
+        save.envelope.leading_region_length = None;
+        save.regions.swap(0, 1);
+
+        let err = write_msav_save(&save).unwrap_err();
+
+        assert!(
+            err.contains("unexpected .msav region order for save version 11"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn write_msav_save_rejects_leading_region_and_chunk_length_mismatches() {
+        let original = parse_msav_save(&sample_msav_save_bytes(11)).unwrap();
+
+        let mut mismatched_leading_length = original.clone();
+        mismatched_leading_length.envelope.leading_region_length = Some(
+            mismatched_leading_length.regions[0].chunk_bytes.len() as u32 + 1,
+        );
+        let leading_length_err = write_msav_save(&mismatched_leading_length).unwrap_err();
+        assert!(
+            leading_length_err.contains("leading .msav region length mismatch"),
+            "{leading_length_err}"
+        );
+
+        let mut mismatched_chunk_length = original.clone();
+        mismatched_chunk_length.regions[0].chunk_length += 1;
+        let chunk_length_err = write_msav_save(&mismatched_chunk_length).unwrap_err();
+        assert!(
+            chunk_length_err.contains("mismatched .msav region length for meta"),
+            "{chunk_length_err}"
+        );
+    }
+
+    #[test]
     fn parses_save1_and_save2_entities_region_with_legacy_group_chunks() {
         for save_version in [1, 2] {
             let bytes = sample_msav_save_bytes(save_version);
