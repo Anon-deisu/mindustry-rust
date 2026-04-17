@@ -131,7 +131,7 @@ fn write_text(path: PathBuf, contents: String, label: &str) -> Result<(), Box<dy
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_hex, parse_args, read_text, repo_root_from_manifest_dir, USAGE};
+    use super::{decode_hex, parse_args, read_text, repo_root_from_manifest_dir, write_text, USAGE};
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -231,5 +231,26 @@ mod tests {
 
         assert!(message.contains("connect packet golden"), "{message}");
         assert!(message.contains(&missing.display().to_string()), "{message}");
+    }
+
+    #[test]
+    fn write_text_includes_label_and_path_in_error_message() {
+        let dir_path = std::env::temp_dir().join(format!(
+            "mdt-protocol-write-text-dir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir_path).unwrap();
+
+        let err = write_text(dir_path.clone(), "payload".to_string(), "packet serializer goldens")
+            .unwrap_err();
+        let message = err.to_string();
+        let _ = std::fs::remove_dir_all(&dir_path);
+
+        assert!(message.contains("packet serializer goldens"), "{message}");
+        assert!(message.contains(&dir_path.display().to_string()), "{message}");
     }
 }
