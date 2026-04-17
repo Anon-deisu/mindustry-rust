@@ -4742,6 +4742,26 @@ mod tests {
     }
 
     #[test]
+    fn remote_packet_definition_key_formats_empty_param_lists_stably() {
+        let packet = test_remote_packet(
+            0,
+            9,
+            "mindustry.gen.EmptyCallPacket",
+            "mindustry.core.NetClient",
+            "emptyPacket",
+            "client",
+            "normal",
+            true,
+            vec![],
+        );
+
+        assert_eq!(
+            remote_packet_definition_key(&packet, RemoteFlow::ClientToServer),
+            "emptyPacket|ClientToServer|true|[]|[]"
+        );
+    }
+
+    #[test]
     fn remote_priority_from_str_maps_known_values_and_rejects_unknown() {
         assert_eq!(
             remote_priority_from_str("low").unwrap(),
