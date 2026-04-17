@@ -42970,6 +42970,12 @@ mod tests {
     }
 
     #[test]
+    fn msav_region_names_rejects_unsupported_save_version() {
+        let err = msav_region_names(12).unwrap_err();
+        assert!(err.contains("unsupported .msav save version for passive parsing: 12"));
+    }
+
+    #[test]
     fn writes_msav_post_load_samples_round_trip_post_load_observation() {
         for (save_version, bytes) in [
             (6, sample_msav_post_load_save6_bytes()),
@@ -43076,6 +43082,36 @@ mod tests {
         let err = write_msav_save(&save).unwrap_err();
 
         assert!(err.contains("unsupported .msav header for writing"), "{err}");
+    }
+
+    #[test]
+    fn write_msav_save_rejects_unsupported_save_version_for_writing() {
+        let mut save = parse_msav_save(&sample_msav_save_bytes(11)).unwrap();
+        save.envelope.save_version = 12;
+
+        let err = write_msav_save(&save).unwrap_err();
+
+        assert!(err.contains("unsupported .msav save version for passive parsing: 12"), "{err}");
+    }
+
+    #[test]
+    fn cached_save_entity_region_bytes_rejects_unsupported_save_version() {
+        let entities = SaveEntityRegionObservation {
+            remap_count: 0,
+            remap_entries: Vec::new(),
+            remap_bytes: Vec::new(),
+            team_count: 0,
+            total_plans: 0,
+            team_plan_groups: Vec::new(),
+            team_region_bytes: Vec::new(),
+            world_entity_count: 0,
+            world_entity_bytes: Vec::new(),
+            entity_chunks: Vec::new(),
+        };
+
+        let err = cached_save_entity_region_bytes(12, &entities).unwrap_err();
+
+        assert!(err.contains("unsupported .msav save version for entity byte replay: 12"));
     }
 
     #[test]
