@@ -344,6 +344,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_preserves_positional_cli_contract_for_registry_high_frequency_and_inbound_dispatch() {
+        let parsed = parse_args(vec![
+            "manifest.json".to_string(),
+            "registry-output.rs".to_string(),
+            "high-frequency-output.rs".to_string(),
+            "inbound-dispatch-output.rs".to_string(),
+        ]
+        .into_iter())
+        .expect("positional CLI contract should parse");
+
+        assert_eq!(
+            parsed,
+            (
+                "manifest.json".to_string(),
+                Some(Path::new("registry-output.rs").to_path_buf()),
+                Some(Path::new("high-frequency-output.rs").to_path_buf()),
+                Some(Path::new("inbound-dispatch-output.rs").to_path_buf()),
+            )
+        );
+    }
+
+    #[test]
     fn parse_args_accepts_manifest_only_and_leaves_optional_outputs_empty() {
         let parsed = parse_args(vec!["manifest.json".to_string()].into_iter())
             .expect("manifest-only arguments should parse");
