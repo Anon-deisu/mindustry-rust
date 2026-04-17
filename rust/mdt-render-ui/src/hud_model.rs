@@ -1362,8 +1362,9 @@ mod tests {
         RuntimeLiveEntitySummaryObservability, RuntimeMenuObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiNoticeLayerKind,
         RuntimeUiObservability, RuntimeUiPromptLayerKind, RuntimeUiStackForegroundSummaryKind,
-        RuntimeUiStackSummary, RuntimeWorldPositionObservability, optional_i16_label, percent_of,
-        runtime_notice_layers, runtime_prompt_layers,
+        RuntimeUiStackSummary, RuntimeWorldPositionObservability, optional_i16_label,
+        optional_i32_label, optional_u8_label, optional_u32_label, optional_u64_label,
+        optional_usize_label, percent_of, runtime_notice_layers, runtime_prompt_layers,
     };
 
     #[test]
@@ -1380,6 +1381,23 @@ mod tests {
         assert_eq!(optional_i16_label(None), "none");
         assert_eq!(optional_i16_label(Some(-12)), "-12");
         assert_eq!(optional_i16_label(Some(34)), "34");
+    }
+
+    #[test]
+    fn optional_numeric_labels_format_none_and_extrema() {
+        assert_eq!(optional_i32_label(None), "none");
+        assert_eq!(optional_i32_label(Some(i32::MIN)), i32::MIN.to_string());
+        assert_eq!(optional_u8_label(None), "none");
+        assert_eq!(optional_u8_label(Some(u8::MAX)), u8::MAX.to_string());
+        assert_eq!(optional_u32_label(None), "none");
+        assert_eq!(optional_u32_label(Some(u32::MAX)), u32::MAX.to_string());
+        assert_eq!(optional_usize_label(None), "none");
+        assert_eq!(
+            optional_usize_label(Some(usize::MAX)),
+            usize::MAX.to_string()
+        );
+        assert_eq!(optional_u64_label(None), "none");
+        assert_eq!(optional_u64_label(Some(u64::MAX)), u64::MAX.to_string());
     }
 
     #[test]
