@@ -383,6 +383,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_preserves_positional_cli_contract_for_registry_high_frequency_inbound_outputs() {
+        let parsed = parse_args(vec![
+            "manifest.json".to_string(),
+            "registry.rs".to_string(),
+            "high-frequency.rs".to_string(),
+            "inbound-dispatch.rs".to_string(),
+        ]
+        .into_iter())
+        .expect("full positional output set should preserve slot order");
+
+        assert_eq!(
+            parsed,
+            (
+                "manifest.json".to_string(),
+                Some(PathBuf::from("registry.rs")),
+                Some(PathBuf::from("high-frequency.rs")),
+                Some(PathBuf::from("inbound-dispatch.rs")),
+            )
+        );
+    }
+
+    #[test]
     fn resolve_cli_path_keeps_absolute_paths_and_joins_relative_paths() {
         let original_dir = env::current_dir().expect("current dir");
         let temp_dir = env::temp_dir().join(format!(
@@ -593,6 +615,21 @@ mod tests {
     }
 
     #[test]
+    fn reject_overlapping_output_paths_rejects_high_frequency_and_inbound_dispatch_overlap_without_registry(
+    ) {
+        let err = reject_overlapping_output_paths(
+            None,
+            Some(Path::new("build/mdt-remote")),
+            Some(Path::new("build/mdt-remote/remote-inbound-dispatch.rs")),
+        )
+        .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("output paths for high-frequency and inbound-dispatch must not overlap"));
+    }
+
+    #[test]
     fn reject_overlapping_output_path_pair_canonicalizes_and_rejects_overlap() {
         let err = reject_overlapping_output_path_pair(
             "registry",
@@ -605,6 +642,39 @@ mod tests {
         assert!(err
             .to_string()
             .contains("output paths for registry and high-frequency must not overlap"));
+    }
+
+    #[test]
+    fn reject_overlapping_output_path_pair_rejects_absolute_parent_child_paths_after_resolution() {
+        let original_dir = env::current_dir().expect("current dir");
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-absolute-overlap-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        env::set_current_dir(&temp_dir).unwrap();
+
+        let parent_path = resolve_cli_path(Path::new("build/mdt-remote")).unwrap();
+        let child_path =
+            resolve_cli_path(Path::new("build/mdt-remote/remote-inbound-dispatch.rs")).unwrap();
+        let err = reject_overlapping_output_path_pair(
+            "high-frequency",
+            &parent_path,
+            "inbound-dispatch",
+            &child_path,
+        )
+        .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("output paths for high-frequency and inbound-dispatch must not overlap"));
+
+        env::set_current_dir(&original_dir).unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
