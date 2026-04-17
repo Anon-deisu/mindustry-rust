@@ -846,6 +846,12 @@ mod tests {
     }
 
     #[test]
+    fn decode_hex_text_strips_whitespace_and_accepts_uppercase_bytes() {
+        let bytes = decode_hex_text("0A 0b\n0C\t0d").unwrap();
+        assert_eq!(bytes, vec![10, 11, 12, 13]);
+    }
+
+    #[test]
     fn set_input_root_once_rejects_duplicate_assignment_and_overwrites_with_latest_value() {
         let mut input_root = None;
 
