@@ -136,17 +136,31 @@ fn reject_overlapping_output_path_pair(
     let normalized_other_path = normalize_path_for_overlap(other_path);
 
     if paths_overlap(&normalized_path, &normalized_other_path) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "output paths for {label} and {other_label} must not overlap: '{}' and '{}'",
-                path.display(),
-                other_path.display()
-            ),
+        return Err(overlapping_output_paths_error(
+            label,
+            path,
+            other_label,
+            other_path,
         ));
     }
 
     Ok(())
+}
+
+fn overlapping_output_paths_error(
+    label: &str,
+    path: &Path,
+    other_label: &str,
+    other_path: &Path,
+) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!(
+            "output paths for {label} and {other_label} must not overlap: '{}' and '{}'",
+            path.display(),
+            other_path.display()
+        ),
+    )
 }
 
 fn paths_overlap(path: &Path, other_path: &Path) -> bool {
