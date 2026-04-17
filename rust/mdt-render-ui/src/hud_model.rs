@@ -2049,4 +2049,41 @@ mod tests {
             "12.5:-3.2"
         );
     }
+
+    #[test]
+    fn runtime_world_label_formatting_keeps_inactive_prefix_and_field_order_stable() {
+        let panel = crate::panel_model::RuntimeWorldLabelPanelModel {
+            label_count: 19,
+            reliable_label_count: 20,
+            remove_label_count: 21,
+            total_count: 60,
+            active_count: 2,
+            inactive_count: 7,
+            last_entity_id: Some(904),
+            last_text: Some("world label".to_string()),
+            last_flags: Some(3),
+            last_font_size_bits: Some(1094713344),
+            last_z_bits: Some(1082130432),
+            last_position: Some(RuntimeWorldPositionObservability {
+                x_bits: 0x4220_0000,
+                y_bits: 0x4270_0000,
+            }),
+        };
+
+        assert_eq!(
+            crate::presenter_view::format_runtime_world_label_panel_text(&panel),
+            "wlabel:set19:rel20:rm21:tot60:act2:inact7:last904:f3:fs1094713344@12.0:z1082130432@4.0:pos40.0:60.0:txtworld_label:l1:n11"
+        );
+        assert_eq!(
+            crate::presenter_view::format_runtime_world_label_detail_text(&panel),
+            "wlabeld:set19:rel20:rm21:tot60:act2:in7:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0"
+        );
+        assert_eq!(
+            crate::presenter_view::format_runtime_world_label_detail_text_if_nonempty(&panel),
+            Some(
+                "wlabeld:set19:rel20:rm21:tot60:act2:in7:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0"
+                    .to_string()
+            )
+        );
+    }
 }
