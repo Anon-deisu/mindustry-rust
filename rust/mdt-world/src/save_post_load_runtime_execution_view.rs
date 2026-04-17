@@ -458,6 +458,24 @@ mod tests {
     }
 
     #[test]
+    fn runtime_apply_execution_view_reports_empty_lookup_with_zero_status_counts_and_missing_source_region() {
+        let view = SavePostLoadRuntimeApplyExecutionView {
+            can_seed_runtime_apply: false,
+            world_shell_ready: false,
+            step_status_lookup: BTreeMap::new(),
+        };
+
+        assert_eq!(view.total_step_count(), 0);
+        for status in SavePostLoadRuntimeExecutionStepStatus::ordered() {
+            assert_eq!(view.step_count(status), 0);
+            assert!(view.steps_with_status(status).is_empty());
+        }
+        assert_eq!(view.status_buckets(), Vec::new());
+        assert_eq!(view.source_regions(), Vec::new());
+        assert_eq!(view.source_region("missing"), None);
+    }
+
+    #[test]
     fn runtime_apply_execution_view_groups_steps_by_source_region() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
