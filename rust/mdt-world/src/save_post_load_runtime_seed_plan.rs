@@ -1122,4 +1122,35 @@ mod tests {
         );
         assert_eq!(regions[0].detail_label(), regions[0].summary_label());
     }
+
+    #[test]
+    fn runtime_seed_plan_keeps_only_nonempty_map_region_and_rejects_missing_source_region() {
+        let mut observation = test_observation();
+        observation.entity_remap_entries.clear();
+        observation.team_plan_groups.clear();
+        observation.markers.clear();
+        observation.custom_chunks.clear();
+        observation.world_entity_chunks.clear();
+        observation.map.world.building_centers.clear();
+
+        let plan = observation.runtime_seed_plan();
+        let regions = plan.source_regions();
+
+        assert_eq!(plan.seed_step_count(), 1);
+        assert_eq!(plan.summary_label(), "seed=no steps=1 regions=1");
+        assert_eq!(
+            plan.detail_label(),
+            "seed=no steps=1 regions=[region=map world=1 remaps=0 plans=0 markers=0 fog=0 chunks=0 buildings=0 loadable=0 skipped=0 total=1]"
+        );
+        assert_eq!(regions.len(), 1);
+        assert_eq!(
+            regions[0].summary_label(),
+            "region=map world=1 remaps=0 plans=0 markers=0 fog=0 chunks=0 buildings=0 loadable=0 skipped=0 total=1"
+        );
+        assert_eq!(plan.source_region("map"), Some(regions[0].clone()));
+        assert!(plan.source_region("entities").is_none());
+        assert!(plan.source_region("markers").is_none());
+        assert!(plan.source_region("custom").is_none());
+    }
 }
+
