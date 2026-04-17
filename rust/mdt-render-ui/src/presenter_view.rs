@@ -1104,7 +1104,7 @@ pub(crate) fn format_runtime_prompt_panel_text(panel: &RuntimePromptPanelModel) 
 pub(crate) fn format_runtime_prompt_panel_text_if_nonempty(
     panel: &RuntimePromptPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_prompt_panel_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_prompt_panel_text(panel))
 }
 
 pub(crate) fn format_runtime_prompt_detail_text(panel: &RuntimePromptPanelModel) -> String {
@@ -1127,7 +1127,21 @@ pub(crate) fn format_runtime_prompt_detail_text(panel: &RuntimePromptPanelModel)
 pub(crate) fn format_runtime_prompt_detail_text_if_nonempty(
     panel: &RuntimePromptPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_prompt_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_prompt_detail_text(panel))
+}
+
+fn if_nonempty<T, F>(is_nonempty: bool, formatter: F) -> Option<T>
+where
+    F: FnOnce() -> T,
+{
+    is_nonempty.then(formatter)
+}
+
+fn format_if_nonempty<F>(is_nonempty: bool, formatter: F) -> Option<String>
+where
+    F: FnOnce() -> String,
+{
+    if_nonempty(is_nonempty, formatter)
 }
 
 fn runtime_notice_state_notice_text(panel: &RuntimeNoticeStatePanelModel) -> String {
@@ -1210,7 +1224,7 @@ pub(crate) fn format_runtime_stack_panel_text(panel: &RuntimeUiStackPanelModel) 
 pub(crate) fn format_runtime_stack_panel_text_if_nonempty(
     panel: &RuntimeUiStackPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_stack_panel_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_stack_panel_text(panel))
 }
 
 pub(crate) fn format_runtime_stack_detail_text(panel: &RuntimeDialogStackPanelModel) -> String {
@@ -1238,7 +1252,7 @@ pub(crate) fn format_runtime_stack_detail_text(panel: &RuntimeDialogStackPanelMo
 pub(crate) fn format_runtime_stack_detail_text_if_nonempty(
     panel: &RuntimeDialogStackPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_stack_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_stack_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_live_entity_summary_text(
@@ -1468,19 +1482,19 @@ pub(crate) fn format_runtime_chat_detail_text(panel: &RuntimeChatPanelModel) -> 
 pub(crate) fn format_runtime_chat_detail_text_if_nonempty(
     panel: &RuntimeChatPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_chat_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_chat_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_bootstrap_summary_text_if_nonempty(
     panel: &RuntimeBootstrapPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| panel.summary_label())
+    if_nonempty(!panel.is_empty(), || panel.summary_label())
 }
 
 pub(crate) fn format_runtime_bootstrap_detail_text_if_nonempty(
     panel: &RuntimeBootstrapPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| panel.detail_label())
+    if_nonempty(!panel.is_empty(), || panel.detail_label())
 }
 
 pub(crate) fn format_runtime_choice_panel_text(panel: &RuntimeChoicePanelModel) -> String {
@@ -1498,7 +1512,7 @@ pub(crate) fn format_runtime_choice_panel_text(panel: &RuntimeChoicePanelModel) 
 pub(crate) fn format_runtime_choice_panel_text_if_nonempty(
     panel: &RuntimeChoicePanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_choice_panel_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_choice_panel_text(panel))
 }
 
 pub(crate) fn format_runtime_choice_detail_text(panel: &RuntimeChoicePanelModel) -> String {
@@ -1514,7 +1528,7 @@ pub(crate) fn format_runtime_choice_detail_text(panel: &RuntimeChoicePanelModel)
 pub(crate) fn format_runtime_choice_detail_text_if_nonempty(
     panel: &RuntimeChoicePanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_choice_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_choice_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_menu_detail_text(panel: &RuntimeMenuPanelModel) -> String {
@@ -1552,7 +1566,7 @@ pub(crate) fn format_runtime_menu_detail_text(panel: &RuntimeMenuPanelModel) -> 
 pub(crate) fn format_runtime_menu_detail_text_if_nonempty(
     panel: &RuntimeMenuPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_menu_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_menu_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_menu_panel_text(panel: &RuntimeMenuPanelModel) -> String {
@@ -1612,7 +1626,7 @@ pub(crate) fn format_runtime_rules_detail_text(panel: &RuntimeRulesPanelModel) -
 pub(crate) fn format_runtime_rules_detail_text_if_nonempty(
     panel: &RuntimeRulesPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_rules_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_rules_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_admin_panel_text(panel: &RuntimeAdminPanelModel) -> String {
@@ -1645,7 +1659,7 @@ pub(crate) fn format_runtime_admin_detail_text(panel: &RuntimeAdminPanelModel) -
 pub(crate) fn format_runtime_admin_detail_text_if_nonempty(
     panel: &RuntimeAdminPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_admin_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_admin_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_world_label_panel_text(
@@ -1680,7 +1694,7 @@ pub(crate) fn format_runtime_world_label_detail_text(
 pub(crate) fn format_runtime_world_label_detail_text_if_nonempty(
     panel: &RuntimeWorldLabelPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_world_label_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_world_label_detail_text(panel))
 }
 
 fn format_runtime_world_label_fields_text(
@@ -1775,7 +1789,7 @@ pub(crate) fn format_runtime_marker_panel_text(panel: &RuntimeMarkerPanelModel) 
 pub(crate) fn format_runtime_marker_panel_text_if_nonempty(
     panel: &RuntimeMarkerPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_marker_panel_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_marker_panel_text(panel))
 }
 
 pub(crate) fn format_runtime_marker_detail_text(panel: &RuntimeMarkerPanelModel) -> String {
@@ -1794,7 +1808,7 @@ pub(crate) fn format_runtime_marker_detail_text(panel: &RuntimeMarkerPanelModel)
 pub(crate) fn format_runtime_marker_detail_text_if_nonempty(
     panel: &RuntimeMarkerPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_marker_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_marker_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_kick_panel_text(kick: &RuntimeKickPanelModel) -> String {
@@ -1824,7 +1838,7 @@ pub(crate) fn format_runtime_kick_detail_text(kick: &RuntimeKickPanelModel) -> S
 pub(crate) fn format_runtime_kick_detail_text_if_nonempty(
     kick: &RuntimeKickPanelModel,
 ) -> Option<String> {
-    (!kick.is_empty()).then(|| format_runtime_kick_detail_text(kick))
+    format_if_nonempty(!kick.is_empty(), || format_runtime_kick_detail_text(kick))
 }
 
 pub(crate) fn format_runtime_resource_delta_panel_text(
@@ -1844,7 +1858,9 @@ pub(crate) fn format_runtime_resource_delta_panel_text(
 pub(crate) fn format_runtime_resource_delta_panel_text_if_nonempty(
     resource_delta: &RuntimeResourceDeltaPanelModel,
 ) -> Option<String> {
-    (!resource_delta.is_empty()).then(|| format_runtime_resource_delta_panel_text(resource_delta))
+    format_if_nonempty(!resource_delta.is_empty(), || {
+        format_runtime_resource_delta_panel_text(resource_delta)
+    })
 }
 
 pub(crate) fn format_runtime_resource_delta_detail_text(
@@ -1909,7 +1925,9 @@ fn format_runtime_resource_delta_tail_text(
 pub(crate) fn format_runtime_resource_delta_detail_text_if_nonempty(
     resource_delta: &RuntimeResourceDeltaPanelModel,
 ) -> Option<String> {
-    (!resource_delta.is_empty()).then(|| format_runtime_resource_delta_detail_text(resource_delta))
+    format_if_nonempty(!resource_delta.is_empty(), || {
+        format_runtime_resource_delta_detail_text(resource_delta)
+    })
 }
 
 pub(crate) fn format_runtime_reconnect_panel_text(
@@ -1955,7 +1973,7 @@ pub(crate) fn format_runtime_reconnect_detail_text(
 pub(crate) fn format_runtime_reconnect_detail_text_if_nonempty(
     reconnect: &RuntimeReconnectPanelModel,
 ) -> Option<String> {
-    (!reconnect.is_empty()).then(|| format_runtime_reconnect_detail_text(reconnect))
+    format_if_nonempty(!reconnect.is_empty(), || format_runtime_reconnect_detail_text(reconnect))
 }
 
 pub(crate) fn format_runtime_core_binding_panel_text(
@@ -1967,7 +1985,7 @@ pub(crate) fn format_runtime_core_binding_panel_text(
 pub(crate) fn format_runtime_core_binding_panel_text_if_nonempty(
     panel: &RuntimeCoreBindingPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_core_binding_panel_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_core_binding_panel_text(panel))
 }
 
 pub(crate) fn format_runtime_core_binding_detail_text(
@@ -1979,7 +1997,7 @@ pub(crate) fn format_runtime_core_binding_detail_text(
 pub(crate) fn format_runtime_core_binding_detail_text_if_nonempty(
     panel: &RuntimeCoreBindingPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_core_binding_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_core_binding_detail_text(panel))
 }
 
 pub(crate) fn format_runtime_loading_panel_text(
@@ -2033,13 +2051,15 @@ pub(crate) fn format_runtime_loading_detail_text(
 pub(crate) fn format_runtime_loading_detail_text_if_nonempty(
     loading: &RuntimeLoadingPanelModel,
 ) -> Option<String> {
-    (!loading.is_empty()).then(|| format_runtime_loading_detail_text(loading))
+    format_if_nonempty(!loading.is_empty(), || format_runtime_loading_detail_text(loading))
 }
 
 pub(crate) fn format_runtime_world_reload_text_if_loading_nonempty(
     loading: &RuntimeLoadingPanelModel,
 ) -> Option<String> {
-    (!loading.is_empty()).then(|| format_runtime_world_reload_panel_text_from_loading(loading))
+    format_if_nonempty(!loading.is_empty(), || {
+        format_runtime_world_reload_panel_text_from_loading(loading)
+    })
 }
 
 pub(crate) fn format_runtime_world_reload_detail_text_from_loading(
@@ -2093,7 +2113,7 @@ pub(crate) fn format_runtime_session_panel_text(panel: &RuntimeSessionPanelModel
 pub(crate) fn format_runtime_session_panel_text_if_nonempty(
     panel: &RuntimeSessionPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_session_panel_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_session_panel_text(panel))
 }
 
 pub(crate) fn format_runtime_session_detail_text(panel: &RuntimeSessionPanelModel) -> String {
@@ -2119,7 +2139,7 @@ pub(crate) fn format_runtime_session_detail_text(panel: &RuntimeSessionPanelMode
 pub(crate) fn format_runtime_session_detail_text_if_nonempty(
     panel: &RuntimeSessionPanelModel,
 ) -> Option<String> {
-    (!panel.is_empty()).then(|| format_runtime_session_detail_text(panel))
+    format_if_nonempty(!panel.is_empty(), || format_runtime_session_detail_text(panel))
 }
 
 fn format_runtime_session_reload_banner_text(
@@ -2520,7 +2540,7 @@ pub(crate) fn format_runtime_stack_depth_text(summary: &RuntimeUiStackDepthSumma
 pub(crate) fn format_runtime_stack_depth_text_if_nonempty(
     summary: &RuntimeUiStackDepthSummary,
 ) -> Option<String> {
-    (!summary.is_empty()).then(|| format_runtime_stack_depth_text(summary))
+    format_if_nonempty(!summary.is_empty(), || format_runtime_stack_depth_text(summary))
 }
 
 pub(crate) fn format_runtime_dialog_stack_summary_text(
@@ -2561,7 +2581,7 @@ pub(crate) fn format_runtime_dialog_stack_summary_text(
 pub(crate) fn format_runtime_dialog_stack_summary_text_if_nonempty(
     summary: &RuntimeUiStackSummary,
 ) -> Option<String> {
-    (!summary.is_empty()).then(|| format_runtime_dialog_stack_summary_text(summary))
+    format_if_nonempty(!summary.is_empty(), || format_runtime_dialog_stack_summary_text(summary))
 }
 
 pub(crate) fn format_runtime_command_i32_list_text(values: &[i32]) -> String {
@@ -2983,6 +3003,7 @@ mod tests {
         format_runtime_world_label_scalar_text,
         format_runtime_world_label_detail_text, format_runtime_world_label_detail_text_if_nonempty,
         format_runtime_world_label_panel_text,
+        format_if_nonempty, if_nonempty,
         format_runtime_world_reload_detail_text,
         format_runtime_world_reload_detail_text_from_loading,
         format_runtime_world_reload_panel_text,
@@ -6397,6 +6418,17 @@ mod tests {
     fn crop_origin_clamps_to_lower_and_upper_window_bounds() {
         assert_eq!(crop_origin(1, 4, 10, 4), 4);
         assert_eq!(crop_origin(9, 0, 10, 4), 6);
+    }
+
+    #[test]
+    fn if_nonempty_and_format_if_nonempty_return_none_for_empty_and_value_for_nonempty() {
+        assert_eq!(if_nonempty(true, || 7usize), Some(7));
+        assert_eq!(if_nonempty(false, || 7usize), None);
+        assert_eq!(
+            format_if_nonempty(true, || "ok".to_string()),
+            Some("ok".to_string())
+        );
+        assert_eq!(format_if_nonempty(false, || "ok".to_string()), None);
     }
 
     #[test]
