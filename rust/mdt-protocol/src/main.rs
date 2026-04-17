@@ -74,10 +74,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<PathBuf, io::Error> 
 }
 
 fn decode_hex(text: &str) -> Result<Vec<u8>, Box<dyn Error>> {
-    let cleaned = text
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect::<String>();
+    let cleaned = strip_whitespace(text);
     if cleaned.len() % 2 != 0 {
         return Err("hex text must contain an even number of digits".into());
     }
@@ -89,6 +86,10 @@ fn decode_hex(text: &str) -> Result<Vec<u8>, Box<dyn Error>> {
         bytes.push(byte);
     }
     Ok(bytes)
+}
+
+fn strip_whitespace(text: &str) -> String {
+    text.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 fn repo_root_from_manifest_dir() -> Result<PathBuf, Box<dyn Error>> {
@@ -131,7 +132,10 @@ fn write_text(path: PathBuf, contents: String, label: &str) -> Result<(), Box<dy
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_hex, parse_args, read_text, repo_root_from_manifest_dir, write_text, USAGE};
+    use super::{
+        decode_hex, parse_args, read_text, repo_root_from_manifest_dir, strip_whitespace,
+        write_text, USAGE,
+    };
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -191,6 +195,11 @@ mod tests {
     #[test]
     fn decode_hex_accepts_whitespace_only_input() {
         assert_eq!(decode_hex(" \n\t\r").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn strip_whitespace_removes_all_unicode_whitespace() {
+        assert_eq!(strip_whitespace(" 0a\u{2003}\n0B\t"), "0a0B");
     }
 
     #[test]
