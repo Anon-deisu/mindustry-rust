@@ -465,6 +465,39 @@ mod tests {
     }
 
     #[test]
+    fn valid_place_against_local_plans_skips_exact_replacement_plan_before_later_exact_overlap() {
+        let request = PlacementRequest {
+            x: 7,
+            y: 9,
+            size: 2,
+        };
+        let plans = [
+            LocalPlanPlacement {
+                x: 7,
+                y: 9,
+                size: 2,
+                breaking: false,
+                candidate_can_replace_plan: true,
+            },
+            LocalPlanPlacement {
+                x: 7,
+                y: 9,
+                size: 2,
+                breaking: false,
+                candidate_can_replace_plan: false,
+            },
+        ];
+
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(request, &plans, None),
+            Err(PlacementRejectReason::ExactOverlapRequiresReplacement {
+                plan_index: 1
+            })
+        );
+        assert!(!valid_place_against_local_plans(request, &plans, None));
+    }
+
+    #[test]
     fn valid_place_against_local_plans_rejects_non_positive_sizes() {
         assert_eq!(
             valid_place_against_local_plans_with_reason(
