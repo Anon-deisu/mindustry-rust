@@ -6406,6 +6406,8 @@ mod tests {
         assert_eq!(visible.1, 2);
         assert_eq!(visible.2, 1);
 
+        assert!(visible_window_tile(&object, TILE_SIZE, 1, 2, 4, 4).is_none());
+        assert!(visible_window_tile(&object, TILE_SIZE, 3, 0, 4, 3).is_none());
         assert!(visible_window_tile(&object, TILE_SIZE, 6, 2, 4, 4).is_none());
         assert_eq!(world_to_tile_index_floor(40.0, TILE_SIZE), 5);
         assert_eq!(world_to_tile_index_floor(f32::NAN, TILE_SIZE), 0);
