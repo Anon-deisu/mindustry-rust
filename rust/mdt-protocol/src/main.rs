@@ -62,6 +62,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn parse_args(args: impl Iterator<Item = String>) -> Result<PathBuf, io::Error> {
+    Ok(PathBuf::from(take_single_arg(args)?))
+}
+
+fn take_single_arg(args: impl Iterator<Item = String>) -> Result<String, io::Error> {
     let mut args = args;
     let output_dir = args
         .next()
@@ -70,7 +74,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<PathBuf, io::Error> 
         return Err(io::Error::new(io::ErrorKind::InvalidInput, USAGE));
     }
 
-    Ok(PathBuf::from(output_dir))
+    Ok(output_dir)
 }
 
 fn decode_hex(text: &str) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -144,7 +148,7 @@ fn format_path_io_error(
 mod tests {
     use super::{
         decode_hex, format_path_io_error, parse_args, read_text, repo_root_from_manifest_dir,
-        strip_whitespace, write_text, USAGE,
+        strip_whitespace, take_single_arg, write_text, USAGE,
     };
     use std::{io, path::{Path, PathBuf}};
 
@@ -176,6 +180,13 @@ mod tests {
         let parsed = parse_args(vec![output_dir.display().to_string()].into_iter()).unwrap();
 
         assert_eq!(parsed, output_dir);
+    }
+
+    #[test]
+    fn take_single_arg_returns_the_only_argument_verbatim() {
+        let output_dir = take_single_arg(vec!["./out dir".to_string()].into_iter()).unwrap();
+
+        assert_eq!(output_dir, "./out dir");
     }
 
     #[test]
