@@ -6394,6 +6394,12 @@ mod tests {
     }
 
     #[test]
+    fn crop_origin_clamps_to_lower_and_upper_window_bounds() {
+        assert_eq!(crop_origin(1, 4, 10, 4), 4);
+        assert_eq!(crop_origin(9, 0, 10, 4), 6);
+    }
+
+    #[test]
     fn visible_window_tile_uses_tile_flooring_and_window_origin() {
         let object = RenderObject {
             id: "plan:build".to_string(),
