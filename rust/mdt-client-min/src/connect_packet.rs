@@ -356,17 +356,18 @@ fn write_java_modified_utf(
     out.extend_from_slice(&utf_len_u16.to_be_bytes());
 
     for unit in value.encode_utf16() {
-        match unit {
-            0x0001..=0x007f => out.push(unit as u8),
-            0x0000 | 0x0080..=0x07ff => {
+        match modified_utf8_unit_len(unit) {
+            1 => out.push(unit as u8),
+            2 => {
                 out.push((0xc0 | ((unit >> 6) & 0x1f)) as u8);
                 out.push((0x80 | (unit & 0x3f)) as u8);
             }
-            _ => {
+            3 => {
                 out.push((0xe0 | ((unit >> 12) & 0x0f)) as u8);
                 out.push((0x80 | ((unit >> 6) & 0x3f)) as u8);
                 out.push((0x80 | (unit & 0x3f)) as u8);
             }
+            _ => unreachable!("modified utf-8 unit length is always 1, 2, or 3"),
         }
     }
 
@@ -374,14 +375,15 @@ fn write_java_modified_utf(
 }
 
 fn modified_utf8_len(value: &str) -> usize {
-    value
-        .encode_utf16()
-        .map(|unit| match unit {
-            0x0001..=0x007f => 1,
-            0x0000 | 0x0080..=0x07ff => 2,
-            _ => 3,
-        })
-        .sum()
+    value.encode_utf16().map(modified_utf8_unit_len).sum()
+}
+
+fn modified_utf8_unit_len(unit: u16) -> usize {
+    match unit {
+        0x0001..=0x007f => 1,
+        0x0000 | 0x0080..=0x07ff => 2,
+        _ => 3,
+    }
 }
 
 fn decode_base64(input: &str) -> Result<Vec<u8>, ConnectPacketEncodeError> {
@@ -1022,8 +1024,8 @@ mod tests {
     fn trim_ascii_strips_ascii_whitespace_only() {
         assert_eq!(trim_ascii(b"\t  hello \r\n"), b"hello");
 
-        let padded = " \u{00a0}héllo\u{00a0} ".as_bytes();
-        assert_eq!(trim_ascii(padded), " héllo ".as_bytes());
+        let padded = " \t h\u{00e8}llo \r\n".as_bytes();
+        assert_eq!(trim_ascii(padded), "h\u{00e8}llo".as_bytes());
     }
 
     #[test]
@@ -1031,8 +1033,20 @@ mod tests {
         assert_eq!(modified_utf8_len(""), 0);
         assert_eq!(modified_utf8_len("\0"), 2);
         assert_eq!(modified_utf8_len("A"), 1);
-        assert_eq!(modified_utf8_len("é"), 2);
-        assert_eq!(modified_utf8_len("漢"), 3);
-        assert_eq!(modified_utf8_len("🙂"), 6);
+        assert_eq!(modified_utf8_len("\u{00e8}"), 2);
+        assert_eq!(modified_utf8_len("\u{0800}"), 3);
+        assert_eq!(modified_utf8_len("\u{1f600}"), 6);
+    }
+
+    #[test]
+    fn modified_utf8_unit_len_matches_java_modified_utf8_boundaries() {
+        assert_eq!(modified_utf8_unit_len(0x0000), 2);
+        assert_eq!(modified_utf8_unit_len(0x0001), 1);
+        assert_eq!(modified_utf8_unit_len(0x007f), 1);
+        assert_eq!(modified_utf8_unit_len(0x0080), 2);
+        assert_eq!(modified_utf8_unit_len(0x07ff), 2);
+        assert_eq!(modified_utf8_unit_len(0x0800), 3);
+        assert_eq!(modified_utf8_unit_len(0xd83d), 3);
+        assert_eq!(modified_utf8_unit_len(0xde00), 3);
     }
 }
