@@ -59143,6 +59143,24 @@ mod tests {
     }
 
     #[test]
+    fn write_java_utf_accepts_u16_max_and_rejects_longer_ascii() {
+        let max_len_value = "a".repeat(u16::MAX as usize);
+        let mut max_len_bytes = Vec::new();
+
+        write_java_utf(&mut max_len_bytes, &max_len_value).unwrap();
+
+        assert_eq!(&max_len_bytes[..2], &u16::MAX.to_be_bytes());
+        assert_eq!(max_len_bytes.len(), usize::from(u16::MAX) + 2);
+
+        let too_long_value = "a".repeat(usize::from(u16::MAX) + 1);
+        let mut too_long_bytes = Vec::new();
+        let error = write_java_utf(&mut too_long_bytes, &too_long_value).unwrap_err();
+
+        assert_eq!(error, "java utf string too long");
+        assert!(too_long_bytes.is_empty());
+    }
+
+    #[test]
     fn parse_save_custom_chunks_region_rejects_trailing_bytes_after_last_chunk() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&1u32.to_be_bytes());
