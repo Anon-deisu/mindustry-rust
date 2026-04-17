@@ -157,6 +157,14 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_preserves_absolute_output_dir_verbatim() {
+        let output_dir = std::env::temp_dir().join("mdt-protocol-out");
+        let parsed = parse_args(vec![output_dir.display().to_string()].into_iter()).unwrap();
+
+        assert_eq!(parsed, output_dir);
+    }
+
+    #[test]
     fn parse_args_rejects_missing_output_dir() {
         let err = parse_args(Vec::<String>::new().into_iter()).unwrap_err();
 
