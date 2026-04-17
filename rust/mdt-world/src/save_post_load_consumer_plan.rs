@@ -515,70 +515,65 @@ fn blocker_blocks_stage(
 }
 
 fn contract_issue_blocks_world_shell(issue: SavePostLoadWorldIssue) -> bool {
-    matches!(
-        issue,
-        SavePostLoadWorldIssue::EmptyWorldGraph
-            | SavePostLoadWorldIssue::TileSurfaceCountMismatch
-            | SavePostLoadWorldIssue::TileSurfaceIndexMismatch
-            | SavePostLoadWorldIssue::BuildingCenterReferenceMismatch
-            | SavePostLoadWorldIssue::TeamPlanOverlayMismatch
-            | SavePostLoadWorldIssue::TeamPlanOutOfBounds
-            | SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds
-            | SavePostLoadWorldIssue::MarkerRegionMismatch
-            | SavePostLoadWorldIssue::MarkerOutOfBounds
-            | SavePostLoadWorldIssue::StaticFogDimensionMismatch
-            | SavePostLoadWorldIssue::StaticFogCoverageMismatch
-            | SavePostLoadWorldIssue::DuplicateStaticFogTeamIds
-            | SavePostLoadWorldIssue::WorldEntityCountMismatch
-            | SavePostLoadWorldIssue::DuplicateWorldEntityIds
-            | SavePostLoadWorldIssue::EntitySummaryMismatch
-    )
+    contract_issue_stage_kind(issue).is_some()
+        || matches!(
+            issue,
+            SavePostLoadWorldIssue::EmptyWorldGraph
+                | SavePostLoadWorldIssue::TileSurfaceCountMismatch
+                | SavePostLoadWorldIssue::TileSurfaceIndexMismatch
+        )
 }
 
 fn contract_issue_blocks_stage(
     issue: SavePostLoadWorldIssue,
     kind: SavePostLoadConsumerStageKind,
 ) -> bool {
+    contract_issue_stage_kind(issue) == Some(kind)
+}
+
+fn contract_issue_stage_kind(
+    issue: SavePostLoadWorldIssue,
+) -> Option<SavePostLoadConsumerStageKind> {
     matches!(
-        (issue, kind),
-        (
-            SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
-            SavePostLoadConsumerStageKind::Buildings,
-        ) | (
-            SavePostLoadWorldIssue::TeamPlanOverlayMismatch,
-            SavePostLoadConsumerStageKind::TeamPlans,
-        ) | (
-            SavePostLoadWorldIssue::TeamPlanOutOfBounds,
-            SavePostLoadConsumerStageKind::TeamPlans,
-        ) | (
-            SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds,
-            SavePostLoadConsumerStageKind::TeamPlans,
-        ) | (
-            SavePostLoadWorldIssue::MarkerRegionMismatch,
-            SavePostLoadConsumerStageKind::Markers,
-        ) | (
-            SavePostLoadWorldIssue::MarkerOutOfBounds,
-            SavePostLoadConsumerStageKind::Markers,
-        ) | (
-            SavePostLoadWorldIssue::StaticFogDimensionMismatch,
-            SavePostLoadConsumerStageKind::StaticFog,
-        ) | (
-            SavePostLoadWorldIssue::StaticFogCoverageMismatch,
-            SavePostLoadConsumerStageKind::StaticFog,
-        ) | (
-            SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
-            SavePostLoadConsumerStageKind::StaticFog,
-        ) | (
-            SavePostLoadWorldIssue::WorldEntityCountMismatch,
-            SavePostLoadConsumerStageKind::LoadableEntities,
-        ) | (
-            SavePostLoadWorldIssue::DuplicateWorldEntityIds,
-            SavePostLoadConsumerStageKind::LoadableEntities,
-        ) | (
-            SavePostLoadWorldIssue::EntitySummaryMismatch,
-            SavePostLoadConsumerStageKind::LoadableEntities,
-        )
+        issue,
+        SavePostLoadWorldIssue::BuildingCenterReferenceMismatch
     )
+    .then_some(SavePostLoadConsumerStageKind::Buildings)
+    .or_else(|| {
+        matches!(
+            issue,
+            SavePostLoadWorldIssue::TeamPlanOverlayMismatch
+                | SavePostLoadWorldIssue::TeamPlanOutOfBounds
+                | SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds
+        )
+        .then_some(SavePostLoadConsumerStageKind::TeamPlans)
+    })
+    .or_else(|| {
+        matches!(
+            issue,
+            SavePostLoadWorldIssue::MarkerRegionMismatch
+                | SavePostLoadWorldIssue::MarkerOutOfBounds
+        )
+        .then_some(SavePostLoadConsumerStageKind::Markers)
+    })
+    .or_else(|| {
+        matches!(
+            issue,
+            SavePostLoadWorldIssue::StaticFogDimensionMismatch
+                | SavePostLoadWorldIssue::StaticFogCoverageMismatch
+                | SavePostLoadWorldIssue::DuplicateStaticFogTeamIds
+        )
+        .then_some(SavePostLoadConsumerStageKind::StaticFog)
+    })
+    .or_else(|| {
+        matches!(
+            issue,
+            SavePostLoadWorldIssue::WorldEntityCountMismatch
+                | SavePostLoadWorldIssue::DuplicateWorldEntityIds
+                | SavePostLoadWorldIssue::EntitySummaryMismatch
+        )
+        .then_some(SavePostLoadConsumerStageKind::LoadableEntities)
+    })
 }
 
 #[cfg(test)]
