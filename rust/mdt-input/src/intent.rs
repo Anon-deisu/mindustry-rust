@@ -237,4 +237,12 @@ mod tests {
             "release=move-down"
         );
     }
+
+    #[test]
+    fn player_intent_summary_label_formats_press_chat_stably() {
+        assert_eq!(
+            PlayerIntent::ActionPressed(BinaryAction::Chat).summary_label(),
+            "press=chat"
+        );
+    }
 }
