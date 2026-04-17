@@ -2986,6 +2986,7 @@ mod tests {
         format_runtime_command_mode_detail_text, format_runtime_command_mode_panel_text,
         compact_runtime_ui_text, runtime_ui_text_len,
         format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
+        runtime_ui_notice_panel_is_empty,
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
         format_runtime_command_rect_text, format_runtime_command_stance_text,
         format_runtime_command_target_text, format_runtime_command_unit_ref_text,
@@ -5063,6 +5064,52 @@ mod tests {
         };
 
         assert_eq!(format_runtime_ui_notice_detail_text(&panel), None);
+    }
+
+    #[test]
+    fn runtime_ui_notice_panel_is_empty_distinguishes_empty_and_sample_panels() {
+        assert!(!runtime_ui_notice_panel_is_empty(&sample_runtime_ui_notice_panel()));
+
+        let panel = RuntimeUiNoticePanelModel {
+            hud_set_count: 0,
+            hud_set_reliable_count: 0,
+            hud_hide_count: 0,
+            hud_last_message: None,
+            hud_last_reliable_message: None,
+            announce_count: 0,
+            last_announce_message: None,
+            info_message_count: 0,
+            last_info_message: None,
+            toast_info_count: 0,
+            toast_warning_count: 0,
+            toast_last_info_message: None,
+            toast_last_warning_text: None,
+            info_popup_count: 0,
+            info_popup_reliable_count: 0,
+            last_info_popup_reliable: None,
+            last_info_popup_id: None,
+            last_info_popup_message: None,
+            last_info_popup_duration_bits: None,
+            last_info_popup_align: None,
+            last_info_popup_top: None,
+            last_info_popup_left: None,
+            last_info_popup_bottom: None,
+            last_info_popup_right: None,
+            clipboard_count: 0,
+            last_clipboard_text: None,
+            open_uri_count: 0,
+            last_open_uri: None,
+            text_input_open_count: 0,
+            text_input_last_id: None,
+            text_input_last_title: None,
+            text_input_last_message: None,
+            text_input_last_default_text: None,
+            text_input_last_length: None,
+            text_input_last_numeric: None,
+            text_input_last_allow_empty: None,
+        };
+
+        assert!(runtime_ui_notice_panel_is_empty(&panel));
     }
 
     #[test]
