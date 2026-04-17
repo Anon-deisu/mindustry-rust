@@ -756,6 +756,16 @@ mod tests {
     }
 
     #[test]
+    fn decode_packet_rejects_unsupported_compression_without_trailing_bytes() {
+        let encoded = vec![CONNECT_PACKET_ID, 0x00, 0x00, 0x09];
+
+        assert!(matches!(
+            decode_packet(&encoded),
+            Err(PacketCodecError::UnsupportedCompression(9))
+        ));
+    }
+
+    #[test]
     fn framework_messages_round_trip() {
         let cases = vec![
             FrameworkMessage::Ping {
