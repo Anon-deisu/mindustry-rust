@@ -647,6 +647,26 @@ mod tests {
     }
 
     #[test]
+    fn plan_collection_summary_handles_empty_plan_slice() {
+        let summary = PlanCollectionSummary::from_plans::<PlanEditorPlan>(&[]);
+
+        assert_eq!(summary.plan_count, 0);
+        assert_eq!(summary.breaking_count, 0);
+        assert_eq!(summary.bounds, None);
+        assert!(!summary.has_bounds());
+        assert_eq!(summary.bounds_label(), "none");
+        assert_eq!(summary.rotation_counts, [0, 0, 0, 0]);
+        assert_eq!(summary.rotation_label(), "r0=0 r1=0 r2=0 r3=0");
+        assert_eq!(summary.point_config_family_counts, [0, 0, 0]);
+        assert_eq!(summary.point_config_point_count, 0);
+        assert_eq!(summary.point_config_label(), "none=0 point=0 points=0 total=0");
+        assert_eq!(
+            summary.summary_label(),
+            "plans=0 breaking=0 bounds=none rot=r0=0 r1=0 r2=0 r3=0 cfg=none=0 point=0 points=0 total=0"
+        );
+    }
+
+    #[test]
     fn plan_point_config_map_points_applies_mapper_to_none_point_and_points() {
         let mut none = PlanPointConfig::None;
         let mut point = PlanPointConfig::Point(PlanPoint { x: 1, y: 2 });
