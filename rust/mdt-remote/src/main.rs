@@ -601,4 +601,27 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn write_output_file_writes_into_current_directory_without_creating_parent() {
+        let original_dir = env::current_dir().expect("current dir");
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-write-output-file-bare-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        env::set_current_dir(&temp_dir).unwrap();
+
+        let output_path = Path::new("registry.rs");
+        write_output_file(output_path, "generated-registry").unwrap();
+
+        assert_eq!(fs::read_to_string(temp_dir.join(output_path)).unwrap(), "generated-registry");
+
+        env::set_current_dir(&original_dir).unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }
