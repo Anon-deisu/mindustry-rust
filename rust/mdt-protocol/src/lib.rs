@@ -828,6 +828,16 @@ mod tests {
     }
 
     #[test]
+    fn decode_framework_message_rejects_invalid_prefix() {
+        let encoded = vec![0x7f, FRAMEWORK_KEEP_ALIVE_ID];
+
+        assert!(matches!(
+            decode_framework_message(&encoded),
+            Err(FrameworkCodecError::InvalidPrefix(0x7f))
+        ));
+    }
+
+    #[test]
     fn codec_error_display_strings_remain_stable() {
         assert_eq!(
             PacketCodecError::TooShort.to_string(),
