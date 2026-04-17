@@ -433,4 +433,20 @@ mod tests {
             assert!(err.starts_with("duplicate argument: "), "{err}");
         }
     }
+
+    #[test]
+    fn parse_args_rejects_missing_player_coordinate_pair() {
+        let err = parse_args(
+            vec![
+                "--player-x".to_string(),
+                "12".to_string(),
+                "--tile-pixels".to_string(),
+                "8".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+
+        assert_eq!(err, "both --player-x and --player-y are required");
+    }
 }
