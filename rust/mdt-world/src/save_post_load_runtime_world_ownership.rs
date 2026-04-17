@@ -661,6 +661,25 @@ mod tests {
     }
 
     #[test]
+    fn runtime_world_ownership_keeps_empty_source_regions_and_labels_empty() {
+        let ownership = SavePostLoadRuntimeWorldOwnership {
+            world_shell_ready: false,
+            surfaces: Vec::new(),
+        };
+
+        assert_eq!(ownership.source_regions(), Vec::new());
+        assert_eq!(ownership.source_region("entities"), None);
+        assert_eq!(
+            ownership.summary_label(),
+            "shell=no semantics=no own=0/0 claim=0/0 wait=0 block=0 fail=0 defer=0 absent=0 regions=0"
+        );
+        assert_eq!(
+            ownership.detail_label(),
+            "shell=no semantics=no own=0/0 claim=0/0 wait=0 block=0 fail=0 defer=0 absent=0 regions=[]"
+        );
+    }
+
+    #[test]
     fn runtime_world_ownership_groups_surfaces_by_source_region() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
