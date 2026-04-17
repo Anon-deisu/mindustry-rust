@@ -27280,6 +27280,16 @@ enum MsavEntityRegionReplayPart {
     WorldEntities,
 }
 
+impl MsavEntityRegionReplayPart {
+    fn bytes<'a>(self, entities: &'a SaveEntityRegionObservation) -> &'a [u8] {
+        match self {
+            MsavEntityRegionReplayPart::Remaps => &entities.remap_bytes,
+            MsavEntityRegionReplayPart::TeamPlans => &entities.team_region_bytes,
+            MsavEntityRegionReplayPart::WorldEntities => &entities.world_entity_bytes,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct MsavSaveLayout {
     region_names: &'static [&'static str],
@@ -27463,7 +27473,7 @@ fn cached_save_entity_region_bytes(
     let parts = layout
         .entity_region_replay_parts
         .iter()
-        .map(|part| entity_region_replay_part_bytes(*part, entities))
+        .map(|part| part.bytes(entities))
         .collect::<Vec<_>>();
     Ok(concat_byte_slices(&parts))
 }
@@ -27477,17 +27487,6 @@ fn concat_byte_slices(parts: &[&[u8]]) -> Vec<u8> {
         out.extend_from_slice(part);
     }
     out
-}
-
-fn entity_region_replay_part_bytes<'a>(
-    part: MsavEntityRegionReplayPart,
-    entities: &'a SaveEntityRegionObservation,
-) -> &'a [u8] {
-    match part {
-        MsavEntityRegionReplayPart::Remaps => &entities.remap_bytes,
-        MsavEntityRegionReplayPart::TeamPlans => &entities.team_region_bytes,
-        MsavEntityRegionReplayPart::WorldEntities => &entities.world_entity_bytes,
-    }
 }
 
 #[allow(dead_code)]
@@ -43139,6 +43138,33 @@ mod tests {
         let err = cached_save_entity_region_bytes(12, &entities).unwrap_err();
 
         assert!(err.contains("unsupported .msav save version for entity byte replay: 12"));
+    }
+
+    #[test]
+    fn cached_save_entity_region_bytes_replays_all_parts_in_order() {
+        let entities = SaveEntityRegionObservation {
+            remap_count: 1,
+            remap_entries: Vec::new(),
+            remap_bytes: vec![1, 2],
+            team_count: 1,
+            total_plans: 1,
+            team_plan_groups: Vec::new(),
+            team_region_bytes: vec![3, 4],
+            world_entity_count: 1,
+            world_entity_bytes: vec![5, 6],
+            entity_chunks: Vec::new(),
+        };
+
+        assert_eq!(cached_save_entity_region_bytes(1, &entities).unwrap(), vec![5, 6]);
+        assert_eq!(cached_save_entity_region_bytes(3, &entities).unwrap(), vec![3, 4, 5, 6]);
+        assert_eq!(
+            cached_save_entity_region_bytes(5, &entities).unwrap(),
+            vec![1, 2, 3, 4, 5, 6]
+        );
+        assert_eq!(
+            cached_save_entity_region_bytes(11, &entities).unwrap(),
+            vec![1, 2, 3, 4, 5, 6]
+        );
     }
 
     #[test]
