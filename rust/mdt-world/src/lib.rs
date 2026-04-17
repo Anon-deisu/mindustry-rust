@@ -43014,6 +43014,19 @@ mod tests {
     }
 
     #[test]
+    fn write_msav_save_rejects_unexpected_region_count_for_save_version() {
+        let mut save = parse_msav_save(&sample_msav_save_bytes(11)).unwrap();
+        save.regions.pop();
+
+        let err = write_msav_save(&save).unwrap_err();
+
+        assert!(
+            err.contains("unexpected .msav region count for save version 11"),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn write_msav_save_rejects_leading_region_and_chunk_length_mismatches() {
         let original = parse_msav_save(&sample_msav_save_bytes(11)).unwrap();
 
