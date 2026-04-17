@@ -96,26 +96,34 @@ fn reject_overlapping_output_paths(
     high_frequency_output_path: Option<&Path>,
     inbound_dispatch_output_path: Option<&Path>,
 ) -> io::Result<()> {
-    let output_paths = [
-        ("registry", output_path),
-        ("high-frequency", high_frequency_output_path),
-        ("inbound-dispatch", inbound_dispatch_output_path),
-    ];
+    let output_paths = present_output_paths(
+        output_path,
+        high_frequency_output_path,
+        inbound_dispatch_output_path,
+    );
 
     for (index, (label, path)) in output_paths.iter().enumerate() {
-        let Some(path) = path else {
-            continue;
-        };
-
         for (other_label, other_path) in output_paths.iter().skip(index + 1) {
-            let Some(other_path) = other_path else {
-                continue;
-            };
             reject_overlapping_output_path_pair(label, path, other_label, other_path)?;
         }
     }
 
     Ok(())
+}
+
+fn present_output_paths<'a>(
+    output_path: Option<&'a Path>,
+    high_frequency_output_path: Option<&'a Path>,
+    inbound_dispatch_output_path: Option<&'a Path>,
+) -> Vec<(&'static str, &'a Path)> {
+    [
+        ("registry", output_path),
+        ("high-frequency", high_frequency_output_path),
+        ("inbound-dispatch", inbound_dispatch_output_path),
+    ]
+    .into_iter()
+    .filter_map(|(label, path)| path.map(|path| (label, path)))
+    .collect()
 }
 
 fn reject_overlapping_output_path_pair(
@@ -260,7 +268,7 @@ mod tests {
     use super::{
         default_high_frequency_output_path, default_inbound_dispatch_output_path,
         emit_outputs, normalize_path_for_overlap, parse_args, paths_overlap,
-        reject_overlapping_output_path_pair, reject_overlapping_output_paths,
+        present_output_paths, reject_overlapping_output_path_pair, reject_overlapping_output_paths,
         resolve_auxiliary_output_path, resolve_cli_path, write_output_file, USAGE,
     };
     use std::{
@@ -678,6 +686,29 @@ mod tests {
             Some(Path::new("build/mdt-output/remote-inbound-dispatch.rs")),
         )
         .is_ok());
+    }
+
+    #[test]
+    fn present_output_paths_filters_missing_paths_and_preserves_pairwise_order() {
+        let paths = present_output_paths(
+            None,
+            Some(Path::new("build/mdt-remote/remote-high-frequency.rs")),
+            Some(Path::new("build/mdt-output/remote-inbound-dispatch.rs")),
+        );
+
+        assert_eq!(
+            paths,
+            vec![
+                (
+                    "high-frequency",
+                    Path::new("build/mdt-remote/remote-high-frequency.rs")
+                ),
+                (
+                    "inbound-dispatch",
+                    Path::new("build/mdt-output/remote-inbound-dispatch.rs")
+                ),
+            ]
+        );
     }
 
     #[test]
