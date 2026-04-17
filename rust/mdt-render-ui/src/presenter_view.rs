@@ -5044,6 +5044,12 @@ mod tests {
     }
 
     #[test]
+    fn compact_runtime_ui_text_handles_exact_limit_and_overflow_boundary() {
+        assert_eq!(compact_runtime_ui_text(Some("abcdefghijkl")), "abcdefghijkl");
+        assert_eq!(compact_runtime_ui_text(Some("abcdefghijklm")), "abcdefghijkl~");
+    }
+
+    #[test]
     fn format_hud_visibility_detail_text_preserves_field_order() {
         let summary = sample_hud_summary();
         let visibility = sample_hud_visibility_panel();
@@ -6363,6 +6369,12 @@ mod tests {
     }
 
     #[test]
+    fn crop_origin_handles_window_larger_than_bound_and_edge_focus() {
+        assert_eq!(crop_origin(0, 2, 3, 5), 0);
+        assert_eq!(crop_origin(8, 2, 3, 5), 0);
+    }
+
+    #[test]
     fn visible_window_tile_uses_tile_flooring_and_window_origin() {
         let object = RenderObject {
             id: "plan:build".to_string(),
@@ -6378,6 +6390,25 @@ mod tests {
         assert!(visible_window_tile(&object, TILE_SIZE, 6, 2, 4, 4).is_none());
         assert_eq!(world_to_tile_index_floor(40.0, TILE_SIZE), 5);
         assert_eq!(world_to_tile_index_floor(f32::NAN, TILE_SIZE), 0);
+    }
+
+    #[test]
+    fn visible_window_tile_rejects_right_and_bottom_edge_tiles() {
+        let right_edge_object = RenderObject {
+            id: "plan:right-edge".to_string(),
+            layer: 1,
+            x: 72.0,
+            y: 24.0,
+        };
+        let bottom_edge_object = RenderObject {
+            id: "plan:bottom-edge".to_string(),
+            layer: 1,
+            x: 40.0,
+            y: 56.0,
+        };
+
+        assert!(visible_window_tile(&right_edge_object, TILE_SIZE, 5, 2, 4, 4).is_none());
+        assert!(visible_window_tile(&bottom_edge_object, TILE_SIZE, 5, 3, 4, 4).is_none());
     }
 
     #[test]
@@ -6917,6 +6948,32 @@ mod tests {
                 "0x{:08x}:0x{:08x}",
                 f32::NAN.to_bits(),
                 f32::NEG_INFINITY.to_bits()
+            )
+        );
+    }
+
+    #[test]
+    fn format_world_position_status_text_uses_hex_fallback_when_either_coordinate_is_nonfinite() {
+        assert_eq!(
+            format_world_position_status_text(Some(&RuntimeWorldPositionObservability {
+                x_bits: 12.5f32.to_bits(),
+                y_bits: f32::INFINITY.to_bits(),
+            })),
+            format!(
+                "0x{:08x}:0x{:08x}",
+                12.5f32.to_bits(),
+                f32::INFINITY.to_bits()
+            )
+        );
+        assert_eq!(
+            format_world_position_status_text(Some(&RuntimeWorldPositionObservability {
+                x_bits: f32::NEG_INFINITY.to_bits(),
+                y_bits: 7.0f32.to_bits(),
+            })),
+            format!(
+                "0x{:08x}:0x{:08x}",
+                f32::NEG_INFINITY.to_bits(),
+                7.0f32.to_bits()
             )
         );
     }
