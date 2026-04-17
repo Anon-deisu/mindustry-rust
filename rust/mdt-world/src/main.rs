@@ -985,6 +985,13 @@ mod tests {
     }
 
     #[test]
+    fn read_text_from_candidates_reports_not_found_with_no_candidates() {
+        let err = read_text_from_candidates("sample.txt", &[]).unwrap_err();
+
+        assert_eq!(err.to_string(), "missing sample.txt; checked: ");
+    }
+
+    #[test]
     fn repo_root_from_manifest_dir_returns_workspace_root() {
         let expected = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
