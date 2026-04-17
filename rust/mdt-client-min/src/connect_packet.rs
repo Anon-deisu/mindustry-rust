@@ -584,6 +584,11 @@ mod tests {
     }
 
     #[test]
+    fn decode_base64_accepts_all_padding_quad_as_empty() {
+        assert_eq!(decode_base64("====").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
     fn decode_base64_ignores_whitespace_between_quads() {
         assert_eq!(decode_base64(" Z m\n8= \t").unwrap(), b"fo".to_vec());
     }
