@@ -343,6 +343,20 @@ mod tests {
     }
 
     #[test]
+    fn apply_runtime_custom_packet_command_target_ignores_empty_projection() {
+        let mut runtime_command_mode = CommandModeState::default();
+        runtime_command_mode.bind_control_group(4, &[88, 99]);
+        let before = runtime_command_mode.projection();
+
+        apply_runtime_custom_packet_command_target(
+            &mut runtime_command_mode,
+            CommandModeTargetProjection::default(),
+        );
+
+        assert_eq!(runtime_command_mode.projection(), before);
+    }
+
+    #[test]
     fn resolve_runtime_custom_packet_command_target_prefers_surface_marker_for_world_pos() {
         let entry = RuntimeCustomPacketSurfaceSummaryEntry {
             key: "logic.world".to_string(),
