@@ -989,4 +989,14 @@ mod tests {
             &generate_world_stream_transport_goldens(&world_stream).unwrap(),
         );
     }
+
+    #[test]
+    fn generate_packet_serializer_goldens_handles_empty_connect_payload_with_zero_length_formatting() {
+        let text = generate_packet_serializer_goldens(&[]).unwrap();
+
+        assert!(text.contains("connect.packetId=03"));
+        assert!(text.contains("connect.rawLength=0000"));
+        assert!(text.contains("connect.compression=00"));
+        assert!(text.contains("connect.payload=\n"));
+    }
 }
