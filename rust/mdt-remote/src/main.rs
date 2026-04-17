@@ -351,6 +351,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_manifest_and_inbound_dispatch_only() {
+        let parsed = parse_args(vec![
+            "manifest.json".to_string(),
+            "inbound-dispatch.rs".to_string(),
+        ]
+        .into_iter())
+        .expect("manifest plus inbound-dispatch output should parse");
+
+        assert_eq!(
+            parsed,
+            (
+                "manifest.json".to_string(),
+                Some(Path::new("inbound-dispatch.rs").to_path_buf()),
+                None,
+                None,
+            )
+        );
+    }
+
+    #[test]
     fn resolve_cli_path_keeps_absolute_paths_and_joins_relative_paths() {
         let original_dir = env::current_dir().expect("current dir");
         let temp_dir = env::temp_dir().join(format!(
