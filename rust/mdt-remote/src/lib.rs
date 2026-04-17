@@ -4309,6 +4309,26 @@ mod tests {
     }
 
     #[test]
+    fn bidirectional_wire_flow_prefers_client_to_server_when_both_sides_have_exclusive_params() {
+        let packet = test_remote_packet(
+            0,
+            11,
+            "mindustry.gen.BidirectionalConflictCallPacket",
+            "mindustry.core.NetClient",
+            "bidirectionalConflict",
+            "both",
+            "both",
+            false,
+            vec![
+                test_param("clientOnly", "int", true, false),
+                test_param("serverOnly", "boolean", false, true),
+            ],
+        );
+
+        assert_eq!(bidirectional_wire_flow(&packet), RemoteFlow::ClientToServer);
+    }
+
+    #[test]
     fn builds_full_remote_packet_registry() {
         let manifest = parse_remote_manifest(
             r#"{
