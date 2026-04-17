@@ -97,25 +97,36 @@ fn reject_overlapping_output_paths(
         let Some(path) = path else {
             continue;
         };
-        let normalized_path = normalize_path_for_overlap(path);
 
         for (other_label, other_path) in output_paths.iter().skip(index + 1) {
             let Some(other_path) = other_path else {
                 continue;
             };
-            let normalized_other_path = normalize_path_for_overlap(other_path);
-
-            if paths_overlap(&normalized_path, &normalized_other_path) {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "output paths for {label} and {other_label} must not overlap: '{}' and '{}'",
-                        path.display(),
-                        other_path.display()
-                    ),
-                ));
-            }
+            reject_overlapping_output_path_pair(label, path, other_label, other_path)?;
         }
+    }
+
+    Ok(())
+}
+
+fn reject_overlapping_output_path_pair(
+    label: &str,
+    path: &Path,
+    other_label: &str,
+    other_path: &Path,
+) -> io::Result<()> {
+    let normalized_path = normalize_path_for_overlap(path);
+    let normalized_other_path = normalize_path_for_overlap(other_path);
+
+    if paths_overlap(&normalized_path, &normalized_other_path) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "output paths for {label} and {other_label} must not overlap: '{}' and '{}'",
+                path.display(),
+                other_path.display()
+            ),
+        ));
     }
 
     Ok(())
@@ -225,7 +236,8 @@ mod tests {
     use super::{
         default_high_frequency_output_path, default_inbound_dispatch_output_path,
         emit_outputs, normalize_path_for_overlap, parse_args, paths_overlap,
-        reject_overlapping_output_paths, resolve_cli_path, write_output_file, USAGE,
+        reject_overlapping_output_path_pair, reject_overlapping_output_paths,
+        resolve_cli_path, write_output_file, USAGE,
     };
     use std::{
         env, fs,
@@ -578,6 +590,21 @@ mod tests {
             Some(Path::new("build/mdt-output/remote-inbound-dispatch.rs")),
         )
         .is_ok());
+    }
+
+    #[test]
+    fn reject_overlapping_output_path_pair_canonicalizes_and_rejects_overlap() {
+        let err = reject_overlapping_output_path_pair(
+            "registry",
+            Path::new("build/mdt-remote/registry.rs"),
+            "high-frequency",
+            Path::new("build/mdt-remote/./registry.rs"),
+        )
+        .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("output paths for registry and high-frequency must not overlap"));
     }
 
     #[test]
