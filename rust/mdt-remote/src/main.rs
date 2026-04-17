@@ -580,6 +580,18 @@ mod tests {
     }
 
     #[test]
+    fn normalize_path_for_overlap_discards_leading_parent_dirs_after_absolute_root() {
+        assert_eq!(
+            normalize_path_for_overlap(Path::new("/../build/./registry.rs")),
+            PathBuf::from("/build/registry.rs")
+        );
+        assert_eq!(
+            normalize_path_for_overlap(Path::new("/../../registry.rs")),
+            PathBuf::from("/registry.rs")
+        );
+    }
+
+    #[test]
     fn stdout_registry_generation_does_not_depend_on_auxiliary_generation() {
         let generated = emit_outputs(
             &(),
