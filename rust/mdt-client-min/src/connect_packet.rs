@@ -101,10 +101,7 @@ impl ConnectPacketSpec {
             });
         }
 
-        let normalized_version_type = self.version_type.trim();
-        if normalized_version_type.eq_ignore_ascii_case("custom")
-            || normalized_version_type.eq_ignore_ascii_case("custom build")
-        {
+        if is_custom_like_version_type(&self.version_type) {
             warnings.push(ConnectCompatibilityWarning {
                 code: ConnectCompatibilityWarningCode::VersionTypeCustomLike,
                 message: "connect version-type is custom-like; strict servers may reject custom clients. Consider setting --version-type to the server-accepted value.",
@@ -132,6 +129,12 @@ impl ConnectPacketSpec {
         }
         Ok(raw_uuid)
     }
+}
+
+fn is_custom_like_version_type(version_type: &str) -> bool {
+    let normalized_version_type = version_type.trim();
+    normalized_version_type.eq_ignore_ascii_case("custom")
+        || normalized_version_type.eq_ignore_ascii_case("custom build")
 }
 
 pub fn default_connect_build() -> i32 {
@@ -793,6 +796,14 @@ mod tests {
         spec.version_type = "official".to_string();
 
         assert!(spec.compatibility_warnings().is_empty());
+    }
+
+    #[test]
+    fn is_custom_like_version_type_trims_and_matches_known_custom_labels() {
+        assert!(is_custom_like_version_type("custom"));
+        assert!(is_custom_like_version_type("  CUSTOM BUILD  "));
+        assert!(!is_custom_like_version_type("official"));
+        assert!(!is_custom_like_version_type("release"));
     }
 
     #[test]
