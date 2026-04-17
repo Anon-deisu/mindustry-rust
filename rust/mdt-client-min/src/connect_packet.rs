@@ -385,10 +385,7 @@ fn modified_utf8_len(value: &str) -> usize {
 }
 
 fn decode_base64(input: &str) -> Result<Vec<u8>, ConnectPacketEncodeError> {
-    let cleaned = input
-        .chars()
-        .filter(|ch| !ch.is_whitespace())
-        .collect::<Vec<_>>();
+    let cleaned = strip_base64_whitespace(input);
     if cleaned.len() % 4 != 0 {
         return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
     }
@@ -454,6 +451,10 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, ConnectPacketEncodeError> {
     }
 
     Ok(output)
+}
+
+fn strip_base64_whitespace(input: &str) -> Vec<char> {
+    input.chars().filter(|ch| !ch.is_whitespace()).collect()
 }
 
 fn decode_base64_value(ch: char, index: usize) -> Result<u8, ConnectPacketEncodeError> {
@@ -619,6 +620,11 @@ mod tests {
     #[test]
     fn decode_base64_ignores_whitespace_between_quads() {
         assert_eq!(decode_base64(" Z m\n8= \t").unwrap(), b"fo".to_vec());
+    }
+
+    #[test]
+    fn strip_base64_whitespace_removes_all_unicode_whitespace() {
+        assert_eq!(strip_base64_whitespace(" A\u{00a0}B\tC\nD\rE\u{2003}F "), vec!['A', 'B', 'C', 'D', 'E', 'F']);
     }
 
     #[test]
