@@ -505,9 +505,9 @@ fn finite_vec2_position_bits(x: f32, y: f32) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::{
-        derive_effect_data_business_input, derive_effect_data_semantic, finite_vec2_position_bits,
-        lightning_polyline_hint, position_hint_from_value, EffectDataBusinessHint,
-        EffectDataBusinessInput, EffectDataBusinessTargetHint,
+        derive_effect_data_business_input, derive_effect_data_semantic, effect_data_kind_label,
+        finite_vec2_position_bits, lightning_polyline_hint, position_hint_from_value,
+        EffectDataBusinessHint, EffectDataBusinessInput, EffectDataBusinessTargetHint,
     };
     use crate::session_state::{EffectBusinessContentKind, EffectDataSemantic};
     use mdt_typeio::{
@@ -1427,6 +1427,44 @@ mod tests {
         assert_eq!(
             derive_effect_data_semantic(Some(&TypeIoObject::UnitId(404)), None, false),
             Some(EffectDataSemantic::UnitId(404))
+        );
+    }
+
+    #[test]
+    fn effect_data_kind_label_matches_effect_summary_shapes() {
+        let scalar = TypeIoObject::Int(7);
+        assert_eq!(effect_data_kind_label(&scalar), "int");
+        assert_eq!(scalar.effect_summary().kind, "int");
+
+        let array = TypeIoObject::IntArray(vec![1, 2, 3]);
+        assert_eq!(effect_data_kind_label(&array), "int[]");
+        assert_eq!(array.effect_summary().kind, "int[]");
+
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::Bool(true),
+            TypeIoObject::UnitId(404),
+        ]);
+        assert_eq!(effect_data_kind_label(&object), "object[len=2]{0=bool,1=Unit(raw)}");
+        assert_eq!(
+            object.effect_summary().kind,
+            "object[len=2]{0=bool,1=Unit(raw)}"
+        );
+
+        assert_eq!(
+            derive_effect_data_semantic(None, Some(0x7f), true),
+            Some(EffectDataSemantic::OpaqueTypeTag(0x7f))
+        );
+        assert_eq!(
+            derive_effect_data_semantic(Some(&scalar), Some(0x7f), true),
+            Some(EffectDataSemantic::Int(7))
+        );
+        assert_eq!(
+            derive_effect_data_semantic(Some(&array), Some(0x7f), true),
+            Some(EffectDataSemantic::IntArrayLen(3))
+        );
+        assert_eq!(
+            derive_effect_data_semantic(Some(&object), Some(0x7f), true),
+            Some(EffectDataSemantic::ObjectArrayLen(2))
         );
     }
 }
