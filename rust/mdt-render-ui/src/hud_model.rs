@@ -1566,6 +1566,31 @@ mod tests {
     }
 
     #[test]
+    fn runtime_ui_stack_kind_labels_remain_stable() {
+        assert_eq!(
+            RuntimeUiStackForegroundSummaryKind::Menu.label(),
+            "menu"
+        );
+        assert_eq!(
+            RuntimeUiStackForegroundSummaryKind::FollowUpMenu.label(),
+            "follow-up"
+        );
+        assert_eq!(
+            RuntimeUiStackForegroundSummaryKind::TextInput.label(),
+            "input"
+        );
+
+        assert_eq!(RuntimeUiPromptLayerKind::Menu.label(), "menu");
+        assert_eq!(RuntimeUiPromptLayerKind::FollowUpMenu.label(), "follow-up");
+        assert_eq!(RuntimeUiPromptLayerKind::TextInput.label(), "input");
+
+        assert_eq!(RuntimeUiNoticeLayerKind::Hud.label(), "hud");
+        assert_eq!(RuntimeUiNoticeLayerKind::HudReliable.label(), "reliable");
+        assert_eq!(RuntimeUiNoticeLayerKind::ToastInfo.label(), "info");
+        assert_eq!(RuntimeUiNoticeLayerKind::ToastWarning.label(), "warn");
+    }
+
+    #[test]
     fn runtime_ui_stack_depth_summary_tracks_prompt_notice_and_chat_layers() {
         let hud = HudModel {
             runtime_ui: Some(RuntimeUiObservability {
