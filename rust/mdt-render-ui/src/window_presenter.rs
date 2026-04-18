@@ -8728,6 +8728,25 @@ mod tests {
     }
 
     #[test]
+    fn build_config_tile_and_rollback_source_status_text_map_stably() {
+        assert_eq!(super::build_config_tile_status_text(Some((5, 9))), "5:9");
+        assert_eq!(super::build_config_tile_status_text(None), "none");
+        assert_eq!(
+            super::build_config_rollback_source_status_text(Some(
+                crate::BuildConfigAuthoritySourceObservability::TileConfig,
+            )),
+            "tilecfg"
+        );
+        assert_eq!(
+            super::build_config_rollback_source_status_text(Some(
+                crate::BuildConfigAuthoritySourceObservability::ConstructFinish,
+            )),
+            "construct"
+        );
+        assert_eq!(super::build_config_rollback_source_status_text(None), "none");
+    }
+
+    #[test]
     fn build_ui_inspector_status_text_keeps_extended_samples() {
         let sample = "abcdefghijklmnopqrstuvwxyz".repeat(3);
         let expected_sample = format!(
