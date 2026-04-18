@@ -680,6 +680,43 @@ mod tests {
     }
 
     #[test]
+    fn emit_outputs_does_not_invoke_auxiliary_generators_when_registry_generation_fails() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mdt-remote-emit-registry-failure-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let registry_path = temp_dir.join("registry.rs");
+        let high_frequency_path = temp_dir.join("high-frequency.rs");
+        let inbound_dispatch_path = temp_dir.join("inbound-dispatch.rs");
+
+        let err = emit_outputs(
+            &(),
+            Some(&registry_path),
+            Some(&high_frequency_path),
+            Some(&inbound_dispatch_path),
+            |_| -> Result<String, Box<dyn std::error::Error>> { Err("boom".into()) },
+            |_| -> Result<String, Box<dyn std::error::Error>> {
+                panic!("high-frequency generation should not run after a registry failure")
+            },
+            |_| -> Result<String, Box<dyn std::error::Error>> {
+                panic!("inbound-dispatch generation should not run after a registry failure")
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.to_string(), "boom");
+        assert!(!registry_path.exists());
+        assert!(!high_frequency_path.exists());
+        assert!(!inbound_dispatch_path.exists());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn rejects_overlapping_output_paths() {
         let err = reject_overlapping_output_paths(
             Some(Path::new("build/mdt-remote/remote-registry.rs")),
