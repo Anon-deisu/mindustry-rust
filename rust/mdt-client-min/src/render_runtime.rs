@@ -13819,6 +13819,22 @@ mod tests {
     }
 
     #[test]
+    fn runtime_effect_delivery_label_formats_reliable_and_normal() {
+        assert_eq!(runtime_effect_delivery_label(true), "reliable");
+        assert_eq!(runtime_effect_delivery_label(false), "normal");
+    }
+
+    #[test]
+    fn runtime_effect_path_label_formats_none_empty_and_joined_segments() {
+        let empty: [usize; 0] = [];
+        let joined = [0usize, 2, 5];
+
+        assert_eq!(runtime_effect_path_label(None), "none");
+        assert_eq!(runtime_effect_path_label(Some(&empty)), "none");
+        assert_eq!(runtime_effect_path_label(Some(&joined)), "0/2/5");
+    }
+
+    #[test]
     fn runtime_world_position_from_contract_effect_projection_uses_target_position() {
         assert_eq!(
             runtime_world_position_from_effect_business_projection(Some(
