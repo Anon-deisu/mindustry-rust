@@ -1086,6 +1086,10 @@ mod tests {
     fn embedded_version_properties_track_upstream_157_2_connect_metadata() {
         assert_eq!(default_connect_build(), 157);
         assert_eq!(default_connect_version_type(), "official");
+
+        let spec = ConnectPacketSpec::new_default("en_US");
+        assert_eq!(spec.version, 157);
+        assert_eq!(spec.version_type, "official");
     }
 
     #[test]
