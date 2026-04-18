@@ -791,6 +791,23 @@ mod tests {
     }
 
     #[test]
+    fn push_issue_keeps_first_occurrence_without_duplicates() {
+        let mut issues = vec![SavePostLoadWorldIssue::EmptyWorldGraph];
+
+        push_issue(&mut issues, SavePostLoadWorldIssue::MarkerOutOfBounds);
+        push_issue(&mut issues, SavePostLoadWorldIssue::EmptyWorldGraph);
+        push_issue(&mut issues, SavePostLoadWorldIssue::MarkerOutOfBounds);
+
+        assert_eq!(
+            issues,
+            vec![
+                SavePostLoadWorldIssue::EmptyWorldGraph,
+                SavePostLoadWorldIssue::MarkerOutOfBounds,
+            ]
+        );
+    }
+
+    #[test]
     fn checked_tile_count_and_surface_index_handle_overflow_boundaries() {
         assert_eq!(checked_tile_count(3, 4), Some(12));
         assert_eq!(checked_tile_count(usize::MAX, 2), None);
