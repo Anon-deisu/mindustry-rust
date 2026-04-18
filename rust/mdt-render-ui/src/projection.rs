@@ -1523,6 +1523,68 @@ mod tests {
     }
 
     #[test]
+    fn fog_tile_counts_and_visible_tile_coords_under_fog_cover_disabled_none_visible_and_hidden() {
+        let bundle = parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap();
+        let session = bundle.loaded_session().unwrap();
+        let player_team_id = session.player().team_id;
+        let fog_visibility = super::FogVisibility {
+            enabled: false,
+            team_id: player_team_id,
+        };
+
+        assert_eq!(
+            super::fog_tile_counts(&session, fog_visibility),
+            (session.graph().grid().tile_count(), 0)
+        );
+        assert_eq!(
+            super::visible_tile_coords_under_fog(&session, fog_visibility, None),
+            None
+        );
+
+        let visible_tile = session
+            .graph()
+            .grid()
+            .iter_tiles()
+            .find(|tile| {
+                session
+                    .graph()
+                    .fog_revealed(player_team_id, tile.x as usize, tile.y as usize)
+                    == Some(true)
+            })
+            .map(|tile| (tile.x as usize, tile.y as usize))
+            .expect("expected at least one revealed tile in sample world");
+        let hidden_tile = session
+            .graph()
+            .grid()
+            .iter_tiles()
+            .find(|tile| {
+                session
+                    .graph()
+                    .fog_revealed(player_team_id, tile.x as usize, tile.y as usize)
+                    == Some(false)
+            })
+            .map(|tile| (tile.x as usize, tile.y as usize))
+            .expect("expected at least one unrevealed tile in sample world");
+
+        let fog_visibility = super::FogVisibility {
+            enabled: true,
+            team_id: player_team_id,
+        };
+
+        assert_eq!(
+            super::visible_tile_coords_under_fog(&session, fog_visibility, Some(visible_tile)),
+            Some(visible_tile)
+        );
+        assert_eq!(
+            super::visible_tile_coords_under_fog(&session, fog_visibility, Some(hidden_tile)),
+            None
+        );
+    }
+
+    #[test]
     fn render_projection_drops_out_of_bounds_plans_under_fog() {
         let mut bundle = parse_world_bundle(&decode_hex(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
