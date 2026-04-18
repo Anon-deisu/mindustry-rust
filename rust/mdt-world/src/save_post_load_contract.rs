@@ -749,6 +749,16 @@ mod tests {
     }
 
     #[test]
+    fn marker_tile_coords_in_bounds_handles_none_and_edge_boundaries() {
+        assert!(marker_tile_coords_in_bounds(None, 4, 3));
+        assert!(marker_tile_coords_in_bounds(Some((0, 0)), 4, 3));
+        assert!(marker_tile_coords_in_bounds(Some((3, 2)), 4, 3));
+        assert!(!marker_tile_coords_in_bounds(Some((-1, 0)), 4, 3));
+        assert!(!marker_tile_coords_in_bounds(Some((4, 0)), 4, 3));
+        assert!(!marker_tile_coords_in_bounds(Some((0, 3)), 4, 3));
+    }
+
+    #[test]
     fn projection_contract_flags_post_load_entity_summary_drift() {
         let mut observation = test_observation();
         observation.entity_summary.loadable_entities = 1;
