@@ -1756,6 +1756,12 @@ mod tests {
     }
 
     #[test]
+    fn format_u8_sample_renders_empty_as_none_and_joins_values_with_commas() {
+        assert_eq!(format_u8_sample(&[]), "none");
+        assert_eq!(format_u8_sample(&[1, 7, 255]), "1,7,255");
+    }
+
+    #[test]
     fn format_optional_u32_bits_maps_none_and_zero_to_stable_strings() {
         assert_eq!(format_optional_u32_bits(None), "None");
         assert_eq!(format_optional_u32_bits(Some(0)), "Some(0x00000000)");
