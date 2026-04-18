@@ -834,6 +834,23 @@ mod tests {
         assert_eq!(optional_bool_label(Some(false)), "false");
     }
 
+    #[test]
+    fn on_off_label_formats_true_false_stably() {
+        assert_eq!(on_off(true), "on");
+        assert_eq!(on_off(false), "off");
+        assert_eq!(
+            CapabilityContextProjection {
+                unit_state: CapabilityUnitState::ControlledUnitLive,
+                mining_enabled: true,
+                building_enabled: false,
+                command_enabled: true,
+                command_mode: CommandModeProjectionSummary::default(),
+            }
+            .summary_label(),
+            "unit=controlled-unit-live mining=on building=off command=on mode=idle"
+        );
+    }
+
     fn optional_i16_label(value: Option<i16>) -> String {
         value
             .map(|value| value.to_string())
