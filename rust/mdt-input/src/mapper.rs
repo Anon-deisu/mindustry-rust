@@ -267,6 +267,28 @@ mod tests {
     }
 
     #[test]
+    fn input_snapshot_summary_label_formats_partial_optional_fields() {
+        let snapshot = InputSnapshot {
+            move_axis: (0.25, -0.75),
+            aim_axis: (1.5, 2.5),
+            mining_tile: Some((7, 9)),
+            building: false,
+            config_tap_tile: Some((11, 13)),
+            build_pulse: None,
+            active_actions: vec![
+                BinaryAction::Fire,
+                BinaryAction::Boost,
+                BinaryAction::Chat,
+            ],
+        };
+
+        assert_eq!(
+            snapshot.summary_label(),
+            "move=1 aim=1 mining=1 building=0 config=1 build-pulse=0 action=3"
+        );
+    }
+
+    #[test]
     fn bool_count_and_option_count_map_flags_to_counts() {
         assert_eq!(bool_count(true), 1);
         assert_eq!(bool_count(false), 0);
