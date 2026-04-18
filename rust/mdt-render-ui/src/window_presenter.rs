@@ -4752,6 +4752,7 @@ mod tests {
         runtime_tile_action_minimap_tiles, runtime_unit_assembler_minimap_rects,
         runtime_unit_assembler_minimap_tiles, runtime_world_label_minimap_tiles,
         runtime_world_span_to_tile_span, runtime_world_to_minimap_tile, scale_frame_pixels,
+        window_world_object_tile,
         window_hud_bar_height, window_hud_top_line, BackendSignal,
         StableMinimapOverlayTileCandidate, WindowBackend, WindowFrame, WindowMinimapBreakRect,
         WindowMinimapCommandRect, WindowMinimapCommandRectKind, WindowMinimapInset,
@@ -7060,6 +7061,37 @@ mod tests {
         assert_eq!(
             runtime_world_to_minimap_tile(16.0, (i32::MAX as usize) + 1),
             2
+        );
+    }
+
+    #[test]
+    fn window_world_object_tile_maps_finite_coordinates_and_rejects_nonfinite_input() {
+        assert_eq!(
+            window_world_object_tile(&RenderObject {
+                id: "player:1".to_string(),
+                layer: 1,
+                x: 40.0,
+                y: 24.0,
+            }),
+            Some((5, 3))
+        );
+        assert_eq!(
+            window_world_object_tile(&RenderObject {
+                id: "marker:nan".to_string(),
+                layer: 1,
+                x: f32::NAN,
+                y: 24.0,
+            }),
+            None
+        );
+        assert_eq!(
+            window_world_object_tile(&RenderObject {
+                id: "marker:inf".to_string(),
+                layer: 1,
+                x: 40.0,
+                y: f32::INFINITY,
+            }),
+            None
         );
     }
 
