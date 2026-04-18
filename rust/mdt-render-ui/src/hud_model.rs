@@ -1354,6 +1354,7 @@ fn runtime_chat_active(chat: &RuntimeChatObservability) -> bool {
 mod tests {
     use super::{
         HudModel, RuntimeChatObservability, RuntimeHudTextObservability,
+        RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
         RuntimeLiveEntitySummaryObservability, RuntimeMenuObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiNoticeLayerKind,
         RuntimeUiObservability, RuntimeUiPromptLayerKind, RuntimeUiStackForegroundSummaryKind,
@@ -1376,6 +1377,71 @@ mod tests {
         assert_eq!(optional_i16_label(None), "none");
         assert_eq!(optional_i16_label(Some(-12)), "-12");
         assert_eq!(optional_i16_label(Some(34)), "34");
+    }
+
+    #[test]
+    fn runtime_live_effect_display_selectors_prefer_active_overlay_and_position() {
+        let active_position = RuntimeWorldPositionObservability {
+            x_bits: 28.0f32.to_bits(),
+            y_bits: 36.0f32.to_bits(),
+        };
+        let last_position = RuntimeWorldPositionObservability {
+            x_bits: 24.0f32.to_bits(),
+            y_bits: 32.0f32.to_bits(),
+        };
+        let effect = RuntimeLiveEffectSummaryObservability {
+            active_effect_id: Some(13),
+            last_effect_id: Some(8),
+            active_contract_name: Some("lightning".to_string()),
+            last_contract_name: Some("position_target".to_string()),
+            active_reliable: Some(true),
+            last_reliable_contract_name: Some("unit_parent".to_string()),
+            active_position: Some(active_position),
+            active_overlay_remaining_ticks: Some(3),
+            active_overlay_lifetime_ticks: Some(5),
+            last_position_hint: Some(last_position),
+            last_position_source: Some(RuntimeLiveEffectPositionSource::BusinessProjection),
+            ..Default::default()
+        };
+
+        assert_eq!(effect.display_effect_id(), Some(13));
+        assert_eq!(effect.display_contract_name(), Some("lightning"));
+        assert_eq!(effect.display_reliable_contract_name(), Some("lightning"));
+        assert_eq!(
+            effect.display_position_source(),
+            Some(RuntimeLiveEffectPositionSource::ActiveOverlay)
+        );
+        assert_eq!(effect.display_position(), Some(&active_position));
+        assert_eq!(effect.display_overlay_ttl(), Some((3, 5)));
+    }
+
+    #[test]
+    fn runtime_live_effect_display_selectors_fall_back_to_last_snapshot_when_active_fields_missing(
+    ) {
+        let last_position = RuntimeWorldPositionObservability {
+            x_bits: 24.0f32.to_bits(),
+            y_bits: 32.0f32.to_bits(),
+        };
+        let effect = RuntimeLiveEffectSummaryObservability {
+            last_effect_id: Some(8),
+            last_contract_name: Some("position_target".to_string()),
+            last_reliable_contract_name: Some("unit_parent".to_string()),
+            active_reliable: Some(false),
+            active_position: None,
+            last_position_hint: Some(last_position),
+            last_position_source: Some(RuntimeLiveEffectPositionSource::SpawnEffectPacket),
+            ..Default::default()
+        };
+
+        assert_eq!(effect.display_effect_id(), Some(8));
+        assert_eq!(effect.display_contract_name(), Some("position_target"));
+        assert_eq!(effect.display_reliable_contract_name(), Some("unit_parent"));
+        assert_eq!(
+            effect.display_position_source(),
+            Some(RuntimeLiveEffectPositionSource::SpawnEffectPacket)
+        );
+        assert_eq!(effect.display_position(), Some(&last_position));
+        assert_eq!(effect.display_overlay_ttl(), None);
     }
 
     #[test]
