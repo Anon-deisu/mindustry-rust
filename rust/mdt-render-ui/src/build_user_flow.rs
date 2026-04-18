@@ -1346,4 +1346,31 @@ mod tests {
             .summary_label()
             .starts_with("next=survey minimap=build "));
     }
+
+    #[test]
+    fn build_user_flow_count_helpers_stay_stable_for_empty_multi_and_route_cases() {
+        let empty = empty_flow_panel();
+        assert_eq!(empty.blocker_count(), 0);
+        assert_eq!(empty.route_count(), 0);
+
+        let multi_blocker = BuildUserFlowPanelModel {
+            blockers: vec![
+                BuildUserFlowBlocker::Arm,
+                BuildUserFlowBlocker::Resolve,
+                BuildUserFlowBlocker::Survey,
+            ],
+            route: Vec::new(),
+            ..empty.clone()
+        };
+        assert_eq!(multi_blocker.blocker_count(), 3);
+        assert_eq!(multi_blocker.route_count(), 0);
+
+        let routed = BuildUserFlowPanelModel {
+            blockers: vec![BuildUserFlowBlocker::Resolve],
+            route: vec!["resolve", "commit"],
+            ..empty
+        };
+        assert_eq!(routed.blocker_count(), 1);
+        assert_eq!(routed.route_count(), 2);
+    }
 }
