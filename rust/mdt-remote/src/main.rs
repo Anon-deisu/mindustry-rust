@@ -573,6 +573,33 @@ mod tests {
     }
 
     #[test]
+    fn resolve_auxiliary_output_path_keeps_explicit_relative_path_without_registry() {
+        let original_dir = env::current_dir().expect("current dir");
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-resolve-aux-explicit-no-registry-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        env::set_current_dir(&temp_dir).unwrap();
+
+        let actual = resolve_auxiliary_output_path(
+            Some(PathBuf::from("explicit/inbound-dispatch.rs")),
+            None,
+            default_inbound_dispatch_output_path,
+        )
+        .unwrap();
+
+        assert_eq!(actual, Some(temp_dir.join("explicit/inbound-dispatch.rs")));
+
+        env::set_current_dir(&original_dir).unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn resolve_auxiliary_output_path_derives_default_from_registry_path() {
         let actual = resolve_auxiliary_output_path(
             None,
