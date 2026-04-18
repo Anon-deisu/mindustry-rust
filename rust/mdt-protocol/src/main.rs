@@ -98,6 +98,10 @@ fn strip_whitespace(text: &str) -> String {
 
 fn repo_root_from_manifest_dir() -> Result<PathBuf, Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    Ok(repo_root_from_manifest_dir_path(&manifest_dir)?)
+}
+
+fn repo_root_from_manifest_dir_path(manifest_dir: &Path) -> Result<PathBuf, io::Error> {
     manifest_dir
         .parent()
         .and_then(Path::parent)
@@ -110,7 +114,6 @@ fn repo_root_from_manifest_dir() -> Result<PathBuf, Box<dyn Error>> {
                     manifest_dir.display()
                 ),
             )
-            .into()
         })
 }
 
@@ -148,7 +151,7 @@ fn format_path_io_error(
 mod tests {
     use super::{
         decode_hex, format_path_io_error, parse_args, read_text, repo_root_from_manifest_dir,
-        strip_whitespace, take_single_arg, write_text, USAGE,
+        repo_root_from_manifest_dir_path, strip_whitespace, take_single_arg, write_text, USAGE,
     };
     use std::{io, path::{Path, PathBuf}};
 
@@ -284,6 +287,18 @@ mod tests {
             .expect("repo root");
 
         assert_eq!(repo_root_from_manifest_dir().unwrap(), expected);
+    }
+
+    #[test]
+    fn repo_root_from_manifest_dir_path_rejects_shallow_manifest_dirs() {
+        let manifest_dir = Path::new("manifest");
+        let err = repo_root_from_manifest_dir_path(manifest_dir).unwrap_err();
+
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert_eq!(
+            err.to_string(),
+            "failed to resolve repo root from CARGO_MANIFEST_DIR=manifest"
+        );
     }
 
     #[test]
