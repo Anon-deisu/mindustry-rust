@@ -293,6 +293,23 @@ mod tests {
     }
 
     #[test]
+    fn advance_does_not_update_last_step_when_interval_blocks_step() {
+        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (1.0, 0.0) });
+        let runtime = RuntimeInputState {
+            unit_id: Some(77),
+            dead: false,
+            position: Some((10.0, 20.0)),
+            pointer: None,
+        };
+
+        assert!(controller.advance(runtime, 1_000, 500, None).is_some());
+        assert_eq!(controller.last_step_at_ms(), Some(1_000));
+
+        assert_eq!(controller.advance(runtime, 1_200, 500, None), None);
+        assert_eq!(controller.last_step_at_ms(), Some(1_000));
+    }
+
+    #[test]
     fn advance_keeps_locked_pointer_when_present() {
         let mut controller =
             MovementProbeController::new(MovementProbeConfig { step: (1.0, -2.0) });
