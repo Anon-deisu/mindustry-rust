@@ -846,6 +846,26 @@ mod tests {
     }
 
     #[test]
+    fn encode_payload_accepts_maximum_mod_count_boundary() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.mods = vec![String::from("mod-a:1"); 255];
+
+        let encoded = spec.encode_payload().unwrap();
+        let raw_uuid = decode_base64(&spec.uuid).unwrap();
+        let mod_count_offset = 4
+            + wire_string_len(&spec.version_type)
+            + wire_string_len(&spec.name)
+            + wire_string_len(&spec.locale)
+            + wire_string_len(&spec.usid)
+            + raw_uuid.len()
+            + 8
+            + 1
+            + 4;
+
+        assert_eq!(encoded[mod_count_offset], u8::MAX);
+    }
+
+    #[test]
     fn encode_payload_rejects_string_too_long_boundary() {
         let mut spec = ConnectPacketSpec::new_default("en_US");
         spec.name = ascii_string(65_536);
