@@ -813,6 +813,80 @@ mod tests {
     }
 
     #[test]
+    fn runtime_apply_batch_next_apply_now_batch_skips_zero_step_apply_now_batches_and_prefers_first_positive_batch()
+    {
+        let view = SavePostLoadRuntimeApplyBatchView {
+            can_seed_runtime_apply: true,
+            world_shell_ready: true,
+            stage_count: 2,
+            batches: vec![
+                SavePostLoadRuntimeApplyBatch {
+                    batch_index: 0,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    step_count: 0,
+                    blockers: Vec::new(),
+                    stages: Vec::new(),
+                },
+                SavePostLoadRuntimeApplyBatch {
+                    batch_index: 1,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    step_count: 1,
+                    blockers: Vec::new(),
+                    stages: Vec::new(),
+                },
+                SavePostLoadRuntimeApplyBatch {
+                    batch_index: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    step_count: 3,
+                    blockers: Vec::new(),
+                    stages: Vec::new(),
+                },
+            ],
+        };
+
+        let plan_view = SavePostLoadRuntimeApplyBatchPlanView {
+            can_seed_runtime_apply: true,
+            world_shell_ready: true,
+            stage_count: 2,
+            batches: vec![
+                SavePostLoadRuntimeApplyBatchPlan {
+                    batch_index: 0,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    step_count: 0,
+                    blockers: Vec::new(),
+                    stages: Vec::new(),
+                    steps: Vec::new(),
+                },
+                SavePostLoadRuntimeApplyBatchPlan {
+                    batch_index: 1,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Deferred,
+                    step_count: 1,
+                    blockers: Vec::new(),
+                    stages: Vec::new(),
+                    steps: vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 0 }],
+                },
+                SavePostLoadRuntimeApplyBatchPlan {
+                    batch_index: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    step_count: 2,
+                    blockers: Vec::new(),
+                    stages: Vec::new(),
+                    steps: vec![
+                        SavePostLoadRuntimeApplyStep::WorldShell,
+                        SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
+                    ],
+                },
+            ],
+        };
+
+        assert_eq!(view.next_apply_now_batch().map(|batch| batch.batch_index), Some(2));
+        assert_eq!(
+            plan_view.next_apply_now_batch().map(|batch| batch.batch_index),
+            Some(2)
+        );
+    }
+
+    #[test]
     fn push_or_merge_runtime_apply_batch_only_merges_with_last_same_disposition() {
         #[derive(Debug, Clone, PartialEq, Eq)]
         struct DummyBatch {
