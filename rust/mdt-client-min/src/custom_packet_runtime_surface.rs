@@ -1942,6 +1942,35 @@ mod tests {
     }
 
     #[test]
+    fn json_field_boundary_helpers_reject_prefix_collisions() {
+        let top_level = "{\"x\":12.5,\"foobar\":1,\"nested\":{\"x\":99},\"prose\":\"the \\\"x\\\": 7 should not count\"}";
+
+        let top_level_x = top_level.find("\"x\"").unwrap();
+        assert!(json_field_has_object_key_boundary(top_level, top_level_x));
+        assert_eq!(
+            extract_json_field_value(top_level, "x").map(|value| value.starts_with("12.5")),
+            Some(true)
+        );
+        assert_eq!(extract_json_field_value(top_level, "foo"), None);
+        assert_eq!(
+            extract_json_field_value(top_level, "foobar").map(|value| value.starts_with("1")),
+            Some(true)
+        );
+
+        let prose_quote = top_level.find("\\\"x\\\"").unwrap() + 1;
+        assert!(!json_field_has_object_key_boundary(top_level, prose_quote));
+
+        let nested_only = "{\"nested\":{\"x\":99},\"prose\":\"the \\\"x\\\": 7 should not count\"}";
+        assert_eq!(extract_json_field_value(nested_only, "x"), None);
+        assert_eq!(
+            parse_text_world_pos("{\"x\":12.5,\"y\":-4}"),
+            Some((12.5, -4.0, "json_xy"))
+        );
+        assert_eq!(parse_text_world_pos("{\"nested\":{\"x\":12,\"y\":-4}}"), None);
+        assert_eq!(parse_text_world_pos(" 7 , 8 "), Some((7.0, 8.0, "pair_comma")));
+    }
+
+    #[test]
     fn parse_text_literals_reject_trailing_garbage() {
         assert_eq!(parse_text_bool("{\"value\":falsehood}"), None);
         assert_eq!(parse_text_f64("{\"value\":12abc}"), None);
