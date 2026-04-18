@@ -2038,6 +2038,31 @@ mod tests {
     }
 
     #[test]
+    fn hud_view_window_summary_labels_remain_stable_for_overflowing_size() {
+        let window = super::HudViewWindowSummary {
+            origin_x: 11,
+            origin_y: 22,
+            width: usize::MAX,
+            height: 2,
+        };
+
+        let origin_label = format!("{}:{}", 11, 22);
+        let size_label = format!("{}x{}", usize::MAX, 2);
+
+        assert_eq!(window.tile_count(), usize::MAX);
+        assert_eq!(window.origin_label(), origin_label);
+        assert_eq!(window.size_label(), size_label);
+        assert_eq!(
+            window.summary_label(),
+            format!("origin={} size={}", origin_label, size_label)
+        );
+        assert_eq!(
+            window.detail_label(),
+            format!("origin={} size={} area={}", origin_label, size_label, usize::MAX)
+        );
+    }
+
+    #[test]
     fn runtime_live_entity_detail_label_surfaces_local_owned_unit_facets() {
         let entity = RuntimeLiveEntitySummaryObservability {
             entity_count: 12,
