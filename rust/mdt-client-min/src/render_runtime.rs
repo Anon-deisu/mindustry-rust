@@ -6799,6 +6799,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn runtime_selected_block_and_input_flag_labels_are_stable() {
+        assert_eq!(runtime_selected_block_label(None), "none");
+        assert_eq!(runtime_selected_block_label(Some(0x0101)), "0x0101");
+
+        assert_eq!(
+            runtime_optional_vec2_label(Some((1.0f32, -2.0f32))),
+            format!("0x{:08x}:0x{:08x}", 1.0f32.to_bits(), (-2.0f32).to_bits())
+        );
+
+        let mut snapshot_input = ClientSnapshotInputState::default();
+        snapshot_input.boosting = true;
+        snapshot_input.shooting = false;
+        snapshot_input.chatting = true;
+        snapshot_input.building = false;
+        assert_eq!(
+            runtime_input_flags_label(&snapshot_input),
+            "boosting1:shooting0:chatting1:building0"
+        );
+    }
+
     fn ingest_sample_world(session: &mut ClientSession) {
         let compressed_world_stream = sample_world_stream_bytes();
         let (begin_packet, chunk_packets) =
