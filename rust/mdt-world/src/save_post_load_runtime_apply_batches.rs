@@ -741,6 +741,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn runtime_apply_batch_view_reports_no_batches_for_empty_runtime_helper() {
+        let helper = SavePostLoadConsumerRuntimeHelper {
+            can_seed_runtime_apply: false,
+            world_shell_ready: false,
+            stages: Vec::new(),
+        };
+
+        let batch_view = helper.runtime_apply_batch_view();
+
+        assert!(!batch_view.can_seed_runtime_apply);
+        assert!(!batch_view.world_shell_ready);
+        assert_eq!(batch_view.stage_count, 0);
+        assert_eq!(batch_view.batch_count(), 0);
+        assert!(batch_view.batches.is_empty());
+        assert_eq!(batch_view.next_apply_now_batch(), None);
+    }
+
     fn test_observation() -> SavePostLoadWorldObservation {
         SavePostLoadWorldObservation {
             save_version: 11,
