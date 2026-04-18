@@ -571,6 +571,53 @@ mod tests {
     }
 
     #[test]
+    fn valid_place_against_local_plans_rejects_non_positive_request_before_plan_validation() {
+        let overlapping_plan = LocalPlanPlacement {
+            x: 3,
+            y: 4,
+            size: 1,
+            breaking: false,
+            candidate_can_replace_plan: false,
+        };
+        let invalid_plan_before_conflict = LocalPlanPlacement {
+            x: 3,
+            y: 4,
+            size: 0,
+            breaking: false,
+            candidate_can_replace_plan: false,
+        };
+
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(
+                PlacementRequest {
+                    x: 3,
+                    y: 4,
+                    size: 0,
+                },
+                &[invalid_plan_before_conflict, overlapping_plan],
+                None,
+            ),
+            Err(PlacementRejectReason::RequestSizeNonPositive { size: 0 })
+        );
+
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(
+                PlacementRequest {
+                    x: 3,
+                    y: 4,
+                    size: 1,
+                },
+                &[invalid_plan_before_conflict, overlapping_plan],
+                None,
+            ),
+            Err(PlacementRejectReason::PlanSizeNonPositive {
+                plan_index: 0,
+                size: 0,
+            })
+        );
+    }
+
+    #[test]
     fn placement_bounds_and_overlaps_handle_center_overlap_and_touching_edges() {
         let center = placement_bounds(10, 10, 1);
         let overlapping = placement_bounds(10, 10, 1);
