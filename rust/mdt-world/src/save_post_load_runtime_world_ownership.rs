@@ -879,6 +879,150 @@ mod tests {
     }
 
     #[test]
+    fn world_ownership_source_region_counts_match_surface_statuses() {
+        let ownership = SavePostLoadRuntimeWorldOwnership {
+            world_shell_ready: true,
+            surfaces: vec![
+                SavePostLoadRuntimeWorldOwnershipSurface {
+                    kind: SavePostLoadRuntimeWorldSurfaceKind::WorldShell,
+                    source_region_name: SavePostLoadRuntimeWorldSurfaceKind::WorldShell
+                        .source_region_name(),
+                    required_step_count: 2,
+                    claimed_step_count: 2,
+                    status: SavePostLoadRuntimeWorldOwnershipStatus::Owned,
+                    blockers: Vec::new(),
+                    failed_steps: Vec::new(),
+                },
+                SavePostLoadRuntimeWorldOwnershipSurface {
+                    kind: SavePostLoadRuntimeWorldSurfaceKind::TeamPlans,
+                    source_region_name: SavePostLoadRuntimeWorldSurfaceKind::TeamPlans
+                        .source_region_name(),
+                    required_step_count: 0,
+                    claimed_step_count: 0,
+                    status: SavePostLoadRuntimeWorldOwnershipStatus::Blocked,
+                    blockers: Vec::new(),
+                    failed_steps: Vec::new(),
+                },
+                SavePostLoadRuntimeWorldOwnershipSurface {
+                    kind: SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps,
+                    source_region_name: SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps
+                        .source_region_name(),
+                    required_step_count: 3,
+                    claimed_step_count: 1,
+                    status: SavePostLoadRuntimeWorldOwnershipStatus::Failed,
+                    blockers: Vec::new(),
+                    failed_steps: vec![SavePostLoadRuntimeApplyStep::Marker { marker_index: 7 }],
+                },
+                SavePostLoadRuntimeWorldOwnershipSurface {
+                    kind: SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities,
+                    source_region_name: SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities
+                        .source_region_name(),
+                    required_step_count: 4,
+                    claimed_step_count: 2,
+                    status: SavePostLoadRuntimeWorldOwnershipStatus::AwaitingWorldShell,
+                    blockers: Vec::new(),
+                    failed_steps: Vec::new(),
+                },
+                SavePostLoadRuntimeWorldOwnershipSurface {
+                    kind: SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities,
+                    source_region_name: SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities
+                        .source_region_name(),
+                    required_step_count: 0,
+                    claimed_step_count: 0,
+                    status: SavePostLoadRuntimeWorldOwnershipStatus::Deferred,
+                    blockers: Vec::new(),
+                    failed_steps: Vec::new(),
+                },
+                SavePostLoadRuntimeWorldOwnershipSurface {
+                    kind: SavePostLoadRuntimeWorldSurfaceKind::CustomChunks,
+                    source_region_name: SavePostLoadRuntimeWorldSurfaceKind::CustomChunks
+                        .source_region_name(),
+                    required_step_count: 0,
+                    claimed_step_count: 0,
+                    status: SavePostLoadRuntimeWorldOwnershipStatus::Absent,
+                    blockers: Vec::new(),
+                    failed_steps: Vec::new(),
+                },
+            ],
+        };
+
+        let map = ownership.source_region("map").unwrap();
+        let entities = ownership.source_region("entities").unwrap();
+        let custom = ownership.source_region("custom").unwrap();
+
+        assert_eq!(ownership.surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell).unwrap().status, SavePostLoadRuntimeWorldOwnershipStatus::Owned);
+        assert_eq!(ownership.surface(SavePostLoadRuntimeWorldSurfaceKind::TeamPlans).unwrap().status, SavePostLoadRuntimeWorldOwnershipStatus::Blocked);
+        assert_eq!(ownership.surface(SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps).unwrap().status, SavePostLoadRuntimeWorldOwnershipStatus::Failed);
+        assert_eq!(ownership.surface(SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities).unwrap().status, SavePostLoadRuntimeWorldOwnershipStatus::AwaitingWorldShell);
+        assert_eq!(ownership.surface(SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities).unwrap().status, SavePostLoadRuntimeWorldOwnershipStatus::Deferred);
+        assert_eq!(ownership.surface(SavePostLoadRuntimeWorldSurfaceKind::CustomChunks).unwrap().status, SavePostLoadRuntimeWorldOwnershipStatus::Absent);
+
+        assert_eq!(ownership.owned_surface_count(), 1);
+        assert_eq!(ownership.failed_surface_count(), 1);
+        assert_eq!(ownership.awaiting_world_shell_surface_count(), 1);
+        assert_eq!(ownership.blocked_surface_count(), 1);
+        assert_eq!(ownership.deferred_surface_count(), 1);
+        assert_eq!(ownership.absent_surface_count(), 1);
+        assert_eq!(map.owned_surface_count(), 1);
+        assert_eq!(entities.failed_surface_count(), 1);
+        assert_eq!(entities.awaiting_world_shell_surface_count(), 1);
+        assert_eq!(entities.blocked_surface_count(), 1);
+        assert_eq!(entities.deferred_surface_count(), 1);
+        assert_eq!(custom.absent_surface_count(), 1);
+
+        assert_eq!(
+            map.summary_label(),
+            "region=map own=1/1 claim=2/2 wait=0 block=0 fail=0 defer=0 absent=0"
+        );
+        assert_eq!(
+            entities.summary_label(),
+            "region=entities own=0/4 claim=3/7 wait=1 block=1 fail=1 defer=1 absent=0"
+        );
+        assert_eq!(
+            custom.summary_label(),
+            "region=custom own=0/1 claim=0/0 wait=0 block=0 fail=0 defer=0 absent=1"
+        );
+        assert_eq!(
+            ownership.summary_label(),
+            "shell=yes semantics=no own=1/6 claim=5/9 wait=1 block=1 fail=1 defer=1 absent=1 regions=3"
+        );
+        assert_eq!(
+            ownership.detail_label(),
+            "shell=yes semantics=no own=1/6 claim=5/9 wait=1 block=1 fail=1 defer=1 absent=1 regions=[region=map own=1/1 claim=2/2 wait=0 block=0 fail=0 defer=0 absent=0,region=entities own=0/4 claim=3/7 wait=1 block=1 fail=1 defer=1 absent=0,region=custom own=0/1 claim=0/0 wait=0 block=0 fail=0 defer=0 absent=1]"
+        );
+        assert_eq!(
+            ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
+                .unwrap()
+                .detail_label(),
+            "kind=world-shell region=map status=owned claim=2/2 blockers=0 failed=0"
+        );
+        assert_eq!(
+            ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps)
+                .unwrap()
+                .summary_label(),
+            "entity-remaps:failed:1/3 blockers=0 failed=1"
+        );
+        assert_eq!(
+            ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities)
+                .unwrap()
+                .status
+                .label(),
+            "deferred"
+        );
+        assert_eq!(
+            SavePostLoadRuntimeWorldOwnershipStatus::AwaitingWorldShell.label(),
+            "awaiting-world-shell"
+        );
+        assert_eq!(
+            SavePostLoadRuntimeWorldSurfaceKind::CustomChunks.label(),
+            "custom-chunks"
+        );
+    }
+
+    #[test]
     fn runtime_world_ownership_keeps_failed_marker_surface_unowned() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
