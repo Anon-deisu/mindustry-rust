@@ -533,6 +533,7 @@ mod tests {
                 vec![SavePostLoadRuntimeApplyStep::StaticFog],
             ]
         );
+        assert!(status_buckets.iter().all(|bucket| !bucket.steps.is_empty()));
         assert_eq!(
             source_regions
                 .iter()
