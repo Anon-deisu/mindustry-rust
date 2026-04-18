@@ -779,7 +779,7 @@ mod tests {
 
     #[test]
     fn decode_packet_rejects_unsupported_compression_without_trailing_bytes() {
-        let encoded = vec![CONNECT_PACKET_ID, 0x00, 0x00, 0x09];
+        let encoded = vec![CONNECT_PACKET_ID, 0x00, 0x00, 0x09, 0xde, 0xad];
 
         assert!(matches!(
             decode_packet(&encoded),
@@ -966,12 +966,17 @@ mod tests {
         let payload = (0u8..=255).cycle().take(2500).collect::<Vec<_>>();
         let chunks = split_stream_chunks(&payload, 1024);
         let rebuilt = reassemble_stream_chunks(&chunks);
+        let exact_payload = (0u8..=255).cycle().take(1024).collect::<Vec<_>>();
+        let exact_chunks = split_stream_chunks(&exact_payload, 1024);
 
         assert_eq!(chunks.len(), 3);
         assert_eq!(chunks[0].len(), 1024);
         assert_eq!(chunks[1].len(), 1024);
         assert_eq!(chunks[2].len(), 452);
         assert_eq!(rebuilt, payload);
+        assert_eq!(exact_chunks.len(), 1);
+        assert_eq!(exact_chunks[0].len(), 1024);
+        assert_eq!(reassemble_stream_chunks(&exact_chunks), exact_payload);
     }
 
     #[test]
