@@ -488,22 +488,34 @@ mod tests {
         let observation = test_observation();
         let plan = observation.runtime_seed_plan();
         let source_regions = plan.source_regions();
+        let source_region_names = source_regions
+            .iter()
+            .map(|region| region.source_region_name)
+            .collect::<Vec<_>>();
         let entities = plan.source_region("entities").unwrap();
 
         assert_eq!(plan.contract, observation.projection_contract());
         assert_eq!(plan.activation, observation.activation_surface());
         assert!(!plan.can_seed_runtime_apply());
         assert_eq!(plan.seed_step_count(), 14);
+        assert_eq!(
+            plan.seed_step_count(),
+            source_regions
+                .iter()
+                .map(SavePostLoadRuntimeSeedRegion::seed_step_count)
+                .sum::<usize>()
+        );
         assert_eq!(plan.summary_label(), "seed=no steps=14 regions=4");
         assert!(plan
             .detail_label()
             .contains("region=entities world=0 remaps=2 plans=2 markers=0 fog=0 chunks=0 buildings=0 loadable=2 skipped=1 total=7"));
+        assert_eq!(source_region_names, vec!["map", "entities", "markers", "custom"]);
         assert_eq!(
-            source_regions
+            plan.source_regions()
                 .iter()
                 .map(|region| region.source_region_name)
                 .collect::<Vec<_>>(),
-            vec!["map", "entities", "markers", "custom"]
+            source_region_names
         );
         assert_eq!(source_regions[0].seed_step_count(), 2);
         assert_eq!(source_regions[1].seed_step_count(), 7);
@@ -514,6 +526,7 @@ mod tests {
             "region=map world=1 remaps=0 plans=0 markers=0 fog=0 chunks=0 buildings=1 loadable=0 skipped=0 total=2"
         );
         assert_eq!(source_regions[0].world_seed.as_ref(), Some(&plan.world_seed));
+        assert!(source_regions.iter().skip(1).all(|region| region.world_seed.is_none()));
         assert_eq!(source_regions[0].building_seeds.len(), 1);
         assert_eq!(entities.seed_step_count(), 7);
         assert_eq!(entities.entity_remap_seeds.len(), 2);
