@@ -17599,6 +17599,71 @@ mod tests {
     }
 
     #[test]
+    fn decode_length_prefixed_json_payload_rejects_negative_truncated_and_trailing_bytes() {
+        let negative_payload = (-1i32).to_be_bytes();
+        assert_eq!(
+            decode_length_prefixed_json_payload(&negative_payload).unwrap_err(),
+            "negative JSON payload length: -1"
+        );
+
+        let mut truncated_payload = Vec::new();
+        truncated_payload.extend_from_slice(&5i32.to_be_bytes());
+        truncated_payload.extend_from_slice(b"abc");
+        assert_eq!(
+            decode_length_prefixed_json_payload(&truncated_payload).unwrap_err(),
+            "truncated JSON payload body: expected 5 bytes, actual 3"
+        );
+
+        let mut trailing_payload = Vec::new();
+        trailing_payload.extend_from_slice(&1i32.to_be_bytes());
+        trailing_payload.push(b'a');
+        trailing_payload.push(0xff);
+        assert_eq!(
+            decode_length_prefixed_json_payload(&trailing_payload).unwrap_err(),
+            "trailing bytes in JSON payload: consumed 5, actual 6"
+        );
+    }
+
+    #[test]
+    fn decode_kick_reason_payload_prefers_i32_then_u8_and_preserves_optional_duration() {
+        let i32_reason = 0x0102_0304i32;
+        let i32_duration = 0x0506_0708_090a_0b0ci64;
+        let mut i32_payload = Vec::new();
+        i32_payload.extend_from_slice(&i32_reason.to_be_bytes());
+        i32_payload.extend_from_slice(&i32_duration.to_be_bytes());
+        assert_eq!(
+            decode_kick_reason_payload_with_i32(&i32_payload),
+            Some((Some(i32_reason), Some(i32_duration as u64)))
+        );
+        assert_eq!(
+            decode_kick_reason_payload_with_u8(&i32_payload),
+            None
+        );
+        assert_eq!(
+            decode_kick_reason_payload(&i32_payload),
+            (Some(i32_reason), Some(i32_duration as u64))
+        );
+
+        let u8_reason = 0x7fu8;
+        let u8_duration = 0x0102_0304_0506_0708u64;
+        let mut u8_payload = Vec::new();
+        u8_payload.push(u8_reason);
+        u8_payload.extend_from_slice(&u8_duration.to_be_bytes());
+        assert_eq!(
+            decode_kick_reason_payload_with_i32(&u8_payload),
+            None
+        );
+        assert_eq!(
+            decode_kick_reason_payload_with_u8(&u8_payload),
+            Some((Some(i32::from(u8_reason)), Some(u8_duration)))
+        );
+        assert_eq!(
+            decode_kick_reason_payload(&u8_payload),
+            (Some(i32::from(u8_reason)), Some(u8_duration))
+        );
+    }
+
+    #[test]
     fn drives_connect_world_stream_and_snapshot_chain() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
