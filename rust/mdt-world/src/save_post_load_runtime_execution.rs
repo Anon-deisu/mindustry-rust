@@ -1004,6 +1004,39 @@ mod tests {
     }
 
     #[test]
+    fn filter_world_semantics_steps_keeps_only_world_semantics_steps_in_original_order() {
+        let steps = vec![
+            SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
+            SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
+            SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
+            SavePostLoadRuntimeApplyStep::WorldShell,
+            SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 },
+            SavePostLoadRuntimeApplyStep::TeamPlan {
+                group_index: 1,
+                plan_index: 0,
+            },
+            SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 },
+            SavePostLoadRuntimeApplyStep::StaticFog,
+            SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
+        ];
+
+        assert_eq!(
+            filter_world_semantics_steps(&steps),
+            vec![
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
+                SavePostLoadRuntimeApplyStep::WorldShell,
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 1,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::StaticFog,
+                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
+            ]
+        );
+    }
+
+    #[test]
     fn save_post_load_runtime_execution_summary_and_detail_labels_use_bool_labels() {
         let execution = SavePostLoadRuntimeApplyExecution {
             can_seed_runtime_apply: true,
