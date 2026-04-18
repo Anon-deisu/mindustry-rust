@@ -3245,6 +3245,31 @@ mod tests {
     }
 
     #[test]
+    fn validate_remote_generator_info_accepts_fixture_generator_metadata() {
+        let generator = RemoteGeneratorInfo {
+            source: "mindustry.annotations.remote".to_string(),
+            call_class: "mindustry.gen.Call".to_string(),
+        };
+
+        assert!(validate_remote_generator_info(&generator).is_ok());
+    }
+
+    #[test]
+    fn validate_wire_spec_accepts_fixture_wire_spec() {
+        let wire = WireSpec {
+            packet_id_byte: REMOTE_WIRE_PACKET_ID_BYTE_U8.to_string(),
+            length_field: REMOTE_WIRE_LENGTH_FIELD_U16BE.to_string(),
+            compression_flag: CompressionFlagSpec {
+                none: REMOTE_WIRE_COMPRESSION_NONE.to_string(),
+                lz4: REMOTE_WIRE_COMPRESSION_LZ4.to_string(),
+            },
+            compression_threshold: REMOTE_WIRE_COMPRESSION_THRESHOLD,
+        };
+
+        assert!(validate_wire_spec(&wire).is_ok());
+    }
+
+    #[test]
     fn validate_remote_allow_flags_requires_paired_flags_and_matches_flow() {
         let base_packet = RemotePacketEntry {
             remote_index: 0,
