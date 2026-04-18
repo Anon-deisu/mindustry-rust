@@ -660,6 +660,32 @@ mod tests {
     }
 
     #[test]
+    fn decode_base64_value_accepts_alphabet_edges_and_rejects_neighboring_punctuation() {
+        assert_eq!(decode_base64_value('A', 0), Ok(0));
+        assert_eq!(decode_base64_value('Z', 1), Ok(25));
+        assert_eq!(decode_base64_value('a', 2), Ok(26));
+        assert_eq!(decode_base64_value('z', 3), Ok(51));
+        assert_eq!(decode_base64_value('0', 4), Ok(52));
+        assert_eq!(decode_base64_value('9', 5), Ok(61));
+        assert_eq!(decode_base64_value('+', 6), Ok(62));
+        assert_eq!(decode_base64_value('-', 7), Ok(62));
+        assert_eq!(decode_base64_value('/', 8), Ok(63));
+        assert_eq!(decode_base64_value('_', 9), Ok(63));
+        assert_eq!(
+            decode_base64_value('.', 10),
+            Err(ConnectPacketEncodeError::InvalidBase64Char { ch: '.', index: 10 })
+        );
+    }
+
+    #[test]
+    fn decode_base64_rejects_padding_in_second_slot() {
+        assert_eq!(
+            decode_base64("A=AA").unwrap_err(),
+            ConnectPacketEncodeError::InvalidBase64Char { ch: '=', index: 1 }
+        );
+    }
+
+    #[test]
     fn encode_base64_encodes_short_inputs_with_padding() {
         assert_eq!(encode_base64(b""), "");
         assert_eq!(encode_base64(b"f"), "Zg==");
