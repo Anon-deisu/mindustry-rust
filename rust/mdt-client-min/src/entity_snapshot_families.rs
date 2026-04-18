@@ -67,4 +67,19 @@ mod tests {
             ALPHA_SHAPE_LEGACY_ALIAS_ENTITY_CLASS_IDS[1]
         ));
     }
+
+    #[test]
+    fn runtime_compatible_alpha_shape_entity_class_id_accepts_all_listed_ids_and_rejects_neighbors() {
+        for class_id in ALPHA_SHAPE_ENTITY_CLASS_IDS {
+            assert!(is_runtime_compatible_alpha_shape_entity_class_id(class_id));
+        }
+
+        assert!(!is_runtime_compatible_alpha_shape_entity_class_id(1));
+        assert!(!is_runtime_compatible_alpha_shape_entity_class_id(47));
+
+        assert_eq!(BUILDING_ENTITY_CLASS_IDS, [6]);
+        assert!(is_building_entity_class_id(BUILDING_ENTITY_CLASS_IDS[0]));
+        assert!(!is_building_entity_class_id(5));
+        assert!(!is_building_entity_class_id(7));
+    }
 }
