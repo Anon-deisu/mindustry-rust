@@ -6075,6 +6075,14 @@ mod tests {
     }
 
     #[test]
+    fn collect_layer_labels_preserves_order_and_skips_inactive_entries() {
+        assert_eq!(
+            super::collect_layer_labels(&[(true, "a"), (false, "b"), (true, "c")]),
+            vec!["a", "c"]
+        );
+    }
+
+    #[test]
     fn panel_helpers_surface_runtime_menu_chat_and_dialog_derivations() {
         let hud = HudModel {
             runtime_ui: Some(RuntimeUiObservability {
