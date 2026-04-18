@@ -2984,7 +2984,7 @@ mod tests {
         format_runtime_command_group_lines,
         format_runtime_command_control_groups_text, format_runtime_command_i32_list_text,
         format_runtime_command_mode_detail_text, format_runtime_command_mode_panel_text,
-        compact_runtime_ui_text, runtime_ui_text_len,
+        compact_runtime_ui_text, runtime_ui_text_len, runtime_ui_uri_scheme,
         format_runtime_ui_notice_detail_text, format_runtime_ui_notice_panel_text,
         runtime_ui_notice_panel_is_empty,
         format_runtime_notice_state_detail_text, format_runtime_notice_state_panel_text,
@@ -3484,6 +3484,20 @@ mod tests {
             format_runtime_world_label_scalar_text(Some(1094713344), None),
             "1094713344"
         );
+    }
+
+    #[test]
+    fn runtime_ui_uri_scheme_trims_and_compacts_scheme_or_falls_back_to_none() {
+        assert_eq!(runtime_ui_uri_scheme(None), "none");
+        assert_eq!(
+            runtime_ui_uri_scheme(Some("  tcp://localhost:6567  ")),
+            "tcp"
+        );
+        assert_eq!(
+            runtime_ui_uri_scheme(Some("  custom scheme:payload  ")),
+            "custom_schem~"
+        );
+        assert_eq!(runtime_ui_uri_scheme(Some("  ://missing-scheme  ")), "none");
     }
 
     #[test]
