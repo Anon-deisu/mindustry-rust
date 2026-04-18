@@ -6361,6 +6361,8 @@ mod tests {
 
         let generated = generate_high_frequency_rust_module(&manifest).unwrap();
         assert!(generated.contains("pub const CLIENT_SNAPSHOT_PACKET_ID: u8 = 4;"));
+        assert!(generated.contains("pub const STATE_SNAPSHOT_PACKET_ID: u8 = 5;"));
+        assert!(generated.contains("pub const BLOCK_SNAPSHOT_PACKET_ID: u8 = 7;"));
         assert!(generated.contains(
             "pub const HIGH_FREQUENCY_REMOTE_PACKET_SPECS: &[HighFrequencyRemotePacketSpec] = &["
         ));
