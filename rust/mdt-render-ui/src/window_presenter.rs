@@ -8445,6 +8445,33 @@ mod tests {
     }
 
     #[test]
+    fn compose_window_title_skips_empty_fragments_and_preserves_order() {
+        let frame = WindowFrame {
+            frame_id: 7,
+            title: String::new(),
+            wave_text: Some("Wave 7".to_string()),
+            session_banner_text: None,
+            status_text: "base hud:".to_string(),
+            build_strip_text: None,
+            build_strip_detail_text: None,
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
+            overlay_summary_text: Some("Plans 1".to_string()),
+            fps: None,
+            zoom: 1.0,
+            width: 1,
+            height: 1,
+            minimap_inset: None,
+            pixels: vec![0],
+        };
+
+        assert_eq!(
+            super::compose_window_title(&frame, "demo-client"),
+            "demo-client · Wave 7 · base hud: · Plans 1"
+        );
+    }
+
+    #[test]
     fn present_once_surfaces_build_config_overflow_and_extended_minimap_counts() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);
