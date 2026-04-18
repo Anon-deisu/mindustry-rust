@@ -693,6 +693,12 @@ mod tests {
     }
 
     #[test]
+    fn encode_base64_preserves_exact_three_byte_chunks_without_padding() {
+        assert_eq!(encode_base64(b"foo"), "Zm9v");
+        assert_eq!(encode_base64(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
     fn server_observed_uuid_appends_crc32_bytes() {
         let spec = ConnectPacketSpec {
             version: -1,
