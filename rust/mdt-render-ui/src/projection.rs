@@ -1296,6 +1296,27 @@ mod tests {
     }
 
     #[test]
+    fn marker_projection_summary_reports_stable_boundary_fields_for_unknown_marker_without_anchor() {
+        let marker = MarkerEntry {
+            id: 48,
+            marker: MarkerModel::Unknown(UnknownMarkerModel {
+                class_tag: None,
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: None,
+                x_bits: None,
+                y_bits: None,
+            }),
+        };
+
+        assert_eq!(
+            marker_projection_summary(&marker),
+            "kind=unknown objects=0 line-end=0"
+        );
+    }
+
+    #[test]
     fn unknown_marker_projects_anchor_when_coordinates_are_present() {
         let marker = MarkerEntry {
             id: 47,
