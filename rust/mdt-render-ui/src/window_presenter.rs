@@ -4767,7 +4767,7 @@ mod tests {
         COLOR_MINIMAP_INSET_VIEWPORT_PARTIAL, COLOR_MINIMAP_INSET_VIEWPORT_WARN, COLOR_PLAN,
         COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR,
         COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X, WINDOW_HUD_BAR_PADDING_Y,
-        WINDOW_HUD_FONT_HEIGHT,
+        WINDOW_HUD_FONT_HEIGHT, MinimapPanelModel, PresenterViewWindow,
     };
     use crate::{
         hud_model::{
@@ -4854,6 +4854,20 @@ mod tests {
             super::compose_zoom_status_text(&zoomed_scene),
             Some("zoom=1.25".to_string())
         );
+    }
+
+    #[test]
+    fn minimap_clamp_status_text_formats_none_and_all_sides_in_stable_order() {
+        let mut panel = sample_minimap_panel();
+
+        assert_eq!(super::minimap_clamp_status_text(&panel), "-");
+
+        panel.window_clamped_left = true;
+        panel.window_clamped_top = true;
+        panel.window_clamped_right = true;
+        panel.window_clamped_bottom = true;
+
+        assert_eq!(super::minimap_clamp_status_text(&panel), "ltrb");
     }
 
     fn runtime_stack_test_scene() -> RenderModel {
@@ -10271,6 +10285,60 @@ mod tests {
             format_render_primitive_payload_fields(&payload),
             "active=true,enabled=false,plain=10,x_bits=0x41000000"
         );
+    }
+
+    fn sample_minimap_panel() -> MinimapPanelModel {
+        MinimapPanelModel {
+            map_width: 0,
+            map_height: 0,
+            window: PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 0,
+                height: 0,
+            },
+            window_last_x: 0,
+            window_last_y: 0,
+            window_clamped_left: false,
+            window_clamped_top: false,
+            window_clamped_right: false,
+            window_clamped_bottom: false,
+            window_tile_count: 0,
+            window_coverage_percent: 0,
+            map_tile_count: 0,
+            known_tile_count: 0,
+            known_tile_percent: 0,
+            unknown_tile_count: 0,
+            unknown_tile_percent: 0,
+            focus_tile: None,
+            focus_in_window: None,
+            focus_offset_x: None,
+            focus_offset_y: None,
+            overlay_visible: false,
+            fog_enabled: false,
+            visible_tile_count: 0,
+            visible_known_percent: 0,
+            hidden_tile_count: 0,
+            hidden_known_percent: 0,
+            tracked_object_count: 0,
+            window_tracked_object_count: 0,
+            outside_window_count: 0,
+            player_count: 0,
+            window_player_count: 0,
+            marker_count: 0,
+            window_marker_count: 0,
+            plan_count: 0,
+            window_plan_count: 0,
+            block_count: 0,
+            window_block_count: 0,
+            runtime_count: 0,
+            window_runtime_count: 0,
+            terrain_count: 0,
+            window_terrain_count: 0,
+            unknown_count: 0,
+            window_unknown_count: 0,
+            detail_counts: Vec::new(),
+        }
     }
 
     fn assert_frame_line_contains(lines: &[String], needle: &str) {
