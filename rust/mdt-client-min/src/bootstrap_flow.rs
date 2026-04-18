@@ -596,6 +596,29 @@ mod tests {
     }
 
     #[test]
+    fn sanitize_bootstrap_player_position_bits_preserves_signed_zero_bits_for_finite_coordinates() {
+        let connect_payload = sample_connect_payload();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        let mut login = LoginBootstrap::from_stream_packets(
+            &connect_payload,
+            &begin_packet,
+            &chunk_packets,
+            "fr",
+        )
+        .unwrap();
+
+        login.bootstrap.player_x_bits = (-0.0_f32).to_bits();
+        login.bootstrap.player_y_bits = 0.0_f32.to_bits();
+
+        assert_eq!(
+            sanitize_bootstrap_player_position_bits(&login.bootstrap),
+            Some(((-0.0_f32).to_bits(), 0.0_f32.to_bits()))
+        );
+    }
+
+    #[test]
     fn reset_finish_connecting_lifecycle_clears_finish_connecting_state() {
         let mut state = SessionState::default();
         state.client_loaded = true;
