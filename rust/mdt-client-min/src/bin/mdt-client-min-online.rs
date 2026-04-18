@@ -7410,6 +7410,28 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn decode_encode_hex_text_handles_whitespace_and_errors() {
+        let empty = Vec::<u8>::new();
+        assert_eq!(super::decode_hex_text(&super::encode_hex_text(&empty)).unwrap(), empty);
+        assert_eq!(
+            super::decode_hex_text("de ad\nbe\t ef").unwrap(),
+            vec![0xde, 0xad, 0xbe, 0xef]
+        );
+
+        let encoded = super::encode_hex_text(&(0u8..33).collect::<Vec<_>>());
+        let lines = encoded.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].len(), 64);
+        assert_eq!(lines[1].len(), 2);
+
+        assert_eq!(
+            super::decode_hex_text("abc").unwrap_err(),
+            "hex payload length must be even"
+        );
+        assert!(super::decode_hex_text("zz").is_err());
+    }
+
     fn sample_world_stream_bytes() -> Vec<u8> {
         decode_hex_text(include_str!(
             "../../../../tests/src/test/resources/world-stream.hex"
