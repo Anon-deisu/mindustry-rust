@@ -526,6 +526,27 @@ mod tests {
     }
 
     #[test]
+    fn resolve_cli_path_keeps_parent_directory_segments_when_joining_relative_paths() {
+        let original_dir = env::current_dir().expect("current dir");
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-resolve-cli-path-parent-segments-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        env::set_current_dir(&temp_dir).unwrap();
+
+        let parent_path = Path::new("out/../registry.rs");
+        assert_eq!(resolve_cli_path(parent_path).unwrap(), temp_dir.join(parent_path));
+
+        env::set_current_dir(&original_dir).unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn resolve_cli_path_keeps_empty_relative_paths_as_current_directory() {
         let original_dir = env::current_dir().expect("current dir");
         let temp_dir = env::temp_dir().join(format!(
