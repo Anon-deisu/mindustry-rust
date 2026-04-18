@@ -4854,6 +4854,73 @@ mod tests {
     }
 
     #[test]
+    fn builder_queue_activity_state_skip_reason_reports_all_precedence_branches() {
+        let headless = BuilderQueueActivityState {
+            head_tile: None,
+            actively_building: false,
+            head_in_range: false,
+            head_should_skip: true,
+            reordered: false,
+            used_closest_in_range_fallback: false,
+            head_selection: BuilderQueueHeadSelection::ObservationMissing,
+        };
+        assert_eq!(headless.skip_reason(), None);
+
+        let observation_missing = BuilderQueueActivityState {
+            head_tile: Some((1, 1)),
+            actively_building: false,
+            head_in_range: true,
+            head_should_skip: true,
+            reordered: false,
+            used_closest_in_range_fallback: false,
+            head_selection: BuilderQueueHeadSelection::ObservationMissing,
+        };
+        assert_eq!(
+            observation_missing.skip_reason(),
+            Some(BuilderQueueSkipReason::ObservationMissing)
+        );
+
+        let requested_skip = BuilderQueueActivityState {
+            head_tile: Some((2, 2)),
+            actively_building: false,
+            head_in_range: true,
+            head_should_skip: true,
+            reordered: false,
+            used_closest_in_range_fallback: false,
+            head_selection: BuilderQueueHeadSelection::HeadInRange,
+        };
+        assert_eq!(
+            requested_skip.skip_reason(),
+            Some(BuilderQueueSkipReason::RequestedSkip)
+        );
+
+        let out_of_range = BuilderQueueActivityState {
+            head_tile: Some((3, 3)),
+            actively_building: false,
+            head_in_range: false,
+            head_should_skip: false,
+            reordered: false,
+            used_closest_in_range_fallback: false,
+            head_selection: BuilderQueueHeadSelection::HeadOutOfRange,
+        };
+        assert_eq!(
+            out_of_range.skip_reason(),
+            Some(BuilderQueueSkipReason::OutOfRange)
+        );
+
+        let normal = BuilderQueueActivityState {
+            head_tile: Some((4, 4)),
+            actively_building: false,
+            head_in_range: true,
+            head_should_skip: false,
+            reordered: false,
+            used_closest_in_range_fallback: false,
+            head_selection: BuilderQueueHeadSelection::HeadInRange,
+        };
+        assert_eq!(normal.skip_reason(), None);
+    }
+
+    #[test]
     fn validate_against_tile_states_records_removal_reason_and_head_advance_promotion() {
         let mut queue = BuilderQueueStateMachine::default();
         queue.sync_local_entries([
