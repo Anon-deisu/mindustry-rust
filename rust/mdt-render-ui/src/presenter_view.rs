@@ -7097,6 +7097,16 @@ mod tests {
     }
 
     #[test]
+    fn format_world_position_status_text_preserves_signed_zero_on_finite_path() {
+        assert_eq!(
+            format_world_position_status_text(Some(&RuntimeWorldPositionObservability {
+                x_bits: (-0.0f32).to_bits(),
+                y_bits: 0.0f32.to_bits(),
+            })),
+            "-0.0:0.0"
+        );
+    }
+    #[test]
     fn format_live_effect_position_source_text_maps_all_variants() {
         assert_eq!(format_live_effect_position_source_text(None), "none");
         assert_eq!(
