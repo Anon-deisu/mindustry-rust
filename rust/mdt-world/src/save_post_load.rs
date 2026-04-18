@@ -482,6 +482,116 @@ mod tests {
     }
 
     #[test]
+    fn post_load_world_apply_bundle_graph_matches_observation_graph_surface() {
+        let mut observation = test_observation();
+        observation.map.world = WorldModel {
+            width: 2,
+            height: 1,
+            floors: vec![10, 20],
+            overlays: vec![30, 40],
+            blocks: vec![50, 60],
+            tiles: vec![
+                TileModel {
+                    tile_index: 0,
+                    x: 0,
+                    y: 0,
+                    floor_id: 10,
+                    overlay_id: 30,
+                    block_id: 50,
+                    building_center_index: None,
+                },
+                TileModel {
+                    tile_index: 1,
+                    x: 1,
+                    y: 0,
+                    floor_id: 20,
+                    overlay_id: 40,
+                    block_id: 60,
+                    building_center_index: None,
+                },
+            ],
+            building_centers: Vec::new(),
+            data_tiles: 0,
+            team_count: 0,
+            total_plans: 0,
+            team_ids: Vec::new(),
+            team_plan_counts: Vec::new(),
+        };
+        observation.team_plan_groups = vec![TeamPlanGroup {
+            team_id: 9,
+            plan_count: 1,
+            plans: Vec::new(),
+        }];
+        observation.markers = vec![MarkerEntry {
+            id: 77,
+            marker: MarkerModel::Unknown(UnknownMarkerModel {
+                class_tag: None,
+                world: true,
+                minimap: false,
+                autoscale: false,
+                draw_layer_bits: None,
+                x_bits: None,
+                y_bits: None,
+            }),
+        }];
+        observation.marker_region_bytes = b"{}".to_vec();
+        observation.custom_chunks = vec![CustomChunkEntry {
+            name: "static-fog-data".to_string(),
+            chunk_len: 1,
+            chunk_bytes: vec![1],
+            chunk_sha256: "fog".to_string(),
+            parsed: ParsedCustomChunk::StaticFog(StaticFogChunk {
+                used_teams: 1,
+                width: 1,
+                height: 1,
+                teams: vec![StaticFogTeam {
+                    team_id: 1,
+                    run_count: 1,
+                    rle_bytes: vec![1],
+                    discovered: vec![true],
+                }],
+            }),
+        }];
+
+        let bundle = observation.post_load_world_apply_bundle();
+        let bundle_graph = bundle.graph();
+        let observation_graph = observation.graph();
+
+        assert_eq!(bundle_graph.width(), observation_graph.width());
+        assert_eq!(bundle_graph.height(), observation_graph.height());
+        assert_eq!(bundle_graph.tile(1, 0).map(|tile| tile.block_id), observation_graph.tile(1, 0).map(|tile| tile.block_id));
+        assert_eq!(bundle_graph.team_plan_group(9).map(|group| group.team_id), observation_graph.team_plan_group(9).map(|group| group.team_id));
+        assert_eq!(bundle_graph.marker_region(), observation_graph.marker_region());
+        assert_eq!(bundle_graph.markers_are_empty(), observation_graph.markers_are_empty());
+        assert_eq!(bundle_graph.markers().count(), observation_graph.markers().count());
+        assert_eq!(bundle_graph.custom_chunks().count(), observation_graph.custom_chunks().count());
+        assert_eq!(bundle_graph.static_fog_chunk().map(|chunk| (chunk.used_teams, chunk.width, chunk.height)), observation_graph.static_fog_chunk().map(|chunk| (chunk.used_teams, chunk.width, chunk.height)));
+    }
+
+    #[test]
+    fn post_load_world_team_plan_group_rejects_duplicate_team_ids() {
+        let observation = SavePostLoadWorldObservation {
+            team_plan_groups: vec![
+                TeamPlanGroup {
+                    team_id: 7,
+                    plan_count: 1,
+                    plans: Vec::new(),
+                },
+                TeamPlanGroup {
+                    team_id: 7,
+                    plan_count: 1,
+                    plans: Vec::new(),
+                },
+            ],
+            ..test_observation()
+        };
+
+        let bundle = observation.post_load_world_apply_bundle();
+
+        assert!(bundle.team_plan_group(7).is_none());
+    }
+
+    #[test]
     fn post_load_world_apply_bundle_aggregates_runtime_and_query_surfaces() {
         let observation = SavePostLoadWorldObservation {
             world_entity_chunks: vec![SaveEntityChunkObservation {
