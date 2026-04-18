@@ -226,6 +226,12 @@ mod tests {
     }
 
     #[test]
+    fn decode_hex_rejects_non_whitespace_separators() {
+        assert!(decode_hex("0a-0b").is_err());
+        assert!(decode_hex("0a_0b").is_err());
+    }
+
+    #[test]
     fn decode_hex_accepts_empty_input() {
         assert_eq!(decode_hex("").unwrap(), Vec::<u8>::new());
     }
