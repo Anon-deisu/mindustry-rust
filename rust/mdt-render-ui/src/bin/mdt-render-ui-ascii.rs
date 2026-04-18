@@ -148,4 +148,13 @@ mod tests {
         .unwrap_err();
         assert_eq!(hex_err, "duplicate argument: --world-stream-hex");
     }
+
+    #[test]
+    fn parse_args_reports_missing_values_for_locale_and_world_stream_hex() {
+        let locale_err = parse_args(vec!["--locale".to_string()].into_iter()).unwrap_err();
+        assert_eq!(locale_err, "missing value for --locale");
+
+        let hex_err = parse_args(vec!["--world-stream-hex".to_string()].into_iter()).unwrap_err();
+        assert_eq!(hex_err, "missing value for --world-stream-hex");
+    }
 }
