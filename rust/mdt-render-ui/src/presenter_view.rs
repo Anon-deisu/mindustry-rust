@@ -2969,7 +2969,8 @@ mod tests {
         compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
         compose_build_ui_queue_text_from_hud, crop_origin, crop_window, crop_window_to_focus,
         clamp_window_origin,
-        format_build_queue_head_text, format_build_strip_queue_status_text,
+        format_build_queue_head_text, format_build_queue_stage_text,
+        format_build_strip_queue_status_text,
         format_build_config_alignment_text, format_build_ui_queue_detail_text,
         format_build_ui_queue_summary_text,
         format_counted_detail_text, format_counted_preview_text,
@@ -6639,6 +6640,26 @@ mod tests {
         assert_eq!(tile_local_coords(5, 5, window), Some((3, 2)));
         assert_eq!(tile_local_coords(6, 3, window), None);
         assert_eq!(tile_local_coords(-1, 3, window), None);
+    }
+
+    #[test]
+    fn format_build_queue_stage_text_maps_all_stages_stably() {
+        assert_eq!(
+            format_build_queue_stage_text(BuildQueueHeadStage::Queued, 3),
+            "queued@3"
+        );
+        assert_eq!(
+            format_build_queue_stage_text(BuildQueueHeadStage::InFlight, 3),
+            "flight@3"
+        );
+        assert_eq!(
+            format_build_queue_stage_text(BuildQueueHeadStage::Finished, 3),
+            "finish@3"
+        );
+        assert_eq!(
+            format_build_queue_stage_text(BuildQueueHeadStage::Removed, 3),
+            "remove@3"
+        );
     }
 
     #[test]
