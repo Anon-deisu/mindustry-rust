@@ -1796,6 +1796,43 @@ mod tests {
     }
 
     #[test]
+    fn runtime_bootstrap_summary_and_detail_labels_remain_stable() {
+        let empty = super::RuntimeBootstrapObservability::default();
+
+        assert!(empty.is_empty());
+        assert_eq!(
+            empty.summary_label(),
+            "rules=:tags=:locales=:teams=0:markers=0:chunks=0:patches=0:plans=0:fog=0"
+        );
+        assert_eq!(
+            empty.detail_label(),
+            "rules-label=:tags-label=:locales-label=:team-count=0:marker-count=0:custom-chunk-count=0:content-patch-count=0:player-team-plan-count=0:static-fog-team-count=0"
+        );
+
+        let bootstrap = super::RuntimeBootstrapObservability {
+            rules_label: "base-rules".to_string(),
+            tags_label: "mods".to_string(),
+            locales_label: "en-US".to_string(),
+            team_count: 2,
+            marker_count: 3,
+            custom_chunk_count: 4,
+            content_patch_count: 5,
+            player_team_plan_count: 6,
+            static_fog_team_count: 7,
+        };
+
+        assert!(!bootstrap.is_empty());
+        assert_eq!(
+            bootstrap.summary_label(),
+            "rules=base-rules:tags=mods:locales=en-US:teams=2:markers=3:chunks=4:patches=5:plans=6:fog=7"
+        );
+        assert_eq!(
+            bootstrap.detail_label(),
+            "rules-label=base-rules:tags-label=mods:locales-label=en-US:team-count=2:marker-count=3:custom-chunk-count=4:content-patch-count=5:player-team-plan-count=6:static-fog-team-count=7"
+        );
+    }
+
+    #[test]
     fn hud_summary_visibility_helpers_compute_counts_and_percentages() {
         let summary = super::HudSummary {
             player_name: "operator".to_string(),
