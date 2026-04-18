@@ -190,6 +190,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_preserves_empty_output_dir_verbatim() {
+        let output_dir = parse_args(vec![String::new()].into_iter()).unwrap();
+
+        assert_eq!(output_dir, PathBuf::new());
+    }
+
+    #[test]
     fn take_single_arg_returns_the_only_argument_verbatim() {
         let output_dir = take_single_arg(vec!["./out dir".to_string()].into_iter()).unwrap();
 
