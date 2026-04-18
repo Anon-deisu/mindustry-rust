@@ -552,7 +552,10 @@ mod tests {
         let contract = observation.projection_contract();
 
         assert!(!contract.can_project_world_shell());
+        assert!(contract.tile_surface_consistent);
+        assert!(contract.overlay_surface_consistent);
         assert!(!contract.marker_surface_consistent);
+        assert!(contract.static_fog_surface_consistent);
         assert!(!contract.entity_surface_consistent);
         assert!(contract
             .issues
@@ -566,6 +569,15 @@ mod tests {
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::EntitySummaryMismatch));
+        assert!(!contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::StaticFogDimensionMismatch));
+        assert!(!contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::StaticFogCoverageMismatch));
+        assert!(!contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::TeamPlanOverlayMismatch));
     }
 
     #[test]
