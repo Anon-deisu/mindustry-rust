@@ -1151,6 +1151,29 @@ mod tests {
     }
 
     #[test]
+    fn validate_optional_build_revision_accepts_signed_numeric_revisions_and_rejects_non_numeric() {
+        assert_eq!(validate_optional_build_revision(None), Ok(()));
+        assert_eq!(validate_optional_build_revision(Some("0")), Ok(()));
+        assert_eq!(validate_optional_build_revision(Some("-1")), Ok(()));
+        assert_eq!(
+            validate_optional_build_revision(Some("x")),
+            Err(ConnectVersionPropertiesError::InvalidBuildNumber)
+        );
+        assert_eq!(
+            validate_optional_build_revision(Some("")),
+            Err(ConnectVersionPropertiesError::InvalidBuildNumber)
+        );
+    }
+
+    #[test]
+    fn strict_connect_version_type_prefers_first_entry_and_trims_ascii_whitespace() {
+        assert_eq!(
+            strict_connect_version_type(b"type =  custom build  \ntype = official\n"),
+            Ok("custom build")
+        );
+    }
+
+    #[test]
     fn trim_ascii_strips_ascii_whitespace_only() {
         assert_eq!(trim_ascii(b"\t  hello \r\n"), b"hello");
 
