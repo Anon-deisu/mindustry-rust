@@ -788,6 +788,30 @@ mod tests {
         assert_eq!(batch_plan_view.next_apply_now_batch(), None);
     }
 
+    #[test]
+    fn runtime_apply_batch_zero_step_apply_now_batches_are_not_applyable() {
+        let batch = SavePostLoadRuntimeApplyBatch {
+            batch_index: 0,
+            disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+            step_count: 0,
+            blockers: Vec::new(),
+            stages: Vec::new(),
+        };
+        let batch_plan = SavePostLoadRuntimeApplyBatchPlan {
+            batch_index: 0,
+            disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+            step_count: 0,
+            blockers: Vec::new(),
+            stages: Vec::new(),
+            steps: Vec::new(),
+        };
+
+        assert!(!batch.can_apply_now());
+        assert!(!batch_plan.can_apply_now());
+        assert!(!batch.has_blockers());
+        assert!(!batch_plan.has_blockers());
+    }
+
     fn test_observation() -> SavePostLoadWorldObservation {
         SavePostLoadWorldObservation {
             save_version: 11,
