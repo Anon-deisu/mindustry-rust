@@ -1003,6 +1003,49 @@ mod tests {
     }
 
     #[test]
+    fn minimap_user_flow_focus_offset_label_returns_none_when_only_one_offset_is_present() {
+        let panel = MinimapUserFlowPanelModel {
+            next_action: "hold",
+            focus_state: MinimapUserFocusState::Inside,
+            pan_horizontal: MinimapPanAxisDirection::None,
+            pan_vertical: MinimapPanAxisDirection::None,
+            target_kind: MinimapUserTargetKind::None,
+            focus_tile: Some((3, 4)),
+            window_clamped_left: false,
+            window_clamped_top: false,
+            window_clamped_right: false,
+            window_clamped_bottom: false,
+            focus_offset_x: Some(-2),
+            focus_offset_y: None,
+            overlay_target_count: 0,
+            visible_tile_count: 1,
+            visible_map_percent: 1,
+            unknown_tile_percent: 0,
+            window_coverage_percent: 100,
+        };
+
+        assert_eq!(panel.focus_offset_label(), "none");
+        assert_eq!(
+            MinimapUserFlowPanelModel {
+                focus_offset_x: None,
+                focus_offset_y: Some(5),
+                ..panel.clone()
+            }
+            .focus_offset_label(),
+            "none"
+        );
+        assert_eq!(
+            MinimapUserFlowPanelModel {
+                focus_offset_x: Some(-2),
+                focus_offset_y: Some(5),
+                ..panel
+            }
+            .focus_offset_label(),
+            "-2:5"
+        );
+    }
+
+    #[test]
     fn minimap_user_flow_label_helpers_are_stable() {
         assert_eq!(MinimapUserFocusState::Inside.label(), "inside");
         assert_eq!(MinimapUserFocusState::Outside.label(), "outside");
