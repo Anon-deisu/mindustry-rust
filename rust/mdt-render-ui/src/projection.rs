@@ -1736,6 +1736,28 @@ mod tests {
     }
 
     #[test]
+    fn project_scene_models_with_player_position_uses_override_for_player_and_hud_focus() {
+        let bundle = parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap();
+        let session = bundle.loaded_session().unwrap();
+
+        let (render, hud) =
+            super::project_scene_models_with_player_position(&session, "fr", Some((80.0, 96.0)));
+        let player = render
+            .objects
+            .iter()
+            .find(|object| object.id == format!("player:{}", session.player().id))
+            .expect("expected projected player object");
+        let summary = hud.summary.as_ref().expect("summary should be present");
+
+        assert_eq!((player.x, player.y), (80.0, 96.0));
+        assert_eq!(summary.minimap.focus_tile, Some((7, 7)));
+        assert_eq!(summary.minimap.focus_tile_label(), "7:7");
+    }
+
+    #[test]
     fn view_window_bounds_is_stable_around_half_tile_positions() {
         let left = super::view_window_bounds(8, 8, (27.9, 32.0), (4, 4));
         let right = super::view_window_bounds(8, 8, (28.1, 32.0), (4, 4));
