@@ -718,6 +718,18 @@ mod tests {
     }
 
     #[test]
+    fn combined_packet_registries_classify_packet_id_returns_none_for_unknown_packet_id() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let registries = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
+
+        let unknown_packet_id = (0u8..=u8::MAX)
+            .find(|&packet_id| registries.classify_packet_id(packet_id).is_none())
+            .expect("expected at least one unknown packet id in the real manifest");
+
+        assert_eq!(registries.classify_packet_id(unknown_packet_id), None);
+    }
+
+    #[test]
     fn remote_packet_classification_route_label_formats_all_variants() {
         assert_eq!(
             RemotePacketClassification::HighFrequency {
