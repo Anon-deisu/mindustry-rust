@@ -1033,8 +1033,8 @@ mod tests {
         observe_runtime_effect_overlay_source_binding_state,
         observe_runtime_effect_source_binding_state, resolve_runtime_effect_overlay_position,
         resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
-        world_bits_are_finite, EffectRuntimeBindingState, EffectRuntimeInputView,
-        RuntimeEffectBinding, RuntimeEffectContract, RuntimeEffectOverlay,
+        world_bits_are_finite, world_bits_from_tile_pos, EffectRuntimeBindingState,
+        EffectRuntimeInputView, RuntimeEffectBinding, RuntimeEffectContract, RuntimeEffectOverlay,
     };
     use crate::session_state::{
         EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
@@ -1392,6 +1392,14 @@ mod tests {
             Some((7.5f32.to_bits(), (-2.25f32).to_bits()))
         );
         assert_eq!(finite_world_position_bits(f32::NEG_INFINITY, 1.0), None);
+    }
+
+    #[test]
+    fn world_bits_from_tile_pos_encodes_packed_build_pos_into_bit_exact_world_coordinates() {
+        assert_eq!(
+            world_bits_from_tile_pos(pack_point2(7, 11)),
+            (56.0f32.to_bits(), 88.0f32.to_bits())
+        );
     }
 
     #[test]
