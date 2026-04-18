@@ -182,7 +182,8 @@ fn unit_allows_heuristic_player_ownership(unit: &TypedRuntimeUnitEntity) -> bool
 mod tests {
     use super::{
         authoritative_player_controller_entity_id, record_conflict_units,
-        resolve_typed_runtime_entity_ownership, unique_latest_claim_entity_id,
+        resolve_typed_runtime_entity_ownership, unit_allows_heuristic_player_ownership,
+        unique_latest_claim_entity_id,
     };
     use crate::session_state::{
         EntityPlayerSemanticProjection, EntityUnitSemanticProjection, TypedRuntimeEntityBase,
@@ -593,5 +594,31 @@ mod tests {
         assert!(resolution.unit_owner_player_by_unit_entity_id.is_empty());
         assert_eq!(resolution.ownership_conflict_count, 0);
         assert!(resolution.ownership_conflict_unit_sample.is_empty());
+    }
+
+    #[test]
+    fn unit_allows_heuristic_player_ownership_only_for_zero_controller_without_payload() {
+        let TypedRuntimeEntityModel::Unit(allowed_unit) = unit(202, 0, None, 1) else {
+            unreachable!("unit helper must return unit model");
+        };
+        let TypedRuntimeEntityModel::Unit(nonzero_controller_type_unit) = unit(202, 1, None, 1)
+        else {
+            unreachable!("unit helper must return unit model");
+        };
+        let TypedRuntimeEntityModel::Unit(controller_value_unit) = unit(202, 0, Some(101), 1)
+        else {
+            unreachable!("unit helper must return unit model");
+        };
+        let TypedRuntimeEntityModel::Unit(payload_unit_model) = payload_unit(202, 0, None, 1)
+        else {
+            unreachable!("payload_unit helper must return unit model");
+        };
+
+        assert!(unit_allows_heuristic_player_ownership(&allowed_unit));
+        assert!(!unit_allows_heuristic_player_ownership(
+            &nonzero_controller_type_unit
+        ));
+        assert!(!unit_allows_heuristic_player_ownership(&controller_value_unit));
+        assert!(!unit_allows_heuristic_player_ownership(&payload_unit_model));
     }
 }
