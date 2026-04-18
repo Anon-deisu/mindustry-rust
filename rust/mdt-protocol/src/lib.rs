@@ -962,6 +962,11 @@ mod tests {
     }
 
     #[test]
+    fn inflate_zlib_rejects_non_zlib_input() {
+        assert!(inflate_zlib(b"not zlib data").is_err());
+    }
+
+    #[test]
     fn stream_chunks_round_trip() {
         let payload = (0u8..=255).cycle().take(2500).collect::<Vec<_>>();
         let chunks = split_stream_chunks(&payload, 1024);
@@ -983,6 +988,12 @@ mod tests {
     fn split_stream_chunks_returns_empty_vec_for_empty_input() {
         assert!(split_stream_chunks(&[], 1024).is_empty());
         assert_eq!(reassemble_stream_chunks(&[]), Vec::<u8>::new());
+    }
+
+    #[test]
+    #[should_panic(expected = "chunk_size must be > 0")]
+    fn split_stream_chunks_panics_on_zero_chunk_size() {
+        let _ = split_stream_chunks(b"mindustry", 0);
     }
 
     #[test]
