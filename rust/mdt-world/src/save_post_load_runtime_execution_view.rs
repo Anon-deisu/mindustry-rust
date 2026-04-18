@@ -695,6 +695,40 @@ mod tests {
     }
 
     #[test]
+    fn runtime_world_semantics_execution_view_keeps_deferred_status_empty() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.markers[1].id = observation.markers[0].id;
+
+        let view = observation.runtime_world_semantics_execution_view();
+        let deferred_steps =
+            view.steps_with_status(SavePostLoadRuntimeExecutionStepStatus::Deferred);
+        let status_counts = view.status_counts();
+        let status_buckets = view.status_buckets();
+
+        assert!(view.world_shell_ready);
+        assert!(!view.can_apply_world_semantics);
+        assert_eq!(
+            view.step_count(SavePostLoadRuntimeExecutionStepStatus::Deferred),
+            0
+        );
+        assert!(deferred_steps.is_empty());
+        assert_eq!(
+            status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::Deferred),
+            Some(&0)
+        );
+        assert!(
+            status_buckets
+                .iter()
+                .all(|bucket| bucket.status != SavePostLoadRuntimeExecutionStepStatus::Deferred)
+        );
+        assert_eq!(
+            view.step_status(&SavePostLoadRuntimeApplyStep::WorldShell),
+            Some(SavePostLoadRuntimeExecutionStepStatus::Executed)
+        );
+    }
+
+    #[test]
     fn runtime_world_semantics_execution_view_groups_source_regions() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
