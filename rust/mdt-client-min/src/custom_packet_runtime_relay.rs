@@ -640,6 +640,13 @@ mod tests {
     }
 
     #[test]
+    fn truncate_for_preview_keeps_char_boundaries_and_appends_ellipsis() {
+        assert_eq!(truncate_for_preview("短文本🙂", 10), "短文本🙂");
+        assert_eq!(truncate_for_preview("ab你好🙂cd", 4), "ab你好...");
+        assert_eq!(truncate_for_preview("你🙂ab", 4), "你🙂ab");
+    }
+
+    #[test]
     fn build_runtime_custom_packet_relay_specs_parses_and_deduplicates() {
         let specs = build_runtime_custom_packet_relay_specs(
             &[
