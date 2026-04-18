@@ -4720,6 +4720,41 @@ mod tests {
     }
 
     #[test]
+    fn inbound_remote_family_variant_and_const_prefix_mappings_are_stable() {
+        let variants = InboundRemoteFamily::ordered()
+            .into_iter()
+            .map(InboundRemoteFamily::variant_name)
+            .collect::<Vec<_>>();
+        let prefixes = InboundRemoteFamily::ordered()
+            .into_iter()
+            .map(InboundRemoteFamily::const_prefix)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            variants,
+            vec![
+                "ServerPacketReliable",
+                "ServerPacketUnreliable",
+                "ServerBinaryPacketReliable",
+                "ServerBinaryPacketUnreliable",
+                "ClientLogicDataReliable",
+                "ClientLogicDataUnreliable",
+            ]
+        );
+        assert_eq!(
+            prefixes,
+            vec![
+                "SERVER_PACKET_RELIABLE",
+                "SERVER_PACKET_UNRELIABLE",
+                "SERVER_BINARY_PACKET_RELIABLE",
+                "SERVER_BINARY_PACKET_UNRELIABLE",
+                "CLIENT_LOGIC_DATA_RELIABLE",
+                "CLIENT_LOGIC_DATA_UNRELIABLE",
+            ]
+        );
+    }
+
+    #[test]
     fn remote_flow_and_param_kind_names_are_stable() {
         assert_eq!(remote_flow_name(RemoteFlow::ClientToServer), "ClientToServer");
         assert_eq!(remote_flow_name(RemoteFlow::ServerToClient), "ServerToClient");
