@@ -1589,12 +1589,12 @@ fn object_visible_in_window(
 #[cfg(test)]
 mod tests {
     use super::{
-        detail_counts_text, object_visible_in_window, parse_prefixed_hex_u32,
-        parse_prefixed_or_decimal_u32_bits, RenderIconPrimitiveFamily, RenderModel, RenderObject,
+        decode_render_text, detail_counts_text, encode_render_text, object_visible_in_window,
+        parse_prefixed_hex_u32, parse_prefixed_or_decimal_u32_bits, render_line_end_object_pair,
+        sort_detail_counts, RenderIconPrimitiveFamily, RenderModel, RenderObject,
         RenderObjectSemanticFamily, RenderObjectSemanticKind, RenderPipelineLayerSummary,
         RenderPipelineSummary, RenderPrimitive, RenderPrimitiveKind, RenderPrimitivePayloadValue,
         RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
-        render_line_end_object_pair, sort_detail_counts,
     };
 
     #[test]
@@ -2816,6 +2816,48 @@ mod tests {
                 layer: 30,
                 x: 24.0,
                 y: 32.0,
+                text: "Hello".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn encode_render_text_round_trips_ascii_and_unicode_bytes() {
+        for original in ["ASCII bytes 123!?", "héllo, 世界🙂"] {
+            let encoded = encode_render_text(original);
+            assert_eq!(decode_render_text(&encoded), Some(original.to_string()));
+        }
+    }
+
+    #[test]
+    fn render_model_suppresses_empty_decoded_text_primitives() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:text:1:text:".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:text:2:text:48656c6c6f".to_string(),
+                    layer: 30,
+                    x: 16.0,
+                    y: 24.0,
+                },
+            ],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Text {
+                id: "marker:text:2:text:48656c6c6f".to_string(),
+                kind: RenderObjectSemanticKind::MarkerText,
+                layer: 30,
+                x: 16.0,
+                y: 24.0,
                 text: "Hello".to_string(),
             }]
         );
