@@ -2812,6 +2812,25 @@ mod tests {
     }
 
     #[test]
+    fn build_config_head_text_formats_none_and_inflight_head_stably() {
+        assert_eq!(super::build_config_head_text(None), "none");
+
+        let head = crate::panel_model::BuildConfigHeadModel {
+            x: 12,
+            y: 34,
+            breaking: true,
+            block_id: Some(7),
+            rotation: Some(2),
+            stage: crate::BuildQueueHeadStage::InFlight,
+        };
+
+        assert_eq!(
+            super::build_config_head_text(Some(&head)),
+            "flight@12:34:break:b7:r2"
+        );
+    }
+
+    #[test]
     fn ascii_presenter_bool_flag_maps_false_and_true() {
         assert_eq!(super::bool_flag(false), 0);
         assert_eq!(super::bool_flag(true), 1);
