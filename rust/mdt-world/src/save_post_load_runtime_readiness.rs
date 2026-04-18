@@ -429,6 +429,60 @@ mod tests {
     }
 
     #[test]
+    fn runtime_readiness_apply_now_region_keeps_blockers_visible() {
+        let readiness = SavePostLoadRuntimeReadiness {
+            can_seed_runtime_apply: true,
+            world_shell_ready: true,
+            regions: vec![
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::Buildings,
+                    source_region_name: "shared",
+                    step_count: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    blockers: vec![SavePostLoadConsumerBlocker::DuplicateEntityId(7)],
+                },
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::LoadableEntities,
+                    source_region_name: "shared",
+                    step_count: 3,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    blockers: vec![SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::EntitySummaryMismatch,
+                    )],
+                },
+            ],
+        };
+
+        let region = readiness.region(SavePostLoadRuntimeRegionKind::Buildings).unwrap();
+        assert!(region.can_apply_now());
+        assert!(region.has_blockers());
+
+        let source_regions = readiness.source_regions();
+        let source_regions_again = readiness.source_regions();
+
+        assert_eq!(
+            source_regions,
+            vec![SavePostLoadRuntimeSourceRegionReadiness {
+                source_region_name: "shared",
+                apply_now_step_count: 5,
+                awaiting_world_shell_step_count: 0,
+                blocked_step_count: 0,
+                deferred_step_count: 0,
+                blockers: vec![
+                    SavePostLoadConsumerBlocker::DuplicateEntityId(7),
+                    SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::EntitySummaryMismatch,
+                    ),
+                ],
+            }]
+        );
+        assert_eq!(source_regions_again, source_regions);
+        assert_eq!(source_regions[0].total_step_count(), 5);
+        assert_eq!(readiness.apply_now_step_count(), 5);
+        assert_eq!(readiness.source_region("shared"), Some(source_regions[0].clone()));
+    }
+
+    #[test]
     fn region_kind_maps_all_consumer_stage_kinds_to_runtime_region_kinds() {
         let cases = [
             (
