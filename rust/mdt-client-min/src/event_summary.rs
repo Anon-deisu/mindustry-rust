@@ -1736,6 +1736,19 @@ mod tests {
     }
 
     #[test]
+    fn format_binary_packet_summary_keeps_exact_sixteen_byte_prefix_boundary() {
+        let contents = vec![
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f,
+        ];
+
+        assert_eq!(
+            format_binary_packet_summary("client_binary_packet", "reliable", "payload", &contents),
+            "client_binary_packet: transport=reliable type=\"payload\" len=16 hex_prefix=000102030405060708090a0b0c0d0e0f"
+        );
+    }
+
+    #[test]
     fn encode_hex_text_formats_empty_and_preserves_leading_zeroes() {
         assert_eq!(encode_hex_text(&[]), "");
         assert_eq!(encode_hex_text(&[0x00, 0x0a, 0x01, 0x10, 0xab]), "000a0110ab");
