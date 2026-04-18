@@ -730,6 +730,18 @@ mod tests {
     }
 
     #[test]
+    fn runtime_world_ownership_query_helpers_return_missing_source_region_for_unknown_name() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let ownership = observation.runtime_world_ownership();
+
+        assert_eq!(ownership.source_regions().len(), 4);
+        assert!(ownership.source_region("unknown").is_none());
+        assert!(ownership.source_region("entities").is_some());
+    }
+
+    #[test]
     fn runtime_world_ownership_mixed_status_counts_and_source_region_surface_lookups_are_stable() {
         let ownership = SavePostLoadRuntimeWorldOwnership {
             world_shell_ready: true,
