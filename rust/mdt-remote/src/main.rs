@@ -732,6 +732,16 @@ mod tests {
     }
 
     #[test]
+    fn reject_overlapping_output_paths_allows_similarly_named_sibling_paths() {
+        assert!(reject_overlapping_output_paths(
+            Some(Path::new("build/mdt-remote/remote-registry.rs")),
+            Some(Path::new("build/mdt-remote/remote-registry-data.rs")),
+            Some(Path::new("build/mdt-remote/remote-inbound-dispatch.rs")),
+        )
+        .is_ok());
+    }
+
+    #[test]
     fn reject_overlapping_output_paths_allows_distinct_paths_with_missing_registry() {
         assert!(reject_overlapping_output_paths(
             None,
