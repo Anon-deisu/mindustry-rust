@@ -19700,4 +19700,59 @@ mod tests {
         assert!(projection.by_entity_id.contains_key(&101));
         assert!(!projection.by_entity_id.contains_key(&202));
     }
+
+    #[test]
+    fn hidden_lifecycle_matches_hidden_non_local_entity_id_excludes_local_player() {
+        let hidden_ids = BTreeSet::from([101, 202]);
+
+        assert!(!hidden_lifecycle_matches_hidden_non_local_entity_id(
+            &hidden_ids,
+            Some(101),
+            101,
+        ));
+        assert!(hidden_lifecycle_matches_hidden_non_local_entity_id(
+            &hidden_ids,
+            Some(101),
+            202,
+        ));
+        assert!(!hidden_lifecycle_matches_hidden_non_local_entity_id(
+            &hidden_ids,
+            Some(101),
+            303,
+        ));
+        assert!(hidden_lifecycle_matches_hidden_non_local_entity_id(
+            &hidden_ids,
+            None,
+            202,
+        ));
+    }
+
+    #[test]
+    fn clear_hidden_non_local_entity_id_clears_only_hidden_non_local_ids() {
+        let hidden_ids = BTreeSet::from([101, 202]);
+
+        let mut local_player_entity_id = Some(101);
+        clear_hidden_non_local_entity_id(
+            &mut local_player_entity_id,
+            &hidden_ids,
+            Some(101),
+        );
+        assert_eq!(local_player_entity_id, Some(101));
+
+        let mut hidden_non_local_entity_id = Some(202);
+        clear_hidden_non_local_entity_id(
+            &mut hidden_non_local_entity_id,
+            &hidden_ids,
+            Some(101),
+        );
+        assert_eq!(hidden_non_local_entity_id, None);
+
+        let mut visible_entity_id = Some(303);
+        clear_hidden_non_local_entity_id(&mut visible_entity_id, &hidden_ids, Some(101));
+        assert_eq!(visible_entity_id, Some(303));
+
+        let mut empty_entity_id = None;
+        clear_hidden_non_local_entity_id(&mut empty_entity_id, &hidden_ids, Some(101));
+        assert_eq!(empty_entity_id, None);
+    }
 }
