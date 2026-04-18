@@ -1743,6 +1743,12 @@ mod tests {
     }
 
     #[test]
+    fn format_optional_u32_bits_maps_none_and_zero_to_stable_strings() {
+        assert_eq!(format_optional_u32_bits(None), "None");
+        assert_eq!(format_optional_u32_bits(Some(0)), "Some(0x00000000)");
+    }
+
+    #[test]
     fn format_final_kick_summary_keeps_hint_category_and_text_stable() {
         assert_eq!(
             format_final_kick_summary(true, Some("banned"), None, Some(1200)),
