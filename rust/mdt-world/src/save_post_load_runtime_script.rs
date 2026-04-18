@@ -353,6 +353,33 @@ mod tests {
     }
 
     #[test]
+    fn expand_stage_steps_emits_static_fog_only_when_seed_present() {
+        let observation = test_observation();
+        let mut plan = observation.runtime_seed_plan();
+        let mut stage_steps = Vec::new();
+
+        assert!(plan.static_fog_seed.is_some());
+
+        expand_stage_steps(
+            &plan,
+            crate::SavePostLoadConsumerStageKind::StaticFog,
+            &mut stage_steps,
+        );
+
+        assert_eq!(stage_steps, vec![SavePostLoadRuntimeApplyStep::StaticFog]);
+
+        plan.static_fog_seed = None;
+        stage_steps.clear();
+        expand_stage_steps(
+            &plan,
+            crate::SavePostLoadConsumerStageKind::StaticFog,
+            &mut stage_steps,
+        );
+
+        assert!(stage_steps.is_empty());
+    }
+
+    #[test]
     fn expand_stage_steps_leaves_empty_seed_lists_without_output() {
         let observation = test_observation();
         let mut plan = observation.runtime_seed_plan();
