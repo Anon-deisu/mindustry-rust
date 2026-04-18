@@ -58251,6 +58251,26 @@ mod tests {
     }
 
     #[test]
+    fn legacy_save_building_snapshot_reads_explicit_team_byte_when_packed_rotation_uses_team_hint_8()
+    {
+        let snapshot = parse_legacy_save_building_snapshot(
+            Some("message"),
+            &[1, 0, 10, 0x82, 9, 0, 0, 4, b'e', b'c', b'h', b'o'],
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.revision, 1);
+        assert_eq!(snapshot.base.rotation, 2);
+        assert_eq!(snapshot.base.team_id, 9);
+        assert_eq!(
+            snapshot.parsed_tail,
+            ParsedBuildingTail::Message(MessageTailSnapshot {
+                message: "echo".to_string(),
+            })
+        );
+    }
+
+    #[test]
     fn parses_legacy_switch_family_building_snapshots_when_block_name_is_known() {
         for (block_name, expected_value) in [("switch", true), ("world-switch", false)] {
             let snapshot = parse_legacy_save_building_snapshot(
