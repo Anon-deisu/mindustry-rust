@@ -353,6 +353,40 @@ mod tests {
     }
 
     #[test]
+    fn expand_stage_steps_leaves_empty_seed_lists_without_output() {
+        let observation = test_observation();
+        let mut plan = observation.runtime_seed_plan();
+        plan.entity_remap_seeds.clear();
+        plan.team_plan_seeds.clear();
+        plan.marker_seeds.clear();
+        plan.custom_chunk_seeds.clear();
+        plan.building_seeds.clear();
+        plan.loadable_entity_seeds.clear();
+        plan.skipped_entity_seeds.clear();
+
+        let stage_kinds = [
+            crate::SavePostLoadConsumerStageKind::EntityRemaps,
+            crate::SavePostLoadConsumerStageKind::TeamPlans,
+            crate::SavePostLoadConsumerStageKind::Markers,
+            crate::SavePostLoadConsumerStageKind::CustomChunks,
+            crate::SavePostLoadConsumerStageKind::Buildings,
+            crate::SavePostLoadConsumerStageKind::LoadableEntities,
+            crate::SavePostLoadConsumerStageKind::SkippedEntities,
+        ];
+
+        for kind in stage_kinds {
+            let mut stage_steps = Vec::new();
+
+            expand_stage_steps(&plan, kind, &mut stage_steps);
+
+            assert!(
+                stage_steps.is_empty(),
+                "unexpected output for empty seed list stage kind: {kind:?}"
+            );
+        }
+    }
+
+    #[test]
     fn runtime_apply_step_targets_world_semantics_partitions_world_and_auxiliary_steps() {
         let cases = [
             (SavePostLoadRuntimeApplyStep::WorldShell, true),
