@@ -4879,6 +4879,14 @@ mod tests {
             remote_packet_const_name("mindustry.net.Packets$WorldStream"),
             "WORLD_STREAM"
         );
+        assert_eq!(
+            remote_packet_const_name("mindustry.net.Packets$StreamBegin"),
+            "STREAM_BEGIN"
+        );
+        assert_eq!(
+            remote_packet_const_name("mindustry.net.Packets$ConnectPacket"),
+            "CONNECT_PACKET"
+        );
         assert_eq!(remote_packet_const_name("3dPacket-Class"), "_3D_PACKET_CLASS");
         assert_eq!(remote_packet_const_name(""), "PACKET");
     }
@@ -6260,6 +6268,21 @@ mod tests {
     }
 
     #[test]
+    fn custom_channel_remote_packets_reject_duplicate_packet_ids_in_family_subset() {
+        let mut manifest = custom_channel_manifest_with_decoys();
+        manifest.remote_packets[2].packet_id = manifest.remote_packets[1].packet_id;
+
+        let error = custom_channel_remote_packets(&manifest).unwrap_err();
+        match error {
+            RemoteManifestError::InvalidPacketSequence(message) => assert_eq!(
+                message,
+                "duplicate custom-channel remote family packet id: 5"
+            ),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
     fn inbound_remote_packets_reject_missing_expected_family() {
         let mut manifest = custom_channel_manifest_with_decoys();
         manifest
@@ -6272,6 +6295,20 @@ mod tests {
                 message,
                 "missing inbound remote family packet in manifest: clientLogicDataUnreliable"
             ),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inbound_remote_packets_reject_duplicate_packet_ids_in_family_subset() {
+        let mut manifest = custom_channel_manifest_with_decoys();
+        manifest.remote_packets[7].packet_id = manifest.remote_packets[6].packet_id;
+
+        let error = inbound_remote_packets(&manifest).unwrap_err();
+        match error {
+            RemoteManifestError::InvalidPacketSequence(message) => {
+                assert_eq!(message, "duplicate inbound remote family packet id: 10")
+            }
             other => panic!("unexpected error: {other:?}"),
         }
     }
