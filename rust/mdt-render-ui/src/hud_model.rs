@@ -2067,6 +2067,19 @@ mod tests {
     }
 
     #[test]
+    fn compact_sha_label_counts_unicode_scalars_and_truncates_after_twelve_chars() {
+        assert_eq!(super::compact_sha_label(Some("")), "none");
+        assert_eq!(
+            super::compact_sha_label(Some("😀😀😀😀😀😀😀😀😀😀😀😀")),
+            "😀😀😀😀😀😀😀😀😀😀😀😀"
+        );
+        assert_eq!(
+            super::compact_sha_label(Some("😀😀😀😀😀😀😀😀😀😀😀😀😀")),
+            "😀😀😀😀😀😀😀😀😀😀😀😀"
+        );
+    }
+
+    #[test]
     fn optional_bool_label_formats_none_true_and_false() {
         assert_eq!(super::optional_bool_label(None), "none");
         assert_eq!(super::optional_bool_label(Some(true)), "1");
