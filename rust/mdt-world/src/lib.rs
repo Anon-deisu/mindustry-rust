@@ -42462,6 +42462,17 @@ mod tests {
     }
 
     #[test]
+    fn normalize_json5_numeric_keys_quotes_numeric_keys_without_touching_strings() {
+        let input = r#"{1: 2, "3": 4, text: "1: {2: 3}", nested: {4: "keep", "5": "also keep"}}"#;
+        let normalized = normalize_json5_numeric_keys(input);
+
+        assert_eq!(
+            normalized,
+            r#"{"1": 2, "3": 4, text: "1: {2: 3}", nested: {"4": "keep", "5": "also keep"}}"#
+        );
+    }
+
+    #[test]
     fn rejects_truncated_java_modified_utf_two_byte_sequence() {
         let error = decode_java_modified_utf(&[0xc2]).unwrap_err();
 
