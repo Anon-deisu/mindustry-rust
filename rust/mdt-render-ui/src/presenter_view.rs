@@ -6687,6 +6687,22 @@ mod tests {
     }
 
     #[test]
+    fn format_build_strip_queue_status_text_prefers_head_stage_and_falls_back_to_idle_text() {
+        assert_eq!(
+            format_build_strip_queue_status_text(
+                Some(BuildQueueHeadStage::InFlight),
+                4,
+                Some("armed".to_string())
+            ),
+            "flight@4"
+        );
+        assert_eq!(
+            format_build_strip_queue_status_text(None, 4, Some("armed".to_string())),
+            "armed/p4"
+        );
+    }
+
+    #[test]
     fn compose_minimap_window_distribution_text_preserves_compact_field_order() {
         let panel = sample_minimap_panel();
         assert_eq!(
