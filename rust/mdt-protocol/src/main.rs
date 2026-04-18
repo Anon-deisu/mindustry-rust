@@ -175,6 +175,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_preserves_surrounding_spaces_verbatim() {
+        let output_dir = parse_args(vec!["  out dir  ".to_string()].into_iter()).unwrap();
+
+        assert_eq!(output_dir, PathBuf::from("  out dir  "));
+    }
+
+    #[test]
     fn parse_args_preserves_absolute_output_dir_verbatim() {
         let output_dir = std::env::temp_dir().join("mdt-protocol-out");
         let parsed = parse_args(vec![output_dir.display().to_string()].into_iter()).unwrap();
