@@ -272,4 +272,34 @@ mod tests {
             other => panic!("expected MissingHighFrequencyPacket error, got {other:?}"),
         }
     }
+
+    #[test]
+    fn packet_registry_typed_remote_glue_reuses_cached_registry_resolutions() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let glue = PacketRegistryTypedRemoteGlue::from_remote_manifest(&manifest).unwrap();
+
+        let client_snapshot_packet_id_1 = glue.client_snapshot_packet_id().unwrap();
+        let client_snapshot_packet_id_2 = glue.client_snapshot_packet_id().unwrap();
+        assert_eq!(client_snapshot_packet_id_1, client_snapshot_packet_id_2);
+
+        let inbound_snapshot_packet_specs_1 = glue.inbound_snapshot_packet_specs().unwrap();
+        let inbound_snapshot_packet_specs_2 = glue.inbound_snapshot_packet_specs().unwrap();
+        assert_eq!(inbound_snapshot_packet_specs_1, inbound_snapshot_packet_specs_2);
+        assert_eq!(inbound_snapshot_packet_specs_1.len(), 4);
+        assert!(!inbound_snapshot_packet_specs_1
+            .iter()
+            .any(|(packet_id, _)| *packet_id == client_snapshot_packet_id_1));
+
+        let inbound_remote_registry_1 = glue.inbound_remote_registry().unwrap();
+        let inbound_remote_registry_2 = glue.inbound_remote_registry().unwrap();
+        assert_eq!(inbound_remote_registry_1, inbound_remote_registry_2);
+
+        let custom_channel_registry_1 = glue.custom_channel_registry().unwrap();
+        let custom_channel_registry_2 = glue.custom_channel_registry().unwrap();
+        assert_eq!(custom_channel_registry_1, custom_channel_registry_2);
+
+        let well_known_registry_1 = glue.well_known_registry().unwrap();
+        let well_known_registry_2 = glue.well_known_registry().unwrap();
+        assert_eq!(well_known_registry_1, well_known_registry_2);
+    }
 }
