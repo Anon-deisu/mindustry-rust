@@ -116,6 +116,18 @@ mod tests {
     }
 
     #[test]
+    fn build_pulse_summary_label_formats_negative_tile_and_place_mode() {
+        assert_eq!(
+            BuildPulse {
+                tile: (-7, 8),
+                breaking: false,
+            }
+            .summary_label(),
+            "pulse=-7,8,place"
+        );
+    }
+
+    #[test]
     fn player_intent_summary_label_compacts_axes_build_and_actions() {
         assert_eq!(
             PlayerIntent::SetMoveAxis { x: 1.0, y: -1.0 }.summary_label(),
@@ -171,6 +183,17 @@ mod tests {
         assert_eq!(
             PlayerIntent::ConfigTap { tile: (-3, 4) }.summary_label(),
             "tap=-3,4"
+        );
+    }
+
+    #[test]
+    fn player_intent_summary_label_formats_negative_mining_tile_coordinates() {
+        assert_eq!(
+            PlayerIntent::SetMiningTile {
+                tile: Some((-12, 34))
+            }
+            .summary_label(),
+            "mining=-12,34"
         );
     }
 
