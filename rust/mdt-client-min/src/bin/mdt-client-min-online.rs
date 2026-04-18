@@ -9150,6 +9150,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_color_rgba_accepts_hex_prefixes_decimal_and_rejects_invalid_input_with_i32_cast_semantics()
+    {
+        assert_eq!(parse_color_rgba("0x01020304"), Ok(0x01020304u32 as i32));
+        assert_eq!(parse_color_rgba("0X80000000"), Ok(0x80000000u32 as i32));
+        assert_eq!(
+            parse_color_rgba("4294967295"),
+            Ok(u32::MAX as i32)
+        );
+        assert!(parse_color_rgba("not-a-color").is_err());
+    }
+
+    #[test]
     fn parse_args_rejects_invalid_action_tile_config_flag() {
         let error = parse_args(sample_args(&["--action-tile-config", "1:bytes=xyz"]))
             .err()
