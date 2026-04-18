@@ -323,7 +323,7 @@ mod tests {
         SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
         SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldOwnershipStatus,
         SavePostLoadRuntimeWorldOwnershipSurface, SavePostLoadRuntimeWorldSurfaceKind,
-        SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlanGroup,
+        SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlanGroup, TileModel,
         UnknownMarkerModel, WorldLoadUnknownCoverageSummary, WorldModel,
     };
 
@@ -392,6 +392,13 @@ mod tests {
         };
         assert!(empty_observation.markers_are_empty());
 
+        let braced_region_observation = SavePostLoadWorldObservation {
+            markers: Vec::new(),
+            marker_region_bytes: b"{}".to_vec(),
+            ..test_observation()
+        };
+        assert!(braced_region_observation.markers_are_empty());
+
         let markers_only_observation = SavePostLoadWorldObservation {
             markers: vec![MarkerEntry {
                 id: 99,
@@ -416,6 +423,62 @@ mod tests {
             ..test_observation()
         };
         assert!(!region_only_observation.markers_are_empty());
+    }
+
+    #[test]
+    fn post_load_world_graph_exposes_dimensions_and_tile_lookup() {
+        let mut observation = test_observation();
+        observation.map.world = WorldModel {
+            width: 2,
+            height: 1,
+            floors: vec![10, 20],
+            overlays: vec![30, 40],
+            blocks: vec![50, 60],
+            tiles: vec![
+                TileModel {
+                    tile_index: 0,
+                    x: 0,
+                    y: 0,
+                    floor_id: 10,
+                    overlay_id: 30,
+                    block_id: 50,
+                    building_center_index: None,
+                },
+                TileModel {
+                    tile_index: 1,
+                    x: 1,
+                    y: 0,
+                    floor_id: 20,
+                    overlay_id: 40,
+                    block_id: 60,
+                    building_center_index: None,
+                },
+            ],
+            building_centers: Vec::new(),
+            data_tiles: 0,
+            team_count: 0,
+            total_plans: 0,
+            team_ids: Vec::new(),
+            team_plan_counts: Vec::new(),
+        };
+
+        let graph = observation.post_load_world_apply_bundle().graph();
+
+        assert_eq!(graph.width(), 2);
+        assert_eq!(graph.height(), 1);
+
+        let tile_0_0 = graph.tile(0, 0).expect("tile at (0, 0)");
+        assert_eq!(tile_0_0.tile_index, 0);
+        assert_eq!((tile_0_0.x, tile_0_0.y), (0, 0));
+        assert_eq!(tile_0_0.floor_id, 10);
+
+        let tile_1_0 = graph.tile(1, 0).expect("tile at (1, 0)");
+        assert_eq!(tile_1_0.tile_index, 1);
+        assert_eq!((tile_1_0.x, tile_1_0.y), (1, 0));
+        assert_eq!(tile_1_0.overlay_id, 40);
+
+        assert!(graph.tile(2, 0).is_none());
+        assert!(graph.tile(0, 1).is_none());
     }
 
     #[test]
@@ -491,6 +554,65 @@ mod tests {
         assert_eq!(
             bundle.unknown_coverage_summary(),
             observation.unknown_coverage_summary()
+        );
+    }
+
+    #[test]
+    fn post_load_world_graph_resolves_marker_custom_chunk_and_static_fog_accessors() {
+        let mut observation = test_observation();
+        observation.markers = vec![MarkerEntry {
+            id: 77,
+            marker: MarkerModel::Unknown(UnknownMarkerModel {
+                class_tag: None,
+                world: true,
+                minimap: false,
+                autoscale: false,
+                draw_layer_bits: None,
+                x_bits: None,
+                y_bits: None,
+            }),
+        }];
+        observation.custom_chunks = vec![CustomChunkEntry {
+            name: "static-fog-data".to_string(),
+            chunk_len: 1,
+            chunk_bytes: vec![1],
+            chunk_sha256: "fog".to_string(),
+            parsed: ParsedCustomChunk::StaticFog(StaticFogChunk {
+                used_teams: 1,
+                width: 1,
+                height: 1,
+                teams: vec![StaticFogTeam {
+                    team_id: 1,
+                    run_count: 1,
+                    rle_bytes: vec![1],
+                    discovered: vec![true],
+                }],
+            }),
+        }];
+        observation.marker_region_bytes = b"{}".to_vec();
+
+        let bundle = observation.post_load_world_apply_bundle();
+        let graph = bundle.graph();
+
+        assert_eq!(graph.marker(77).map(|marker| marker.id), Some(77));
+        assert_eq!(graph.custom_chunks().count(), 1);
+        assert_eq!(
+            graph.custom_chunks().next().map(|chunk| chunk.name.as_str()),
+            Some("static-fog-data")
+        );
+        assert_eq!(
+            graph.static_fog_chunk().map(|chunk| (chunk.used_teams, chunk.width, chunk.height)),
+            Some((1, 1, 1))
+        );
+        assert_eq!(bundle.marker(77).map(|marker| marker.id), Some(77));
+        assert_eq!(
+            bundle.custom_chunk("static-fog-data")
+                .map(|chunk| chunk.name.as_str()),
+            Some("static-fog-data")
+        );
+        assert_eq!(
+            bundle.static_fog_chunk().map(|chunk| (chunk.used_teams, chunk.width, chunk.height)),
+            Some((1, 1, 1))
         );
     }
 
