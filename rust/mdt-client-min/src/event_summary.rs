@@ -1802,6 +1802,15 @@ mod tests {
     }
 
     #[test]
+    fn summarize_kick_hint_from_handles_empty_inputs_without_hint() {
+        assert_eq!(summarize_kick_hint_from(None, None), (None, None));
+        assert_eq!(
+            format_final_kick_summary(false, None, None, None),
+            "final_kick: kicked=false reason_text=None reason_ordinal=None duration_ms=None hint_category=none hint_text=None"
+        );
+    }
+
+    #[test]
     fn format_logic_data_summary_keeps_kind_and_preview_stable() {
         let value = TypeIoObject::ObjectArray(vec![
             TypeIoObject::Int(7),
