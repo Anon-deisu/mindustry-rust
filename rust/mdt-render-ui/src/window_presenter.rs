@@ -8472,6 +8472,19 @@ mod tests {
     }
 
     #[test]
+    fn compose_frame_build_strip_text_formats_empty_build_ui_state() {
+        let hud = HudModel {
+            build_ui: Some(BuildUiObservability::default()),
+            ..HudModel::default()
+        };
+
+        assert_eq!(
+            super::compose_frame_build_strip_text(&hud),
+            Some("BUILD: sel=none r0 q=empty/p0 auth=none".to_string())
+        );
+    }
+
+    #[test]
     fn present_once_surfaces_build_config_overflow_and_extended_minimap_counts() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);
