@@ -879,6 +879,28 @@ mod tests {
     }
 
     #[test]
+    fn write_output_file_creates_unicode_parent_directories_and_writes_contents() {
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-write-output-file-unicode-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let output_path = temp_dir.join("嵌套").join("输出.rs");
+
+        write_output_file(&output_path, "generated-内容").unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&output_path).unwrap(),
+            "generated-内容"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn write_output_file_writes_into_current_directory_without_creating_parent() {
         let original_dir = env::current_dir().expect("current dir");
         let temp_dir = env::temp_dir().join(format!(
