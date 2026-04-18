@@ -5143,6 +5143,12 @@ mod tests {
     }
 
     #[test]
+    fn compact_runtime_ui_text_counts_unicode_scalars_before_truncating() {
+        assert_eq!(compact_runtime_ui_text(Some("ab🙂cd🙂ef🙂ghi")), "ab🙂cd🙂ef🙂ghi");
+        assert_eq!(compact_runtime_ui_text(Some("ab🙂cd🙂ef🙂ghij")), "ab🙂cd🙂ef🙂ghi~");
+    }
+
+    #[test]
     fn format_hud_visibility_detail_text_preserves_field_order() {
         let summary = sample_hud_summary();
         let visibility = sample_hud_visibility_panel();
