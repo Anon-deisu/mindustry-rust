@@ -202,9 +202,9 @@ mod tests {
         BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, CustomChunkEntry, MarkerEntry,
         MarkerModel, ParsedCustomChunk, PointMarkerModel, SaveEntityChunkObservation,
         SaveEntityClassKind, SaveEntityClassSummary, SaveEntityPostLoadClassSummary,
-        SaveEntityPostLoadKind, SaveEntityPostLoadSummary, SaveEntityRemapSummary,
-        SaveMapRegionObservation, SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam,
-        TeamPlan, TeamPlanGroup, TileModel, TypeIoValue, WorldModel,
+        SaveEntityPostLoadKind, SaveEntityPostLoadSummary, SaveEntityRegionObservation,
+        SaveEntityRemapSummary, SaveMapRegionObservation, SavePostLoadWorldObservation,
+        StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup, TileModel, TypeIoValue, WorldModel,
     };
 
     #[test]
@@ -364,6 +364,41 @@ mod tests {
         );
         assert!(surface.skipped_entities.is_empty());
         assert!(!surface.can_seed_runtime_apply());
+    }
+
+    #[test]
+    fn activation_surface_can_seed_runtime_apply_for_clean_world_shell() {
+        let mut observation = test_observation();
+        observation.entity_remap_summary.unresolved_effective_names.clear();
+        observation
+            .world_entity_chunks
+            .retain(|chunk| !chunk.would_post_load_skip());
+        observation.world_entity_count = observation.world_entity_chunks.len();
+        observation.entity_summary = SaveEntityRegionObservation {
+            remap_count: observation.entity_remap_entries.len(),
+            remap_entries: observation.entity_remap_entries.clone(),
+            remap_bytes: observation.entity_remap_bytes.clone(),
+            team_count: observation.team_plan_groups.len(),
+            total_plans: observation
+                .team_plan_groups
+                .iter()
+                .map(|group| group.plans.len())
+                .sum(),
+            team_plan_groups: observation.team_plan_groups.clone(),
+            team_region_bytes: observation.team_region_bytes.clone(),
+            world_entity_count: observation.world_entity_count,
+            world_entity_bytes: observation.world_entity_bytes.clone(),
+            entity_chunks: observation.world_entity_chunks.clone(),
+        }
+        .post_load_summary();
+
+        let surface = observation.activation_surface();
+
+        assert!(surface.world_shell_ready);
+        assert!(surface.entity_ids_unique);
+        assert!(surface.unresolved_effective_names.is_empty());
+        assert!(surface.skipped_entities.is_empty());
+        assert!(surface.can_seed_runtime_apply());
     }
 
     #[test]
