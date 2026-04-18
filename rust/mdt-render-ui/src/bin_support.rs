@@ -70,6 +70,11 @@ mod tests {
     }
 
     #[test]
+    fn decode_hex_treats_whitespace_only_input_as_empty() {
+        assert_eq!(decode_hex(" \t\n\r").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
     fn read_world_stream_bytes_uses_default_fixture() {
         let bytes = read_world_stream_bytes(None).unwrap();
         assert!(!bytes.is_empty());
