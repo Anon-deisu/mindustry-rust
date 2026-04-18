@@ -1098,6 +1098,115 @@ mod tests {
         assert_eq!(focused.summary_label(), focused.shared_prefix_label());
     }
 
+    #[test]
+    fn minimap_user_flow_pan_label_covers_remaining_diagonals() {
+        let base = flow_model(false, false, false, false);
+
+        assert_eq!(
+            MinimapUserFlowPanelModel {
+                pan_horizontal: MinimapPanAxisDirection::Left,
+                pan_vertical: MinimapPanAxisDirection::Up,
+                ..base.clone()
+            }
+            .pan_label(),
+            "left+up"
+        );
+        assert_eq!(
+            MinimapUserFlowPanelModel {
+                pan_horizontal: MinimapPanAxisDirection::Left,
+                pan_vertical: MinimapPanAxisDirection::Down,
+                ..base.clone()
+            }
+            .pan_label(),
+            "left+down"
+        );
+        assert_eq!(
+            MinimapUserFlowPanelModel {
+                pan_horizontal: MinimapPanAxisDirection::Right,
+                pan_vertical: MinimapPanAxisDirection::Up,
+                ..base.clone()
+            }
+            .pan_label(),
+            "right+up"
+        );
+        assert_eq!(
+            MinimapUserFlowPanelModel {
+                pan_horizontal: MinimapPanAxisDirection::Right,
+                pan_vertical: MinimapPanAxisDirection::Down,
+                ..base
+            }
+            .pan_label(),
+            "right+down"
+        );
+    }
+
+    #[test]
+    fn minimap_user_flow_prefers_runtime_target_kind_over_player_when_present() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "player:1".to_string(),
+                    layer: 1,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-health:1:2".to_string(),
+                    layer: 2,
+                    x: 16.0,
+                    y: 16.0,
+                },
+            ],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 8,
+                map_height: 8,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 64,
+                hidden_tile_count: 0,
+                minimap: HudMinimapSummary {
+                    focus_tile: Some((1, 1)),
+                    view_window: HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 8,
+                        height: 8,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_minimap_user_flow_panel(
+            &scene,
+            &hud,
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 8,
+                height: 8,
+            },
+        )
+        .expect("runtime priority panel");
+
+        assert_eq!(panel.target_kind, MinimapUserTargetKind::Runtime);
+        assert_eq!(panel.next_action, "inspect");
+        assert_eq!(panel.overlay_target_count, 1);
+    }
+
     fn build_top_left_summary() -> HudSummary {
         HudSummary {
             player_name: "operator".to_string(),
