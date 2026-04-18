@@ -782,6 +782,15 @@ mod tests {
     }
 
     #[test]
+    fn has_duplicate_values_detects_duplicates_and_unique_sequences() {
+        assert!(!has_duplicate_values(Vec::<i32>::new()));
+        assert!(!has_duplicate_values([1, 2, 3]));
+        assert!(has_duplicate_values([1, 2, 1]));
+        assert!(!has_duplicate_values(["map", "entities", "markers"]));
+        assert!(has_duplicate_values(["map", "entities", "map"]));
+    }
+
+    #[test]
     fn checked_tile_count_and_surface_index_handle_overflow_boundaries() {
         assert_eq!(checked_tile_count(3, 4), Some(12));
         assert_eq!(checked_tile_count(usize::MAX, 2), None);
