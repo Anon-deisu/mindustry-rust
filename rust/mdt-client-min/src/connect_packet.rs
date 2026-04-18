@@ -1009,6 +1009,23 @@ mod tests {
     }
 
     #[test]
+    fn new_default_uses_embedded_metadata_and_stable_defaults() {
+        let spec = ConnectPacketSpec::new_default("zh_CN");
+
+        assert_eq!(spec.version, default_connect_build());
+        assert_eq!(spec.version_type, default_connect_version_type());
+        assert_eq!(spec.name, "mdt-client-min");
+        assert_eq!(spec.locale, "zh_CN");
+        assert!(!spec.usid.is_empty());
+        assert!(!spec.uuid.is_empty());
+        assert!(!spec.mobile);
+        assert_eq!(spec.color, -1);
+        assert!(spec.mods.is_empty());
+        assert!(spec.compatibility_warnings().is_empty());
+        assert!(spec.encode_payload().is_ok());
+    }
+
+    #[test]
     fn strict_connect_version_type_rejects_missing_or_empty_type_metadata() {
         assert_eq!(
             strict_connect_version_type(b"build = 146\n"),
