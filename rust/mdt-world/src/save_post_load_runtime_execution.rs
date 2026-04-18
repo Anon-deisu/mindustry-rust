@@ -992,6 +992,18 @@ mod tests {
     }
 
     #[test]
+    fn runtime_world_semantics_query_helpers_return_missing_source_region_for_unknown_name() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let execution = observation.execute_runtime_world_semantics();
+
+        assert_eq!(execution.source_regions().len(), 4);
+        assert!(execution.source_region("unknown").is_none());
+        assert!(execution.source_region("map").is_some());
+    }
+
+    #[test]
     fn save_post_load_runtime_execution_summary_and_detail_labels_use_bool_labels() {
         let execution = SavePostLoadRuntimeApplyExecution {
             can_seed_runtime_apply: true,
