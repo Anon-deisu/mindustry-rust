@@ -906,6 +906,27 @@ mod tests {
     }
 
     #[test]
+    fn compatibility_warnings_return_both_codes_in_stable_order() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.version = -1;
+        spec.version_type = " custom build ".to_string();
+
+        let warnings = spec
+            .compatibility_warnings()
+            .iter()
+            .map(|warning| warning.code)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            warnings,
+            vec![
+                ConnectCompatibilityWarningCode::BuildUnknown,
+                ConnectCompatibilityWarningCode::VersionTypeCustomLike,
+            ]
+        );
+    }
+
+    #[test]
     fn is_custom_like_version_type_trims_and_matches_known_custom_labels() {
         assert!(is_custom_like_version_type("custom"));
         assert!(is_custom_like_version_type("  CUSTOM BUILD  "));
