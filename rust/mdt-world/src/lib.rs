@@ -44925,6 +44925,44 @@ mod tests {
     }
 
     #[test]
+    fn effective_remap_names_first_seen_keeps_first_custom_id_name_and_stable_order() {
+        let remap_entries = vec![
+            SaveEntityRemapEntry {
+                custom_id: 8,
+                name: "mod-first".to_string(),
+            },
+            SaveEntityRemapEntry {
+                custom_id: 2,
+                name: "mod-shared".to_string(),
+            },
+            SaveEntityRemapEntry {
+                custom_id: 8,
+                name: "mod-replaced".to_string(),
+            },
+            SaveEntityRemapEntry {
+                custom_id: 5,
+                name: "mod-shared".to_string(),
+            },
+            SaveEntityRemapEntry {
+                custom_id: 1,
+                name: "mod-tail".to_string(),
+            },
+        ];
+
+        let effective = effective_remap_names_first_seen(&remap_entries);
+
+        assert_eq!(
+            effective.into_iter().collect::<Vec<_>>(),
+            vec![
+                (1, "mod-tail".to_string()),
+                (2, "mod-shared".to_string()),
+                (5, "mod-shared".to_string()),
+                (8, "mod-first".to_string()),
+            ]
+        );
+    }
+
+    #[test]
     fn rejects_truncated_legacy_save_entity_chunk() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&0u16.to_be_bytes());
