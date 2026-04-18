@@ -399,4 +399,12 @@ mod tests {
         assert_eq!(bridge.business_summary_text(4), None);
         assert!(bridge.summary_lines()[1].contains("resets=1"));
     }
+
+    #[test]
+    fn truncate_for_preview_respects_char_boundaries() {
+        assert_eq!(truncate_for_preview("abcd", 4), "abcd");
+        assert_eq!(truncate_for_preview("abcd", 3), "abc...");
+        assert_eq!(truncate_for_preview("汉字", 2), "汉字");
+        assert_eq!(truncate_for_preview("汉字A", 2), "汉字...");
+    }
 }
