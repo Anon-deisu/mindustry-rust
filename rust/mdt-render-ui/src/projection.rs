@@ -913,6 +913,19 @@ mod tests {
     }
 
     #[test]
+    fn finite_world_position_rejects_non_finite_coordinates_and_preserves_finite_values() {
+        assert_eq!(super::finite_world_position(Some((f32::NAN, 1.5))), None);
+        assert_eq!(super::finite_world_position(Some((2.5, f32::INFINITY))), None);
+
+        let input = (12.25f32, -0.0f32);
+        let output = super::finite_world_position(Some(input)).expect("finite position");
+
+        assert_eq!(output.0.to_bits(), input.0.to_bits());
+        assert_eq!(output.1.to_bits(), input.1.to_bits());
+        assert_eq!(output, input);
+    }
+
+    #[test]
     fn runtime_player_position_override_moves_player_object() {
         let bundle = parse_world_bundle(&decode_hex(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
