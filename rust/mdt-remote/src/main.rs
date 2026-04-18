@@ -526,6 +526,26 @@ mod tests {
     }
 
     #[test]
+    fn resolve_cli_path_keeps_empty_relative_paths_as_current_directory() {
+        let original_dir = env::current_dir().expect("current dir");
+        let temp_dir = env::temp_dir().join(format!(
+            "mdt-remote-resolve-cli-path-empty-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        env::set_current_dir(&temp_dir).unwrap();
+
+        assert_eq!(resolve_cli_path(Path::new("")).unwrap(), temp_dir);
+
+        env::set_current_dir(&original_dir).unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn resolve_auxiliary_output_path_prefers_explicit_path_over_registry_default() {
         let original_dir = env::current_dir().expect("current dir");
         let temp_dir = env::temp_dir().join(format!(
