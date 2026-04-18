@@ -568,6 +568,14 @@ mod tests {
     }
 
     #[test]
+    fn resolve_auxiliary_output_path_returns_none_without_explicit_or_registry_path() {
+        let actual =
+            resolve_auxiliary_output_path(None, None, default_high_frequency_output_path).unwrap();
+
+        assert_eq!(actual, None);
+    }
+
+    #[test]
     fn normalize_path_for_overlap_collapses_dot_segments_and_preserves_leading_parents() {
         assert_eq!(
             normalize_path_for_overlap(Path::new("./build/../remote/registry.rs")),
