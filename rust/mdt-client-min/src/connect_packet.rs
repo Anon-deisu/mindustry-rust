@@ -1074,4 +1074,17 @@ mod tests {
         assert_eq!(modified_utf8_unit_len(0xd83d), 3);
         assert_eq!(modified_utf8_unit_len(0xde00), 3);
     }
+
+    #[test]
+    fn write_java_modified_utf_prefixes_length_and_preserves_nul_and_astral_boundaries() {
+        let mut out = Vec::new();
+        write_java_modified_utf(&mut out, "field", "A\0\u{1f600}").unwrap();
+
+        assert_eq!(
+            out,
+            vec![
+                0x00, 0x09, 0x41, 0xc0, 0x80, 0xed, 0xa0, 0xbd, 0xed, 0xb8, 0x80,
+            ]
+        );
+    }
 }
