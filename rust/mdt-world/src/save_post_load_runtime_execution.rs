@@ -1078,6 +1078,17 @@ mod tests {
     }
 
     #[test]
+    fn bool_label_and_source_region_sort_key_keep_stable_fallbacks() {
+        assert_eq!(bool_label(true), "yes");
+        assert_eq!(bool_label(false), "no");
+        assert_eq!(source_region_sort_key("map"), 0);
+        assert_eq!(source_region_sort_key("entities"), 1);
+        assert_eq!(source_region_sort_key("markers"), 2);
+        assert_eq!(source_region_sort_key("custom"), 3);
+        assert_eq!(source_region_sort_key("unknown"), 4);
+    }
+
+    #[test]
     fn live_runtime_activation_materializes_clean_seedable_runtime_bundle() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
