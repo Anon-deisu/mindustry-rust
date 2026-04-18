@@ -407,6 +407,7 @@ mod tests {
         SaveMapRegionObservation, StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup,
         TileModel, TypeIoValue, WorldModel,
     };
+    use std::collections::BTreeSet;
 
     #[test]
     fn runtime_apply_execution_view_indexes_clean_execution_statuses() {
@@ -547,6 +548,96 @@ mod tests {
             Some(1)
         );
         assert_eq!(view.source_region("missing"), None);
+    }
+
+    #[test]
+    fn execution_source_region_step_buckets_are_disjoint() {
+        let mut step_status_lookup = BTreeMap::new();
+        let executed_step = SavePostLoadRuntimeApplyStep::WorldShell;
+        let failed_step = SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 };
+        let awaiting_step = SavePostLoadRuntimeApplyStep::TeamPlan {
+            group_index: 1,
+            plan_index: 2,
+        };
+        let blocked_step = SavePostLoadRuntimeApplyStep::Marker { marker_index: 3 };
+        let deferred_step = SavePostLoadRuntimeApplyStep::StaticFog;
+
+        step_status_lookup.insert(
+            executed_step.clone(),
+            SavePostLoadRuntimeExecutionStepStatus::Executed,
+        );
+        step_status_lookup.insert(
+            failed_step.clone(),
+            SavePostLoadRuntimeExecutionStepStatus::Failed,
+        );
+        step_status_lookup.insert(
+            awaiting_step.clone(),
+            SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell,
+        );
+        step_status_lookup.insert(
+            blocked_step.clone(),
+            SavePostLoadRuntimeExecutionStepStatus::Blocked,
+        );
+        step_status_lookup.insert(
+            deferred_step.clone(),
+            SavePostLoadRuntimeExecutionStepStatus::Deferred,
+        );
+
+        let view = SavePostLoadRuntimeApplyExecutionView {
+            can_seed_runtime_apply: true,
+            world_shell_ready: false,
+            step_status_lookup,
+        };
+        let source_regions = view.source_regions();
+
+        assert_eq!(view.total_step_count(), 5);
+        for (step, status) in [
+            (
+                &executed_step,
+                SavePostLoadRuntimeExecutionStepStatus::Executed,
+            ),
+            (&failed_step, SavePostLoadRuntimeExecutionStepStatus::Failed),
+            (
+                &awaiting_step,
+                SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell,
+            ),
+            (&blocked_step, SavePostLoadRuntimeExecutionStepStatus::Blocked),
+            (&deferred_step, SavePostLoadRuntimeExecutionStepStatus::Deferred),
+        ] {
+            assert_eq!(view.step_count(status), 1);
+            assert_eq!(view.steps_with_status(status), vec![step]);
+            assert_eq!(view.step_status(step), Some(status));
+        }
+        assert_eq!(
+            source_regions
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            vec!["map", "entities", "markers", "custom"]
+        );
+        assert_eq!(view.source_region("entities").unwrap().source_region_name, "entities");
+        assert_eq!(view.source_region("entities").unwrap().total_step_count(), 2);
+
+        let mut seen_steps = BTreeSet::new();
+        for region in &source_regions {
+            let mut region_steps = BTreeSet::new();
+
+            for status in SavePostLoadRuntimeExecutionStepStatus::ordered() {
+                let steps = region.steps_with_status(status);
+                assert_eq!(steps.len(), region.step_count(status));
+                for step in steps {
+                    assert!(region_steps.insert((*step).clone()));
+                    assert!(seen_steps.insert((*step).clone()));
+                }
+            }
+
+            assert_eq!(region_steps.len(), region.total_step_count());
+            assert_eq!(
+                source_region_name_for_step(region_steps.iter().next().unwrap()),
+                region.source_region_name
+            );
+        }
+        assert_eq!(seen_steps.len(), 5);
     }
 
     #[test]
