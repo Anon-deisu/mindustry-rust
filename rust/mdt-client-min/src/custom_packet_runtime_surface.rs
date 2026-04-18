@@ -1589,6 +1589,13 @@ mod tests {
     }
 
     #[test]
+    fn build_pos_world_pos_converts_packed_build_pos_into_8x_world_coordinates() {
+        assert_eq!(build_pos_world_pos(pack_point2(3, 5)), (24.0, 40.0));
+        assert_eq!(build_pos_world_pos(pack_point2(0, 0)), (0.0, 0.0));
+        assert_eq!(build_pos_world_pos(pack_point2(-1, -2)), (-8.0, -16.0));
+    }
+
+    #[test]
     fn runtime_custom_packet_surface_overlay_markers_export_world_and_build_positions() {
         let mut state = RuntimeCustomPacketSurfaceState::default();
         state.register(&RuntimeCustomPacketSemanticSpec {
