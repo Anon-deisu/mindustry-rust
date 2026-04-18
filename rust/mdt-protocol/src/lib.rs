@@ -963,6 +963,12 @@ mod tests {
     }
 
     #[test]
+    fn split_stream_chunks_returns_empty_vec_for_empty_input() {
+        assert!(split_stream_chunks(&[], 1024).is_empty());
+        assert_eq!(reassemble_stream_chunks(&[]), Vec::<u8>::new());
+    }
+
+    #[test]
     fn generate_world_stream_transport_goldens_rejects_oversized_stream_length() {
         let oversized = i32::MAX as usize + 1;
         assert_eq!(
