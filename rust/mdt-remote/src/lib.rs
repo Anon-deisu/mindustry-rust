@@ -4816,6 +4816,22 @@ mod tests {
     }
 
     #[test]
+    fn remote_packet_const_name_raw_splits_on_dot_dollar_and_punctuation() {
+        assert_eq!(
+            remote_packet_const_name_raw("mindustry.gen.TransferItemCallPacket"),
+            "TRANSFER_ITEM_CALL_PACKET"
+        );
+        assert_eq!(
+            remote_packet_const_name_raw("mindustry.net.Packets$WorldStream"),
+            "WORLD_STREAM"
+        );
+        assert_eq!(
+            remote_packet_const_name_raw("packet-name!?v2"),
+            "PACKET_NAME_V2"
+        );
+    }
+
+    #[test]
     fn typed_high_frequency_lookup_rejects_flow_only_decoys() {
         let manifest = RemoteManifest {
             schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
