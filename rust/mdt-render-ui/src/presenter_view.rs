@@ -6215,6 +6215,29 @@ mod tests {
     }
 
     #[test]
+    fn format_runtime_command_mode_tail_text_handles_none_and_zero_boundaries() {
+        assert_eq!(
+            super::format_runtime_command_mode_tail_text(None, None, None),
+            "tnone:cnone:snone"
+        );
+        assert_eq!(
+            super::format_runtime_command_mode_tail_text(
+                Some(RuntimeCommandTargetObservability {
+                    build_target: Some(0),
+                    unit_target: None,
+                    position_target: None,
+                    rect_target: None,
+                }),
+                Some(0),
+                Some(RuntimeCommandStanceObservability {
+                    stance_id: None,
+                    enabled: true,
+                }),
+            ),
+            "tb0:unone:pnone:rnone:c0:snone/1"
+        );
+    }
+    #[test]
     fn format_runtime_command_mode_panel_text_preserves_field_order() {
         let panel = RuntimeCommandModePanelModel {
             active: true,
