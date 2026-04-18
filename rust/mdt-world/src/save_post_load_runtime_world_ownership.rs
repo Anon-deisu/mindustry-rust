@@ -688,6 +688,7 @@ mod tests {
         let source_regions = ownership.source_regions();
         let entities = ownership.source_region("entities").unwrap();
 
+        assert!(ownership.source_region("unknown").is_none());
         assert_eq!(
             source_regions.iter().map(|region| region.source_region_name).collect::<Vec<_>>(),
             vec!["map", "entities", "markers", "custom"]
@@ -709,6 +710,11 @@ mod tests {
                 SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities,
             ]
         );
+        for region in &source_regions {
+            for surface in &region.surfaces {
+                assert_eq!(region.surface(surface.kind), Some(surface));
+            }
+        }
         assert_eq!(entities.source_region_name, "entities");
         assert_eq!(entities.required_step_count(), 7);
         assert_eq!(entities.claimed_step_count(), 7);
