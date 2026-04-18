@@ -1061,6 +1061,27 @@ mod tests {
     }
 
     #[test]
+    fn source_binding_enabled_accepts_registered_effect_ids() {
+        for effect_id in [Some(8), Some(9), Some(10), Some(178), Some(261), Some(262)] {
+            assert!(super::source_binding_enabled(effect_id));
+        }
+
+        for effect_id in [
+            None,
+            Some(0),
+            Some(7),
+            Some(11),
+            Some(12),
+            Some(13),
+            Some(67),
+            Some(263),
+            Some(999),
+        ] {
+            assert!(!super::source_binding_enabled(effect_id));
+        }
+    }
+
+    #[test]
     fn effect_runtime_spawn_runtime_effect_overlay_keeps_move_command_named_contract() {
         let overlay =
             spawn_runtime_effect_overlay(Some(12), 12.0, 20.0, 12.0, 20.0, 0.0, 0, false, None, 30);
