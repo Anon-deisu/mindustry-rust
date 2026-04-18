@@ -837,6 +837,30 @@ mod tests {
     }
 
     #[test]
+    fn validate_connect_mod_entries_and_encode_payload_reject_first_blank_mod_entry() {
+        let mods = vec!["   ".to_string(), "mod-b:2".to_string()];
+
+        assert_eq!(
+            validate_connect_mod_entries(&mods),
+            Err(ConnectPacketEncodeError::InvalidModEntry {
+                index: 0,
+                reason: "must not be empty",
+            })
+        );
+
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.mods = mods;
+
+        assert_eq!(
+            spec.encode_payload().unwrap_err(),
+            ConnectPacketEncodeError::InvalidModEntry {
+                index: 0,
+                reason: "must not be empty",
+            }
+        );
+    }
+
+    #[test]
     fn encode_payload_rejects_too_many_mods_boundary() {
         let mut spec = ConnectPacketSpec::new_default("en_US");
         spec.mods = vec![String::from("mod-a:1"); 256];
