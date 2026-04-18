@@ -982,4 +982,16 @@ mod tests {
             }]
         );
     }
+
+    #[test]
+    fn parse_surface_i32_and_world_pos_accept_trimmed_literals() {
+        assert_eq!(parse_surface_i32("  -17 "), Some(-17));
+        assert_eq!(parse_surface_i32("3.14"), None);
+        assert_eq!(parse_surface_i32("garbage"), None);
+
+        assert_eq!(parse_surface_world_pos(" 12 : -4 "), Some((12.0, -4.0)));
+        assert_eq!(parse_surface_world_pos("7,8"), Some((7.0, 8.0)));
+        assert_eq!(parse_surface_world_pos("12:"), None);
+        assert_eq!(parse_surface_world_pos(":34"), None);
+    }
 }
