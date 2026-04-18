@@ -1499,6 +1499,40 @@ mod tests {
     }
 
     #[test]
+    fn project_scene_models_with_view_window_keeps_render_and_hud_windows_aligned() {
+        let bundle = parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap();
+        let session = bundle.loaded_session().unwrap();
+
+        let (render, hud) =
+            super::project_scene_models_with_view_window(&session, "fr", None, (4, 4));
+        let render_view_window = render.view_window.as_ref().expect("render view window");
+        let hud_view_window = &hud
+            .summary
+            .as_ref()
+            .expect("hud summary")
+            .minimap
+            .view_window;
+
+        assert_eq!(
+            (
+                render_view_window.origin_x,
+                render_view_window.origin_y,
+                render_view_window.width,
+                render_view_window.height,
+            ),
+            (
+                hud_view_window.origin_x,
+                hud_view_window.origin_y,
+                hud_view_window.width,
+                hud_view_window.height,
+            )
+        );
+    }
+
+    #[test]
     fn render_projection_omits_unrevealed_tiles_under_static_fog() {
         let bundle = parse_world_bundle(&decode_hex(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
