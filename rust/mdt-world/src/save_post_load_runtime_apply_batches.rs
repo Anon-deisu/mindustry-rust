@@ -759,6 +759,35 @@ mod tests {
         assert_eq!(batch_view.next_apply_now_batch(), None);
     }
 
+    #[test]
+    fn runtime_apply_batch_plan_view_keeps_world_shell_when_auxiliary_seeds_are_empty() {
+        let mut plan = test_observation().runtime_seed_plan();
+        plan.entity_remap_seeds.clear();
+        plan.team_plan_seeds.clear();
+        plan.marker_seeds.clear();
+        plan.static_fog_seed = None;
+        plan.custom_chunk_seeds.clear();
+        plan.building_seeds.clear();
+        plan.loadable_entity_seeds.clear();
+        plan.skipped_entity_seeds.clear();
+
+        let batch_plan_view = plan.runtime_apply_batch_plan_view();
+
+        assert!(!batch_plan_view.can_seed_runtime_apply);
+        assert!(!batch_plan_view.world_shell_ready);
+        assert_eq!(batch_plan_view.stage_count, 1);
+        assert_eq!(batch_plan_view.batch_count(), 1);
+        assert_eq!(
+            batch_plan_view.batches[0].disposition,
+            SavePostLoadConsumerRuntimeDisposition::Blocked
+        );
+        assert_eq!(
+            batch_plan_view.batches[0].steps,
+            vec![SavePostLoadRuntimeApplyStep::WorldShell]
+        );
+        assert_eq!(batch_plan_view.next_apply_now_batch(), None);
+    }
+
     fn test_observation() -> SavePostLoadWorldObservation {
         SavePostLoadWorldObservation {
             save_version: 11,
