@@ -812,6 +812,99 @@ mod tests {
         assert!(!batch_plan.has_blockers());
     }
 
+    #[test]
+    fn push_or_merge_runtime_apply_batch_only_merges_with_last_same_disposition() {
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        struct DummyBatch {
+            batch_index: usize,
+            disposition: SavePostLoadConsumerRuntimeDisposition,
+            step_count: usize,
+            stages: Vec<SavePostLoadConsumerStageKind>,
+        }
+
+        let mut batches: Vec<DummyBatch> = Vec::new();
+        let make_stage = |kind, disposition| SavePostLoadConsumerRuntimeStageHelper {
+            kind,
+            step_count: 1,
+            disposition,
+            blockers: Vec::new(),
+        };
+
+        let mut push_stage = |stage: SavePostLoadConsumerRuntimeStageHelper| {
+            push_or_merge_runtime_apply_batch(
+                &mut batches,
+                &stage,
+                (),
+                |batch, stage| batch.disposition == stage.disposition,
+                |batch_index, stage, ()| DummyBatch {
+                    batch_index,
+                    disposition: stage.disposition,
+                    step_count: stage.step_count,
+                    stages: vec![stage.kind],
+                },
+                |batch, stage, ()| {
+                    batch.step_count += stage.step_count;
+                    batch.stages.push(stage.kind);
+                },
+            );
+        };
+
+        push_stage(make_stage(
+            SavePostLoadConsumerStageKind::WorldShell,
+            SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+        ));
+        push_stage(make_stage(
+            SavePostLoadConsumerStageKind::EntityRemaps,
+            SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+        ));
+        push_stage(make_stage(
+            SavePostLoadConsumerStageKind::TeamPlans,
+            SavePostLoadConsumerRuntimeDisposition::Blocked,
+        ));
+        push_stage(make_stage(
+            SavePostLoadConsumerStageKind::Markers,
+            SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+        ));
+        push_stage(make_stage(
+            SavePostLoadConsumerStageKind::StaticFog,
+            SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+        ));
+
+        assert_eq!(
+            batches,
+            vec![
+                DummyBatch {
+                    batch_index: 0,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    step_count: 2,
+                    stages: vec![
+                        SavePostLoadConsumerStageKind::WorldShell,
+                        SavePostLoadConsumerStageKind::EntityRemaps,
+                    ],
+                },
+                DummyBatch {
+                    batch_index: 1,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    step_count: 1,
+                    stages: vec![SavePostLoadConsumerStageKind::TeamPlans],
+                },
+                DummyBatch {
+                    batch_index: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    step_count: 2,
+                    stages: vec![
+                        SavePostLoadConsumerStageKind::Markers,
+                        SavePostLoadConsumerStageKind::StaticFog,
+                    ],
+                },
+            ]
+        );
+        assert_eq!(
+            batches.iter().map(|batch| batch.batch_index).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+    }
+
     fn test_observation() -> SavePostLoadWorldObservation {
         SavePostLoadWorldObservation {
             save_version: 11,
