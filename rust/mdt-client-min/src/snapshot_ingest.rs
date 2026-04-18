@@ -716,7 +716,7 @@ fn read_bytes(payload: &[u8], cursor: &mut usize) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        count_fits_remaining_bytes, ingest_inbound_snapshot, read_bytes, InboundSnapshot,
+        count_fits_remaining_bytes, ingest_inbound_snapshot, read_bytes, read_u16, InboundSnapshot,
     };
     use crate::session_state::{
         AppliedBlockSnapshotEnvelope, AppliedHiddenSnapshotIds, AppliedStateSnapshotCoreData,
@@ -825,6 +825,21 @@ mod tests {
 
         assert_eq!(read_bytes(&payload, &mut cursor), None);
         assert_eq!(cursor, 2);
+    }
+
+    #[test]
+    fn read_u16_reads_big_endian_values_and_stops_on_truncation() {
+        let payload = [0x12, 0x34];
+        let mut cursor = 0usize;
+
+        assert_eq!(read_u16(&payload, &mut cursor), Some(0x1234));
+        assert_eq!(cursor, 2);
+
+        let payload = [0x12];
+        let mut cursor = 0usize;
+
+        assert_eq!(read_u16(&payload, &mut cursor), None);
+        assert_eq!(cursor, 0);
     }
 
     #[test]
