@@ -2162,3 +2162,44 @@ pub const REMOTE_PACKET_SPECS: &[RemotePacketSpec] = &[
         param_count: 0,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn remote_registry_has_expected_manifest_shape() {
+        assert_eq!(REMOTE_MANIFEST_SCHEMA, "mdt.remote.manifest.v1");
+        assert_eq!(REMOTE_BASE_PACKET_COUNT, 4);
+        assert!(!REMOTE_PACKET_SPECS.is_empty());
+        assert_eq!(REMOTE_PACKET_SPECS[0].packet_id, REMOTE_BASE_PACKET_COUNT as u8);
+        assert!(REMOTE_PACKET_SPECS.iter().all(|spec| {
+            !spec.packet_class.is_empty()
+                && !spec.declaring_type.is_empty()
+                && !spec.method.is_empty()
+                && !spec.targets.is_empty()
+                && !spec.called.is_empty()
+                && !spec.variants.is_empty()
+                && !spec.priority.is_empty()
+                && spec.packet_id >= REMOTE_BASE_PACKET_COUNT as u8
+        }));
+    }
+
+    #[test]
+    fn remote_registry_packet_ids_are_unique_and_sorted() {
+        let ids: Vec<u8> = REMOTE_PACKET_SPECS.iter().map(|spec| spec.packet_id).collect();
+        assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+
+        let mut unique_ids = HashSet::with_capacity(ids.len());
+        assert!(ids.iter().copied().all(|id| unique_ids.insert(id)));
+    }
+
+    #[test]
+    fn remote_registry_packet_classes_are_unique() {
+        let mut classes = HashSet::with_capacity(REMOTE_PACKET_SPECS.len());
+        assert!(REMOTE_PACKET_SPECS
+            .iter()
+            .all(|spec| classes.insert(spec.packet_class)));
+    }
+}
