@@ -1369,6 +1369,28 @@ mod tests {
     }
 
     #[test]
+    fn builder_queue_profile_state_label_returns_in_flight_for_pure_inflight_queue() {
+        let profile = BuilderQueueProfile {
+            inflight_count: 1,
+            ..Default::default()
+        };
+
+        assert_eq!(profile.state_label(), "in-flight");
+    }
+
+    #[test]
+    fn builder_queue_profile_head_target_label_uses_question_marks_when_block_metadata_is_missing() {
+        let profile = BuilderQueueProfile {
+            head_breaking: Some(false),
+            head_block_id: None,
+            head_rotation: None,
+            ..Default::default()
+        };
+
+        assert_eq!(profile.head_target_label(), "?@r?");
+    }
+
+    #[test]
     fn builder_queue_summary_tracks_transition_outcomes_and_cumulative_counts() {
         let mut queue = BuilderQueueStateMachine::default();
         queue.sync_local_entries([BuilderQueueEntryObservation {
