@@ -866,10 +866,22 @@ mod tests {
 
     #[test]
     fn crop_origin_clamps_center_and_edges_stably() {
-        assert_eq!(crop_origin(5, 10, 4), 3);
-        assert_eq!(crop_origin(0, 10, 4), 0);
-        assert_eq!(crop_origin(9, 10, 4), 6);
-        assert_eq!(crop_origin(7, 10, 0), 7);
+        let cases = [
+            ("centered", 5, 10, 4, 3),
+            ("left edge", 0, 10, 4, 0),
+            ("right edge", 9, 10, 4, 6),
+            ("near left edge", 1, 10, 4, 0),
+            ("near right edge", 8, 10, 4, 6),
+            ("zero-width window", 7, 10, 0, 7),
+        ];
+
+        for (label, focus, bound, window, expected) in cases {
+            let first = crop_origin(focus, bound, window);
+            let second = crop_origin(focus, bound, window);
+
+            assert_eq!(first, expected, "{label}");
+            assert_eq!(second, expected, "{label} repeat");
+        }
     }
 
     #[test]
