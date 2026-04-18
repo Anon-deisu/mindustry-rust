@@ -400,6 +400,35 @@ mod tests {
     }
 
     #[test]
+    fn source_region_missing_in_populated_readiness_returns_none() {
+        let readiness = SavePostLoadRuntimeReadiness {
+            can_seed_runtime_apply: false,
+            world_shell_ready: true,
+            regions: vec![SavePostLoadRuntimeRegionReadiness {
+                kind: SavePostLoadRuntimeRegionKind::Markers,
+                source_region_name: "markers",
+                step_count: 2,
+                disposition: SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+                blockers: Vec::new(),
+            }],
+        };
+
+        assert_eq!(readiness.source_regions().len(), 1);
+        assert_eq!(readiness.source_region("entities"), None);
+        assert_eq!(
+            readiness.source_region("markers"),
+            Some(SavePostLoadRuntimeSourceRegionReadiness {
+                source_region_name: "markers",
+                apply_now_step_count: 0,
+                awaiting_world_shell_step_count: 2,
+                blocked_step_count: 0,
+                deferred_step_count: 0,
+                blockers: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
     fn region_kind_maps_all_consumer_stage_kinds_to_runtime_region_kinds() {
         let cases = [
             (
