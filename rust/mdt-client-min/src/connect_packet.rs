@@ -866,6 +866,21 @@ mod tests {
     }
 
     #[test]
+    fn encode_payload_accepts_maximum_string_length_boundary() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.name = ascii_string(u16::MAX as usize);
+
+        let encoded = spec.encode_payload().unwrap();
+        let name_offset = 4 + wire_string_len(&spec.version_type);
+
+        assert_eq!(encoded[name_offset], 1);
+        assert_eq!(
+            u16::from_be_bytes([encoded[name_offset + 1], encoded[name_offset + 2]]),
+            u16::MAX
+        );
+    }
+
+    #[test]
     fn encode_payload_rejects_string_too_long_boundary() {
         let mut spec = ConnectPacketSpec::new_default("en_US");
         spec.name = ascii_string(65_536);
