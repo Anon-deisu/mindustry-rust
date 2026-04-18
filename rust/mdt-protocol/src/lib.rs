@@ -624,6 +624,18 @@ mod tests {
     }
 
     #[test]
+    fn encode_packet_switches_to_compression_at_36_bytes() {
+        let uncompressed_payload = (0u8..35).collect::<Vec<_>>();
+        let compressed_payload = (0u8..36).collect::<Vec<_>>();
+
+        let uncompressed = encode_packet(CONNECT_PACKET_ID, &uncompressed_payload, false).unwrap();
+        let compressed = encode_packet(CONNECT_PACKET_ID, &compressed_payload, false).unwrap();
+
+        assert_eq!(decode_packet(&uncompressed).unwrap().compression, 0);
+        assert_eq!(decode_packet(&compressed).unwrap().compression, 1);
+    }
+
+    #[test]
     fn large_packet_compresses() {
         let payload = (0u8..=63).collect::<Vec<_>>();
         let encoded = encode_packet(CONNECT_PACKET_ID, &payload, false).unwrap();
