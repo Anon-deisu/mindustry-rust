@@ -15,15 +15,8 @@ const USAGE: &str = "usage: mdt-protocol <output-dir>";
 fn main() -> Result<(), Box<dyn Error>> {
     let output_dir = parse_args(env::args().skip(1))?;
     let output_dir = Path::new(&output_dir);
-    fs::create_dir_all(output_dir).map_err(|err| {
-        io::Error::new(
-            err.kind(),
-            format!(
-                "failed to create output directory {}: {err}",
-                output_dir.display()
-            ),
-        )
-    })?;
+    fs::create_dir_all(output_dir)
+        .map_err(|err| io::Error::new(err.kind(), format_output_dir_io_error(output_dir, &err)))?;
 
     let repo_root = repo_root_from_manifest_dir()?;
     let tests_resources = repo_root
@@ -147,11 +140,16 @@ fn format_path_io_error(
     format!("failed to {action} {label} {preposition} {}: {err}", path.display())
 }
 
+fn format_output_dir_io_error(path: &Path, err: &io::Error) -> String {
+    format!("failed to create output directory {}: {err}", path.display())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_hex, format_path_io_error, parse_args, read_text, repo_root_from_manifest_dir,
-        repo_root_from_manifest_dir_path, strip_whitespace, take_single_arg, write_text, USAGE,
+        decode_hex, format_output_dir_io_error, format_path_io_error, parse_args, read_text,
+        repo_root_from_manifest_dir, repo_root_from_manifest_dir_path, strip_whitespace,
+        take_single_arg, write_text, USAGE,
     };
     use std::{io, path::{Path, PathBuf}};
 
@@ -276,6 +274,16 @@ mod tests {
             message,
             "failed to read connect packet golden from dir with space/测试.txt: boom"
         );
+    }
+
+    #[test]
+    fn format_output_dir_io_error_preserves_path_and_reason() {
+        let path = Path::new("dir with space/输出");
+        let err = io::Error::new(io::ErrorKind::AlreadyExists, "boom");
+
+        let message = format_output_dir_io_error(path, &err);
+
+        assert_eq!(message, "failed to create output directory dir with space/输出: boom");
     }
 
     #[test]
