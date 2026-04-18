@@ -1396,6 +1396,27 @@ mod tests {
     }
 
     #[test]
+    fn optional_display_label_maps_none_and_display_values() {
+        struct SampleLabel<'a>(&'a str);
+
+        impl std::fmt::Display for SampleLabel<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+
+        assert_eq!(
+            super::optional_display_label::<SampleLabel<'_>>(None),
+            "none"
+        );
+        assert_eq!(super::optional_display_label(Some("alpha")), "alpha");
+        assert_eq!(
+            super::optional_display_label(Some(SampleLabel("beta:42"))),
+            "beta:42"
+        );
+    }
+
+    #[test]
     fn runtime_ui_stack_summary_tracks_foreground_and_layer_order() {
         let hud = HudModel {
             runtime_ui: Some(RuntimeUiObservability {
