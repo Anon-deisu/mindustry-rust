@@ -1269,6 +1269,51 @@ mod tests {
     }
 
     #[test]
+    fn build_user_flow_blocker_labels_map_all_variants_stably() {
+        let cases = [
+            (BuildUserFlowBlocker::Arm, "arm"),
+            (BuildUserFlowBlocker::Missing, "missing"),
+            (BuildUserFlowBlocker::Realign, "realign"),
+            (BuildUserFlowBlocker::Resolve, "resolve"),
+            (BuildUserFlowBlocker::Refocus, "refocus"),
+            (BuildUserFlowBlocker::Survey, "survey"),
+        ];
+
+        for (blocker, expected) in cases {
+            assert_eq!(blocker.label(), expected);
+        }
+
+        let panel = BuildUserFlowPanelModel {
+            next_action: "",
+            blockers: vec![
+                BuildUserFlowBlocker::Arm,
+                BuildUserFlowBlocker::Missing,
+                BuildUserFlowBlocker::Realign,
+                BuildUserFlowBlocker::Resolve,
+                BuildUserFlowBlocker::Refocus,
+                BuildUserFlowBlocker::Survey,
+            ],
+            route: Vec::new(),
+            minimap_next_action: "",
+            focus_state: MinimapUserFocusState::Missing,
+            pan_horizontal: MinimapPanAxisDirection::None,
+            pan_vertical: MinimapPanAxisDirection::None,
+            target_kind: MinimapUserTargetKind::None,
+            config_scope: "",
+            authority_state: BuildInteractionAuthorityState::None,
+            authority_pending_match: None,
+            authority_source: None,
+            authority_block_name: None,
+            head_tile: None,
+        };
+
+        assert_eq!(
+            panel.blocker_labels(),
+            vec!["arm", "missing", "realign", "resolve", "refocus", "survey"]
+        );
+    }
+
+    #[test]
     fn build_user_flow_summary_label_keeps_prefix_pan_and_authority_stable() {
         let panel = BuildUserFlowPanelModel {
             next_action: "survey",
