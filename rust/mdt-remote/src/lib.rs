@@ -4687,6 +4687,39 @@ mod tests {
     }
 
     #[test]
+    fn high_frequency_method_variant_and_const_prefix_mappings_are_stable() {
+        let variants = HighFrequencyRemoteMethod::ordered()
+            .into_iter()
+            .map(HighFrequencyRemoteMethod::variant_name)
+            .collect::<Vec<_>>();
+        let prefixes = HighFrequencyRemoteMethod::ordered()
+            .into_iter()
+            .map(HighFrequencyRemoteMethod::const_prefix)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            variants,
+            vec![
+                "ClientSnapshot",
+                "StateSnapshot",
+                "EntitySnapshot",
+                "BlockSnapshot",
+                "HiddenSnapshot",
+            ]
+        );
+        assert_eq!(
+            prefixes,
+            vec![
+                "CLIENT_SNAPSHOT",
+                "STATE_SNAPSHOT",
+                "ENTITY_SNAPSHOT",
+                "BLOCK_SNAPSHOT",
+                "HIDDEN_SNAPSHOT",
+            ]
+        );
+    }
+
+    #[test]
     fn remote_flow_and_param_kind_names_are_stable() {
         assert_eq!(remote_flow_name(RemoteFlow::ClientToServer), "ClientToServer");
         assert_eq!(remote_flow_name(RemoteFlow::ServerToClient), "ServerToClient");
