@@ -1403,6 +1403,118 @@ mod tests {
     }
 
     #[test]
+    fn readiness_step_count_sums_by_disposition_and_deduplicates_blockers() {
+        let readiness = SavePostLoadRuntimeReadiness {
+            can_seed_runtime_apply: false,
+            world_shell_ready: false,
+            regions: vec![
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::WorldShell,
+                    source_region_name: "shared",
+                    step_count: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(1),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                    ],
+                },
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::TeamPlans,
+                    source_region_name: "shared",
+                    step_count: 3,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(1),
+                    ],
+                },
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::Markers,
+                    source_region_name: "shared",
+                    step_count: 4,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::SkippedEntity {
+                            entity_index: 1,
+                            entity_id: 99,
+                            source_name: "mod-unit".to_string(),
+                            effective_name: None,
+                        },
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(1),
+                    ],
+                },
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::StaticFog,
+                    source_region_name: "shared",
+                    step_count: 5,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::SkippedEntity {
+                            entity_index: 1,
+                            entity_id: 99,
+                            source_name: "mod-unit".to_string(),
+                            effective_name: None,
+                        },
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                    ],
+                },
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::CustomChunks,
+                    source_region_name: "shared",
+                    step_count: 6,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Deferred,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(2),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                    ],
+                },
+            ],
+        };
+
+        let source_regions = readiness.source_regions();
+
+        assert_eq!(readiness.apply_now_step_count(), 5);
+        assert_eq!(readiness.awaiting_world_shell_step_count(), 5);
+        assert_eq!(readiness.blocked_step_count(), 4);
+        assert_eq!(readiness.deferred_step_count(), 6);
+        assert_eq!(readiness.source_region("missing"), None);
+        assert_eq!(source_regions.len(), 1);
+        assert_eq!(
+            source_regions[0],
+            SavePostLoadRuntimeSourceRegionReadiness {
+                source_region_name: "shared",
+                apply_now_step_count: 5,
+                awaiting_world_shell_step_count: 5,
+                blocked_step_count: 4,
+                deferred_step_count: 6,
+                blockers: vec![
+                    SavePostLoadConsumerBlocker::DuplicateEntityId(1),
+                    SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::EntitySummaryMismatch,
+                    ),
+                    SavePostLoadConsumerBlocker::SkippedEntity {
+                        entity_index: 1,
+                        entity_id: 99,
+                        source_name: "mod-unit".to_string(),
+                        effective_name: None,
+                    },
+                    SavePostLoadConsumerBlocker::DuplicateEntityId(2),
+                ],
+            }
+        );
+        assert_eq!(source_regions[0].total_step_count(), 20);
+        assert_eq!(readiness.source_region("shared"), Some(source_regions[0].clone()));
+    }
+
+    #[test]
     fn extend_unique_blockers_keeps_first_seen_order_and_skips_duplicates() {
         let mut blockers = vec![SavePostLoadConsumerBlocker::DuplicateEntityId(9)];
         let snapshot = blockers.clone();
