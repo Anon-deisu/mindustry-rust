@@ -766,6 +766,36 @@ mod tests {
     }
 
     #[test]
+    fn parse_surface_reset_accepts_bare_and_quoted_reason() {
+        assert_eq!(
+            parse_surface_reset(
+                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1"
+            )
+            .map(|reset| reset.reason.into_owned()),
+            Some("world_data_begin".to_string())
+        );
+        assert_eq!(
+            parse_surface_reset(
+                "runtime_custom_packet_surface_reset: reason=world_data_begin cleared_routes=1"
+            )
+            .map(|reset| reset.reason.into_owned()),
+            Some("world_data_begin".to_string())
+        );
+        assert!(
+            parse_surface_reset(
+                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1junk"
+            )
+            .is_none()
+        );
+        assert!(
+            parse_surface_reset(
+                r#"runtime_custom_packet_surface_reset: reason="world_data_begin cleared_routes=1"#
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
     fn parse_surface_update_rejects_trailing_junk_and_unterminated_quotes() {
         assert!(
             parse_surface_update(
