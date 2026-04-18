@@ -662,6 +662,56 @@ mod tests {
     }
 
     #[test]
+    fn command_mode_target_projection_detail_label_lists_fields_in_stable_order() {
+        assert_eq!(CommandModeTargetProjection::default().detail_label(), "none");
+
+        let unit_and_rect = CommandModeTargetProjection {
+            unit_target: Some(unit(1, 9)),
+            rect_target: Some(CommandModeRectProjection {
+                x0: -1,
+                y0: 2,
+                x1: 3,
+                y1: 4,
+            }),
+            ..CommandModeTargetProjection::default()
+        };
+        assert_eq!(unit_and_rect.detail_label(), "unit=1:9 rect=-1,2,3:4");
+
+        let full = CommandModeTargetProjection {
+            build_target: Some(7),
+            unit_target: Some(unit(1, 9)),
+            position_target: Some(CommandModePositionTarget {
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.5f32.to_bits(),
+            }),
+            rect_target: Some(CommandModeRectProjection {
+                x0: -1,
+                y0: 2,
+                x1: 3,
+                y1: 4,
+            }),
+        };
+        assert_eq!(
+            full.detail_label(),
+            "build=7 unit=1:9 position=1,2.5 rect=-1,2,3:4"
+        );
+
+        let summary = CommandModeProjectionSummary {
+            active: true,
+            selected_unit_count: 2,
+            command_building_count: 3,
+            control_group_count: 4,
+            has_command_rect: true,
+            recent_control_group_operation: Some(CommandModeRecentControlGroupOperation::Bind),
+            has_recent_target: true,
+            has_recent_command_selection: true,
+            has_recent_stance_selection: false,
+        };
+        assert_eq!(summary.recent_selection_label(), "target+command");
+        assert_eq!(summary.summary_label(), "target+command");
+    }
+
+    #[test]
     fn command_mode_position_target_returns_none_for_non_finite_coordinates_and_packs_finite_coordinates() {
         assert_eq!(command_mode_position_target((f32::NAN, 2.0)), None);
         assert_eq!(command_mode_position_target((1.0, f32::INFINITY)), None);
