@@ -762,6 +762,19 @@ mod tests {
     }
 
     #[test]
+    fn plan_bounds_width_and_height_are_inclusive() {
+        let bounds = PlanBounds {
+            min_x: -2,
+            min_y: 7,
+            max_x: 0,
+            max_y: 7,
+        };
+
+        assert_eq!(bounds.width(), 3);
+        assert_eq!(bounds.height(), 1);
+    }
+
+    #[test]
     fn world_to_tile_matches_java_rounding_for_negative_half_tile() {
         assert_eq!(world_to_tile(4.0), 1);
         assert_eq!(world_to_tile(-4.0), 0);
@@ -786,6 +799,15 @@ mod tests {
 
         assert_eq!(block.plan_rotation(5), 5);
         assert_eq!(block.flip_rotation(4, true), 2);
+    }
+
+    #[test]
+    fn plan_block_meta_plan_rotation_returns_zero_when_rotation_is_locked() {
+        let mut block = PlanBlockMeta::with_size(1);
+        block.rotate = false;
+        block.lock_rotation = true;
+
+        assert_eq!(block.plan_rotation(3), 0);
     }
 
     #[test]
