@@ -4749,7 +4749,8 @@ fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_stable_minimap_overlay_tiles, color_for_object, compact_build_inspector_text,
+        collect_stable_minimap_overlay_tiles, collect_stable_minimap_tiles, color_for_object,
+        compact_build_inspector_text,
         compose_frame,
         format_render_primitive_payload_fields,
         fit_window_minimap_size, runtime_break_minimap_rects, runtime_command_minimap_rects,
@@ -4759,8 +4760,9 @@ mod tests {
         runtime_world_span_to_tile_span, runtime_world_to_minimap_tile, scale_frame_pixels,
         window_world_object_tile,
         window_hud_bar_height, window_hud_top_line, BackendSignal,
-        StableMinimapOverlayTileCandidate, WindowBackend, WindowFrame, WindowMinimapBreakRect,
-        WindowMinimapCommandRect, WindowMinimapCommandRectKind, WindowMinimapInset,
+        StableMinimapOverlayTileCandidate, StableMinimapTileCandidate, WindowBackend,
+        WindowFrame, WindowMinimapBreakRect, WindowMinimapCommandRect,
+        WindowMinimapCommandRectKind, WindowMinimapInset,
         WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile,
         WindowMinimapUnitAssemblerRect, WindowPresenter, COLOR_BLOCK, COLOR_EMPTY,
         COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK, COLOR_ICON_RUNTIME_BULLET,
@@ -7025,6 +7027,50 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn collect_stable_minimap_tiles_prefers_priority_then_row_col_then_id_when_tiles_collide() {
+        let candidates = vec![
+            StableMinimapTileCandidate {
+                priority: 1,
+                tile: (0, 0),
+                id: "marker:runtime-command-building:z".to_string(),
+            },
+            StableMinimapTileCandidate {
+                priority: 2,
+                tile: (5, 5),
+                id: "marker:runtime-command-selected-unit:z".to_string(),
+            },
+            StableMinimapTileCandidate {
+                priority: 0,
+                tile: (1, 1),
+                id: "marker:runtime-command-build-target:b".to_string(),
+            },
+            StableMinimapTileCandidate {
+                priority: 0,
+                tile: (5, 5),
+                id: "marker:runtime-command-selected-unit:a".to_string(),
+            },
+            StableMinimapTileCandidate {
+                priority: 0,
+                tile: (2, 0),
+                id: "marker:runtime-command-position-target:c".to_string(),
+            },
+            StableMinimapTileCandidate {
+                priority: 0,
+                tile: (1, 1),
+                id: "marker:runtime-command-build-target:a".to_string(),
+            },
+        ];
+        let mut reversed = candidates.clone();
+        reversed.reverse();
+
+        let tiles = collect_stable_minimap_tiles(candidates, 4);
+        let reversed_tiles = collect_stable_minimap_tiles(reversed, 4);
+
+        assert_eq!(tiles, reversed_tiles);
+        assert_eq!(tiles, vec![(2, 0), (1, 1), (5, 5), (0, 0)]);
     }
 
     #[test]
