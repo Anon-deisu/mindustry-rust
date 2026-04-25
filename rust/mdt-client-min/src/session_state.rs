@@ -19728,6 +19728,73 @@ mod tests {
     }
 
     #[test]
+    fn clear_hidden_non_local_unit_ref_clears_only_hidden_non_local_standard_unit_refs() {
+        let hidden_ids = BTreeSet::from([101, 202]);
+
+        let mut local_player_unit_ref = Some(UnitRefProjection {
+            kind: 2,
+            value: 101,
+        });
+        clear_hidden_non_local_unit_ref(&mut local_player_unit_ref, &hidden_ids, Some(101));
+        assert_eq!(
+            local_player_unit_ref,
+            Some(UnitRefProjection {
+                kind: 2,
+                value: 101,
+            })
+        );
+
+        let mut hidden_non_local_standard_unit_ref = Some(UnitRefProjection {
+            kind: 2,
+            value: 202,
+        });
+        clear_hidden_non_local_unit_ref(
+            &mut hidden_non_local_standard_unit_ref,
+            &hidden_ids,
+            Some(101),
+        );
+        assert_eq!(hidden_non_local_standard_unit_ref, None);
+
+        let mut hidden_non_standard_unit_ref = Some(UnitRefProjection {
+            kind: 1,
+            value: 202,
+        });
+        clear_hidden_non_local_unit_ref(
+            &mut hidden_non_standard_unit_ref,
+            &hidden_ids,
+            Some(101),
+        );
+        assert_eq!(
+            hidden_non_standard_unit_ref,
+            Some(UnitRefProjection {
+                kind: 1,
+                value: 202,
+            })
+        );
+
+        let mut visible_standard_unit_ref = Some(UnitRefProjection {
+            kind: 2,
+            value: 303,
+        });
+        clear_hidden_non_local_unit_ref(
+            &mut visible_standard_unit_ref,
+            &hidden_ids,
+            Some(101),
+        );
+        assert_eq!(
+            visible_standard_unit_ref,
+            Some(UnitRefProjection {
+                kind: 2,
+                value: 303,
+            })
+        );
+
+        let mut empty_unit_ref = None;
+        clear_hidden_non_local_unit_ref(&mut empty_unit_ref, &hidden_ids, Some(101));
+        assert_eq!(empty_unit_ref, None);
+    }
+
+    #[test]
     fn clear_hidden_non_local_entity_id_clears_only_hidden_non_local_ids() {
         let hidden_ids = BTreeSet::from([101, 202]);
 
