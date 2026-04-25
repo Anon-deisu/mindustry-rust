@@ -233,6 +233,70 @@ mod tests {
     }
 
     #[test]
+    fn derive_transition_deduplicates_to_previous_inventory_without_false_changed_team_ids() {
+        let previous_inventory = BTreeMap::from([
+            (1u8, BTreeMap::from([(0u16, 20), (1u16, 30)])),
+            (2u8, BTreeMap::from([(4u16, 0)])),
+        ]);
+
+        let transition = derive_state_snapshot_core_inventory_transition(
+            Some(StateSnapshotCoreInventoryPrevious {
+                inventory_by_team: &previous_inventory,
+                item_entry_count: 3,
+                total_amount: 50,
+                nonzero_item_count: 2,
+            }),
+            Some(&AppliedStateSnapshotCoreData {
+                team_count: 3,
+                teams: vec![
+                    AppliedStateSnapshotCoreDataTeam {
+                        team_id: 1,
+                        items: vec![
+                            AppliedStateSnapshotCoreDataItem {
+                                item_id: 0,
+                                amount: 10,
+                            },
+                            AppliedStateSnapshotCoreDataItem {
+                                item_id: 0,
+                                amount: 20,
+                            },
+                        ],
+                    },
+                    AppliedStateSnapshotCoreDataTeam {
+                        team_id: 1,
+                        items: vec![AppliedStateSnapshotCoreDataItem {
+                            item_id: 1,
+                            amount: 30,
+                        }],
+                    },
+                    AppliedStateSnapshotCoreDataTeam {
+                        team_id: 2,
+                        items: vec![
+                            AppliedStateSnapshotCoreDataItem {
+                                item_id: 4,
+                                amount: 40,
+                            },
+                            AppliedStateSnapshotCoreDataItem {
+                                item_id: 4,
+                                amount: 0,
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        assert!(transition.synced);
+        assert!(transition.changed_team_ids.is_empty());
+        assert_eq!(transition.inventory.inventory_by_team, previous_inventory);
+        assert_eq!(transition.inventory.item_entry_count, 3);
+        assert_eq!(transition.inventory.total_amount, 50);
+        assert_eq!(transition.inventory.nonzero_item_count, 2);
+        assert_eq!(transition.inventory.duplicate_team_count, 1);
+        assert_eq!(transition.inventory.duplicate_item_count, 2);
+    }
+
+    #[test]
     fn changed_team_ids_since_returns_empty_for_identical_inventories() {
         let inventory = BTreeMap::from([
             (1u8, BTreeMap::from([(0u16, 10)])),
