@@ -461,6 +461,46 @@ mod tests {
     }
 
     #[test]
+    fn valid_place_against_local_plans_reports_first_non_ignored_rejection_in_scan_order() {
+        let request = PlacementRequest {
+            x: 7,
+            y: 9,
+            size: 2,
+        };
+        let plans = [
+            LocalPlanPlacement {
+                x: 7,
+                y: 9,
+                size: 2,
+                breaking: false,
+                candidate_can_replace_plan: false,
+            },
+            LocalPlanPlacement {
+                x: 20,
+                y: 20,
+                size: 0,
+                breaking: false,
+                candidate_can_replace_plan: false,
+            },
+            LocalPlanPlacement {
+                x: 8,
+                y: 9,
+                size: 2,
+                breaking: false,
+                candidate_can_replace_plan: false,
+            },
+        ];
+
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(request, &plans, Some(0)),
+            Err(PlacementRejectReason::PlanSizeNonPositive {
+                plan_index: 1,
+                size: 0,
+            })
+        );
+    }
+
+    #[test]
     fn valid_place_against_local_plans_skips_exact_replacement_plan_before_later_overlap() {
         let request = PlacementRequest {
             x: 7,
