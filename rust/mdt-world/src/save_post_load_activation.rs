@@ -728,4 +728,63 @@ mod tests {
         assert_eq!(building_tail_kind(&ParsedBuildingTail::Empty), "empty");
         assert_eq!(building_tail_kind(&ParsedBuildingTail::Unknown), "unknown");
     }
+
+    #[test]
+    fn building_tail_kind_maps_representative_known_variants_stably() {
+        assert_eq!(
+            building_tail_kind(&ParsedBuildingTail::StackConveyor(
+                crate::StackConveyorTailSnapshot {
+                    link: 0,
+                    cooldown_bits: 0,
+                },
+            )),
+            "stackConveyor"
+        );
+        assert_eq!(
+            building_tail_kind(&ParsedBuildingTail::NullableItemRef(
+                crate::NullableItemRefTailSnapshot { item_id: None },
+            )),
+            "nullableItemRef"
+        );
+        assert_eq!(
+            building_tail_kind(&ParsedBuildingTail::OneBool(crate::OneBoolTailSnapshot {
+                value: true,
+            })),
+            "oneBool"
+        );
+        assert_eq!(
+            building_tail_kind(&ParsedBuildingTail::TwoF32(crate::TwoF32TailSnapshot {
+                first_bits: 1.0f32.to_bits(),
+                second_bits: 2.0f32.to_bits(),
+            })),
+            "twoF32"
+        );
+        assert_eq!(
+            building_tail_kind(&ParsedBuildingTail::Message(crate::MessageTailSnapshot {
+                message: "hello".to_string(),
+            })),
+            "message"
+        );
+        assert_eq!(
+            building_tail_kind(&ParsedBuildingTail::LandingPad(
+                crate::LandingPadTailSnapshot {
+                    config_item_id: Some(1),
+                    priority: 2,
+                    cooldown_bits: 0,
+                    arriving_item_id: None,
+                    arriving_timer_bits: 0,
+                    liquid_removed_bits: 0,
+                },
+            )),
+            "landingPad"
+        );
+        assert_eq!(
+            building_tail_kind(&ParsedBuildingTail::Canvas(crate::CanvasTailSnapshot {
+                data_len: 0,
+                data_sha256: "canvas".to_string(),
+                data_bytes: Vec::new(),
+            })),
+            "canvas"
+        );
+    }
 }
