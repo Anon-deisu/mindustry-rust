@@ -521,6 +521,28 @@ mod tests {
     }
 
     #[test]
+    fn flip_plans_y_axis_applies_even_size_point_shift_before_negation() {
+        let mut plans = vec![PlanEditorPlan {
+            x: 4,
+            y: 3,
+            rotation: 0,
+            breaking: false,
+            block: PlanBlockMeta::with_size(2),
+            point_config: PlanPointConfig::Point(PlanPoint { x: 5, y: 2 }),
+        }];
+
+        flip_plans(&mut plans, (1, 1), false);
+
+        assert_eq!(plans[0].x, 4);
+        assert_eq!(plans[0].y, -2);
+        assert_eq!(plans[0].rotation, 0);
+        assert_eq!(
+            plans[0].point_config,
+            PlanPointConfig::Point(PlanPoint { x: 5, y: -1 })
+        );
+    }
+
+    #[test]
     fn flip_plans_y_axis_respects_invert_flip_and_point_arrays() {
         let mut block = PlanBlockMeta::with_size(1);
         block.invert_flip = true;
