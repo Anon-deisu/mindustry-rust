@@ -3191,7 +3191,8 @@ mod tests {
         build_tile_matches_focus_tile,
         build_config_alignment_label, build_config_authority_source_label,
         build_config_pending_match_label, BuildConfigHeadModel,
-        build_interaction_authority_label, compact_panel_text, minimap_clamp_label,
+        build_interaction_authority_label, compact_panel_text, finite_f32_bits,
+        minimap_clamp_label,
         minimap_coverage_label, minimap_viewport_band,
         minimap_visibility_label, runtime_notice_state_kind, runtime_notice_state_text,
         BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
@@ -6439,6 +6440,25 @@ mod tests {
 
         assert_eq!(world_position_text(Some(&position)), "12.3:56.8");
         assert_eq!(world_position_text(None), "none");
+    }
+
+    #[test]
+    fn finite_f32_bits_decodes_finite_values_and_filters_non_finite_bits() {
+        assert_eq!(finite_f32_bits(Some(12.5f32.to_bits())), Some(12.5));
+        assert_eq!(finite_f32_bits(Some(f32::INFINITY.to_bits())), None);
+        assert_eq!(finite_f32_bits(Some(f32::NAN.to_bits())), None);
+    }
+
+    #[test]
+    fn world_to_tile_index_floor_rejects_invalid_inputs_and_floors_finite_positions() {
+        assert_eq!(super::world_to_tile_index_floor(f32::NAN, 8.0), -1);
+        assert_eq!(super::world_to_tile_index_floor(f32::INFINITY, 8.0), -1);
+        assert_eq!(super::world_to_tile_index_floor(8.0, f32::NAN), -1);
+        assert_eq!(super::world_to_tile_index_floor(8.0, 0.0), -1);
+        assert_eq!(super::world_to_tile_index_floor(8.0, -4.0), -1);
+        assert_eq!(super::world_to_tile_index_floor(15.9, 8.0), 1);
+        assert_eq!(super::world_to_tile_index_floor(16.0, 8.0), 2);
+        assert_eq!(super::world_to_tile_index_floor(-0.1, 8.0), -1);
     }
 
     #[test]
