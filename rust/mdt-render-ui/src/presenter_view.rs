@@ -5195,6 +5195,25 @@ mod tests {
     }
 
     #[test]
+    fn hud_visibility_metrics_preserves_counts_flags_and_derived_map_percents() {
+        let visibility = sample_hud_visibility_panel();
+        let metrics = super::hud_visibility_metrics(&visibility);
+
+        assert_eq!(metrics.overlay_visible, 1);
+        assert_eq!(metrics.fog_enabled, 0);
+        assert_eq!(metrics.known_tile_count, visibility.known_tile_count);
+        assert_eq!(metrics.known_tile_percent, visibility.known_tile_percent);
+        assert_eq!(metrics.visible_tile_count, visibility.visible_tile_count);
+        assert_eq!(metrics.visible_known_percent, visibility.visible_known_percent);
+        assert_eq!(metrics.hidden_tile_count, visibility.hidden_tile_count);
+        assert_eq!(metrics.hidden_known_percent, visibility.hidden_known_percent);
+        assert_eq!(metrics.unknown_tile_count, visibility.unknown_tile_count);
+        assert_eq!(metrics.unknown_tile_percent, visibility.unknown_tile_percent);
+        assert_eq!(metrics.visible_map_percent, visibility.visible_map_percent());
+        assert_eq!(metrics.hidden_map_percent, visibility.hidden_map_percent());
+    }
+
+    #[test]
     fn format_visibility_minimap_text_preserves_field_order() {
         let visibility = sample_hud_visibility_panel();
         let mut minimap = sample_minimap_panel();
