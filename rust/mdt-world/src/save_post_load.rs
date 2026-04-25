@@ -339,6 +339,54 @@ mod tests {
     }
 
     #[test]
+    fn post_load_world_custom_chunk_rejects_duplicate_names() {
+        let observation = SavePostLoadWorldObservation {
+            custom_chunks: vec![
+                CustomChunkEntry {
+                    name: "static-fog-data".to_string(),
+                    chunk_len: 1,
+                    chunk_bytes: vec![1],
+                    chunk_sha256: "a".to_string(),
+                    parsed: ParsedCustomChunk::StaticFog(StaticFogChunk {
+                        used_teams: 1,
+                        width: 1,
+                        height: 1,
+                        teams: vec![StaticFogTeam {
+                            team_id: 1,
+                            run_count: 1,
+                            rle_bytes: vec![1],
+                            discovered: vec![true],
+                        }],
+                    }),
+                },
+                CustomChunkEntry {
+                    name: "static-fog-data".to_string(),
+                    chunk_len: 1,
+                    chunk_bytes: vec![2],
+                    chunk_sha256: "b".to_string(),
+                    parsed: ParsedCustomChunk::StaticFog(StaticFogChunk {
+                        used_teams: 1,
+                        width: 1,
+                        height: 1,
+                        teams: vec![StaticFogTeam {
+                            team_id: 2,
+                            run_count: 1,
+                            rle_bytes: vec![2],
+                            discovered: vec![false],
+                        }],
+                    }),
+                },
+            ],
+            ..test_observation()
+        };
+
+        let bundle = observation.post_load_world_apply_bundle();
+
+        assert!(bundle.custom_chunk("static-fog-data").is_none());
+        assert!(bundle.static_fog_chunk().is_none());
+    }
+
+    #[test]
     fn bool_label_returns_one_for_true_and_zero_for_false() {
         assert_eq!(bool_label(true), "1");
         assert_eq!(bool_label(false), "0");
