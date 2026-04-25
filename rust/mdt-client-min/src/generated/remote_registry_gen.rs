@@ -2168,6 +2168,13 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
+    fn spec(packet_id: u8) -> &'static RemotePacketSpec {
+        REMOTE_PACKET_SPECS
+            .iter()
+            .find(|spec| spec.packet_id == packet_id)
+            .unwrap()
+    }
+
     #[test]
     fn remote_registry_has_expected_manifest_shape() {
         assert_eq!(REMOTE_MANIFEST_SCHEMA, "mdt.remote.manifest.v1");
@@ -2201,5 +2208,144 @@ mod tests {
         assert!(REMOTE_PACKET_SPECS
             .iter()
             .all(|spec| classes.insert(spec.packet_class)));
+    }
+
+    #[test]
+    fn remote_registry_effect_packet_pair_is_stable() {
+        let effect = spec(43);
+        let effect2 = spec(44);
+
+        assert_eq!(
+            (
+                effect.packet_class,
+                effect.declaring_type,
+                effect.method,
+                effect.targets,
+                effect.called,
+                effect.variants,
+                effect.unreliable,
+                effect.forward,
+                effect.priority,
+                effect.param_count,
+            ),
+            (
+                "mindustry.gen.EffectCallPacket",
+                "mindustry.core.NetClient",
+                "effect",
+                "server",
+                "none",
+                "both",
+                true,
+                false,
+                "normal",
+                5,
+            )
+        );
+        assert_eq!(
+            (
+                effect2.packet_class,
+                effect2.declaring_type,
+                effect2.method,
+                effect2.targets,
+                effect2.called,
+                effect2.variants,
+                effect2.unreliable,
+                effect2.forward,
+                effect2.priority,
+                effect2.param_count,
+            ),
+            (
+                "mindustry.gen.EffectCallPacket2",
+                "mindustry.core.NetClient",
+                "effect",
+                "server",
+                "none",
+                "both",
+                true,
+                false,
+                "normal",
+                6,
+            )
+        );
+        assert_eq!(effect.packet_id + 1, effect2.packet_id);
+    }
+
+    #[test]
+    fn remote_registry_info_popup_pairs_are_stable() {
+        let popup = spec(53);
+        let popup2 = spec(54);
+        let reliable = spec(55);
+        let reliable2 = spec(56);
+
+        assert_eq!(popup.method, "infoPopup");
+        assert_eq!(popup2.method, "infoPopup");
+        assert_eq!(reliable.method, "infoPopupReliable");
+        assert_eq!(reliable2.method, "infoPopupReliable");
+
+        assert_eq!((popup.packet_class, popup2.packet_class), (
+            "mindustry.gen.InfoPopupCallPacket",
+            "mindustry.gen.InfoPopupCallPacket2",
+        ));
+        assert_eq!((reliable.packet_class, reliable2.packet_class), (
+            "mindustry.gen.InfoPopupReliableCallPacket",
+            "mindustry.gen.InfoPopupReliableCallPacket2",
+        ));
+        assert_eq!((popup.param_count, popup2.param_count), (7, 8));
+        assert_eq!((reliable.param_count, reliable2.param_count), (7, 8));
+        assert!(REMOTE_PACKET_SPECS
+            .windows(2)
+            .any(|pair| pair[0].packet_id == 53 && pair[1].packet_id == 54));
+        assert!(REMOTE_PACKET_SPECS
+            .windows(2)
+            .any(|pair| pair[0].packet_id == 55 && pair[1].packet_id == 56));
+    }
+
+    #[test]
+    fn remote_registry_ping_trio_is_stable() {
+        let ping = spec(72);
+        let ping_location = spec(73);
+        let ping_response = spec(74);
+
+        assert_eq!(
+            [ping.packet_id, ping_location.packet_id, ping_response.packet_id],
+            [72, 73, 74]
+        );
+        assert_eq!(
+            [ping.packet_class, ping_location.packet_class, ping_response.packet_class],
+            [
+                "mindustry.gen.PingCallPacket",
+                "mindustry.gen.PingLocationCallPacket",
+                "mindustry.gen.PingResponseCallPacket",
+            ]
+        );
+        assert_eq!(
+            [ping.method, ping_location.method, ping_response.method],
+            ["ping", "pingLocation", "pingResponse"]
+        );
+        assert_eq!(
+            [ping.targets, ping_location.targets, ping_response.targets],
+            ["client", "both", "server"]
+        );
+        assert_eq!(
+            [ping.called, ping_location.called, ping_response.called],
+            ["none", "server", "none"]
+        );
+        assert_eq!(
+            [ping.variants, ping_location.variants, ping_response.variants],
+            ["all", "all", "one"]
+        );
+        assert_eq!(
+            [ping.unreliable, ping_location.unreliable, ping_response.unreliable],
+            [false, false, false]
+        );
+        assert_eq!(
+            [ping.forward, ping_location.forward, ping_response.forward],
+            [false, true, false]
+        );
+        assert_eq!(
+            [ping.priority, ping_location.priority, ping_response.priority],
+            ["high", "normal", "normal"]
+        );
+        assert_eq!([ping.param_count, ping_location.param_count, ping_response.param_count], [2, 4, 1]);
     }
 }
