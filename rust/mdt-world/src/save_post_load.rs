@@ -387,6 +387,30 @@ mod tests {
     }
 
     #[test]
+    fn post_load_world_static_fog_chunk_requires_static_fog_payload() {
+        let observation = SavePostLoadWorldObservation {
+            custom_chunks: vec![CustomChunkEntry {
+                name: "static-fog-data".to_string(),
+                chunk_len: 2,
+                chunk_bytes: vec![0xaa, 0xbb],
+                chunk_sha256: "not-fog".to_string(),
+                parsed: ParsedCustomChunk::Unknown,
+            }],
+            ..test_observation()
+        };
+
+        let bundle = observation.post_load_world_apply_bundle();
+
+        assert_eq!(
+            bundle.custom_chunk("static-fog-data")
+                .map(|chunk| chunk.chunk_sha256.as_str()),
+            Some("not-fog")
+        );
+        assert!(bundle.static_fog_chunk().is_none());
+        assert!(observation.static_fog_chunk().is_none());
+    }
+
+    #[test]
     fn bool_label_returns_one_for_true_and_zero_for_false() {
         assert_eq!(bool_label(true), "1");
         assert_eq!(bool_label(false), "0");
