@@ -13165,6 +13165,23 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_effect_clip_size_maps_known_effects_and_defaults() {
+        assert_eq!(runtime_effect_overlay_clip_size(Some(10)), 300.0);
+        assert_eq!(runtime_effect_overlay_clip_size(Some(13)), 500.0);
+        assert_eq!(runtime_effect_overlay_clip_size(Some(178)), 200.0);
+        assert_eq!(runtime_effect_overlay_clip_size(Some(67)), 100.0);
+        assert_eq!(runtime_effect_overlay_clip_size(Some(68)), 100.0);
+        assert_eq!(
+            runtime_effect_overlay_clip_size(Some(999)),
+            DEFAULT_EFFECT_OVERLAY_CLIP_SIZE
+        );
+        assert_eq!(
+            runtime_effect_overlay_clip_size(None),
+            DEFAULT_EFFECT_OVERLAY_CLIP_SIZE
+        );
+    }
+
+    #[test]
     fn runtime_effect_overlay_ttl_ticks_match_rot_with_parent_effect_lifetimes() {
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(67)), 80);
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(68)), 40);
