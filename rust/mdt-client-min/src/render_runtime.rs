@@ -9656,6 +9656,77 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_surfaces_auto_door_toggle_into_runtime_door_inspector_after_session_apply(
+    ) {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+
+        let construct_finish_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "constructFinish")
+            .unwrap()
+            .packet_id;
+        let auto_door_toggle_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "autoDoorToggle")
+            .unwrap()
+            .packet_id;
+        let build_pos = pack_runtime_point2(28, 50);
+        let block_id = session
+            .loaded_world_state()
+            .unwrap()
+            .content_entry(1)
+            .unwrap()
+            .names
+            .iter()
+            .position(|name| name == "door-large")
+            .map(|index| index as i16)
+            .expect("door-large block id should be present");
+
+        let mut construct_payload = Vec::new();
+        construct_payload.extend_from_slice(&build_pos.to_be_bytes());
+        construct_payload.extend_from_slice(&block_id.to_be_bytes());
+        construct_payload.push(2);
+        construct_payload.extend_from_slice(&42i32.to_be_bytes());
+        construct_payload.push(0);
+        construct_payload.push(1);
+        write_typeio_object(&mut construct_payload, &TypeIoObject::Null);
+        let construct_packet =
+            encode_packet(construct_finish_packet_id, &construct_payload, false).unwrap();
+        session.ingest_packet_bytes(&construct_packet).unwrap();
+
+        let mut auto_door_payload = build_pos.to_be_bytes().to_vec();
+        auto_door_payload.push(1);
+        let auto_door_packet =
+            encode_packet(auto_door_toggle_packet_id, &auto_door_payload, false).unwrap();
+        let auto_door_event = session.ingest_packet_bytes(&auto_door_packet).unwrap();
+
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.observe_events(&[auto_door_event]);
+
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        adapter.apply(&mut scene, &mut hud, session.snapshot_input(), session.state());
+
+        assert!(hud.status_text.contains("runtime_configured="));
+        assert!(hud.status_text.contains(":do1@28:50=1:"));
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "door" && entry.sample == "28:50:door-large:open=1"
+        }));
+        assert!(scene
+            .objects
+            .iter()
+            .any(|object| object.id == "marker:runtime-auto-door-toggle:0:28:50:1"));
+    }
+
+    #[test]
     fn render_runtime_adapter_renders_payload_loader_runtime_marker_in_scene() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();

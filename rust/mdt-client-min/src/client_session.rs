@@ -1456,6 +1456,27 @@ impl ClientSession {
         }
     }
 
+    fn apply_auto_door_toggle_runtime_projection(&mut self, tile_pos: Option<i32>, open: bool) {
+        let Some(build_pos) = tile_pos else {
+            return;
+        };
+        let is_door = self
+            .merged_building_projection_at(build_pos)
+            .is_some_and(|projection| {
+                matches!(
+                    projection.block_name.as_deref(),
+                    Some(BLOCK_NAME_DOOR | BLOCK_NAME_DOOR_LARGE)
+                )
+            });
+        if !is_door {
+            return;
+        }
+        self.state
+            .configured_block_projection
+            .apply_door_open(build_pos, Some(open));
+        self.refresh_runtime_typed_building_from_live_state(build_pos);
+    }
+
     fn live_build_positions(&self) -> BTreeSet<i32> {
         let build_positions = self
             .state
@@ -5244,6 +5265,7 @@ impl ClientSession {
             packet_id if Some(packet_id) == self.auto_door_toggle_packet_id => {
                 if let Some((tile_pos, open)) = decode_tile_bool_payload(&packet.payload) {
                     self.state.record_auto_door_toggle(tile_pos, open);
+                    self.apply_auto_door_toggle_runtime_projection(tile_pos, open);
                     Ok(ClientSessionEvent::AutoDoorToggle { tile_pos, open })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -22721,6 +22743,23 @@ mod tests {
         session.ingest_packet_bytes(&packet).unwrap();
     }
 
+    fn ingest_auto_door_toggle_for_block_config_test(
+        session: &mut ClientSession,
+        manifest: &mdt_remote::RemoteManifest,
+        tile_pos: Option<i32>,
+        open: bool,
+    ) -> ClientSessionEvent {
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "autoDoorToggle")
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &encode_tile_bool_payload(tile_pos, open), false)
+            .unwrap();
+        session.ingest_packet_bytes(&packet).unwrap()
+    }
+
     fn build_loaded_world_block_snapshot_payload(
         session: &ClientSession,
         take: usize,
@@ -40009,6 +40048,161 @@ mod tests {
                 Some(&None)
             );
         }
+    }
+
+    #[test]
+    fn auto_door_toggle_packet_updates_loaded_door_runtime_projection_without_waiting_for_later_block_snapshot(
+    ) {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(27, 49);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_DOOR);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+
+        let event = ingest_auto_door_toggle_for_block_config_test(
+            &mut session,
+            &manifest,
+            Some(build_pos),
+            true,
+        );
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::AutoDoorToggle {
+                tile_pos: Some(build_pos),
+                open: true,
+            }
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .door_open_by_build_pos
+                .get(&build_pos),
+            Some(&Some(true))
+        );
+        let building = session
+            .state()
+            .runtime_typed_building_apply_projection
+            .building_at(build_pos)
+            .expect("door runtime building should be present");
+        assert_eq!(building.block_name, BLOCK_NAME_DOOR);
+        assert_eq!(
+            building.kind,
+            crate::session_state::TypedBuildingRuntimeKind::Door
+        );
+        assert_eq!(
+            building.value,
+            crate::session_state::TypedBuildingRuntimeValue::Bool(Some(true))
+        );
+    }
+
+    #[test]
+    fn auto_door_toggle_packet_updates_door_large_runtime_projection_for_false_and_true_edges() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(28, 50);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_DOOR_LARGE);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+
+        ingest_auto_door_toggle_for_block_config_test(&mut session, &manifest, Some(build_pos), false);
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .door_open_by_build_pos
+                .get(&build_pos),
+            Some(&Some(false))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(crate::session_state::TypedBuildingRuntimeValue::Bool(Some(
+                false,
+            )))
+        );
+
+        ingest_auto_door_toggle_for_block_config_test(&mut session, &manifest, Some(build_pos), true);
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .door_open_by_build_pos
+                .get(&build_pos),
+            Some(&Some(true))
+        );
+        let building = session
+            .state()
+            .runtime_typed_building_apply_projection
+            .building_at(build_pos)
+            .expect("door-large runtime building should be present");
+        assert_eq!(building.block_name, BLOCK_NAME_DOOR_LARGE);
+        assert_eq!(
+            building.value,
+            crate::session_state::TypedBuildingRuntimeValue::Bool(Some(true))
+        );
+        assert_eq!(session.state().received_auto_door_toggle_count, 2);
+        assert_eq!(session.state().last_auto_door_toggle_open, Some(true));
+    }
+
+    #[test]
+    fn auto_door_toggle_packet_ignores_non_door_tiles_and_does_not_pollute_door_open_projection() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(29, 51);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::String(Some("before".to_string())),
+        );
+
+        let event = ingest_auto_door_toggle_for_block_config_test(
+            &mut session,
+            &manifest,
+            Some(build_pos),
+            true,
+        );
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::AutoDoorToggle {
+                tile_pos: Some(build_pos),
+                open: true,
+            }
+        );
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .door_open_by_build_pos
+            .contains_key(&build_pos));
+        let building = session
+            .state()
+            .runtime_typed_building_apply_projection
+            .building_at(build_pos)
+            .expect("message runtime building should remain present");
+        assert_eq!(building.block_name, BLOCK_NAME_MESSAGE);
+        assert_eq!(
+            building.value,
+            crate::session_state::TypedBuildingRuntimeValue::Text("before".to_string())
+        );
     }
 
     #[test]
