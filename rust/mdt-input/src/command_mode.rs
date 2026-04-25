@@ -1281,6 +1281,14 @@ mod tests {
     }
 
     #[test]
+    fn merge_selected_units_toggle_dedupes_incoming_before_single_toggle_per_unit() {
+        assert_eq!(
+            merge_selected_units(&[11, 22], &[22, 22, 33, 33], CommandModeSelectionOp::Toggle),
+            vec![11, 33]
+        );
+    }
+
+    #[test]
     fn select_units_rect_normalizes_bounds_and_merges_additively() {
         let mut state = CommandModeState::default();
         state.select_unit_target(
