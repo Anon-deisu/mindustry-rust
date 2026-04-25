@@ -1697,6 +1697,17 @@ mod tests {
     }
 
     #[test]
+    fn outstanding_follow_up_count_saturates_when_hide_exceeds_open_count() {
+        let menu = RuntimeMenuObservability {
+            follow_up_menu_open_count: 1,
+            hide_follow_up_menu_count: 2,
+            ..RuntimeMenuObservability::default()
+        };
+
+        assert_eq!(super::outstanding_follow_up_count(&menu), 0);
+    }
+
+    #[test]
     fn runtime_ui_stack_kind_labels_remain_stable() {
         assert_eq!(
             RuntimeUiStackForegroundSummaryKind::Menu.label(),
