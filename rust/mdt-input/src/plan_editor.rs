@@ -548,6 +548,28 @@ mod tests {
     }
 
     #[test]
+    fn flip_plans_skips_breaking_plans_without_touching_rotation_or_points() {
+        let original = PlanEditorPlan {
+            x: 6,
+            y: -3,
+            rotation: 3,
+            breaking: true,
+            block: PlanBlockMeta::with_size(2),
+            point_config: PlanPointConfig::Points(vec![
+                PlanPoint { x: 2, y: 1 },
+                PlanPoint { x: -4, y: 0 },
+            ]),
+        };
+        let mut plans = vec![original.clone()];
+
+        flip_plans(&mut plans, (2, -1), true);
+
+        assert_eq!(plans[0].tile(), original.tile());
+        assert_eq!(plans[0].rotation(), original.rotation());
+        assert_eq!(plans[0].point_config, original.point_config);
+    }
+
+    #[test]
     fn plan_collection_summary_tracks_bounds_rotations_and_config_families() {
         let plans = vec![
             PlanEditorPlan {
