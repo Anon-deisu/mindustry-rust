@@ -25052,6 +25052,58 @@ mod tests {
     }
 
     #[test]
+    fn summarize_directional_item_buffer_runtime_projection_ignores_out_of_range_sides_and_clamps_buffered_item_count(
+    ) {
+        let projection = summarize_directional_item_buffer_runtime_projection(
+            &mdt_world::DirectionalItemBufferTailSnapshot {
+                legacy: false,
+                sides: vec![
+                    mdt_world::DirectionalBufferSideSnapshot {
+                        index: -1,
+                        capacity: 1,
+                        entries: vec![mdt_world::DirectionalBufferEntrySnapshot {
+                            raw: 0,
+                            item_id: 1,
+                            time_bits: 0,
+                        }],
+                    },
+                    mdt_world::DirectionalBufferSideSnapshot {
+                        index: 7,
+                        capacity: 1,
+                        entries: vec![mdt_world::DirectionalBufferEntrySnapshot {
+                            raw: 0,
+                            item_id: 2,
+                            time_bits: 0,
+                        }],
+                    },
+                    mdt_world::DirectionalBufferSideSnapshot {
+                        index: 8,
+                        capacity: usize::from(u16::MAX) + 1,
+                        entries: std::iter::repeat_with(|| {
+                            mdt_world::DirectionalBufferEntrySnapshot {
+                                raw: 0,
+                                item_id: 3,
+                                time_bits: 0,
+                            }
+                        })
+                        .take(usize::from(u16::MAX) + 1)
+                        .collect(),
+                    },
+                ],
+            },
+        );
+
+        assert_eq!(
+            projection,
+            SorterRuntimeProjection {
+                legacy: false,
+                non_empty_side_mask: 0x80,
+                buffered_item_count: u16::MAX,
+            }
+        );
+    }
+
+    #[test]
     fn summarize_sorter_runtime_projection_extracts_runtime() {
         assert_eq!(
             summarize_sorter_runtime_projection(&mdt_world::ParsedBuildingTail::SorterLegacy(

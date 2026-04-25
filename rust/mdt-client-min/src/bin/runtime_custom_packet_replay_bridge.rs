@@ -407,4 +407,80 @@ mod tests {
         assert_eq!(truncate_for_preview("汉字", 2), "汉字");
         assert_eq!(truncate_for_preview("汉字A", 2), "汉字...");
     }
+    #[test]
+    fn business_summary_text_sorts_by_latest_update_then_lexicographic_entry_and_honors_max_entries(
+    ) {
+        let mut routes = BTreeMap::new();
+        routes.insert(
+            RuntimeCustomPacketReplayRouteKey {
+                encoding: RuntimeCustomPacketRelayEncoding::Text,
+                key: "zeta".to_string(),
+                transport: RuntimeCustomPacketReplayTransport::Packet(ClientPacketTransport::Udp),
+            },
+            RuntimeCustomPacketReplayRouteState {
+                replay_count: 1,
+                active: true,
+                last_preview: Some("latest".to_string()),
+                last_update_serial: 3,
+            },
+        );
+        routes.insert(
+            RuntimeCustomPacketReplayRouteKey {
+                encoding: RuntimeCustomPacketRelayEncoding::Binary,
+                key: "alpha".to_string(),
+                transport: RuntimeCustomPacketReplayTransport::Packet(ClientPacketTransport::Tcp),
+            },
+            RuntimeCustomPacketReplayRouteState {
+                replay_count: 1,
+                active: true,
+                last_preview: Some("tie-a".to_string()),
+                last_update_serial: 2,
+            },
+        );
+        routes.insert(
+            RuntimeCustomPacketReplayRouteKey {
+                encoding: RuntimeCustomPacketRelayEncoding::LogicData,
+                key: "beta".to_string(),
+                transport: RuntimeCustomPacketReplayTransport::Logic(
+                    ClientLogicDataTransport::Reliable,
+                ),
+            },
+            RuntimeCustomPacketReplayRouteState {
+                replay_count: 1,
+                active: true,
+                last_preview: Some("tie-b".to_string()),
+                last_update_serial: 2,
+            },
+        );
+        routes.insert(
+            RuntimeCustomPacketReplayRouteKey {
+                encoding: RuntimeCustomPacketRelayEncoding::Text,
+                key: "older".to_string(),
+                transport: RuntimeCustomPacketReplayTransport::Packet(ClientPacketTransport::Tcp),
+            },
+            RuntimeCustomPacketReplayRouteState {
+                replay_count: 1,
+                active: true,
+                last_preview: Some("older".to_string()),
+                last_update_serial: 1,
+            },
+        );
+
+        let bridge = RuntimeCustomPacketReplayBridge {
+            state: RuntimeCustomPacketReplayBridgeState {
+                routes,
+                pending_lines: VecDeque::new(),
+                next_update_serial: 3,
+                reset_count: 0,
+            },
+        };
+
+        assert_eq!(
+            bridge.business_summary_text(3),
+            Some(
+                "text:zeta(udp)#1=latest | binary:alpha(tcp)#1=tie-a | logic:beta(reliable)#1=tie-b"
+                    .to_string()
+            )
+        );
+    }
 }
