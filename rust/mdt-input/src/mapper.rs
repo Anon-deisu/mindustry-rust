@@ -434,6 +434,24 @@ mod tests {
     }
 
     #[test]
+    fn action_order_key_orders_all_binary_actions_exhaustively() {
+        let actions = [
+            BinaryAction::MoveUp,
+            BinaryAction::MoveDown,
+            BinaryAction::MoveLeft,
+            BinaryAction::MoveRight,
+            BinaryAction::Fire,
+            BinaryAction::Boost,
+            BinaryAction::Chat,
+            BinaryAction::Interact,
+        ];
+
+        let keys: Vec<u8> = actions.iter().map(action_order_key).collect();
+
+        assert_eq!(keys, (0u8..=7).collect::<Vec<_>>());
+    }
+
+    #[test]
     fn action_edge_order_is_stable_across_input_permutations() {
         let mut mapper = StatelessIntentMapper::default();
 
