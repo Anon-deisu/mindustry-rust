@@ -3500,6 +3500,46 @@ mod tests {
     }
 
     #[test]
+    fn chain_line_projections_clamps_segment_count_and_amplitude_at_distance_extremes() {
+        let short_lines = chain_line_projections(
+            "chain-lightning",
+            0.0f32.to_bits(),
+            0.0f32.to_bits(),
+            1.0f32.to_bits(),
+            0.0f32.to_bits(),
+        );
+        let longer_short_lines = chain_line_projections(
+            "chain-lightning",
+            0.0f32.to_bits(),
+            0.0f32.to_bits(),
+            8.0f32.to_bits(),
+            0.0f32.to_bits(),
+        );
+        let long_lines = chain_line_projections(
+            "chain-lightning",
+            0.0f32.to_bits(),
+            0.0f32.to_bits(),
+            200.0f32.to_bits(),
+            0.0f32.to_bits(),
+        );
+        let farther_long_lines = chain_line_projections(
+            "chain-lightning",
+            0.0f32.to_bits(),
+            0.0f32.to_bits(),
+            240.0f32.to_bits(),
+            0.0f32.to_bits(),
+        );
+
+        assert_eq!(short_lines.len(), CHAIN_MIN_SEGMENTS);
+        assert_eq!(longer_short_lines.len(), CHAIN_MIN_SEGMENTS);
+        assert_eq!(long_lines.len(), CHAIN_MAX_SEGMENTS);
+        assert_eq!(farther_long_lines.len(), CHAIN_MAX_SEGMENTS);
+        assert_eq!(short_lines[0].target_y_bits, longer_short_lines[0].target_y_bits);
+        assert_eq!(long_lines[0].target_y_bits, farther_long_lines[0].target_y_bits);
+        assert_ne!(short_lines[0].target_y_bits, long_lines[0].target_y_bits);
+    }
+
+    #[test]
     fn line_projections_for_effect_overlay_ignores_other_effect_ids() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(99),
