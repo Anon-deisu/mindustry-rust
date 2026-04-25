@@ -1830,6 +1830,14 @@ mod tests {
     }
 
     #[test]
+    fn world_to_tile_index_clamped_clamps_negative_non_finite_and_upper_bound() {
+        assert_eq!(super::world_to_tile_index_clamped(-8.0, 8), 0);
+        assert_eq!(super::world_to_tile_index_clamped(f32::NAN, 8), 0);
+        assert_eq!(super::world_to_tile_index_clamped(f32::INFINITY, 8), 0);
+        assert_eq!(super::world_to_tile_index_clamped(999.0, 8), 7);
+    }
+
+    #[test]
     fn view_window_bounds_handles_non_finite_player_position_without_origin_drift() {
         let bounds = super::view_window_bounds(8, 8, (f32::NAN, f32::INFINITY), (4, 4));
 
