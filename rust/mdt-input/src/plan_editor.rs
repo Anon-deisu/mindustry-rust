@@ -689,6 +689,41 @@ mod tests {
     }
 
     #[test]
+    fn plan_collection_summary_normalizes_negative_and_wrapped_rotations() {
+        let plans = vec![
+            PlanEditorPlan {
+                x: 0,
+                y: 0,
+                rotation: -1,
+                breaking: false,
+                block: PlanBlockMeta::with_size(1),
+                point_config: PlanPointConfig::None,
+            },
+            PlanEditorPlan {
+                x: 1,
+                y: 1,
+                rotation: 5,
+                breaking: false,
+                block: PlanBlockMeta::with_size(1),
+                point_config: PlanPointConfig::None,
+            },
+            PlanEditorPlan {
+                x: 2,
+                y: 2,
+                rotation: 8,
+                breaking: false,
+                block: PlanBlockMeta::with_size(1),
+                point_config: PlanPointConfig::None,
+            },
+        ];
+
+        let summary = PlanCollectionSummary::from_plans(&plans);
+
+        assert_eq!(summary.rotation_counts, [1, 1, 0, 1]);
+        assert_eq!(summary.rotation_label(), "r0=1 r1=1 r2=0 r3=1");
+    }
+
+    #[test]
     fn plan_point_config_map_points_applies_mapper_to_none_point_and_points() {
         let mut none = PlanPointConfig::None;
         let mut point = PlanPointConfig::Point(PlanPoint { x: 1, y: 2 });
