@@ -87,6 +87,11 @@ pub enum RenderIconPrimitiveFamily {
     RuntimeEffect,
     RuntimeEffectMarker,
     RuntimeBuildConfig,
+    RuntimePayloadSourceCommand,
+    RuntimePayloadLoader,
+    RuntimePayloadRouter,
+    RuntimeSeparator,
+    RuntimeBuildTower,
     RuntimeConfig,
     RuntimeConfigParseFail,
     RuntimeConfigNoApply,
@@ -415,6 +420,11 @@ impl RenderIconPrimitiveFamily {
             Self::RuntimeEffect => "runtime-effect-icon",
             Self::RuntimeEffectMarker => "runtime-effect",
             Self::RuntimeBuildConfig => "runtime-build-config-icon",
+            Self::RuntimePayloadSourceCommand => "runtime-payload-source-command",
+            Self::RuntimePayloadLoader => "runtime-payload-loader",
+            Self::RuntimePayloadRouter => "runtime-payload-router",
+            Self::RuntimeSeparator => "runtime-separator",
+            Self::RuntimeBuildTower => "runtime-build-tower",
             Self::RuntimeConfig => "runtime-config",
             Self::RuntimeConfigParseFail => "runtime-config-parse-fail",
             Self::RuntimeConfigNoApply => "runtime-config-noapply",
@@ -544,6 +554,67 @@ fn render_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
 
     let segments = id.split(':').collect::<Vec<_>>();
     match segments.as_slice() {
+        [
+            "marker",
+            "runtime-payload-source-command",
+            family,
+            tile_x,
+            tile_y,
+            command_x_bits,
+            command_y_bits,
+        ] if !family.is_empty()
+            && tile_x.parse::<i32>().is_ok()
+            && tile_y.parse::<i32>().is_ok()
+            && parse_prefixed_hex_u32(command_x_bits).is_some()
+            && parse_prefixed_hex_u32(command_y_bits).is_some() =>
+        {
+            Some(
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimePayloadSourceCommand,
+                    *family,
+                )
+                .with_field(
+                    "tile_x",
+                    RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                )
+                .with_field(
+                    "tile_y",
+                    RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                )
+                .with_field(
+                    "command_x_bits",
+                    RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(command_x_bits)?),
+                )
+                .with_field(
+                    "command_y_bits",
+                    RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(command_y_bits)?),
+                ),
+            )
+        }
+        ["marker", runtime_kind, family, tile_x, tile_y]
+            if !family.is_empty()
+                && tile_x.parse::<i32>().is_ok()
+                && tile_y.parse::<i32>().is_ok() =>
+        {
+            let icon_family = match *runtime_kind {
+                "runtime-payload-loader" => RenderIconPrimitiveFamily::RuntimePayloadLoader,
+                "runtime-payload-router" => RenderIconPrimitiveFamily::RuntimePayloadRouter,
+                "runtime-separator" => RenderIconPrimitiveFamily::RuntimeSeparator,
+                "runtime-build-tower" => RenderIconPrimitiveFamily::RuntimeBuildTower,
+                _ => return None,
+            };
+            Some(
+                ParsedRenderIconPayload::new(icon_family, *family)
+                    .with_field(
+                        "tile_x",
+                        RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                    )
+                    .with_field(
+                        "tile_y",
+                        RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                    ),
+            )
+        }
         ["marker", config_kind, tile_x, tile_y, value]
             if !value.is_empty()
                 && tile_x.parse::<i32>().is_ok()
@@ -2337,6 +2408,132 @@ mod tests {
         );
         assert_eq!(block_spawn_payload.field("unit_id"), None);
         assert_eq!(block_spawn_payload.field("open"), None);
+    }
+
+    #[test]
+    fn runtime_payload_build_icon_primitives_expose_named_payloads() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-payload-source-command:payload-source:21:43:0x41480000:0x41900000".to_string(),
+                    layer: 16,
+                    x: 168.0,
+                    y: 344.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-payload-loader:payload-unloader:52:72".to_string(),
+                    layer: 17,
+                    x: 416.0,
+                    y: 576.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-payload-router:payload-router:50:70".to_string(),
+                    layer: 18,
+                    x: 400.0,
+                    y: 560.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-separator:separator:42:64".to_string(),
+                    layer: 19,
+                    x: 336.0,
+                    y: 512.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-build-tower:build-tower:28:50".to_string(),
+                    layer: 20,
+                    x: 224.0,
+                    y: 400.0,
+                },
+            ],
+        };
+
+        let primitives = scene.primitives();
+
+        assert_eq!(
+            primitives,
+            vec![
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-payload-source-command:payload-source:21:43:0x41480000:0x41900000".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimePayloadSourceCommand,
+                    variant: "payload-source".to_string(),
+                    layer: 16,
+                    x: 168.0,
+                    y: 344.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-payload-loader:payload-unloader:52:72".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimePayloadLoader,
+                    variant: "payload-unloader".to_string(),
+                    layer: 17,
+                    x: 416.0,
+                    y: 576.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-payload-router:payload-router:50:70".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimePayloadRouter,
+                    variant: "payload-router".to_string(),
+                    layer: 18,
+                    x: 400.0,
+                    y: 560.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-separator:separator:42:64".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeSeparator,
+                    variant: "separator".to_string(),
+                    layer: 19,
+                    x: 336.0,
+                    y: 512.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-build-tower:build-tower:28:50".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeBuildTower,
+                    variant: "build-tower".to_string(),
+                    layer: 20,
+                    x: 224.0,
+                    y: 400.0,
+                },
+            ]
+        );
+
+        let source_payload = primitives[0].payload().expect("source command payload");
+        assert_eq!(source_payload.label, "runtime-payload-source-command");
+        assert_eq!(
+            source_payload.field("variant"),
+            Some(&RenderPrimitivePayloadValue::Text("payload-source".to_string()))
+        );
+        assert_eq!(
+            source_payload.field("tile_x"),
+            Some(&RenderPrimitivePayloadValue::I32(21))
+        );
+        assert_eq!(
+            source_payload.field("tile_y"),
+            Some(&RenderPrimitivePayloadValue::I32(43))
+        );
+        assert_eq!(
+            source_payload.field("command_x_bits"),
+            Some(&RenderPrimitivePayloadValue::U32(0x41480000))
+        );
+        assert_eq!(
+            source_payload.field("command_y_bits"),
+            Some(&RenderPrimitivePayloadValue::U32(0x41900000))
+        );
+
+        let router_payload = primitives[2].payload().expect("router payload");
+        assert_eq!(router_payload.label, "runtime-payload-router");
+        assert_eq!(
+            router_payload.field("variant"),
+            Some(&RenderPrimitivePayloadValue::Text("payload-router".to_string()))
+        );
+        assert_eq!(
+            router_payload.field("tile_x"),
+            Some(&RenderPrimitivePayloadValue::I32(50))
+        );
+        assert_eq!(
+            router_payload.field("tile_y"),
+            Some(&RenderPrimitivePayloadValue::I32(70))
+        );
     }
 
     #[test]

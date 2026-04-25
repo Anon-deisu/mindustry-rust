@@ -1849,7 +1849,12 @@ fn ascii_sprite_for_icon(family: RenderIconPrimitiveFamily) -> char {
     match family {
         RenderIconPrimitiveFamily::RuntimeEffect => ASCII_ICON_RUNTIME_EFFECT,
         RenderIconPrimitiveFamily::RuntimeEffectMarker => ASCII_ICON_RUNTIME_EFFECT_MARKER,
-        RenderIconPrimitiveFamily::RuntimeBuildConfig => ASCII_ICON_BUILD_CONFIG,
+        RenderIconPrimitiveFamily::RuntimeBuildConfig
+        | RenderIconPrimitiveFamily::RuntimePayloadSourceCommand
+        | RenderIconPrimitiveFamily::RuntimePayloadLoader
+        | RenderIconPrimitiveFamily::RuntimePayloadRouter
+        | RenderIconPrimitiveFamily::RuntimeSeparator
+        | RenderIconPrimitiveFamily::RuntimeBuildTower => ASCII_ICON_BUILD_CONFIG,
         RenderIconPrimitiveFamily::RuntimeConfig
         | RenderIconPrimitiveFamily::RuntimeConfigParseFail
         | RenderIconPrimitiveFamily::RuntimeConfigNoApply

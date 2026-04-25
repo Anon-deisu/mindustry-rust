@@ -1466,7 +1466,12 @@ fn color_for_icon(family: RenderIconPrimitiveFamily) -> u32 {
     match family {
         RenderIconPrimitiveFamily::RuntimeEffect => COLOR_ICON_RUNTIME_EFFECT,
         RenderIconPrimitiveFamily::RuntimeEffectMarker => COLOR_ICON_RUNTIME_EFFECT_MARKER,
-        RenderIconPrimitiveFamily::RuntimeBuildConfig => COLOR_ICON_BUILD_CONFIG,
+        RenderIconPrimitiveFamily::RuntimeBuildConfig
+        | RenderIconPrimitiveFamily::RuntimePayloadSourceCommand
+        | RenderIconPrimitiveFamily::RuntimePayloadLoader
+        | RenderIconPrimitiveFamily::RuntimePayloadRouter
+        | RenderIconPrimitiveFamily::RuntimeSeparator
+        | RenderIconPrimitiveFamily::RuntimeBuildTower => COLOR_ICON_BUILD_CONFIG,
         RenderIconPrimitiveFamily::RuntimeConfig
         | RenderIconPrimitiveFamily::RuntimeConfigParseFail
         | RenderIconPrimitiveFamily::RuntimeConfigNoApply
