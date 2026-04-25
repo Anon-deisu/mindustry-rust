@@ -13143,6 +13143,34 @@ mod tests {
     }
 
     #[test]
+    fn runtime_effect_binding_hidden_non_local_unit_ignores_local_player_hidden_id() {
+        let hidden_ids = BTreeSet::from([404]);
+        let binding = RuntimeEffectBinding::ParentUnit {
+            unit_id: 404,
+            spawn_x_bits: 1.0f32.to_bits(),
+            spawn_y_bits: 2.0f32.to_bits(),
+            offset_x_bits: 0.0f32.to_bits(),
+            offset_y_bits: 0.0f32.to_bits(),
+            offset_initialized: false,
+            preserve_spawn_offset: true,
+            allow_fallback_offset_initialization: true,
+            rotate_with_parent: false,
+            parent_rotation_reference_bits: 0.0f32.to_bits(),
+            rotation_offset_bits: 0.0f32.to_bits(),
+            rotation_initialized: false,
+        };
+
+        assert_eq!(
+            runtime_effect_binding_hidden_non_local_unit(Some(&binding), &hidden_ids, Some(404)),
+            None
+        );
+        assert_eq!(
+            runtime_effect_binding_hidden_non_local_unit(Some(&binding), &hidden_ids, Some(405)),
+            Some(404)
+        );
+    }
+
+    #[test]
     fn render_runtime_adapter_keeps_explicit_hidden_delta_after_parse_failure_rollback() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
