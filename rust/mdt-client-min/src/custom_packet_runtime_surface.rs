@@ -1726,6 +1726,76 @@ mod tests {
     }
 
     #[test]
+    fn runtime_custom_packet_surface_resets_overlay_and_summary_state_consistently_on_world_reload_events(
+    ) {
+        for (reason, event) in [
+            ("world_data_begin", ClientSessionEvent::WorldDataBegin),
+            (
+                "world_stream_started",
+                ClientSessionEvent::WorldStreamStarted {
+                    stream_id: 3,
+                    total_bytes: 1024,
+                },
+            ),
+            (
+                "connect_redirect",
+                ClientSessionEvent::ConnectRedirectRequested {
+                    ip: "127.0.0.1".to_string(),
+                    port: 6568,
+                },
+            ),
+        ] {
+            let mut state = RuntimeCustomPacketSurfaceState::default();
+            state.register(&RuntimeCustomPacketSemanticSpec {
+                key: "custom.status".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic: RuntimeCustomPacketSemanticKind::HudText,
+            });
+            state.register(&RuntimeCustomPacketSemanticSpec {
+                key: "logic.pos".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+            });
+
+            state.record_text_handler("custom.status", "wave ready");
+            state.record_logic_data_handler(
+                "logic.pos",
+                ClientLogicDataTransport::Reliable,
+                &TypeIoObject::Point2 { x: 7, y: 9 },
+            );
+
+            assert_eq!(state.overlay_markers(4).len(), 1);
+            assert!(state.overlay_summary_text(4).is_some());
+            assert_eq!(state.latest_summary_entries(4).len(), 2);
+
+            state.observe_events(&[event]);
+
+            let lines = state.drain_lines();
+            assert!(
+                lines.iter().any(|line| {
+                    line.contains("runtime_custom_packet_surface_reset:")
+                        && line.contains(&format!("reason={reason:?}"))
+                        && line.contains("cleared_routes=2")
+                }),
+                "missing reset line for reason={reason}: {lines:?}"
+            );
+            assert!(
+                state.overlay_markers(4).is_empty(),
+                "overlay markers were not cleared for reason={reason}"
+            );
+            assert_eq!(
+                state.overlay_summary_text(4),
+                None,
+                "overlay summary was not cleared for reason={reason}"
+            );
+            assert!(
+                state.latest_summary_entries(4).is_empty(),
+                "latest summary entries were not cleared for reason={reason}"
+            );
+        }
+    }
+
+    #[test]
     fn runtime_custom_packet_surface_latest_summary_entries_export_stable_values_and_markers() {
         let mut state = RuntimeCustomPacketSurfaceState::default();
         state.register(&RuntimeCustomPacketSemanticSpec {

@@ -315,9 +315,10 @@ mod tests {
     }
 
     #[test]
-    fn apply_runtime_custom_packet_command_target_updates_command_mode_without_selection() {
+    fn apply_runtime_custom_packet_command_target_updates_target_without_clobbering_existing_selection() {
         let mut runtime_command_mode = CommandModeState::default();
         runtime_command_mode.bind_control_group(4, &[88, 99]);
+        let before = runtime_command_mode.projection();
         let target = CommandModeTargetProjection {
             build_target: Some(pack_point2(4, 6)),
             unit_target: Some(CommandUnitRef { kind: 2, value: 77 }),
@@ -331,15 +332,12 @@ mod tests {
         apply_runtime_custom_packet_command_target(&mut runtime_command_mode, target);
 
         assert!(runtime_command_mode.is_active());
-        assert!(runtime_command_mode.projection().selected_units.is_empty());
-        assert_eq!(runtime_command_mode.projection().last_target, Some(target));
         assert_eq!(
-            runtime_command_mode.projection().control_groups,
-            vec![mdt_input::CommandModeControlGroupProjection {
-                index: 4,
-                unit_ids: vec![88, 99],
-            }]
+            runtime_command_mode.projection().selected_units,
+            before.selected_units
         );
+        assert_eq!(runtime_command_mode.projection().control_groups, before.control_groups);
+        assert_eq!(runtime_command_mode.projection().last_target, Some(target));
     }
 
     #[test]
@@ -380,6 +378,94 @@ mod tests {
                 position_target: Some(CommandModePositionTarget {
                     x_bits: 12.5f32.to_bits(),
                     y_bits: (-4.0f32).to_bits(),
+                }),
+                rect_target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_prefers_surface_marker_then_payload_then_runtime_entity_for_target_projection() {
+        let surface_entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "logic.world".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+            stable_value: "7,9".to_string(),
+            marker: Some(RuntimeCustomPacketOverlayMarker {
+                key: "logic.world".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                x: 12.5,
+                y: -4.0,
+            }),
+        };
+        let payload_entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            marker: None,
+            ..surface_entry.clone()
+        };
+        let unit_entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "logic.unit".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::UnitId,
+            stable_value: "77".to_string(),
+            marker: None,
+        };
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .by_entity_id
+            .insert(
+                77,
+                crate::session_state::TypedRuntimeEntityModel::Player(
+                    crate::session_state::TypedRuntimePlayerEntity {
+                        base: crate::session_state::TypedRuntimeEntityBase {
+                            entity_id: 77,
+                            class_id: 0,
+                            hidden: false,
+                            is_local_player: false,
+                            unit_kind: 0,
+                            unit_value: 0,
+                            x_bits: 48.0f32.to_bits(),
+                            y_bits: 120.0f32.to_bits(),
+                            last_seen_entity_snapshot_count: 1,
+                        },
+                        semantic: crate::session_state::EntityPlayerSemanticProjection::default(),
+                    },
+                ),
+            );
+
+        assert_eq!(
+            resolve_runtime_custom_packet_command_target(&surface_entry, &SessionState::default(), None),
+            Some(CommandModeTargetProjection {
+                build_target: None,
+                unit_target: None,
+                position_target: Some(CommandModePositionTarget {
+                    x_bits: 12.5f32.to_bits(),
+                    y_bits: (-4.0f32).to_bits(),
+                }),
+                rect_target: None,
+            })
+        );
+        assert_eq!(
+            resolve_runtime_custom_packet_command_target(&payload_entry, &SessionState::default(), None),
+            Some(CommandModeTargetProjection {
+                build_target: None,
+                unit_target: None,
+                position_target: Some(CommandModePositionTarget {
+                    x_bits: 7.0f32.to_bits(),
+                    y_bits: 9.0f32.to_bits(),
+                }),
+                rect_target: None,
+            })
+        );
+        assert_eq!(
+            resolve_runtime_custom_packet_command_target(&unit_entry, &state, None),
+            Some(CommandModeTargetProjection {
+                build_target: None,
+                unit_target: Some(CommandUnitRef { kind: 2, value: 77 }),
+                position_target: Some(CommandModePositionTarget {
+                    x_bits: 48.0f32.to_bits(),
+                    y_bits: 120.0f32.to_bits(),
                 }),
                 rect_target: None,
             })
