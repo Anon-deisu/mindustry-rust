@@ -1521,9 +1521,25 @@ fn marker_semantic_kind(second: &str) -> RenderObjectSemanticKind {
             RenderObjectSemanticKind::RuntimeConfigPendingMismatch
         }
         value if value.starts_with("runtime-config") => RenderObjectSemanticKind::RuntimeConfig,
+        value if value.starts_with("runtime-build-config-icon") => {
+            RenderObjectSemanticKind::RuntimeConfig
+        }
+        value if value.starts_with("runtime-payload-source-command") => {
+            RenderObjectSemanticKind::RuntimeConfig
+        }
         "runtime-health" => RenderObjectSemanticKind::RuntimeHealth,
         "runtime-effect" => RenderObjectSemanticKind::RuntimeEffect,
         "runtime-break" => RenderObjectSemanticKind::RuntimeBreak,
+        value
+            if value.starts_with("runtime-payload-loader")
+                || value.starts_with("runtime-payload-router")
+                || value.starts_with("runtime-separator")
+                || value.starts_with("runtime-build-tower")
+                || value.starts_with("runtime-unit-assembler-progress")
+                || value.starts_with("runtime-unit-assembler-command") =>
+        {
+            RenderObjectSemanticKind::RuntimeBuilding
+        }
         value if value.starts_with("runtime") => RenderObjectSemanticKind::Runtime,
         _ => RenderObjectSemanticKind::Marker,
     }
@@ -1859,6 +1875,40 @@ mod tests {
             RenderObjectSemanticKind::RuntimeBreak
         );
         assert_eq!(
+            RenderObjectSemanticKind::from_id(
+                "marker:runtime-build-config-icon:payload-source:21:43:1:7"
+            ),
+            RenderObjectSemanticKind::RuntimeConfig
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id(
+                "marker:runtime-payload-source-command:payload-source:21:43:0x41480000:0x41900000"
+            ),
+            RenderObjectSemanticKind::RuntimeConfig
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:runtime-payload-loader:payload-unloader:52:72"),
+            RenderObjectSemanticKind::RuntimeBuilding
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:runtime-payload-router:payload-router:50:70"),
+            RenderObjectSemanticKind::RuntimeBuilding
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:runtime-separator:separator:42:64"),
+            RenderObjectSemanticKind::RuntimeBuilding
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:runtime-build-tower:build-tower:28:50"),
+            RenderObjectSemanticKind::RuntimeBuilding
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id(
+                "marker:runtime-unit-assembler-progress:tank-assembler:30:40:0x3f400000:2:4:b:9:0:0x40800000"
+            ),
+            RenderObjectSemanticKind::RuntimeBuilding
+        );
+        assert_eq!(
             RenderObjectSemanticKind::from_id("plan:runtime-place:0:8:9"),
             RenderObjectSemanticKind::RuntimePlace
         );
@@ -1963,6 +2013,10 @@ mod tests {
             RenderObjectSemanticFamily::Runtime
         );
         assert_eq!(
+            RenderObjectSemanticKind::RuntimeBuilding.family(),
+            RenderObjectSemanticFamily::Runtime
+        );
+        assert_eq!(
             RenderObjectSemanticKind::RuntimeUnit.family(),
             RenderObjectSemanticFamily::Runtime
         );
@@ -2027,6 +2081,21 @@ mod tests {
         );
         assert_eq!(
             runtime_marker.semantic_family(),
+            RenderObjectSemanticFamily::Runtime
+        );
+
+        let runtime_building_marker = RenderObject {
+            id: "marker:runtime-payload-router:payload-router:50:70".to_string(),
+            layer: 30,
+            x: 0.0,
+            y: 0.0,
+        };
+        assert_eq!(
+            runtime_building_marker.semantic_kind(),
+            RenderObjectSemanticKind::RuntimeBuilding
+        );
+        assert_eq!(
+            runtime_building_marker.semantic_family(),
             RenderObjectSemanticFamily::Runtime
         );
 
