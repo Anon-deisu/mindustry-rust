@@ -2194,6 +2194,41 @@ mod tests {
     }
 
     #[test]
+    fn remote_registry_packet_specs_use_known_taxonomy_values_only() {
+        const KNOWN_TARGETS: &[&str] = &["both", "client", "server"];
+        const KNOWN_CALLED: &[&str] = &["both", "client", "none", "server"];
+        const KNOWN_VARIANTS: &[&str] = &["all", "both", "one"];
+        const KNOWN_PRIORITIES: &[&str] = &["high", "low", "normal"];
+
+        for spec in REMOTE_PACKET_SPECS {
+            assert!(
+                KNOWN_TARGETS.contains(&spec.targets),
+                "unexpected targets '{}' for packet_id {}",
+                spec.targets,
+                spec.packet_id
+            );
+            assert!(
+                KNOWN_CALLED.contains(&spec.called),
+                "unexpected called '{}' for packet_id {}",
+                spec.called,
+                spec.packet_id
+            );
+            assert!(
+                KNOWN_VARIANTS.contains(&spec.variants),
+                "unexpected variants '{}' for packet_id {}",
+                spec.variants,
+                spec.packet_id
+            );
+            assert!(
+                KNOWN_PRIORITIES.contains(&spec.priority),
+                "unexpected priority '{}' for packet_id {}",
+                spec.priority,
+                spec.packet_id
+            );
+        }
+    }
+
+    #[test]
     fn remote_registry_packet_ids_are_unique_and_sorted() {
         let ids: Vec<u8> = REMOTE_PACKET_SPECS.iter().map(|spec| spec.packet_id).collect();
         assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
