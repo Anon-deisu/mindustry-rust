@@ -1137,6 +1137,27 @@ mod tests {
     }
 
     #[test]
+    fn runtime_seed_plan_source_regions_preserve_map_entities_markers_custom_order_for_sparse_nonempty_regions() {
+        let mut observation = test_observation();
+        observation.entity_remap_entries.truncate(1);
+        observation.team_plan_groups.clear();
+        observation.world_entity_chunks.truncate(1);
+        observation.markers.truncate(1);
+        observation.custom_chunks.truncate(1);
+        observation.map.world.building_centers.clear();
+
+        let plan = observation.runtime_seed_plan();
+
+        assert_eq!(
+            plan.source_regions()
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            vec!["map", "entities", "markers", "custom"]
+        );
+    }
+
+    #[test]
     fn runtime_seed_plan_keeps_only_nonempty_map_region_and_rejects_missing_source_region() {
         let mut observation = test_observation();
         observation.entity_remap_entries.clear();
