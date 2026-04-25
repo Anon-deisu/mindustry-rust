@@ -3842,6 +3842,33 @@ mod tests {
     }
 
     #[test]
+    fn build_config_entry_breakdown_uses_sample_as_final_tiebreaker() {
+        let hud = HudModel {
+            build_ui: Some(BuildUiObservability {
+                inspector_entries: vec![
+                    BuildConfigInspectorEntryObservability {
+                        family: "alpha".to_string(),
+                        tracked_count: 2,
+                        sample: "z-sample".to_string(),
+                    },
+                    BuildConfigInspectorEntryObservability {
+                        family: "alpha".to_string(),
+                        tracked_count: 2,
+                        sample: "a-sample".to_string(),
+                    },
+                ],
+                ..BuildUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+
+        let breakdown = build_build_config_entry_breakdown(&hud).expect("expected breakdown");
+        assert_eq!(breakdown.len(), 2);
+        assert_eq!(breakdown[0].sample, "a-sample");
+        assert_eq!(breakdown[1].sample, "z-sample");
+    }
+
+    #[test]
     fn builds_build_interaction_panel_from_build_ui_observability() {
         let hud = HudModel {
             build_ui: Some(BuildUiObservability {
