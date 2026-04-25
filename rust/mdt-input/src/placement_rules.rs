@@ -331,6 +331,33 @@ mod tests {
     }
 
     #[test]
+    fn valid_place_against_local_plans_allows_edge_touch_between_even_and_odd_sizes() {
+        let request = PlacementRequest {
+            x: 11,
+            y: 10,
+            size: 2,
+        };
+        let plans = [LocalPlanPlacement {
+            x: 10,
+            y: 10,
+            size: 1,
+            breaking: false,
+            candidate_can_replace_plan: false,
+        }];
+
+        let request_bounds = placement_bounds(request.x, request.y, request.size);
+        let plan_bounds = placement_bounds(plans[0].x, plans[0].y, plans[0].size);
+
+        assert_eq!(plan_bounds.right, request_bounds.left);
+        assert!(!plan_bounds.overlaps(request_bounds));
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(request, &plans, None),
+            Ok(())
+        );
+        assert!(valid_place_against_local_plans(request, &plans, None));
+    }
+
+    #[test]
     fn valid_place_against_local_plans_skips_ignored_plan_index() {
         assert!(valid_place_against_local_plans(
             PlacementRequest {
