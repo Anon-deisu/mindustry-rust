@@ -9938,6 +9938,104 @@ mod tests {
     }
 
     #[test]
+    fn present_once_surfaces_runtime_payload_build_icon_primitives() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 40.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-payload-source-command:payload-source:0:0:0x41480000:0x41900000"
+                        .to_string(),
+                    layer: 30,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-payload-loader:payload-unloader:1:0".to_string(),
+                    layer: 31,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-payload-router:payload-router:2:0".to_string(),
+                    layer: 32,
+                    x: 16.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-separator:separator:3:0".to_string(),
+                    layer: 33,
+                    x: 24.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-build-tower:build-tower:4:0".to_string(),
+                    layer: 34,
+                    x: 32.0,
+                    y: 0.0,
+                },
+            ],
+        };
+
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON: count=5");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-payload-source-command/payload-source@30:0:0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-payload-loader/payload-unloader@31:1:0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-payload-router/payload-router@32:2:0",
+        );
+        assert_frame_line_contains(&frame.panel_lines, "runtime-separator/separator@33:3:0");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-build-tower/build-tower@34:4:0",
+        );
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON-DETAIL: count=5");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-payload-source-command/payload-source@30:0:0 payload[variant=payload-source,command_x_bits=0x41480000,command_y_bits=0x41900000,tile_x=0,tile_y=0]",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-payload-loader/payload-unloader@31:1:0 payload[variant=payload-unloader,tile_x=1,tile_y=0]",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-payload-router/payload-router@32:2:0 payload[variant=payload-router,tile_x=2,tile_y=0]",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-separator/separator@33:3:0 payload[variant=separator,tile_x=3,tile_y=0]",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-build-tower/build-tower@34:4:0 payload[variant=build-tower,tile_x=4,tile_y=0]",
+        );
+        assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_BUILD_CONFIG));
+        assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_BUILD_CONFIG));
+        assert_eq!(frame.pixel(2, 0), Some(COLOR_ICON_BUILD_CONFIG));
+        assert_eq!(frame.pixel(3, 0), Some(COLOR_ICON_BUILD_CONFIG));
+        assert_eq!(frame.pixel(4, 0), Some(COLOR_ICON_BUILD_CONFIG));
+    }
+
+    #[test]
     fn present_once_ignores_non_finite_icon_primitives() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);

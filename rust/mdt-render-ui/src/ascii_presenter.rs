@@ -6043,6 +6043,78 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_reports_payload_and_build_icon_primitives_without_generic_point_fallback() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 40.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-payload-source-command:payload-source:21:43:0x41480000:0x41900000".to_string(),
+                    layer: 16,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-payload-loader:payload-unloader:52:72".to_string(),
+                    layer: 17,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-payload-router:payload-router:50:70".to_string(),
+                    layer: 18,
+                    x: 16.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-separator:separator:42:64".to_string(),
+                    layer: 19,
+                    x: 24.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-build-tower:build-tower:28:50".to_string(),
+                    layer: 20,
+                    x: 32.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RENDER-ICON: count=5"));
+        assert!(frame.contains("runtime-payload-source-command/payload-source@16:0:0"));
+        assert!(frame.contains("runtime-payload-loader/payload-unloader@17:1:0"));
+        assert!(frame.contains("runtime-payload-router/payload-router@18:2:0"));
+        assert!(frame.contains("runtime-separator/separator@19:3:0"));
+        assert!(frame.contains("runtime-build-tower/build-tower@20:4:0"));
+        assert!(frame.contains("RENDER-ICON-DETAIL: count=5"));
+        assert!(frame.contains(
+            "runtime-payload-source-command/payload-source@16:0:0 payload[variant=payload-source,command_x_bits=0x41480000,command_y_bits=0x41900000,tile_x=21,tile_y=43]"
+        ));
+        assert!(frame.contains(
+            "runtime-payload-loader/payload-unloader@17:1:0 payload[variant=payload-unloader,tile_x=52,tile_y=72]"
+        ));
+        assert!(frame.contains(
+            "runtime-payload-router/payload-router@18:2:0 payload[variant=payload-router,tile_x=50,tile_y=70]"
+        ));
+        assert!(frame.contains(
+            "runtime-separator/separator@19:3:0 payload[variant=separator,tile_x=42,tile_y=64]"
+        ));
+        assert!(frame.contains(
+            "runtime-build-tower/build-tower@20:4:0 payload[variant=build-tower,tile_x=28,tile_y=50]"
+        ));
+        assert_eq!(frame.lines().last(), Some("CCCCC"));
+    }
+
+    #[test]
     fn ascii_presenter_reports_runtime_health_icon_primitive() {
         let scene = RenderModel {
             viewport: Viewport {
