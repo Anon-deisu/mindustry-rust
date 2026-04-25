@@ -1021,6 +1021,30 @@ mod tests {
     }
 
     #[test]
+    fn record_command_units_canonicalizes_duplicate_units_and_drops_nonfinite_position_without_clearing_other_targets(
+    ) {
+        let mut state = CommandModeState::default();
+
+        state.record_command_units(
+            &[8, 8, 9],
+            Some(1),
+            Some(unit(7, 12)),
+            Some((f32::INFINITY, 5.0)),
+        );
+
+        assert_eq!(state.projection().selected_units, vec![8, 9]);
+        assert_eq!(
+            state.projection().last_target,
+            Some(CommandModeTargetProjection {
+                build_target: Some(1),
+                unit_target: Some(unit(7, 12)),
+                position_target: None,
+                rect_target: None,
+            })
+        );
+    }
+
+    #[test]
     fn building_selection_helpers_accept_none_and_control_groups_survive_clear() {
         let mut state = CommandModeState::default();
         state.bind_control_group(1, &[44, 55]);
