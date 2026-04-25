@@ -1,5 +1,7 @@
 use crate::{
-    SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeSeedPlan,
+    save_post_load_runtime_source_region::source_region_name_for_stage_kind,
+    SavePostLoadConsumerStageKind, SavePostLoadRuntimeApplyExecution,
+    SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeSeedPlan,
     SavePostLoadRuntimeWorldSemanticsExecution, SavePostLoadWorldObservation,
 };
 use std::collections::BTreeMap;
@@ -348,21 +350,43 @@ fn source_regions(
         source_region.steps_with_status_mut(*status).push(step.clone());
     }
 
+    source_regions.sort_by_key(|region| source_region_sort_key(region.source_region_name));
     source_regions
 }
 
 const fn source_region_name_for_step(step: &SavePostLoadRuntimeApplyStep) -> &'static str {
+    source_region_name_for_stage_kind(stage_kind_for_step(step))
+}
+
+const fn stage_kind_for_step(step: &SavePostLoadRuntimeApplyStep) -> SavePostLoadConsumerStageKind {
     match step {
-        SavePostLoadRuntimeApplyStep::WorldShell | SavePostLoadRuntimeApplyStep::Building { .. } => {
-            "map"
+        SavePostLoadRuntimeApplyStep::WorldShell => SavePostLoadConsumerStageKind::WorldShell,
+        SavePostLoadRuntimeApplyStep::EntityRemap { .. } => {
+            SavePostLoadConsumerStageKind::EntityRemaps
         }
-        SavePostLoadRuntimeApplyStep::EntityRemap { .. }
-        | SavePostLoadRuntimeApplyStep::TeamPlan { .. }
-        | SavePostLoadRuntimeApplyStep::LoadableEntity { .. }
-        | SavePostLoadRuntimeApplyStep::SkippedEntity { .. } => "entities",
-        SavePostLoadRuntimeApplyStep::Marker { .. } => "markers",
-        SavePostLoadRuntimeApplyStep::StaticFog
-        | SavePostLoadRuntimeApplyStep::CustomChunk { .. } => "custom",
+        SavePostLoadRuntimeApplyStep::TeamPlan { .. } => SavePostLoadConsumerStageKind::TeamPlans,
+        SavePostLoadRuntimeApplyStep::Marker { .. } => SavePostLoadConsumerStageKind::Markers,
+        SavePostLoadRuntimeApplyStep::StaticFog => SavePostLoadConsumerStageKind::StaticFog,
+        SavePostLoadRuntimeApplyStep::CustomChunk { .. } => {
+            SavePostLoadConsumerStageKind::CustomChunks
+        }
+        SavePostLoadRuntimeApplyStep::Building { .. } => SavePostLoadConsumerStageKind::Buildings,
+        SavePostLoadRuntimeApplyStep::LoadableEntity { .. } => {
+            SavePostLoadConsumerStageKind::LoadableEntities
+        }
+        SavePostLoadRuntimeApplyStep::SkippedEntity { .. } => {
+            SavePostLoadConsumerStageKind::SkippedEntities
+        }
+    }
+}
+
+fn source_region_sort_key(source_region_name: &str) -> u8 {
+    match source_region_name {
+        "map" => 0,
+        "entities" => 1,
+        "markers" => 2,
+        "custom" => 3,
+        _ => 4,
     }
 }
 
@@ -743,6 +767,94 @@ mod tests {
                     .steps
                     .contains(&SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 })
         }));
+    }
+
+    #[test]
+    fn runtime_apply_execution_view_source_regions_align_with_execute_runtime_apply_for_mixed_status_observation(
+    ) {
+        let mut observation = test_observation();
+        observation.world_entity_chunks[2].entity_id = 42;
+        observation.entity_summary.duplicate_entity_ids = vec![42];
+        observation.entity_summary.unique_entity_ids = 2;
+        observation.map.world.tiles[0].building_center_index = None;
+
+        let plan = observation.runtime_seed_plan();
+        let execution = plan.execute_runtime_apply();
+        let view = plan.runtime_apply_execution_view();
+
+        let view_regions = view
+            .source_regions()
+            .into_iter()
+            .map(|region| {
+                (
+                    region.source_region_name,
+                    region.executed_steps,
+                    region.failed_steps,
+                    region.awaiting_world_shell_steps,
+                    region.blocked_steps,
+                    region.deferred_steps,
+                )
+            })
+            .collect::<Vec<_>>();
+        let execution_regions = execution
+            .source_regions()
+            .into_iter()
+            .map(|region| {
+                (
+                    region.source_region_name,
+                    region.executed_steps,
+                    region.failed_steps,
+                    region.awaiting_world_shell_steps,
+                    region.blocked_steps,
+                    region.deferred_steps,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(view_regions, execution_regions);
+        assert_eq!(
+            view.source_regions()
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            vec!["map", "entities", "markers", "custom"]
+        );
+        assert_eq!(
+            view.source_region("entities").map(|region| (
+                region.source_region_name,
+                region.executed_steps,
+                region.failed_steps,
+                region.awaiting_world_shell_steps,
+                region.blocked_steps,
+                region.deferred_steps,
+            )),
+            execution.source_region("entities").map(|region| (
+                region.source_region_name,
+                region.executed_steps,
+                region.failed_steps,
+                region.awaiting_world_shell_steps,
+                region.blocked_steps,
+                region.deferred_steps,
+            ))
+        );
+        assert_eq!(
+            view.source_region("custom").map(|region| (
+                region.source_region_name,
+                region.executed_steps,
+                region.failed_steps,
+                region.awaiting_world_shell_steps,
+                region.blocked_steps,
+                region.deferred_steps,
+            )),
+            execution.source_region("custom").map(|region| (
+                region.source_region_name,
+                region.executed_steps,
+                region.failed_steps,
+                region.awaiting_world_shell_steps,
+                region.blocked_steps,
+                region.deferred_steps,
+            ))
+        );
     }
 
     #[test]

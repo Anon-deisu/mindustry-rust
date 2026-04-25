@@ -101,4 +101,61 @@ mod tests {
             assert_eq!(region_kind.source_region_name(), surface_kind.source_region_name());
         }
     }
+
+    #[test]
+    fn source_region_name_for_stage_kind_stays_aligned_with_runtime_view_region_partitions() {
+        let cases = [
+            (
+                SavePostLoadConsumerStageKind::WorldShell,
+                SavePostLoadRuntimeRegionKind::WorldShell,
+                SavePostLoadRuntimeWorldSurfaceKind::WorldShell,
+            ),
+            (
+                SavePostLoadConsumerStageKind::EntityRemaps,
+                SavePostLoadRuntimeRegionKind::EntityRemaps,
+                SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps,
+            ),
+            (
+                SavePostLoadConsumerStageKind::TeamPlans,
+                SavePostLoadRuntimeRegionKind::TeamPlans,
+                SavePostLoadRuntimeWorldSurfaceKind::TeamPlans,
+            ),
+            (
+                SavePostLoadConsumerStageKind::Markers,
+                SavePostLoadRuntimeRegionKind::Markers,
+                SavePostLoadRuntimeWorldSurfaceKind::Markers,
+            ),
+            (
+                SavePostLoadConsumerStageKind::StaticFog,
+                SavePostLoadRuntimeRegionKind::StaticFog,
+                SavePostLoadRuntimeWorldSurfaceKind::StaticFog,
+            ),
+            (
+                SavePostLoadConsumerStageKind::CustomChunks,
+                SavePostLoadRuntimeRegionKind::CustomChunks,
+                SavePostLoadRuntimeWorldSurfaceKind::CustomChunks,
+            ),
+            (
+                SavePostLoadConsumerStageKind::Buildings,
+                SavePostLoadRuntimeRegionKind::Buildings,
+                SavePostLoadRuntimeWorldSurfaceKind::Buildings,
+            ),
+            (
+                SavePostLoadConsumerStageKind::LoadableEntities,
+                SavePostLoadRuntimeRegionKind::LoadableEntities,
+                SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities,
+            ),
+            (
+                SavePostLoadConsumerStageKind::SkippedEntities,
+                SavePostLoadRuntimeRegionKind::SkippedEntities,
+                SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities,
+            ),
+        ];
+
+        for (stage_kind, region_kind, surface_kind) in cases {
+            let expected = source_region_name_for_stage_kind(stage_kind);
+            assert_eq!(region_kind.source_region_name(), expected);
+            assert_eq!(surface_kind.source_region_name(), expected);
+        }
+    }
 }

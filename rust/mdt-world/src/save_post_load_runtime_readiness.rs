@@ -270,6 +270,7 @@ mod tests {
         PointMarkerModel, SaveEntityChunkObservation, SaveEntityClassKind, SaveEntityClassSummary,
         SaveEntityPostLoadClassSummary, SaveEntityPostLoadKind, SaveEntityPostLoadSummary,
         SaveEntityRemapEntry, SaveEntityRemapSummary, SaveMapRegionObservation,
+        SavePostLoadConsumerRuntimeStageHelper,
         SavePostLoadWorldIssue, StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup, TileModel,
         TypeIoValue, WorldModel,
     };
@@ -775,6 +776,136 @@ mod tests {
         assert!(blocked_region.has_blockers());
         assert!(!deferred_region.can_apply_now());
         assert!(!deferred_region.has_blockers());
+    }
+
+    #[test]
+    fn runtime_readiness_source_regions_align_with_consumer_runtime_helper_for_stage_and_step_aggregation(
+    ) {
+        let helper = SavePostLoadConsumerRuntimeHelper {
+            can_seed_runtime_apply: false,
+            world_shell_ready: false,
+            stages: vec![
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::WorldShell,
+                    step_count: 1,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    blockers: vec![SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                    )],
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::Buildings,
+                    step_count: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    blockers: vec![SavePostLoadConsumerBlocker::InvalidBuildingReference {
+                        center_index: 0,
+                        tile_index: 1,
+                        block_id: 0x0101,
+                    }],
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::EntityRemaps,
+                    step_count: 3,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::TeamPlans,
+                    step_count: 5,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::LoadableEntities,
+                    step_count: 7,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(42),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                    ],
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::SkippedEntities,
+                    step_count: 11,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Deferred,
+                    blockers: vec![SavePostLoadConsumerBlocker::SkippedEntity {
+                        entity_index: 2,
+                        entity_id: 99,
+                        source_name: "mod-unit".to_string(),
+                        effective_name: None,
+                    }],
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::Markers,
+                    step_count: 13,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::StaticFog,
+                    step_count: 17,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::CustomChunks,
+                    step_count: 19,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Deferred,
+                    blockers: vec![SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::EntitySummaryMismatch,
+                    )],
+                },
+            ],
+        };
+
+        let readiness = helper.runtime_readiness();
+        let helper_source_regions = helper.source_regions();
+        let readiness_source_regions = readiness.source_regions();
+
+        assert_eq!(
+            helper_source_regions
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            readiness_source_regions
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>()
+        );
+
+        for helper_region in &helper_source_regions {
+            let readiness_region = readiness
+                .source_region(helper_region.source_region_name)
+                .expect("runtime readiness source region should exist");
+            let matching_stage_count = helper
+                .stages
+                .iter()
+                .filter(|stage| {
+                    source_region_name_for_stage_kind(stage.kind) == helper_region.source_region_name
+                })
+                .count();
+
+            assert_eq!(helper_region.stage_count, matching_stage_count);
+            assert_eq!(readiness_region.total_step_count(), helper_region.step_count);
+            assert_eq!(
+                readiness
+                    .regions
+                    .iter()
+                    .filter(|region| region.source_region_name == helper_region.source_region_name)
+                    .count(),
+                helper_region.stage_count
+            );
+        }
+
+        assert_eq!(readiness.apply_now_step_count(), helper.apply_now_step_count());
+        assert_eq!(
+            readiness.awaiting_world_shell_step_count(),
+            helper.awaiting_world_shell_step_count()
+        );
+        assert_eq!(readiness.blocked_step_count(), helper.blocked_step_count());
+        assert_eq!(readiness.deferred_step_count(), helper.deferred_step_count());
     }
 
     #[test]

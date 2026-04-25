@@ -426,6 +426,7 @@ impl SavePostLoadRuntimeWorldOwnership {
             source_region.surfaces.push(surface.clone());
         }
 
+        source_regions.sort_by_key(|region| source_region_sort_key(region.source_region_name));
         source_regions
     }
 
@@ -463,6 +464,16 @@ impl SavePostLoadRuntimeSeedPlan {
 
 fn bool_label(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
+}
+
+fn source_region_sort_key(source_region_name: &str) -> u8 {
+    match source_region_name {
+        "map" => 0,
+        "entities" => 1,
+        "markers" => 2,
+        "custom" => 3,
+        _ => 4,
+    }
 }
 
 pub(crate) fn build_runtime_world_ownership(
@@ -658,6 +669,37 @@ mod tests {
                 failed_steps: Vec::new(),
             }
         );
+    }
+
+    #[test]
+    fn runtime_seed_plan_source_regions_align_with_runtime_world_ownership_on_clean_seedable_observation(
+    ) {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let plan = observation.runtime_seed_plan();
+        let ownership = plan.runtime_world_ownership();
+        let plan_regions = plan.source_regions();
+        let ownership_regions = ownership.source_regions();
+
+        assert!(ownership.world_shell_ready);
+        assert!(ownership.can_apply_world_semantics());
+        assert_eq!(
+            plan_regions
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            ownership_regions
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>()
+        );
+
+        for (plan_region, ownership_region) in plan_regions.iter().zip(ownership_regions.iter()) {
+            assert_eq!(plan_region.source_region_name, ownership_region.source_region_name);
+            assert_eq!(plan_region.seed_step_count(), ownership_region.required_step_count());
+            assert_eq!(plan_region.seed_step_count(), ownership_region.claimed_step_count());
+        }
     }
 
     #[test]
