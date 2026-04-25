@@ -887,9 +887,13 @@ mod tests {
     }
 
     #[test]
-    fn world_to_tile_matches_java_rounding_for_negative_half_tile() {
+    fn world_to_tile_matches_java_rounding_on_positive_and_negative_half_tile_boundaries() {
+        assert_eq!(world_to_tile(3.999), 0);
         assert_eq!(world_to_tile(4.0), 1);
+        assert_eq!(world_to_tile(4.001), 1);
+        assert_eq!(world_to_tile(-4.001), -1);
         assert_eq!(world_to_tile(-4.0), 0);
+        assert_eq!(world_to_tile(-3.999), 0);
     }
 
     #[test]
