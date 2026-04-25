@@ -1632,6 +1632,71 @@ mod tests {
     }
 
     #[test]
+    fn runtime_prompt_active_helpers_distinguish_count_and_id_based_activity() {
+        assert!(super::runtime_menu_prompt_active(&RuntimeMenuObservability {
+            menu_open_count: 2,
+            menu_choose_count: 1,
+            last_menu_open_id: Some(11),
+            last_menu_choose_menu_id: Some(11),
+            ..RuntimeMenuObservability::default()
+        }));
+        assert!(super::runtime_menu_prompt_active(&RuntimeMenuObservability {
+            menu_open_count: 1,
+            menu_choose_count: 1,
+            last_menu_open_id: Some(11),
+            last_menu_choose_menu_id: Some(10),
+            ..RuntimeMenuObservability::default()
+        }));
+        assert!(!super::runtime_menu_prompt_active(&RuntimeMenuObservability {
+            menu_open_count: 1,
+            menu_choose_count: 1,
+            last_menu_open_id: Some(11),
+            last_menu_choose_menu_id: Some(11),
+            ..RuntimeMenuObservability::default()
+        }));
+
+        assert!(super::runtime_text_input_prompt_active(&RuntimeUiObservability {
+            text_input: RuntimeTextInputObservability {
+                open_count: 2,
+                last_id: Some(404),
+                ..RuntimeTextInputObservability::default()
+            },
+            menu: RuntimeMenuObservability {
+                text_input_result_count: 1,
+                last_text_input_result_id: Some(404),
+                ..RuntimeMenuObservability::default()
+            },
+            ..RuntimeUiObservability::default()
+        }));
+        assert!(super::runtime_text_input_prompt_active(&RuntimeUiObservability {
+            text_input: RuntimeTextInputObservability {
+                open_count: 1,
+                last_id: Some(404),
+                ..RuntimeTextInputObservability::default()
+            },
+            menu: RuntimeMenuObservability {
+                text_input_result_count: 1,
+                last_text_input_result_id: Some(403),
+                ..RuntimeMenuObservability::default()
+            },
+            ..RuntimeUiObservability::default()
+        }));
+        assert!(!super::runtime_text_input_prompt_active(&RuntimeUiObservability {
+            text_input: RuntimeTextInputObservability {
+                open_count: 1,
+                last_id: Some(404),
+                ..RuntimeTextInputObservability::default()
+            },
+            menu: RuntimeMenuObservability {
+                text_input_result_count: 1,
+                last_text_input_result_id: Some(404),
+                ..RuntimeMenuObservability::default()
+            },
+            ..RuntimeUiObservability::default()
+        }));
+    }
+
+    #[test]
     fn runtime_ui_stack_kind_labels_remain_stable() {
         assert_eq!(
             RuntimeUiStackForegroundSummaryKind::Menu.label(),
