@@ -951,8 +951,9 @@ mod tests {
     }
 
     #[test]
-    fn set_command_rect_clears_stale_recent_target_and_selection_state() {
+    fn set_command_rect_clears_stale_target_but_preserves_control_group_state() {
         let mut state = CommandModeState::default();
+        state.bind_control_group(4, &[11, 22, 11]);
         state.record_command_target(Some(808), Some(unit(2, 909)), Some((1.5, -2.25)));
         state.record_set_unit_command(&[77, 88, 77], Some(7));
         state.record_set_unit_stance(&[77, 88, 77], Some(3), true);
@@ -975,6 +976,17 @@ mod tests {
             })
         );
         assert!(projection.active);
+        assert_eq!(
+            projection.control_groups,
+            vec![CommandModeControlGroupProjection {
+                index: 4,
+                unit_ids: vec![11, 22],
+            }]
+        );
+        assert_eq!(
+            projection.last_control_group_operation,
+            Some(CommandModeRecentControlGroupOperation::Bind)
+        );
         assert_eq!(projection.last_target, None);
         assert_eq!(projection.last_command_selection, None);
         assert_eq!(projection.last_stance_selection, None);
@@ -1166,20 +1178,22 @@ mod tests {
     }
 
     #[test]
-    fn record_command_target_preserves_existing_selection_state() {
+    fn record_command_target_preserves_selection_when_target_kind_changes_with_finite_position_only()
+    {
         let mut state = CommandModeState::default();
         state.record_building_control_select(Some(404));
         state.record_set_unit_command(&[77, 88, 77], Some(7));
+        state.record_command_target(Some(808), Some(unit(2, 909)), None);
 
-        state.record_command_target(Some(808), Some(unit(2, 909)), Some((1.5, -2.25)));
+        state.record_command_target(None, None, Some((1.5, -2.25)));
 
         assert_eq!(state.projection().selected_units, vec![77, 88]);
         assert_eq!(state.projection().command_buildings, vec![404]);
         assert_eq!(
             state.projection().last_target,
             Some(CommandModeTargetProjection {
-                build_target: Some(808),
-                unit_target: Some(unit(2, 909)),
+                build_target: None,
+                unit_target: None,
                 position_target: Some(CommandModePositionTarget {
                     x_bits: 1.5f32.to_bits(),
                     y_bits: (-2.25f32).to_bits(),

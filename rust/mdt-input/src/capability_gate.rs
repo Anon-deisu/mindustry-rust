@@ -785,7 +785,7 @@ mod tests {
     }
 
     #[test]
-    fn command_selection_requests_require_active_mode_and_allow_explicit_none_values() {
+    fn command_selection_requests_allow_explicit_none_without_disabling_active_mode() {
         let gate = CapabilityGate;
         assert_eq!(
             gate.evaluate_command(
@@ -824,6 +824,7 @@ mod tests {
             ),
             CapabilityDecision::allowed()
         );
+        assert!(active_context.command_mode.active);
         assert_eq!(
             gate.evaluate_command(
                 &active_context,
@@ -834,6 +835,7 @@ mod tests {
             ),
             CapabilityDecision::allowed()
         );
+        assert!(active_context.command_mode.active);
     }
 
     #[test]
