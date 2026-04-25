@@ -17664,6 +17664,22 @@ mod tests {
     }
 
     #[test]
+    fn world_coords_to_tile_pos_floors_negative_edges_and_rejects_non_finite_bits() {
+        assert_eq!(
+            world_coords_to_tile_pos((-0.0001f32).to_bits(), (-8.0001f32).to_bits()),
+            Some(pack_point2(-1, -2))
+        );
+        assert_eq!(
+            world_coords_to_tile_pos(f32::NAN.to_bits(), 0.0f32.to_bits()),
+            None
+        );
+        assert_eq!(
+            world_coords_to_tile_pos(0.0f32.to_bits(), f32::NEG_INFINITY.to_bits()),
+            None
+        );
+    }
+
+    #[test]
     fn drives_connect_world_stream_and_snapshot_chain() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();

@@ -1921,6 +1921,46 @@ mod tests {
         assert!((rotation_radians(180.0f32.to_bits()) - std::f32::consts::PI).abs() < 1e-6);
     }
 
+    #[test]
+    fn polar_point_and_tile_world_coords_snap_cardinal_axes_without_float_drift() {
+        let (center_x, center_y) = tile_world_coords(3, 5);
+        let radius = 8.0;
+
+        assert_eq!(
+            polar_point(center_x, center_y, radius, 0.0),
+            {
+                let (x, y) = tile_world_coords(4, 5);
+                (x.to_bits(), y.to_bits())
+            }
+        );
+        assert_eq!(
+            polar_point(center_x, center_y, radius, std::f32::consts::FRAC_PI_2),
+            {
+                let (x, y) = tile_world_coords(3, 6);
+                (x.to_bits(), y.to_bits())
+            }
+        );
+        assert_eq!(
+            polar_point(center_x, center_y, radius, std::f32::consts::PI),
+            {
+                let (x, y) = tile_world_coords(2, 5);
+                (x.to_bits(), y.to_bits())
+            }
+        );
+        assert_eq!(
+            polar_point(
+                center_x,
+                center_y,
+                radius,
+                3.0 * std::f32::consts::FRAC_PI_2,
+            ),
+            {
+                let (x, y) = tile_world_coords(3, 4);
+                (x.to_bits(), y.to_bits())
+            }
+        );
+    }
+
     fn test_line_projections_for_overlay(
         overlay: &RuntimeEffectOverlay,
         target_x_bits: u32,
