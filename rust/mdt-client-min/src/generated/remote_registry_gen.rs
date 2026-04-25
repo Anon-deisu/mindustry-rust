@@ -2166,13 +2166,20 @@ pub const REMOTE_PACKET_SPECS: &[RemotePacketSpec] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mdt_remote::read_remote_manifest;
     use std::collections::HashSet;
+    use std::path::PathBuf;
 
     fn spec(packet_id: u8) -> &'static RemotePacketSpec {
         REMOTE_PACKET_SPECS
             .iter()
             .find(|spec| spec.packet_id == packet_id)
             .unwrap()
+    }
+
+    fn real_manifest_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/remote/remote-manifest-v1.json")
     }
 
     #[test]
@@ -2243,6 +2250,57 @@ mod tests {
         assert!(REMOTE_PACKET_SPECS
             .iter()
             .all(|spec| classes.insert(spec.packet_class)));
+    }
+
+    #[test]
+    fn remote_registry_named_packet_id_constants_match_manifest_rows() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let manifest_packet_id = |packet_class: &str| {
+            manifest
+                .remote_packets
+                .iter()
+                .find(|entry| entry.packet_class == packet_class)
+                .unwrap_or_else(|| panic!("missing remote packet row for {packet_class}"))
+                .packet_id
+        };
+
+        for (packet_class, packet_id) in [
+            (
+                "mindustry.gen.AdminRequestCallPacket",
+                ADMIN_REQUEST_CALL_PACKET_ID,
+            ),
+            ("mindustry.gen.EffectCallPacket", EFFECT_CALL_PACKET_ID),
+            ("mindustry.gen.EffectCallPacket2", EFFECT_CALL_PACKET2_ID),
+            ("mindustry.gen.InfoPopupCallPacket", INFO_POPUP_CALL_PACKET_ID),
+            ("mindustry.gen.InfoPopupCallPacket2", INFO_POPUP_CALL_PACKET2_ID),
+            (
+                "mindustry.gen.InfoPopupReliableCallPacket",
+                INFO_POPUP_RELIABLE_CALL_PACKET_ID,
+            ),
+            (
+                "mindustry.gen.InfoPopupReliableCallPacket2",
+                INFO_POPUP_RELIABLE_CALL_PACKET2_ID,
+            ),
+            ("mindustry.gen.PingCallPacket", PING_CALL_PACKET_ID),
+            (
+                "mindustry.gen.PingLocationCallPacket",
+                PING_LOCATION_CALL_PACKET_ID,
+            ),
+            (
+                "mindustry.gen.PingResponseCallPacket",
+                PING_RESPONSE_CALL_PACKET_ID,
+            ),
+            (
+                "mindustry.gen.WorldDataBeginCallPacket",
+                WORLD_DATA_BEGIN_CALL_PACKET_ID,
+            ),
+        ] {
+            assert_eq!(
+                packet_id,
+                manifest_packet_id(packet_class),
+                "named packet-id constant drifted for {packet_class}"
+            );
+        }
     }
 
     #[test]
