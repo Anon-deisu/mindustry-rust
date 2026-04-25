@@ -695,6 +695,19 @@ mod tests {
     }
 
     #[test]
+    fn placement_bounds_treats_vertical_and_diagonal_touching_as_non_overlapping() {
+        let center = placement_bounds(10, 10, 1);
+        let vertical_touching = placement_bounds(10, 11, 1);
+        let diagonal_touching = placement_bounds(11, 11, 1);
+
+        assert_eq!(center.top, vertical_touching.bottom);
+        assert!(!center.overlaps(vertical_touching));
+        assert_eq!(center.right, diagonal_touching.left);
+        assert_eq!(center.top, diagonal_touching.bottom);
+        assert!(!center.overlaps(diagonal_touching));
+    }
+
+    #[test]
     fn placement_bounds_calculates_center_and_extent_for_even_and_odd_sizes() {
         assert_eq!(
             placement_bounds(10, 10, 1),
