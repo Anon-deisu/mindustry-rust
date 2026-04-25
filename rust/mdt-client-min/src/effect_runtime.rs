@@ -1082,6 +1082,49 @@ mod tests {
     }
 
     #[test]
+    fn effect_runtime_parent_binding_flag_helpers_match_contract_matrix() {
+        for (
+            effect_id,
+            parent_building_binding_enabled,
+            parent_binding_preserves_spawn_offset,
+            parent_binding_allows_fallback_offset_initialization,
+            parent_binding_rotates_with_parent,
+        ) in [
+            (None, false, false, false, false),
+            (Some(8), true, false, false, false),
+            (Some(12), true, false, false, false),
+            (Some(67), true, true, true, true),
+            (Some(68), true, true, true, true),
+            (Some(122), true, true, true, true),
+            (Some(257), true, true, true, true),
+            (Some(260), true, true, true, true),
+            (Some(10), false, false, false, false),
+            (Some(263), false, false, false, false),
+        ] {
+            assert_eq!(
+                super::parent_building_binding_enabled(effect_id),
+                parent_building_binding_enabled,
+                "unexpected parent_building_binding_enabled for effect_id={effect_id:?}"
+            );
+            assert_eq!(
+                super::parent_binding_preserves_spawn_offset(effect_id),
+                parent_binding_preserves_spawn_offset,
+                "unexpected parent_binding_preserves_spawn_offset for effect_id={effect_id:?}"
+            );
+            assert_eq!(
+                super::parent_binding_allows_fallback_offset_initialization(effect_id),
+                parent_binding_allows_fallback_offset_initialization,
+                "unexpected parent_binding_allows_fallback_offset_initialization for effect_id={effect_id:?}"
+            );
+            assert_eq!(
+                super::parent_binding_rotates_with_parent(effect_id),
+                parent_binding_rotates_with_parent,
+                "unexpected parent_binding_rotates_with_parent for effect_id={effect_id:?}"
+            );
+        }
+    }
+
+    #[test]
     fn effect_runtime_spawn_runtime_effect_overlay_keeps_move_command_named_contract() {
         let overlay =
             spawn_runtime_effect_overlay(Some(12), 12.0, 20.0, 12.0, 20.0, 0.0, 0, false, None, 30);
