@@ -933,6 +933,32 @@ mod tests {
     }
 
     #[test]
+    fn plan_block_meta_flip_rotation_handles_even_odd_rotation_matrix() {
+        let block = PlanBlockMeta::with_size(1);
+        let mut inverted = block;
+        inverted.invert_flip = true;
+
+        for rotation in 0..4 {
+            let even_rotation = rotation % 2 == 0;
+            let expected_x = if even_rotation {
+                (rotation + 2) % 4
+            } else {
+                rotation
+            };
+            let expected_y = if even_rotation {
+                rotation
+            } else {
+                (rotation + 2) % 4
+            };
+
+            assert_eq!(block.flip_rotation(rotation, true), expected_x);
+            assert_eq!(block.flip_rotation(rotation, false), expected_y);
+            assert_eq!(inverted.flip_rotation(rotation, true), expected_y);
+            assert_eq!(inverted.flip_rotation(rotation, false), expected_x);
+        }
+    }
+
+    #[test]
     fn plan_block_meta_with_size_sets_defaults_and_offset() {
         let block = PlanBlockMeta::with_size(4);
 
