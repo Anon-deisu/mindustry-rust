@@ -582,6 +582,28 @@ mod tests {
     }
 
     #[test]
+    fn evaluate_intent_leaves_non_gated_intents_allowed_without_live_unit() {
+        let gate = CapabilityGate;
+        let missing_unit = CapabilityContext {
+            runtime: RuntimeInputState {
+                unit_id: None,
+                dead: false,
+                position: Some((0.0, 0.0)),
+                pointer: None,
+            },
+            ..context()
+        };
+
+        assert_eq!(
+            gate.evaluate_intent(
+                &missing_unit,
+                &PlayerIntent::ActionPressed(crate::intent::BinaryAction::Fire)
+            ),
+            CapabilityDecision::allowed()
+        );
+    }
+
+    #[test]
     fn mining_and_build_requests_reject_dead_units_before_other_checks() {
         let gate = CapabilityGate;
         let dead_context = CapabilityContext {
