@@ -2146,6 +2146,47 @@ mod tests {
     }
 
     #[test]
+    fn leg_destroy_overlay_origin_falls_back_when_second_explicit_position_exceeds_search_bounds(
+    ) {
+        let mut values = Vec::new();
+        values.push(TypeIoObject::Vec2 { x: 40.0, y: 60.0 });
+        values.extend((0..62).map(TypeIoObject::Int));
+        values.push(TypeIoObject::Vec2 { x: 72.0, y: 96.0 });
+        let object = TypeIoObject::ObjectArray(values);
+
+        assert_eq!(
+            overlay_origin_from_contract(
+                RuntimeEffectContract::LegDestroy,
+                12.0,
+                20.0,
+                0.0,
+                Some(&object),
+            ),
+            Some((40.0, 60.0))
+        );
+    }
+
+    #[test]
+    fn leg_destroy_overlay_origin_prefers_second_explicit_position_when_within_search_bounds() {
+        let mut values = Vec::new();
+        values.push(TypeIoObject::Vec2 { x: 40.0, y: 60.0 });
+        values.extend((0..61).map(TypeIoObject::Int));
+        values.push(TypeIoObject::Vec2 { x: 72.0, y: 96.0 });
+        let object = TypeIoObject::ObjectArray(values);
+
+        assert_eq!(
+            overlay_origin_from_contract(
+                RuntimeEffectContract::LegDestroy,
+                12.0,
+                20.0,
+                0.0,
+                Some(&object),
+            ),
+            Some((72.0, 96.0))
+        );
+    }
+
+    #[test]
     fn line_projections_for_effect_overlay_returns_point_beam_projection() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(POINT_BEAM_EFFECT_ID),
