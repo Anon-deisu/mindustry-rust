@@ -1122,6 +1122,28 @@ mod tests {
     }
 
     #[test]
+    fn minimap_user_flow_detail_label_preserves_field_order_and_none_fallbacks() {
+        let panel = MinimapUserFlowPanelModel {
+            next_action: "inspect",
+            focus_state: MinimapUserFocusState::Inside,
+            pan_horizontal: MinimapPanAxisDirection::Right,
+            pan_vertical: MinimapPanAxisDirection::None,
+            target_kind: MinimapUserTargetKind::Marker,
+            overlay_target_count: 2,
+            visible_tile_count: 5,
+            visible_map_percent: 25,
+            unknown_tile_percent: 50,
+            window_coverage_percent: 75,
+            ..flow_model(false, false, false, false)
+        };
+
+        assert_eq!(
+            panel.detail_label(),
+            "next=inspect focus=inside vis=mixed cover=partial pan=right target=marker tile=none offset=none clamp=none overlay-targets=2 visible=5 visible-map=25 unknown=50 window=75"
+        );
+    }
+
+    #[test]
     fn minimap_user_flow_pan_label_covers_remaining_diagonals() {
         let base = flow_model(false, false, false, false);
 
