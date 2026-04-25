@@ -13825,6 +13825,52 @@ mod tests {
     }
 
     #[test]
+    fn runtime_effect_line_object_id_encodes_delivery_effect_and_coordinate_bits() {
+        let source_x_bits = 12.5f32.to_bits();
+        let source_y_bits = (-3.0f32).to_bits();
+        let target_x_bits = 42.25f32.to_bits();
+        let target_y_bits = 0.5f32.to_bits();
+
+        assert_eq!(
+            runtime_effect_line_object_id(
+                "delivery-effect",
+                Some(27),
+                true,
+                source_x_bits,
+                source_y_bits,
+                target_x_bits,
+                target_y_bits,
+            ),
+            format!(
+                "marker:line:runtime-effect-delivery-effect:reliable:27:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}",
+                source_x_bits, source_y_bits, target_x_bits, target_y_bits
+            )
+        );
+    }
+
+    #[test]
+    fn runtime_effect_content_object_id_encodes_kind_content_and_coordinates() {
+        let x_bits = 18.75f32.to_bits();
+        let y_bits = (-9.5f32).to_bits();
+
+        assert_eq!(
+            runtime_effect_content_object_id(
+                "content-kind",
+                Some(-8),
+                false,
+                6,
+                321,
+                x_bits,
+                y_bits,
+            ),
+            format!(
+                "marker:runtime-effect-icon:content-kind:normal:-8:6:321:0x{:08x}:0x{:08x}",
+                x_bits, y_bits
+            )
+        );
+    }
+
+    #[test]
     fn runtime_effect_path_label_formats_none_empty_and_joined_segments() {
         let empty: [usize; 0] = [];
         let joined = [0usize, 2, 5];
