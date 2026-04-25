@@ -788,6 +788,45 @@ mod tests {
     }
 
     #[test]
+    fn projection_contract_preserves_detail_issue_order_when_advisory_and_blocking_issues_mix() {
+        let mut observation = test_observation();
+        observation.markers.push(observation.markers[0].clone());
+        observation.markers[0].marker = MarkerModel::Line(LineMarkerModel {
+            class_tag: "lineMarker".to_string(),
+            world: true,
+            minimap: false,
+            autoscale: false,
+            draw_layer_bits: 120.0f32.to_bits(),
+            x_bits: 8.0f32.to_bits(),
+            y_bits: 8.0f32.to_bits(),
+            end_x_bits: 40.0f32.to_bits(),
+            end_y_bits: 56.0f32.to_bits(),
+            stroke_bits: 1.0f32.to_bits(),
+            outline: true,
+            color1: Some("ffd37f".to_string()),
+            color2: Some("ffd37f".to_string()),
+        });
+        observation.entity_summary.loadable_entities = 1;
+        observation.entity_summary.skipped_entities = 0;
+        observation.entity_summary.post_load_class_summaries.clear();
+
+        let contract = observation.projection_contract();
+
+        assert_eq!(
+            contract.issues,
+            vec![
+                SavePostLoadWorldIssue::MarkerOutOfBounds,
+                SavePostLoadWorldIssue::DuplicateMarkerIds,
+                SavePostLoadWorldIssue::EntitySummaryMismatch,
+            ]
+        );
+        assert_eq!(
+            contract.detail_label(),
+            "project=0 graph=1 tile=1 overlay=1 marker=0 fog=1 entity=0 issues=marker-oob,duplicate-marker-ids,entity-summary"
+        );
+    }
+
+    #[test]
     fn bool_label_formats_true_and_false() {
         assert_eq!(bool_label(true), "1");
         assert_eq!(bool_label(false), "0");
