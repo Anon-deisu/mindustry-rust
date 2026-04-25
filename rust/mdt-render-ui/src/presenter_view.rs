@@ -7266,6 +7266,23 @@ mod tests {
     }
 
     #[test]
+    fn format_counted_preview_and_detail_text_handle_empty_and_non_overflow_cases() {
+        assert_eq!(format_counted_preview_text(0, Vec::<String>::new()), "count=0");
+        assert_eq!(
+            format_counted_detail_text(0, " | ", Vec::<String>::new()),
+            "count=0"
+        );
+        assert_eq!(
+            format_counted_preview_text(1, vec!["solo".to_string()]),
+            "count=1 solo"
+        );
+        assert_eq!(
+            format_counted_detail_text(1, " | ", vec!["solo".to_string()]),
+            "count=1 | solo"
+        );
+    }
+
+    #[test]
     fn format_render_rect_detail_fields_preserves_field_order() {
         assert_eq!(
             format_render_rect_detail_fields(1, 2, 3, 4, 4, Some("duo"), Some(1), Some(2)),
