@@ -44925,6 +44925,50 @@ mod tests {
     }
 
     #[test]
+    fn remap_entry_queries_require_unique_match_and_return_none_for_duplicates() {
+        let region = SaveEntityRegionObservation {
+            remap_count: 4,
+            remap_entries: vec![
+                SaveEntityRemapEntry {
+                    custom_id: 3,
+                    name: "mod-alpha".to_string(),
+                },
+                SaveEntityRemapEntry {
+                    custom_id: 4,
+                    name: "mod-beta".to_string(),
+                },
+                SaveEntityRemapEntry {
+                    custom_id: 3,
+                    name: "mod-gamma".to_string(),
+                },
+                SaveEntityRemapEntry {
+                    custom_id: 5,
+                    name: "mod-beta".to_string(),
+                },
+            ],
+            remap_bytes: Vec::new(),
+            team_count: 0,
+            total_plans: 0,
+            team_plan_groups: Vec::new(),
+            team_region_bytes: Vec::new(),
+            world_entity_count: 0,
+            world_entity_bytes: Vec::new(),
+            entity_chunks: Vec::new(),
+        };
+
+        assert!(region.remap_entry_by_custom_id(3).is_none());
+        assert_eq!(
+            region.remap_entry_by_custom_id(4).map(|entry| entry.name.as_str()),
+            Some("mod-beta")
+        );
+        assert!(region.remap_entry_by_name("mod-beta").is_none());
+        assert_eq!(
+            region.remap_entry_by_name("mod-alpha").map(|entry| entry.custom_id),
+            Some(3)
+        );
+    }
+
+    #[test]
     fn effective_remap_names_first_seen_keeps_first_custom_id_name_and_stable_order() {
         let remap_entries = vec![
             SaveEntityRemapEntry {

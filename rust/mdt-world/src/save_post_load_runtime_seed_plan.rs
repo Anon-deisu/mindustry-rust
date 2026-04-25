@@ -787,6 +787,30 @@ mod tests {
     }
 
     #[test]
+    fn runtime_static_fog_team_seed_preserves_team_index_counts_and_sparse_discovered_indices() {
+        let team = StaticFogTeam {
+            team_id: 7,
+            run_count: 3,
+            rle_bytes: vec![1, 2, 3],
+            discovered: vec![false, true, false, false, true, false, true],
+        };
+
+        let seed = runtime_static_fog_team_seed((4, &team));
+
+        assert_eq!(
+            seed,
+            SavePostLoadRuntimeStaticFogTeamSeed {
+                team_index: 4,
+                team_id: 7,
+                run_count: 3,
+                discovered_count: 3,
+                discovered_indices: vec![1, 4, 6],
+                discovered: vec![false, true, false, false, true, false, true],
+            }
+        );
+    }
+
+    #[test]
     fn runtime_seed_plan_blocks_damaged_static_fog_data_chunk() {
         let mut observation = test_observation();
         observation.custom_chunks.truncate(1);
