@@ -1838,6 +1838,12 @@ mod tests {
     }
 
     #[test]
+    fn world_to_tile_index_in_bounds_rejects_zero_bound_and_exact_upper_edge() {
+        assert_eq!(super::world_to_tile_index_in_bounds(0.0, 0), None);
+        assert_eq!(super::world_to_tile_index_in_bounds(64.0, 8), None);
+    }
+
+    #[test]
     fn view_window_bounds_handles_non_finite_player_position_without_origin_drift() {
         let bounds = super::view_window_bounds(8, 8, (f32::NAN, f32::INFINITY), (4, 4));
 
