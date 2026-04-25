@@ -355,6 +355,51 @@ mod tests {
     }
 
     #[test]
+    fn movement_probe_update_sampled_snapshot_keeps_locked_pointer_and_step_velocity_consistent() {
+        let mut controller = MovementProbeController::new(MovementProbeConfig {
+            step: (0.75, -1.25),
+        });
+        let locked_pointer = (111.0, 222.0);
+        let update = controller
+            .advance(
+                RuntimeInputState {
+                    unit_id: Some(99),
+                    dead: false,
+                    position: Some((5.0, 6.0)),
+                    pointer: Some((40.0, 50.0)),
+                },
+                250,
+                100,
+                Some(locked_pointer),
+            )
+            .unwrap();
+
+        let sample = RuntimeInputSample {
+            position: Some(update.position),
+            pointer: Some(update.pointer),
+            velocity: update.velocity,
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        };
+        let snapshot = sample_runtime_input_snapshot(sample);
+
+        assert_eq!(update.position, (5.75, 4.75));
+        assert_eq!(update.view_center, update.position);
+        assert_eq!(update.pointer, locked_pointer);
+        assert_eq!(update.velocity, controller.config().step);
+        assert_eq!(
+            classify_runtime_input_sample(sample),
+            RuntimeInputSampleKind::MovementOnly
+        );
+        assert_eq!(snapshot.move_axis, controller.config().step);
+        assert_eq!(snapshot.aim_axis, locked_pointer);
+        assert!(snapshot.active_actions.is_empty());
+    }
+
+    #[test]
     fn advance_falls_back_to_next_position_when_runtime_pointer_is_non_finite() {
         let mut controller = MovementProbeController::new(MovementProbeConfig { step: (2.0, 1.0) });
         let update = controller

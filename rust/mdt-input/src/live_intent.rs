@@ -1,5 +1,6 @@
 use crate::intent::{BinaryAction, BuildPulse, PlayerIntent};
 use crate::mapper::{InputSnapshot, IntentMapper, IntentSamplingMode, StatelessIntentMapper};
+use crate::probe::{sample_runtime_input_snapshot, RuntimeInputSample};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LiveIntentState {
@@ -171,6 +172,11 @@ impl RuntimeIntentTracker {
         self.sample_snapshot(runtime_snapshot, None)
     }
 
+    pub fn sample_probe_input(&mut self, probe_sample: RuntimeInputSample) -> bool {
+        let runtime_snapshot = sampled_probe_snapshot(probe_sample);
+        self.sample_runtime_snapshot(&runtime_snapshot)
+    }
+
     pub fn sample_runtime_snapshot_with_transient_batch(
         &mut self,
         transient_snapshots: &[InputSnapshot],
@@ -184,6 +190,16 @@ impl RuntimeIntentTracker {
         self.apply_mapped_intents(intents, true, &current_active_actions)
     }
 
+    pub fn sample_probe_input_with_transient_batch(
+        &mut self,
+        transient_probe_samples: &[RuntimeInputSample],
+        runtime_probe_sample: RuntimeInputSample,
+    ) -> bool {
+        let transient_snapshots = sampled_probe_snapshot_batch(transient_probe_samples);
+        let runtime_snapshot = sampled_probe_snapshot(runtime_probe_sample);
+        self.sample_runtime_snapshot_with_transient_batch(&transient_snapshots, &runtime_snapshot)
+    }
+
     pub fn sample_runtime_snapshot_batch(&mut self, runtime_snapshots: &[InputSnapshot]) -> bool {
         if runtime_snapshots.is_empty() && self.override_snapshot.is_none() {
             let _ = self.mapper.map_snapshot(&InputSnapshot::default());
@@ -193,6 +209,11 @@ impl RuntimeIntentTracker {
         }
         let override_snapshot = self.override_snapshot.clone();
         self.apply_runtime_batch(runtime_snapshots, override_snapshot.as_ref())
+    }
+
+    pub fn sample_probe_input_batch(&mut self, runtime_probe_samples: &[RuntimeInputSample]) -> bool {
+        let runtime_snapshots = sampled_probe_snapshot_batch(runtime_probe_samples);
+        self.sample_runtime_snapshot_batch(&runtime_snapshots)
     }
 
     pub fn sample_runtime_snapshot_batch_with_override(
@@ -294,6 +315,18 @@ fn runtime_snapshot_apply_key(
     )
 }
 
+fn sampled_probe_snapshot(probe_sample: RuntimeInputSample) -> InputSnapshot {
+    sample_runtime_input_snapshot(probe_sample)
+}
+
+fn sampled_probe_snapshot_batch(probe_samples: &[RuntimeInputSample]) -> Vec<InputSnapshot> {
+    probe_samples
+        .iter()
+        .copied()
+        .map(sampled_probe_snapshot)
+        .collect()
+}
+
 fn push_unique(actions: &mut Vec<BinaryAction>, action: BinaryAction) {
     if !actions.contains(&action) {
         actions.push(action);
@@ -370,6 +403,7 @@ fn transient_label(profile: &LiveIntentBindingProfile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::probe::classify_runtime_input_sample;
 
     #[test]
     fn apply_intents_tracks_axes_and_action_edges() {
@@ -1319,6 +1353,112 @@ mod tests {
         }));
         assert_eq!(tracker.state().released_actions, vec![BinaryAction::Fire]);
         assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn probe_sampled_snapshot_roundtrips_through_live_tracker_without_semantic_drift() {
+        let sample = RuntimeInputSample {
+            position: Some((5.0, 6.0)),
+            pointer: Some((16.0, 24.0)),
+            velocity: (1.5, -2.5),
+            mining_tile: Some((9, 11)),
+            building: true,
+            shooting: true,
+            boosting: true,
+            chatting: false,
+        };
+        let sampled_snapshot = sampled_probe_snapshot(sample);
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+
+        assert!(tracker.sample_probe_input(sample));
+
+        let profile = tracker.binding_profile();
+        assert_eq!(profile.move_axis, sampled_snapshot.move_axis);
+        assert_eq!(profile.aim_axis, sampled_snapshot.aim_axis);
+        assert_eq!(profile.mining_tile, sampled_snapshot.mining_tile);
+        assert_eq!(profile.building, sampled_snapshot.building);
+        assert_eq!(profile.active_actions, sampled_snapshot.active_actions);
+        assert_eq!(profile.pressed_actions, sampled_snapshot.active_actions);
+        assert!(profile.released_actions.is_empty());
+    }
+
+    #[test]
+    fn probe_non_finite_sample_remains_idle_after_mapper_and_live_tracker_normalization() {
+        let sample = RuntimeInputSample {
+            position: Some((f32::INFINITY, 6.0)),
+            pointer: Some((f32::NAN, 24.0)),
+            velocity: (f32::NEG_INFINITY, f32::NAN),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        };
+        let sampled_snapshot = sampled_probe_snapshot(sample);
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+
+        assert_eq!(classify_runtime_input_sample(sample).label(), "idle");
+        assert_eq!(sampled_snapshot, InputSnapshot::default());
+        assert!(!tracker.sample_probe_input(sample));
+        assert_eq!(tracker.binding_profile().move_axis, (0.0, 0.0));
+        assert_eq!(tracker.binding_profile().aim_axis, (0.0, 0.0));
+        assert!(tracker.binding_profile().active_actions.is_empty());
+        assert!(tracker.binding_profile().is_idle());
+    }
+
+    #[test]
+    fn transient_probe_batch_keeps_final_runtime_state_while_preserving_action_edges() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+        let transient_probe_samples = vec![
+            RuntimeInputSample {
+                position: Some((2.0, 3.0)),
+                pointer: Some((10.0, 20.0)),
+                velocity: (1.0, 0.0),
+                mining_tile: Some((3, 4)),
+                building: true,
+                shooting: true,
+                boosting: false,
+                chatting: false,
+            },
+            RuntimeInputSample {
+                position: Some((4.0, 5.0)),
+                pointer: Some((30.0, 40.0)),
+                velocity: (0.0, 0.0),
+                mining_tile: None,
+                building: false,
+                shooting: false,
+                boosting: false,
+                chatting: false,
+            },
+        ];
+        let runtime_probe_sample = RuntimeInputSample {
+            position: Some((7.0, 8.0)),
+            pointer: Some((50.0, 60.0)),
+            velocity: (-0.5, 0.25),
+            mining_tile: Some((9, 11)),
+            building: true,
+            shooting: false,
+            boosting: true,
+            chatting: true,
+        };
+        let runtime_snapshot = sampled_probe_snapshot(runtime_probe_sample);
+
+        assert!(tracker.sample_probe_input_with_transient_batch(
+            &transient_probe_samples,
+            runtime_probe_sample,
+        ));
+
+        let profile = tracker.binding_profile();
+        assert_eq!(profile.move_axis, runtime_snapshot.move_axis);
+        assert_eq!(profile.aim_axis, runtime_snapshot.aim_axis);
+        assert_eq!(profile.mining_tile, runtime_snapshot.mining_tile);
+        assert_eq!(profile.building, runtime_snapshot.building);
+        assert_eq!(profile.active_actions, runtime_snapshot.active_actions);
+        assert_eq!(
+            profile.pressed_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost, BinaryAction::Chat]
+        );
+        assert_eq!(profile.released_actions, vec![BinaryAction::Fire]);
     }
 
     #[test]
