@@ -1778,6 +1778,58 @@ mod tests {
     }
 
     #[test]
+    fn runtime_custom_packet_surface_latest_summary_entries_break_same_serial_ties_stably() {
+        let mut state = RuntimeCustomPacketSurfaceState::default();
+        state.text_routes.insert(
+            "same.key".to_string(),
+            vec![
+                RuntimeCustomPacketSurfaceRouteState {
+                    semantic: RuntimeCustomPacketSemanticKind::HudText,
+                    handler_count: 1,
+                    event_reliable_count: 0,
+                    event_unreliable_count: 0,
+                    decode_error_count: 0,
+                    last_overlay_value: Some("first".to_string()),
+                    last_stable_value: Some("first".to_string()),
+                    last_marker: None,
+                    last_update_serial: 7,
+                },
+                RuntimeCustomPacketSurfaceRouteState {
+                    semantic: RuntimeCustomPacketSemanticKind::HudText,
+                    handler_count: 1,
+                    event_reliable_count: 0,
+                    event_unreliable_count: 0,
+                    decode_error_count: 0,
+                    last_overlay_value: Some("second".to_string()),
+                    last_stable_value: Some("second".to_string()),
+                    last_marker: None,
+                    last_update_serial: 7,
+                },
+            ],
+        );
+
+        let expected = vec![
+            RuntimeCustomPacketSurfaceSummaryEntry {
+                key: "same.key".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic: RuntimeCustomPacketSemanticKind::HudText,
+                stable_value: "first".to_string(),
+                marker: None,
+            },
+            RuntimeCustomPacketSurfaceSummaryEntry {
+                key: "same.key".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic: RuntimeCustomPacketSemanticKind::HudText,
+                stable_value: "second".to_string(),
+                marker: None,
+            },
+        ];
+
+        assert_eq!(state.latest_summary_entries(4), expected);
+        assert_eq!(state.latest_summary_entries(4), expected);
+    }
+
+    #[test]
     fn runtime_custom_packet_surface_rejects_non_finite_world_positions() {
         assert_eq!(render_text_world_pos("NaN,9"), Err("invalid_world_pos"));
         assert_eq!(
