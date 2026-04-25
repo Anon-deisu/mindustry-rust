@@ -4877,6 +4877,16 @@ mod tests {
         assert_eq!(super::minimap_clamp_status_text(&panel), "ltrb");
     }
 
+    #[test]
+    fn minimap_clamp_status_text_keeps_partial_flags_in_ltrb_order() {
+        let mut panel = sample_minimap_panel();
+        panel.window_clamped_bottom = true;
+        panel.window_clamped_left = true;
+        panel.window_clamped_right = true;
+
+        assert_eq!(super::minimap_clamp_status_text(&panel), "lrb");
+    }
+
     fn runtime_stack_test_scene() -> RenderModel {
         RenderModel {
             viewport: Viewport {
