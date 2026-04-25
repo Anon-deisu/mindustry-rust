@@ -6800,6 +6800,37 @@ mod tests {
     }
 
     #[test]
+    fn runtime_text_helper_labels_cover_uri_optional_bits_and_lengths() {
+        assert_eq!(runtime_compact_text_len_label(None), 0);
+        assert_eq!(runtime_compact_text_len_label(Some("a界\n")), 3);
+
+        assert_eq!(runtime_uri_scheme_label(None), "none");
+        assert_eq!(runtime_uri_scheme_label(Some("noscheme")), "none");
+        assert_eq!(runtime_uri_scheme_label(Some(":empty")), "none");
+        assert_eq!(
+            runtime_uri_scheme_label(Some("mindustry-client:server-room")),
+            "mindustry-cl~"
+        );
+        assert_eq!(runtime_uri_scheme_label(Some("mdt test:path")), "mdt_test");
+
+        assert_eq!(runtime_optional_bool_label(None), 'n');
+        assert_eq!(runtime_optional_bool_label(Some(false)), '0');
+        assert_eq!(runtime_optional_bool_label(Some(true)), '1');
+        assert_eq!(runtime_optional_display_label::<i32>(None), "none");
+        assert_eq!(runtime_optional_display_label(Some(-12)), "-12");
+
+        assert_eq!(runtime_optional_bits_label(None), "none");
+        assert_eq!(runtime_optional_bits_label(Some(0x00ab_cdef)), "0x00abcdef");
+        assert_eq!(runtime_optional_bits_pair_label(Some(1), None), "none");
+        assert_eq!(
+            runtime_optional_bits_pair_label(Some(0x0102_0304), Some(0xa0b0_c0d0)),
+            "0x01020304:0xa0b0c0d0"
+        );
+        assert_eq!(runtime_optional_text_len_label(None), "none");
+        assert_eq!(runtime_optional_text_len_label(Some("abc")), "len3");
+    }
+
+    #[test]
     fn runtime_selected_block_and_input_flag_labels_are_stable() {
         assert_eq!(runtime_selected_block_label(None), "none");
         assert_eq!(runtime_selected_block_label(Some(0x0101)), "0x0101");
