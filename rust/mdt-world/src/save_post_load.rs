@@ -323,8 +323,8 @@ mod tests {
         SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
         SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldOwnershipStatus,
         SavePostLoadRuntimeWorldOwnershipSurface, SavePostLoadRuntimeWorldSurfaceKind,
-        SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlanGroup, TileModel,
-        UnknownMarkerModel, WorldLoadUnknownCoverageSummary, WorldModel,
+        SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup,
+        TileModel, TypeIoValue, UnknownMarkerModel, WorldLoadUnknownCoverageSummary, WorldModel,
     };
 
     #[test]
@@ -637,6 +637,66 @@ mod tests {
         let bundle = observation.post_load_world_apply_bundle();
 
         assert!(bundle.team_plan_group(7).is_none());
+    }
+
+    #[test]
+    fn post_load_world_all_team_plans_flattens_groups_in_source_order() {
+        let observation = SavePostLoadWorldObservation {
+            team_plan_groups: vec![
+                TeamPlanGroup {
+                    team_id: 1,
+                    plan_count: 2,
+                    plans: vec![
+                        TeamPlan {
+                            x: 1,
+                            y: 2,
+                            rotation: 0,
+                            block_id: 10,
+                            config: TypeIoValue::Null,
+                            config_bytes: vec![1],
+                            config_sha256: "plan-a".to_string(),
+                        },
+                        TeamPlan {
+                            x: 3,
+                            y: 4,
+                            rotation: 1,
+                            block_id: 11,
+                            config: TypeIoValue::Integer(7),
+                            config_bytes: vec![2],
+                            config_sha256: "plan-b".to_string(),
+                        },
+                    ],
+                },
+                TeamPlanGroup {
+                    team_id: 2,
+                    plan_count: 1,
+                    plans: vec![TeamPlan {
+                        x: -5,
+                        y: 6,
+                        rotation: 2,
+                        block_id: 12,
+                        config: TypeIoValue::Boolean(true),
+                        config_bytes: vec![3],
+                        config_sha256: "plan-c".to_string(),
+                    }],
+                },
+            ],
+            ..test_observation()
+        };
+
+        let flattened = observation
+            .all_team_plans()
+            .map(|plan| (plan.x, plan.y, plan.rotation, plan.block_id, plan.config_sha256.as_str()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            flattened,
+            vec![
+                (1, 2, 0, 10, "plan-a"),
+                (3, 4, 1, 11, "plan-b"),
+                (-5, 6, 2, 12, "plan-c"),
+            ]
+        );
     }
 
     #[test]
