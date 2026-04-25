@@ -8759,6 +8759,103 @@ mod tests {
     }
 
     #[test]
+    fn present_once_surfaces_missing_focus_alignment_across_window_panel_lines() {
+        let frame = compose_frame(
+            &RenderModel {
+                viewport: Viewport {
+                    width: 64.0,
+                    height: 64.0,
+                    zoom: 1.0,
+                },
+                view_window: None,
+                objects: Vec::new(),
+            },
+            &HudModel {
+                summary: Some(HudSummary {
+                    player_name: "operator".to_string(),
+                    team_id: 2,
+                    selected_block: "message".to_string(),
+                    plan_count: 0,
+                    marker_count: 0,
+                    map_width: 8,
+                    map_height: 8,
+                    overlay_visible: true,
+                    fog_enabled: false,
+                    visible_tile_count: 64,
+                    hidden_tile_count: 0,
+                    minimap: crate::hud_model::HudMinimapSummary {
+                        focus_tile: None,
+                        view_window: crate::hud_model::HudViewWindowSummary {
+                            origin_x: 0,
+                            origin_y: 0,
+                            width: 8,
+                            height: 8,
+                        },
+                    },
+                }),
+                build_ui: Some(BuildUiObservability {
+                    selected_block_id: Some(301),
+                    selected_rotation: 1,
+                    building: true,
+                    queued_count: 0,
+                    inflight_count: 0,
+                    finished_count: 0,
+                    removed_count: 0,
+                    orphan_authoritative_count: 0,
+                    head: Some(BuildQueueHeadObservability {
+                        x: 4,
+                        y: 6,
+                        breaking: false,
+                        block_id: Some(301),
+                        rotation: Some(1),
+                        stage: BuildQueueHeadStage::Queued,
+                    }),
+                    rollback_strip: crate::BuildConfigRollbackStripObservability {
+                        applied_authoritative_count: 1,
+                        rollback_count: 0,
+                        last_build_tile: Some((4, 6)),
+                        last_business_applied: true,
+                        last_cleared_pending_local: false,
+                        last_was_rollback: false,
+                        last_pending_local_match: Some(true),
+                        last_source: Some(crate::BuildConfigAuthoritySourceObservability::TileConfig),
+                        last_configured_outcome: Some(crate::BuildConfigOutcomeObservability::Applied),
+                        last_configured_block_name: Some("alpha".to_string()),
+                    },
+                    inspector_entries: vec![crate::BuildConfigInspectorEntryObservability {
+                        family: "alpha".to_string(),
+                        tracked_count: 1,
+                        sample: "one".to_string(),
+                    }],
+                }),
+                ..HudModel::default()
+            },
+            0,
+            None,
+        );
+
+        assert!(
+            frame.panel_lines.iter().any(|line| line.contains(
+                "MINIMAP-FLOW: miniflow:n=locate:f=missing:p=hold"
+            )),
+            "missing minimap flow line: {:?}",
+            frame.panel_lines
+        );
+        assert!(
+            frame.panel_lines.iter().any(|line| line.contains(
+                "BUILD-FLOW: cfgflow:n=refocus:m=locate:f=missing:p=hold:t=none:scope=single:h=4:6:a=applied:pm=match"
+            )),
+            "missing build flow line: {:?}",
+            frame.panel_lines
+        );
+        assert!(
+            frame.panel_lines.iter().any(|line| line == "BUILD-FLOW-SUMMARY: next=refocus minimap=locate focus=missing pan=hold target=none scope=single"),
+            "missing build flow summary line: {:?}",
+            frame.panel_lines
+        );
+    }
+
+    #[test]
     fn build_config_entry_status_lines_keep_extended_samples() {
         let sample = "abcdefghijklmnopqrstuvwxyz".repeat(3);
         let expected_sample = format!(

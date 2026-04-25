@@ -4731,6 +4731,93 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_surfaces_missing_focus_alignment_across_minimap_and_build_flow_lines() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "message".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 8,
+                map_height: 8,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 64,
+                hidden_tile_count: 0,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: None,
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 8,
+                        height: 8,
+                    },
+                },
+            }),
+            build_ui: Some(crate::BuildUiObservability {
+                selected_block_id: Some(301),
+                selected_rotation: 1,
+                building: true,
+                queued_count: 0,
+                inflight_count: 0,
+                finished_count: 0,
+                removed_count: 0,
+                orphan_authoritative_count: 0,
+                head: Some(crate::BuildQueueHeadObservability {
+                    x: 4,
+                    y: 6,
+                    breaking: false,
+                    block_id: Some(301),
+                    rotation: Some(1),
+                    stage: crate::BuildQueueHeadStage::Queued,
+                }),
+                rollback_strip: crate::BuildConfigRollbackStripObservability {
+                    applied_authoritative_count: 1,
+                    rollback_count: 0,
+                    last_build_tile: Some((4, 6)),
+                    last_business_applied: true,
+                    last_cleared_pending_local: false,
+                    last_was_rollback: false,
+                    last_pending_local_match: Some(true),
+                    last_source: Some(crate::BuildConfigAuthoritySourceObservability::TileConfig),
+                    last_configured_outcome: Some(crate::BuildConfigOutcomeObservability::Applied),
+                    last_configured_block_name: Some("alpha".to_string()),
+                },
+                inspector_entries: vec![crate::BuildConfigInspectorEntryObservability {
+                    family: "alpha".to_string(),
+                    tracked_count: 1,
+                    sample: "one".to_string(),
+                }],
+            }),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "MINIMAP-FLOW: next=locate focus=missing pan=hold"
+        ));
+        assert!(frame.contains(
+            "BUILD-FLOW: cfgflow:n=refocus:m=locate:f=missing:p=hold:t=none:scope=single:h=4:6:a=applied:pm=match"
+        ));
+        assert!(frame.contains(
+            "BUILD-FLOW-SUMMARY: next=refocus minimap=locate focus=missing pan=hold target=none scope=single"
+        ));
+    }
+
+    #[test]
     fn ascii_presenter_emits_full_build_config_entry_breakdown() {
         let scene = RenderModel {
             viewport: Viewport {

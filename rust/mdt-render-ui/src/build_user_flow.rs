@@ -221,9 +221,15 @@ fn build_user_flow_from_panel_options(
     interaction: Option<&crate::panel_model::BuildInteractionPanelModel>,
 ) -> BuildUserFlowPanelModel {
     let missing = assist.is_none() || minimap.is_none() || interaction.is_none();
+    let minimap_requires_refocus = assist.is_some_and(|assist| {
+        place_ready_minimap_missing_focus_requires_refocus(assist, minimap)
+    });
 
     let (next_action, mut blockers, mut route, config_scope) = if let Some(assist) = assist {
-        let blockers = build_blockers(assist);
+        let mut blockers = build_blockers(assist);
+        if minimap_requires_refocus && !blockers.contains(&BuildUserFlowBlocker::Refocus) {
+            blockers.push(BuildUserFlowBlocker::Refocus);
+        }
         let mut route = blockers
             .iter()
             .copied()
@@ -246,7 +252,11 @@ fn build_user_flow_from_panel_options(
         }
 
         (
-            assist.next_action_label(),
+            if minimap_requires_refocus {
+                "refocus"
+            } else {
+                assist.next_action_label()
+            },
             blockers,
             route,
             assist.config_scope_label(),
@@ -357,6 +367,18 @@ fn authority_pending_match_needs_attention(value: Option<bool>) -> bool {
 
 fn focus_needs_refocus(assist: &BuildMinimapAssistPanelModel) -> bool {
     assist.focus_tile.is_none() || assist.focus_in_window != Some(true)
+}
+
+fn place_ready_minimap_missing_focus_requires_refocus(
+    assist: &BuildMinimapAssistPanelModel,
+    minimap: Option<&crate::minimap_user_flow::MinimapUserFlowPanelModel>,
+) -> bool {
+    matches!(assist.mode, BuildInteractionMode::Place)
+        && assist.place_ready
+        && minimap.is_some_and(|minimap| {
+            minimap.focus_state == MinimapUserFocusState::Missing
+                && minimap.next_action == "locate"
+        })
 }
 
 fn push_route_step(route: &mut Vec<&'static str>, step: &'static str) {
@@ -879,6 +901,90 @@ mod tests {
 
         assert_eq!(panel.blocker_labels(), vec!["refocus"]);
         assert_eq!(panel.route, vec!["refocus", "break"]);
+    }
+
+    #[test]
+    fn build_user_flow_from_panel_options_refocuses_when_place_ready_but_minimap_focus_is_missing() {
+        let panel = super::build_user_flow_from_panel_options(
+            Some(&BuildMinimapAssistPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadAligned,
+                queue_state: BuildInteractionQueueState::Empty,
+                place_ready: true,
+                config_family_count: 1,
+                config_sample_count: 1,
+                top_config_family: Some("message".to_string()),
+                authority_state: BuildInteractionAuthorityState::Applied,
+                authority_pending_match: Some(true),
+                head_tile: Some((4, 6)),
+                authority_tile: Some((4, 6)),
+                authority_source: None,
+                authority_block_name: Some("message".to_string()),
+                focus_tile: Some((4, 6)),
+                focus_in_window: Some(true),
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 40,
+                tracked_object_count: 3,
+                runtime_count: 0,
+            }),
+            Some(&MinimapUserFlowPanelModel {
+                next_action: "locate",
+                focus_state: MinimapUserFocusState::Missing,
+                pan_horizontal: MinimapPanAxisDirection::None,
+                pan_vertical: MinimapPanAxisDirection::None,
+                target_kind: MinimapUserTargetKind::None,
+                focus_tile: None,
+                window_clamped_left: false,
+                window_clamped_top: false,
+                window_clamped_right: false,
+                window_clamped_bottom: false,
+                focus_offset_x: None,
+                focus_offset_y: None,
+                overlay_target_count: 0,
+                visible_tile_count: 40,
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 40,
+            }),
+            Some(&BuildInteractionPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadAligned,
+                queue_state: BuildInteractionQueueState::Empty,
+                selected_block_id: Some(1),
+                selected_rotation: 0,
+                pending_count: 0,
+                orphan_authoritative_count: 0,
+                place_ready: true,
+                config_available: true,
+                config_family_count: 1,
+                config_sample_count: 1,
+                top_config_family: Some("message".to_string()),
+                head: Some(BuildConfigHeadModel {
+                    x: 4,
+                    y: 6,
+                    breaking: false,
+                    block_id: Some(1),
+                    rotation: Some(0),
+                    stage: crate::BuildQueueHeadStage::Queued,
+                }),
+                authority_state: BuildInteractionAuthorityState::Applied,
+                authority_pending_match: Some(true),
+                authority_source: None,
+                authority_tile: Some((4, 6)),
+                authority_block_name: Some("message".to_string()),
+            }),
+        );
+
+        assert_eq!(panel.next_action, "refocus");
+        assert_eq!(panel.blocker_labels(), vec!["refocus"]);
+        assert_eq!(panel.route, vec!["refocus", "seed", "commit"]);
+        assert_eq!(panel.minimap_next_action, "locate");
+        assert_eq!(panel.focus_state, MinimapUserFocusState::Missing);
+        assert_eq!(
+            panel.summary_label(),
+            "next=refocus minimap=locate focus=missing pan=hold target=none scope=single"
+        );
     }
 
     #[test]

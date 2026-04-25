@@ -517,6 +517,70 @@ mod tests {
     }
 
     #[test]
+    fn build_minimap_user_flow_panel_returns_locate_with_missing_focus_and_no_pan() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "player:1".to_string(),
+                layer: 1,
+                x: 8.0,
+                y: 8.0,
+            }],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 8,
+                map_height: 8,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 64,
+                hidden_tile_count: 0,
+                minimap: HudMinimapSummary {
+                    focus_tile: None,
+                    view_window: HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 8,
+                        height: 8,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_minimap_user_flow_panel(
+            &scene,
+            &hud,
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 8,
+                height: 8,
+            },
+        )
+        .expect("locate panel");
+
+        assert_eq!(panel.next_action, "locate");
+        assert_eq!(panel.focus_state, MinimapUserFocusState::Missing);
+        assert_eq!(panel.pan_horizontal, MinimapPanAxisDirection::None);
+        assert_eq!(panel.pan_vertical, MinimapPanAxisDirection::None);
+        assert_eq!(panel.pan_label(), "hold");
+        assert_eq!(panel.focus_tile, None);
+        assert_eq!(panel.focus_offset_x, None);
+        assert_eq!(panel.focus_offset_y, None);
+    }
+
+    #[test]
     fn minimap_user_flow_switches_between_locate_survey_inspect_and_hold() {
         let base_scene = RenderModel {
             viewport: Viewport {
