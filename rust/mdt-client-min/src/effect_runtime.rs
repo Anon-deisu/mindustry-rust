@@ -1028,7 +1028,7 @@ fn unpack_point2(value: i32) -> (i16, i16) {
 mod tests {
     use super::{
         effect_contract, effect_contract_name, finite_world_position_bits,
-        lightning_path_points,
+        lightning_path_points, payload_target_world_bits, position_hint_world_bits,
         observe_runtime_effect_binding_state, observe_runtime_effect_overlay_binding_state,
         observe_runtime_effect_overlay_source_binding_state,
         observe_runtime_effect_source_binding_state, resolve_runtime_effect_overlay_position,
@@ -1040,7 +1040,7 @@ mod tests {
         EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
         EntityUnitSemanticProjection, SessionState,
     };
-    use mdt_typeio::{pack_point2, TypeIoObject};
+    use mdt_typeio::{pack_point2, TypeIoEffectPositionHint, TypeIoObject};
 
     #[test]
     fn effect_runtime_contract_maps_drill_steam_effect_id() {
@@ -1287,6 +1287,26 @@ mod tests {
         assert_eq!(overlay.content_ref, Some((1, 33)));
         assert_eq!(overlay.x_bits, 72.0f32.to_bits());
         assert_eq!(overlay.y_bits, 88.0f32.to_bits());
+    }
+
+    #[test]
+    fn effect_runtime_payload_and_position_helpers_map_packed_point2_to_world_bits() {
+        let packed_point2 = pack_point2(9, 11);
+
+        assert_eq!(
+            payload_target_world_bits(&TypeIoObject::PackedPoint2Array(vec![
+                packed_point2,
+                pack_point2(1, 2),
+            ])),
+            Some((72.0f32.to_bits(), 88.0f32.to_bits()))
+        );
+        assert_eq!(
+            position_hint_world_bits(&TypeIoEffectPositionHint::PackedPoint2ArrayFirst {
+                packed_point2,
+                path: vec![1, 0],
+            }),
+            Some((72.0f32.to_bits(), 88.0f32.to_bits()))
+        );
     }
 
     #[test]
