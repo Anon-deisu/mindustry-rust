@@ -1070,6 +1070,14 @@ mod tests {
     }
 
     #[test]
+    fn strict_connect_build_accepts_trimmed_crlf_157_2_metadata() {
+        assert_eq!(
+            strict_connect_build(b"build =  157.2  \r\ntype = official\r\n"),
+            Ok(157)
+        );
+    }
+
+    #[test]
     fn parse_connect_build_number_rejects_invalid_revision_but_accepts_zero_revision() {
         assert_eq!(parse_connect_build_number("157.0", "build"), Ok(157));
         assert_eq!(
