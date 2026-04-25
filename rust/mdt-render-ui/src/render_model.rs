@@ -3373,6 +3373,136 @@ mod tests {
     }
 
     #[test]
+    fn render_model_keeps_partial_rect_outlines_as_line_primitives() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 31,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}:line-end",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 31,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 31,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}:line-end",
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 31,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 31,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}:line-end",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 31,
+                    x: 8.0,
+                    y: 32.0,
+                },
+            ],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![
+                RenderPrimitive::Line {
+                    id: format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 31,
+                    x0: 8.0,
+                    y0: 16.0,
+                    x1: 24.0,
+                    y1: 16.0,
+                },
+                RenderPrimitive::Line {
+                    id: format!(
+                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 31,
+                    x0: 24.0,
+                    y0: 16.0,
+                    x1: 24.0,
+                    y1: 32.0,
+                },
+                RenderPrimitive::Line {
+                    id: format!(
+                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 31,
+                    x0: 24.0,
+                    y0: 32.0,
+                    x1: 8.0,
+                    y1: 32.0,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn render_model_derives_rect_primitives_from_runtime_break_rect_line_families() {
         let scene = RenderModel {
             viewport: Viewport::default(),
