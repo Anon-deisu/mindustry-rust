@@ -378,6 +378,29 @@ mod tests {
     }
 
     #[test]
+    fn minimap_user_flow_pair_labels_require_complete_focus_pairs() {
+        let complete = MinimapUserFlowPanelModel {
+            focus_tile: Some((3, 5)),
+            focus_offset_x: Some(-2),
+            focus_offset_y: Some(7),
+            ..flow_model(false, false, false, false)
+        };
+
+        assert_eq!(complete.focus_tile_label(), "3:5");
+        assert_eq!(complete.focus_offset_label(), "-2:7");
+
+        let missing_offset_y = MinimapUserFlowPanelModel {
+            focus_tile: None,
+            focus_offset_x: Some(4),
+            focus_offset_y: None,
+            ..flow_model(false, false, false, false)
+        };
+
+        assert_eq!(missing_offset_y.focus_tile_label(), "none");
+        assert_eq!(missing_offset_y.focus_offset_label(), "none");
+    }
+
+    #[test]
     fn minimap_user_flow_pan_directions_respect_offscreen_focus_signs() {
         let left_up = minimap_panel(Some(false), Some(-3), Some(-2));
         assert_eq!(
