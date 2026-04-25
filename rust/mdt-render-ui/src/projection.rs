@@ -1817,6 +1817,19 @@ mod tests {
     }
 
     #[test]
+    fn project_hud_minimap_summary_clamps_finite_out_of_bounds_focus_to_map_edges() {
+        let bundle = parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap();
+        let session = bundle.loaded_session().unwrap();
+
+        let minimap = super::project_hud_minimap_summary(&session, Some((-8.0, 999.0)), None);
+
+        assert_eq!(minimap.focus_tile, Some((0, 7)));
+    }
+
+    #[test]
     fn view_window_bounds_handles_non_finite_player_position_without_origin_drift() {
         let bounds = super::view_window_bounds(8, 8, (f32::NAN, f32::INFINITY), (4, 4));
 
