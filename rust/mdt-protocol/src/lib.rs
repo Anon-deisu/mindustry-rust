@@ -123,7 +123,9 @@ pub fn decode_packet(bytes: &[u8]) -> Result<EncodedPacket, PacketCodecError> {
                 return Err(PacketCodecError::TooShort);
             }
             if remaining.len() != raw_length_usize {
-                return Err(PacketCodecError::TrailingBytes(remaining.len() - raw_length_usize));
+                return Err(PacketCodecError::TrailingBytes(
+                    remaining.len() - raw_length_usize,
+                ));
             }
             remaining.to_vec()
         }
@@ -238,7 +240,10 @@ pub fn inflate_zlib(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
     if !trailing.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("unexpected trailing bytes after zlib stream: {}", trailing.len()),
+            format!(
+                "unexpected trailing bytes after zlib stream: {}",
+                trailing.len()
+            ),
         ));
     }
     Ok(out)
@@ -539,26 +544,61 @@ mod tests {
         );
     }
 
+    fn round_trip_packet(
+        packet_id: u8,
+        payload: &[u8],
+        force_uncompressed: bool,
+    ) -> EncodedPacket {
+        let encoded = encode_packet(packet_id, payload, force_uncompressed).unwrap();
+        decode_packet(&encoded).unwrap()
+    }
+
+    fn assert_decoded_packet(
+        decoded: &EncodedPacket,
+        expected_packet_id: u8,
+        expected_raw_length: u16,
+        expected_compression: u8,
+        expected_payload: &[u8],
+    ) {
+        assert_eq!(decoded.packet_id, expected_packet_id);
+        assert_eq!(decoded.raw_length, expected_raw_length);
+        assert_eq!(decoded.compression, expected_compression);
+        assert_eq!(decoded.payload, expected_payload);
+    }
+
+    fn assert_packet_decode_too_short(encoded: &[u8]) {
+        assert!(matches!(
+            decode_packet(encoded),
+            Err(PacketCodecError::TooShort)
+        ));
+    }
+
+    fn assert_packet_decode_trailing_bytes(encoded: &[u8], expected_length: usize) {
+        assert!(matches!(
+            decode_packet(encoded),
+            Err(PacketCodecError::TrailingBytes(length)) if length == expected_length
+        ));
+    }
+
+    fn assert_framework_decode_error(encoded: &[u8], expected: FrameworkCodecError) {
+        let error = decode_framework_message(encoded).unwrap_err();
+        assert_eq!(error, expected);
+    }
+
     #[test]
     fn small_packet_stays_uncompressed() {
         let payload = stream_begin_payload(7, 300, 2);
-        let encoded = encode_packet(STREAM_BEGIN_PACKET_ID, &payload, false).unwrap();
-        let decoded = decode_packet(&encoded).unwrap();
+        let decoded = round_trip_packet(STREAM_BEGIN_PACKET_ID, &payload, false);
 
-        assert_eq!(decoded.packet_id, STREAM_BEGIN_PACKET_ID);
-        assert_eq!(decoded.compression, 0);
-        assert_eq!(decoded.payload, payload);
+        assert_decoded_packet(&decoded, STREAM_BEGIN_PACKET_ID, payload.len() as u16, 0, &payload);
     }
 
     #[test]
     fn large_packet_compresses() {
         let payload = (0u8..=63).collect::<Vec<_>>();
-        let encoded = encode_packet(CONNECT_PACKET_ID, &payload, false).unwrap();
-        let decoded = decode_packet(&encoded).unwrap();
+        let decoded = round_trip_packet(CONNECT_PACKET_ID, &payload, false);
 
-        assert_eq!(decoded.packet_id, CONNECT_PACKET_ID);
-        assert_eq!(decoded.compression, 1);
-        assert_eq!(decoded.payload, payload);
+        assert_decoded_packet(&decoded, CONNECT_PACKET_ID, payload.len() as u16, 1, &payload);
     }
 
     #[test]
@@ -578,60 +618,37 @@ mod tests {
     #[test]
     fn forced_uncompressed_packet_round_trips() {
         let payload = stream_chunk_payload(7, &(1u8..=48).collect::<Vec<_>>()).unwrap();
-        let encoded = encode_packet(STREAM_CHUNK_PACKET_ID, &payload, true).unwrap();
-        let decoded = decode_packet(&encoded).unwrap();
+        let decoded = round_trip_packet(STREAM_CHUNK_PACKET_ID, &payload, true);
 
-        assert_eq!(decoded.packet_id, STREAM_CHUNK_PACKET_ID);
-        assert_eq!(decoded.compression, 0);
-        assert_eq!(decoded.payload, payload);
+        assert_decoded_packet(
+            &decoded,
+            STREAM_CHUNK_PACKET_ID,
+            payload.len() as u16,
+            0,
+            &payload,
+        );
     }
 
     #[test]
     fn uncompressed_decode_uses_declared_raw_length() {
-        let encoded = vec![
-            CONNECT_PACKET_ID,
-            0x00,
-            0x03,
-            0x00,
-            0x10,
-            0x20,
-            0x30,
-        ];
+        let encoded = vec![CONNECT_PACKET_ID, 0x00, 0x03, 0x00, 0x10, 0x20, 0x30];
         let decoded = decode_packet(&encoded).unwrap();
 
-        assert_eq!(decoded.packet_id, CONNECT_PACKET_ID);
-        assert_eq!(decoded.raw_length, 3);
-        assert_eq!(decoded.compression, 0);
-        assert_eq!(decoded.payload, vec![0x10, 0x20, 0x30]);
+        assert_decoded_packet(&decoded, CONNECT_PACKET_ID, 3, 0, &[0x10, 0x20, 0x30]);
     }
 
     #[test]
     fn uncompressed_decode_rejects_truncated_declared_raw_length() {
         let encoded = vec![CONNECT_PACKET_ID, 0x00, 0x05, 0x00, 0x10, 0x20, 0x30];
 
-        assert!(matches!(
-            decode_packet(&encoded),
-            Err(PacketCodecError::TooShort)
-        ));
+        assert_packet_decode_too_short(&encoded);
     }
 
     #[test]
     fn decode_packet_rejects_uncompressed_trailing_bytes() {
-        let encoded = vec![
-            CONNECT_PACKET_ID,
-            0x00,
-            0x03,
-            0x00,
-            0x10,
-            0x20,
-            0x30,
-            0x40,
-        ];
+        let encoded = vec![CONNECT_PACKET_ID, 0x00, 0x03, 0x00, 0x10, 0x20, 0x30, 0x40];
 
-        assert!(matches!(
-            decode_packet(&encoded),
-            Err(PacketCodecError::TrailingBytes(1))
-        ));
+        assert_packet_decode_trailing_bytes(&encoded, 1);
     }
 
     #[test]
@@ -640,10 +657,7 @@ mod tests {
         let mut encoded = encode_packet(CONNECT_PACKET_ID, &payload, false).unwrap();
         encoded.push(0x00);
 
-        assert!(matches!(
-            decode_packet(&encoded),
-            Err(PacketCodecError::TrailingBytes(1))
-        ));
+        assert_packet_decode_trailing_bytes(&encoded, 1);
     }
 
     #[test]
@@ -674,10 +688,7 @@ mod tests {
     fn decode_framework_message_rejects_trailing_bytes() {
         let encoded = vec![FRAMEWORK_MESSAGE_PREFIX, FRAMEWORK_KEEP_ALIVE_ID, 0x7f];
 
-        assert!(matches!(
-            decode_framework_message(&encoded),
-            Err(FrameworkCodecError::TrailingBytes(1))
-        ));
+        assert_framework_decode_error(&encoded, FrameworkCodecError::TrailingBytes(1));
     }
 
     #[test]
@@ -692,10 +703,7 @@ mod tests {
             0x02,
         ];
 
-        assert!(matches!(
-            decode_framework_message(&encoded),
-            Err(FrameworkCodecError::InvalidReplyFlag(2))
-        ));
+        assert_framework_decode_error(&encoded, FrameworkCodecError::InvalidReplyFlag(2));
     }
 
     #[test]

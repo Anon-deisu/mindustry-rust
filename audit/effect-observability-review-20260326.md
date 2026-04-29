@@ -17,11 +17,12 @@ Date: 2026-03-26
 1. source binding observability 的端到端测试基本缺失，回归后很可能静默失真
 - `client_session` 在 effect-with-data 路径会写入 `last_effect_runtime_source_binding_state`，见 `client_session.rs:5908-5914`。
 - 但仓库内对 `last_effect_runtime_source_binding_state` 的检索只有赋值，没有测试断言；当前没有看到任何 session 级测试验证 source state 的 `follow/reject/fallback`。
-- `effect_runtime` 已实现 source binding 分类逻辑，见 `effect_runtime.rs:172-195`，且 source binding 仅对 effect id `8|9|178|261|262` 启用，见 `effect_runtime.rs:922-924`。
+- `effect_runtime` 已实现 source binding 分类逻辑，见 `effect_runtime.rs:172-195`；审计口径应与上游原版保持一致：只有 effect id `8|9` 可 parentize，`10` 属于 snapshot beam，`178|261|262` 属于显式 `no-follow`，不应再把 `10/178/261/262` 记作 source-follow 覆盖。
 - 已有测试主要覆盖 source overlay position 跟随，不覆盖 session observability 管道本身，见 `effect_runtime.rs:1150-1455`。
 
 建议补测：
-- item transfer / regen suppress seek / chain lightning / chain emp 的 source state `ParentFollow`
+- unitSpirit / itemTransfer 的 source state `ParentFollow`
+- regen suppress seek / chain lightning / chain emp 的 source state 应显式断言为 no-follow 口径，避免回归成 `ParentFollow`
 - source parent 缺失时的 `UnresolvedFallback`
 - source data 为 building/content/tech node 时的 `BindingRejected`
 - render HUD 中 `target/source` 双槽位同时显示的端到端断言

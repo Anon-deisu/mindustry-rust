@@ -1,3 +1,6 @@
+use crate::presenter_view::compact_runtime_ui_text;
+use std::fmt::Display;
+
 /// UI/HUD-specific view-model data.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HudModel {
@@ -198,7 +201,7 @@ impl HudViewWindowSummary {
     }
 }
 
-fn percent_of(part: usize, total: usize) -> usize {
+fn percent_of_total(part: usize, total: usize) -> usize {
     if total == 0 {
         0
     } else {
@@ -206,40 +209,38 @@ fn percent_of(part: usize, total: usize) -> usize {
     }
 }
 
-fn optional_i32_label(value: Option<i32>) -> String {
+fn percent_of(part: usize, total: usize) -> usize {
+    percent_of_total(part, total)
+}
+
+fn optional_numeric_label<T: Display>(value: Option<T>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_i32_label(value: Option<i32>) -> String {
+    optional_numeric_label(value)
 }
 
 fn optional_u8_label(value: Option<u8>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_numeric_label(value)
 }
 
 fn optional_i16_label(value: Option<i16>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_numeric_label(value)
 }
 
 fn optional_u32_label(value: Option<u32>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_numeric_label(value)
 }
 
 fn optional_usize_label(value: Option<usize>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_numeric_label(value)
 }
 
 fn optional_u64_label(value: Option<u64>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_numeric_label(value)
 }
 
 fn optional_bool_label(value: Option<bool>) -> &'static str {
@@ -262,11 +263,76 @@ fn world_position_text(value: Option<&RuntimeWorldPositionObservability>) -> Str
         .unwrap_or_else(|| "none".to_string())
 }
 
-fn compact_sha_label(value: Option<&str>) -> String {
+fn compact_prefix_label(value: Option<&str>, prefix_len: usize) -> String {
     value
-        .map(|value| value.chars().take(12).collect::<String>())
+        .map(|value| value.chars().take(prefix_len).collect::<String>())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn compact_sha_label(value: Option<&str>) -> String {
+    compact_prefix_label(value, 12)
+}
+
+fn world_position_status_label(value: Option<&RuntimeWorldPositionObservability>) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    let x = f32::from_bits(value.x_bits);
+    let y = f32::from_bits(value.y_bits);
+    if x.is_finite() && y.is_finite() {
+        format!("{x:.1}:{y:.1}")
+    } else {
+        format!("0x{:08x}:0x{:08x}", value.x_bits, value.y_bits)
+    }
+}
+
+fn live_effect_position_source_status_label(
+    source: Option<RuntimeLiveEffectPositionSource>,
+) -> &'static str {
+    match source {
+        Some(RuntimeLiveEffectPositionSource::ActiveOverlay) => "active",
+        Some(RuntimeLiveEffectPositionSource::BusinessProjection) => "biz",
+        Some(RuntimeLiveEffectPositionSource::EffectPacket) => "pkt",
+        Some(RuntimeLiveEffectPositionSource::SpawnEffectPacket) => "spawn",
+        None => "none",
+    }
+}
+
+fn runtime_live_entity_status_label(entity: &RuntimeLiveEntitySummaryObservability) -> String {
+    format!(
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:{}:last{}/{}/{}",
+        entity.entity_count,
+        entity.hidden_count,
+        optional_i32_label(entity.local_entity_id),
+        optional_u8_label(entity.local_unit_kind),
+        optional_u32_label(entity.local_unit_value),
+        world_position_status_label(entity.local_position.as_ref()),
+        optional_bool_label(entity.local_hidden),
+        optional_u64_label(entity.local_last_seen_entity_snapshot_count),
+        entity.player_count,
+        entity.unit_count,
+        entity.ownership_label(),
+        optional_i32_label(entity.last_entity_id),
+        optional_i32_label(entity.last_player_entity_id),
+        optional_i32_label(entity.last_unit_entity_id),
+    )
+}
+
+fn runtime_live_effect_status_label(effect: &RuntimeLiveEffectSummaryObservability) -> String {
+    format!(
+        "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
+        effect.effect_count,
+        effect.spawn_effect_count,
+        optional_i16_label(effect.display_effect_id()),
+        optional_i16_label(effect.last_spawn_effect_unit_type_id),
+        compact_runtime_ui_text(effect.last_kind.as_deref()),
+        compact_runtime_ui_text(effect.display_contract_name()),
+        compact_runtime_ui_text(effect.display_reliable_contract_name()),
+        effect.last_business_hint.as_deref().unwrap_or("none"),
+        live_effect_position_source_status_label(effect.display_position_source()),
+        world_position_status_label(effect.display_position()),
+    )
 }
 
 /// Structured runtime UI observability projection.
@@ -284,6 +350,53 @@ pub struct RuntimeUiObservability {
     pub markers: RuntimeMarkerObservability,
     pub session: RuntimeSessionObservability,
     pub live: RuntimeLiveSummaryObservability,
+}
+
+impl RuntimeUiObservability {
+    pub fn status_label(&self) -> String {
+        if self == &Self::default() {
+            return "ui:hud=0/0/0@none/none:ann=0@none:info=0@none:toast=0/0@none/none:popup=0/0:clip0:uri0:choice=0/0:tin=0@none:none/none/none#0:nn:live=ent=0/0@none:unone/none:pnone:hn:snone:tp0/0:own=0/0:c0@none:lastnone/none/none:fx=0/0:ov0@none:unone:dnone:knone:cnone/none:bindnone:r?:hnone:pnone@none:ttlnone".to_string();
+        }
+
+        let hud_text = &self.hud_text;
+        let toast = &self.toast;
+        let menu = &self.menu;
+        let text_input = &self.text_input;
+        let live = &self.live;
+
+        format!(
+            "ui:hud={}/{}/{}@{}/{}:ann={}@{}:info={}@{}:toast={}/{}@{}/{}:popup={}/{}:clip{}:uri{}:choice={}/{}:tin={}@{}:{}/{}/{}#{}:n{}:e{}:live=ent={}:fx={}",
+            hud_text.set_count,
+            hud_text.set_reliable_count,
+            hud_text.hide_count,
+            compact_runtime_ui_text(hud_text.last_message.as_deref()),
+            compact_runtime_ui_text(hud_text.last_reliable_message.as_deref()),
+            hud_text.announce_count,
+            compact_runtime_ui_text(hud_text.last_announce_message.as_deref()),
+            hud_text.info_message_count,
+            compact_runtime_ui_text(hud_text.last_info_message.as_deref()),
+            toast.info_count,
+            toast.warning_count,
+            compact_runtime_ui_text(toast.last_info_message.as_deref()),
+            compact_runtime_ui_text(toast.last_warning_text.as_deref()),
+            toast.info_popup_count,
+            toast.info_popup_reliable_count,
+            toast.clipboard_count,
+            toast.open_uri_count,
+            menu.menu_choose_count,
+            menu.text_input_result_count,
+            text_input.open_count,
+            optional_i32_label(text_input.last_id),
+            compact_runtime_ui_text(text_input.last_title.as_deref()),
+            compact_runtime_ui_text(text_input.last_message.as_deref()),
+            compact_runtime_ui_text(text_input.last_default_text.as_deref()),
+            text_input.last_length.unwrap_or_default(),
+            optional_bool_label(text_input.last_numeric),
+            optional_bool_label(text_input.last_allow_empty),
+            runtime_live_entity_status_label(&live.entity),
+            runtime_live_effect_status_label(&live.effect),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -911,11 +1024,140 @@ pub struct RuntimeLiveSummaryObservability {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimePayloadSubtreeStatusObservability {
+    pub total_count: usize,
+    pub dynamic_count: usize,
+    pub payload_with_status_count: usize,
+    pub first_status_id: Option<i16>,
+    pub first_status_name: Option<String>,
+    pub first_status_time_bits: Option<u32>,
+    pub first_status_dynamic_field_count: Option<usize>,
+}
+
+impl RuntimePayloadSubtreeStatusObservability {
+    pub fn detail_label(&self) -> String {
+        let mut label = format!(
+            "c={}:d={}:n={}:f={}",
+            self.total_count,
+            self.dynamic_count,
+            self.payload_with_status_count,
+            optional_i16_label(self.first_status_id),
+        );
+        if let Some(name) = self.first_status_name.as_deref() {
+            if !name.is_empty() {
+                label.push('/');
+                label.push_str(name);
+            }
+        }
+        label.push('@');
+        match self.first_status_time_bits {
+            Some(bits) => label.push_str(&f32::from_bits(bits).to_string()),
+            None => label.push_str("none"),
+        }
+        if let Some(count) = self.first_status_dynamic_field_count {
+            label.push_str(&format!(":fd={count}"));
+        }
+        label
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeUnitControllerAttackTargetObservability {
+    pub kind: Option<String>,
+    pub value: Option<i32>,
+}
+
+impl RuntimeUnitControllerAttackTargetObservability {
+    pub fn detail_label(&self) -> String {
+        match (self.kind.as_deref(), self.value) {
+            (Some(kind), Some(value)) if !kind.is_empty() => format!("{kind}/{value}"),
+            (Some(kind), None) if !kind.is_empty() => kind.to_string(),
+            (None, Some(value)) => value.to_string(),
+            _ => String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeUnitControllerCommandQueueObservability {
+    pub total_count: usize,
+    pub building_count: usize,
+    pub unit_count: usize,
+    pub position_count: usize,
+    pub ignored_count: usize,
+}
+
+impl RuntimeUnitControllerCommandQueueObservability {
+    pub fn detail_label(&self) -> String {
+        format!(
+            "q={}/{}/{}/{}/{}",
+            self.total_count,
+            self.building_count,
+            self.unit_count,
+            self.position_count,
+            self.ignored_count,
+        )
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeUnitControllerObservability {
+    pub controller_type: Option<u8>,
+    pub controller_value: Option<i32>,
+    pub target_position_tile: Option<(i32, i32)>,
+    pub attack_target: Option<RuntimeUnitControllerAttackTargetObservability>,
+    pub command_id: Option<u8>,
+    pub command_queue: Option<RuntimeUnitControllerCommandQueueObservability>,
+    pub stance_id: Option<u8>,
+    pub status_count: Option<usize>,
+}
+
+impl RuntimeUnitControllerObservability {
+    pub fn detail_label(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some((x, y)) = self.target_position_tile {
+            parts.push(format!("tp={x}:{y}"));
+        }
+        if let Some(target) = self
+            .attack_target
+            .as_ref()
+            .map(Self::attack_target_label)
+            .filter(|label| !label.is_empty())
+        {
+            parts.push(format!("atk={target}"));
+        }
+        if let Some(command_id) = self.command_id {
+            parts.push(format!("cmd={command_id}"));
+        }
+        if let Some(command_queue) = self.command_queue.as_ref() {
+            parts.push(command_queue.detail_label());
+        }
+        if let Some(stance_id) = self.stance_id {
+            parts.push(format!("st={stance_id}"));
+        }
+        if let Some(status_count) = self.status_count {
+            parts.push(format!("sts={status_count}"));
+        }
+        parts.join(":")
+    }
+
+    fn attack_target_label(
+        attack_target: &RuntimeUnitControllerAttackTargetObservability,
+    ) -> String {
+        attack_target.detail_label()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeLiveEntitySummaryObservability {
     pub entity_count: usize,
     pub hidden_count: usize,
     pub player_count: usize,
     pub unit_count: usize,
+    pub player_with_owned_unit_count: usize,
+    pub owned_unit_count: usize,
+    pub ownership_conflict_count: usize,
+    pub ownership_conflict_unit_sample: Vec<i32>,
     pub last_entity_id: Option<i32>,
     pub last_player_entity_id: Option<i32>,
     pub last_unit_entity_id: Option<i32>,
@@ -932,13 +1174,39 @@ pub struct RuntimeLiveEntitySummaryObservability {
     pub local_owned_unit_payload_body_len: Option<usize>,
     pub local_owned_unit_payload_sha256: Option<String>,
     pub local_owned_unit_payload_nested_descendant_count: Option<usize>,
+    pub local_owned_unit_payload_status: Option<RuntimePayloadSubtreeStatusObservability>,
     pub local_owned_carried_item_id: Option<i16>,
     pub local_owned_carried_item_amount: Option<i32>,
     pub local_owned_controller_type: Option<u8>,
     pub local_owned_controller_value: Option<i32>,
+    pub local_owned_controller_detail: Option<String>,
+    pub local_owned_controller_v2: Option<RuntimeUnitControllerObservability>,
+    pub local_owned_unit_status_detail: Option<String>,
 }
 
 impl RuntimeLiveEntitySummaryObservability {
+    pub fn ownership_conflict_unit_sample_label(&self) -> String {
+        if self.ownership_conflict_unit_sample.is_empty() {
+            "none".to_string()
+        } else {
+            self.ownership_conflict_unit_sample
+                .iter()
+                .map(i32::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        }
+    }
+
+    pub fn ownership_label(&self) -> String {
+        format!(
+            "own={}/{}:c{}@{}",
+            self.player_with_owned_unit_count,
+            self.owned_unit_count,
+            self.ownership_conflict_count,
+            self.ownership_conflict_unit_sample_label(),
+        )
+    }
+
     pub fn local_owned_unit_payload_label(&self) -> String {
         format!(
             "payload=count={}:unit={}/r{}/l{}:s{}",
@@ -957,6 +1225,13 @@ impl RuntimeLiveEntitySummaryObservability {
         )
     }
 
+    pub fn local_owned_unit_payload_status_label(&self) -> String {
+        let Some(status) = self.local_owned_unit_payload_status.as_ref() else {
+            return "payload-status=none".to_string();
+        };
+        format!("payload-status={}", status.detail_label())
+    }
+
     pub fn local_owned_unit_stack_label(&self) -> String {
         match (
             self.local_owned_carried_item_id,
@@ -972,16 +1247,49 @@ impl RuntimeLiveEntitySummaryObservability {
     }
 
     pub fn local_owned_unit_controller_label(&self) -> String {
-        format!(
+        let controller_type = self
+            .local_owned_controller_v2
+            .as_ref()
+            .and_then(|controller| controller.controller_type)
+            .or(self.local_owned_controller_type);
+        let controller_value = self
+            .local_owned_controller_v2
+            .as_ref()
+            .and_then(|controller| controller.controller_value)
+            .or(self.local_owned_controller_value);
+        let mut label = format!(
             "controller={}/{}",
-            optional_u8_label(self.local_owned_controller_type),
-            optional_i32_label(self.local_owned_controller_value),
-        )
+            optional_u8_label(controller_type),
+            optional_i32_label(controller_value),
+        );
+        let detail = self
+            .local_owned_controller_v2
+            .as_ref()
+            .map(RuntimeUnitControllerObservability::detail_label)
+            .filter(|detail| !detail.is_empty())
+            .or_else(|| {
+                self.local_owned_controller_detail
+                    .as_ref()
+                    .filter(|detail| !detail.is_empty())
+                    .cloned()
+            });
+        if let Some(detail) = detail {
+            label.push(':');
+            label.push_str(&detail);
+        }
+        label
+    }
+
+    pub fn local_owned_unit_status_label(&self) -> String {
+        match self.local_owned_unit_status_detail.as_deref() {
+            Some(detail) if !detail.is_empty() => format!("status={detail}"),
+            _ => "status=none".to_string(),
+        }
     }
 
     pub fn detail_label(&self) -> String {
         format!(
-            "local={} unit={}/{} pos={} hidden={} seen={} players={} units={} last={}/{}/{} owned={} {} {} {} {}",
+            "local={} unit={}/{} pos={} hidden={} seen={} players={} units={} {} last={}/{}/{} owned={} {} {} {} {} {} {}",
             optional_i32_label(self.local_entity_id),
             optional_u8_label(self.local_unit_kind),
             optional_u32_label(self.local_unit_value),
@@ -990,14 +1298,17 @@ impl RuntimeLiveEntitySummaryObservability {
             optional_u64_label(self.local_last_seen_entity_snapshot_count),
             self.player_count,
             self.unit_count,
+            self.ownership_label(),
             optional_i32_label(self.last_entity_id),
             optional_i32_label(self.last_player_entity_id),
             optional_i32_label(self.last_unit_entity_id),
             optional_i32_label(self.local_owned_unit_entity_id),
             self.local_owned_unit_payload_label(),
             self.local_owned_unit_nested_label(),
+            self.local_owned_unit_payload_status_label(),
             self.local_owned_unit_stack_label(),
             self.local_owned_unit_controller_label(),
+            self.local_owned_unit_status_label(),
         )
     }
 }
@@ -1019,6 +1330,16 @@ pub struct RuntimeLiveEffectSummaryObservability {
     pub last_business_hint: Option<String>,
     pub last_position_hint: Option<RuntimeWorldPositionObservability>,
     pub last_position_source: Option<RuntimeLiveEffectPositionSource>,
+    pub session_target_binding_state: Option<String>,
+    pub session_source_binding_state: Option<String>,
+    pub overlay_target_binding_state: Option<String>,
+    pub overlay_source_binding_state: Option<String>,
+    pub target_follow_count: u64,
+    pub target_reject_count: u64,
+    pub target_fallback_count: u64,
+    pub source_follow_count: u64,
+    pub source_reject_count: u64,
+    pub source_fallback_count: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1060,6 +1381,49 @@ impl RuntimeLiveEffectSummaryObservability {
         self.active_position
             .as_ref()
             .or(self.last_position_hint.as_ref())
+    }
+
+    pub fn binding_source_label(&self) -> &'static str {
+        if self.session_target_binding_state.is_some() || self.session_source_binding_state.is_some()
+        {
+            "session"
+        } else if self.overlay_target_binding_state.is_some()
+            || self.overlay_source_binding_state.is_some()
+        {
+            "overlay"
+        } else {
+            "none"
+        }
+    }
+
+    pub fn display_target_binding_state(&self) -> Option<&str> {
+        if self.binding_source_label() == "session" {
+            self.session_target_binding_state.as_deref()
+        } else {
+            self.overlay_target_binding_state.as_deref()
+        }
+    }
+
+    pub fn display_source_binding_state(&self) -> Option<&str> {
+        if self.binding_source_label() == "session" {
+            self.session_source_binding_state.as_deref()
+        } else {
+            self.overlay_source_binding_state.as_deref()
+        }
+    }
+
+    pub fn target_binding_counts_label(&self) -> String {
+        format!(
+            "{}/{}/{}",
+            self.target_follow_count, self.target_reject_count, self.target_fallback_count
+        )
+    }
+
+    pub fn source_binding_counts_label(&self) -> String {
+        format!(
+            "{}/{}/{}",
+            self.source_follow_count, self.source_reject_count, self.source_fallback_count
+        )
     }
 }
 
@@ -1277,48 +1641,189 @@ fn runtime_chat_active(chat: &RuntimeChatObservability) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        HudModel, RuntimeChatObservability, RuntimeHudTextObservability,
-        RuntimeLiveEntitySummaryObservability, RuntimeMenuObservability,
+        HudMinimapSummary, HudModel, HudSummary, HudViewWindowSummary, RuntimeChatObservability,
+        RuntimeHudTextObservability, RuntimeLiveEntitySummaryObservability,
+        RuntimeMenuObservability, RuntimePayloadSubtreeStatusObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiNoticeLayerKind,
         RuntimeUiObservability, RuntimeUiPromptLayerKind, RuntimeUiStackForegroundSummaryKind,
-        RuntimeUiStackSummary, RuntimeWorldPositionObservability,
+        RuntimeUiStackDepthSummary, RuntimeUiStackSummary,
+        RuntimeUnitControllerAttackTargetObservability,
+        RuntimeUnitControllerCommandQueueObservability, RuntimeUnitControllerObservability,
+        RuntimeWorldPositionObservability,
     };
+
+    #[derive(Clone, Copy)]
+    struct RuntimeUiDepthExpectations {
+        prompt_depth: usize,
+        notice_depth: usize,
+        chat_depth: usize,
+        active_group_count: usize,
+        total_depth: usize,
+    }
+
+    #[derive(Clone, Copy)]
+    struct HudVisibilityExpectations<'a> {
+        map_tile_count: usize,
+        known_tile_count: usize,
+        unknown_tile_count: usize,
+        known_tile_percent: usize,
+        unknown_tile_percent: usize,
+        visible_map_percent: usize,
+        hidden_map_percent: usize,
+        visibility_label: &'a str,
+        overlay_label: &'a str,
+        fog_label: &'a str,
+    }
+
+    #[derive(Clone, Copy)]
+    struct MinimapWindowLabelExpectations<'a> {
+        focus_tile_label: &'a str,
+        tile_count: usize,
+        origin_label: &'a str,
+        size_label: &'a str,
+        summary_label: &'a str,
+        view_window_detail_label: &'a str,
+        detail_label: &'a str,
+    }
+
+    fn hud_with_runtime_ui(runtime_ui: RuntimeUiObservability) -> HudModel {
+        HudModel {
+            runtime_ui: Some(runtime_ui),
+            ..HudModel::default()
+        }
+    }
+
+    fn runtime_ui_stack_fixture() -> RuntimeUiObservability {
+        RuntimeUiObservability {
+            hud_text: RuntimeHudTextObservability {
+                last_message: Some("hud".to_string()),
+                last_reliable_message: Some("reliable".to_string()),
+                ..RuntimeHudTextObservability::default()
+            },
+            toast: RuntimeToastObservability {
+                last_info_message: Some("info".to_string()),
+                last_warning_text: Some("warn".to_string()),
+                ..RuntimeToastObservability::default()
+            },
+            text_input: RuntimeTextInputObservability {
+                open_count: 2,
+                last_id: Some(404),
+                ..RuntimeTextInputObservability::default()
+            },
+            chat: RuntimeChatObservability {
+                server_message_count: 1,
+                chat_message_count: 2,
+                last_chat_sender_entity_id: Some(77),
+                ..RuntimeChatObservability::default()
+            },
+            menu: RuntimeMenuObservability {
+                menu_open_count: 1,
+                follow_up_menu_open_count: 3,
+                hide_follow_up_menu_count: 1,
+                ..RuntimeMenuObservability::default()
+            },
+            ..RuntimeUiObservability::default()
+        }
+    }
+
+    fn hud_minimap_summary(
+        focus_tile: Option<(usize, usize)>,
+        origin_x: usize,
+        origin_y: usize,
+        width: usize,
+        height: usize,
+    ) -> HudMinimapSummary {
+        HudMinimapSummary {
+            focus_tile,
+            view_window: HudViewWindowSummary {
+                origin_x,
+                origin_y,
+                width,
+                height,
+            },
+        }
+    }
+
+    fn hud_summary_fixture() -> HudSummary {
+        HudSummary {
+            player_name: String::new(),
+            team_id: 0,
+            selected_block: String::new(),
+            plan_count: 0,
+            marker_count: 0,
+            map_width: 0,
+            map_height: 0,
+            overlay_visible: false,
+            fog_enabled: false,
+            visible_tile_count: 0,
+            hidden_tile_count: 0,
+            minimap: hud_minimap_summary(None, 0, 0, 0, 0),
+        }
+    }
+
+    fn assert_runtime_ui_stack_summary_depths(
+        summary: &RuntimeUiStackSummary,
+        expected: RuntimeUiDepthExpectations,
+    ) {
+        assert_eq!(summary.prompt_depth(), expected.prompt_depth);
+        assert_eq!(summary.notice_depth(), expected.notice_depth);
+        assert_eq!(summary.chat_depth(), expected.chat_depth);
+        assert_eq!(summary.menu_depth(), expected.prompt_depth);
+        assert_eq!(summary.hud_depth(), expected.notice_depth);
+        assert_eq!(summary.dialog_depth(), expected.total_depth);
+        assert_eq!(summary.active_group_count(), expected.active_group_count);
+        assert_eq!(summary.total_depth(), expected.total_depth);
+    }
+
+    fn assert_runtime_ui_depth_summary(
+        summary: &RuntimeUiStackDepthSummary,
+        expected: RuntimeUiDepthExpectations,
+    ) {
+        assert_eq!(summary.prompt_depth, expected.prompt_depth);
+        assert_eq!(summary.notice_depth, expected.notice_depth);
+        assert_eq!(summary.chat_depth, expected.chat_depth);
+        assert_eq!(summary.menu_depth(), expected.prompt_depth);
+        assert_eq!(summary.hud_depth(), expected.notice_depth);
+        assert_eq!(summary.dialog_depth(), expected.total_depth);
+        assert_eq!(summary.active_group_count, expected.active_group_count);
+        assert_eq!(summary.total_depth, expected.total_depth);
+    }
+
+    fn assert_hud_visibility(
+        summary: &HudSummary,
+        expected: HudVisibilityExpectations<'_>,
+    ) {
+        assert_eq!(summary.map_tile_count(), expected.map_tile_count);
+        assert_eq!(summary.known_tile_count(), expected.known_tile_count);
+        assert_eq!(summary.unknown_tile_count(), expected.unknown_tile_count);
+        assert_eq!(summary.known_tile_percent(), expected.known_tile_percent);
+        assert_eq!(summary.unknown_tile_percent(), expected.unknown_tile_percent);
+        assert_eq!(summary.visible_map_percent(), expected.visible_map_percent);
+        assert_eq!(summary.hidden_map_percent(), expected.hidden_map_percent);
+        assert_eq!(summary.visibility_label(), expected.visibility_label);
+        assert_eq!(summary.overlay_label(), expected.overlay_label);
+        assert_eq!(summary.fog_label(), expected.fog_label);
+    }
+
+    fn assert_minimap_window_labels(
+        minimap: &HudMinimapSummary,
+        expected: MinimapWindowLabelExpectations<'_>,
+    ) {
+        assert_eq!(minimap.focus_tile_label(), expected.focus_tile_label);
+        assert_eq!(minimap.view_window.tile_count(), expected.tile_count);
+        assert_eq!(minimap.view_window.origin_label(), expected.origin_label);
+        assert_eq!(minimap.view_window.size_label(), expected.size_label);
+        assert_eq!(minimap.view_window.summary_label(), expected.summary_label);
+        assert_eq!(
+            minimap.view_window.detail_label(),
+            expected.view_window_detail_label
+        );
+        assert_eq!(minimap.detail_label(), expected.detail_label);
+    }
 
     #[test]
     fn runtime_ui_stack_summary_tracks_foreground_and_layer_order() {
-        let hud = HudModel {
-            runtime_ui: Some(RuntimeUiObservability {
-                hud_text: RuntimeHudTextObservability {
-                    last_message: Some("hud".to_string()),
-                    last_reliable_message: Some("reliable".to_string()),
-                    ..RuntimeHudTextObservability::default()
-                },
-                toast: RuntimeToastObservability {
-                    last_info_message: Some("info".to_string()),
-                    last_warning_text: Some("warn".to_string()),
-                    ..RuntimeToastObservability::default()
-                },
-                text_input: RuntimeTextInputObservability {
-                    open_count: 2,
-                    last_id: Some(404),
-                    ..RuntimeTextInputObservability::default()
-                },
-                chat: RuntimeChatObservability {
-                    server_message_count: 1,
-                    chat_message_count: 2,
-                    last_chat_sender_entity_id: Some(77),
-                    ..RuntimeChatObservability::default()
-                },
-                menu: RuntimeMenuObservability {
-                    menu_open_count: 1,
-                    follow_up_menu_open_count: 3,
-                    hide_follow_up_menu_count: 1,
-                    ..RuntimeMenuObservability::default()
-                },
-                ..RuntimeUiObservability::default()
-            }),
-            ..HudModel::default()
-        };
+        let hud = hud_with_runtime_ui(runtime_ui_stack_fixture());
 
         let summary = hud
             .runtime_ui_stack_summary()
@@ -1366,14 +1871,16 @@ mod tests {
         assert_eq!(summary.outstanding_follow_up_count, 2);
         assert_eq!(summary.text_input_last_id, Some(404));
         assert_eq!(summary.last_chat_sender_entity_id, Some(77));
-        assert_eq!(summary.prompt_depth(), 3);
-        assert_eq!(summary.notice_depth(), 4);
-        assert_eq!(summary.chat_depth(), 1);
-        assert_eq!(summary.menu_depth(), 3);
-        assert_eq!(summary.hud_depth(), 4);
-        assert_eq!(summary.dialog_depth(), 8);
-        assert_eq!(summary.active_group_count(), 3);
-        assert_eq!(summary.total_depth(), 8);
+        assert_runtime_ui_stack_summary_depths(
+            &summary,
+            RuntimeUiDepthExpectations {
+                prompt_depth: 3,
+                notice_depth: 4,
+                chat_depth: 1,
+                active_group_count: 3,
+                total_depth: 8,
+            },
+        );
         assert_eq!(
             summary.summary_label(),
             "fg=input prompt=input depth=3 notice=warn depth=4 chat=on groups=3"
@@ -1387,95 +1894,82 @@ mod tests {
 
     #[test]
     fn runtime_ui_stack_depth_summary_tracks_prompt_notice_and_chat_layers() {
-        let hud = HudModel {
-            runtime_ui: Some(RuntimeUiObservability {
-                hud_text: RuntimeHudTextObservability {
-                    last_message: Some("hud".to_string()),
-                    last_reliable_message: Some("reliable".to_string()),
-                    ..RuntimeHudTextObservability::default()
-                },
-                toast: RuntimeToastObservability {
-                    last_info_message: Some("info".to_string()),
-                    last_warning_text: Some("warn".to_string()),
-                    ..RuntimeToastObservability::default()
-                },
-                text_input: RuntimeTextInputObservability {
-                    open_count: 2,
-                    ..RuntimeTextInputObservability::default()
-                },
-                chat: RuntimeChatObservability {
-                    server_message_count: 1,
-                    chat_message_count: 2,
-                    ..RuntimeChatObservability::default()
-                },
-                menu: RuntimeMenuObservability {
-                    menu_open_count: 1,
-                    follow_up_menu_open_count: 3,
-                    hide_follow_up_menu_count: 1,
-                    ..RuntimeMenuObservability::default()
-                },
-                ..RuntimeUiObservability::default()
-            }),
-            ..HudModel::default()
-        };
+        let hud = hud_with_runtime_ui(runtime_ui_stack_fixture());
 
         let summary = hud
             .runtime_ui_stack_depth_summary()
             .expect("runtime ui summary");
-        assert_eq!(summary.prompt_depth, 3);
-        assert_eq!(summary.notice_depth, 4);
-        assert_eq!(summary.chat_depth, 1);
-        assert_eq!(summary.menu_depth(), 3);
-        assert_eq!(summary.hud_depth(), 4);
-        assert_eq!(summary.dialog_depth(), 8);
-        assert_eq!(summary.active_group_count, 3);
-        assert_eq!(summary.total_depth, 8);
+        assert_runtime_ui_depth_summary(
+            &summary,
+            RuntimeUiDepthExpectations {
+                prompt_depth: 3,
+                notice_depth: 4,
+                chat_depth: 1,
+                active_group_count: 3,
+                total_depth: 8,
+            },
+        );
         assert!(!summary.is_empty());
     }
 
     #[test]
     fn runtime_ui_stack_depth_summary_is_empty_for_default_runtime_ui() {
-        let hud = HudModel {
-            runtime_ui: Some(RuntimeUiObservability::default()),
-            ..HudModel::default()
-        };
+        let hud = hud_with_runtime_ui(RuntimeUiObservability::default());
 
         let summary = hud
             .runtime_ui_stack_depth_summary()
             .expect("runtime ui summary");
-        assert_eq!(summary.prompt_depth, 0);
-        assert_eq!(summary.notice_depth, 0);
-        assert_eq!(summary.chat_depth, 0);
-        assert_eq!(summary.menu_depth(), 0);
-        assert_eq!(summary.hud_depth(), 0);
-        assert_eq!(summary.dialog_depth(), 0);
-        assert_eq!(summary.active_group_count, 0);
-        assert_eq!(summary.total_depth, 0);
+        assert_runtime_ui_depth_summary(
+            &summary,
+            RuntimeUiDepthExpectations {
+                prompt_depth: 0,
+                notice_depth: 0,
+                chat_depth: 0,
+                active_group_count: 0,
+                total_depth: 0,
+            },
+        );
         assert!(summary.is_empty());
     }
 
     #[test]
+    fn runtime_ui_stack_summary_keeps_hide_hud_history_out_of_active_notice_layers() {
+        let hud = hud_with_runtime_ui(RuntimeUiObservability {
+            hud_text: RuntimeHudTextObservability {
+                hide_count: 1,
+                ..RuntimeHudTextObservability::default()
+            },
+            ..RuntimeUiObservability::default()
+        });
+
+        let summary = hud
+            .runtime_ui_stack_summary()
+            .expect("runtime ui stack summary");
+        assert_eq!(summary.notice_kind, None);
+        assert!(summary.notice_layers.is_empty());
+        assert_eq!(summary.notice_depth(), 0);
+        assert_eq!(summary.hud_depth(), 0);
+    }
+
+    #[test]
     fn runtime_ui_stack_summary_drops_completed_prompt_layers_from_foreground() {
-        let hud = HudModel {
-            runtime_ui: Some(RuntimeUiObservability {
-                text_input: RuntimeTextInputObservability {
-                    open_count: 1,
-                    last_id: Some(404),
-                    ..RuntimeTextInputObservability::default()
-                },
-                menu: RuntimeMenuObservability {
-                    menu_open_count: 1,
-                    last_menu_open_id: Some(11),
-                    menu_choose_count: 1,
-                    last_menu_choose_menu_id: Some(11),
-                    text_input_result_count: 1,
-                    last_text_input_result_id: Some(404),
-                    ..RuntimeMenuObservability::default()
-                },
-                ..RuntimeUiObservability::default()
-            }),
-            ..HudModel::default()
-        };
+        let hud = hud_with_runtime_ui(RuntimeUiObservability {
+            text_input: RuntimeTextInputObservability {
+                open_count: 1,
+                last_id: Some(404),
+                ..RuntimeTextInputObservability::default()
+            },
+            menu: RuntimeMenuObservability {
+                menu_open_count: 1,
+                last_menu_open_id: Some(11),
+                menu_choose_count: 1,
+                last_menu_choose_menu_id: Some(11),
+                text_input_result_count: 1,
+                last_text_input_result_id: Some(404),
+                ..RuntimeMenuObservability::default()
+            },
+            ..RuntimeUiObservability::default()
+        });
 
         let summary = hud
             .runtime_ui_stack_summary()
@@ -1483,15 +1977,30 @@ mod tests {
         assert_eq!(summary.foreground_kind, None);
         assert_eq!(summary.prompt_kind, None);
         assert!(summary.prompt_layers.is_empty());
-        assert_eq!(summary.prompt_depth(), 0);
-        assert_eq!(summary.menu_depth(), 0);
-        assert_eq!(summary.hud_depth(), 0);
-        assert_eq!(summary.dialog_depth(), 0);
-        assert_eq!(summary.total_depth(), 0);
+        assert_runtime_ui_stack_summary_depths(
+            &summary,
+            RuntimeUiDepthExpectations {
+                prompt_depth: 0,
+                notice_depth: 0,
+                chat_depth: 0,
+                active_group_count: 0,
+                total_depth: 0,
+            },
+        );
 
         let depth = hud
             .runtime_ui_stack_depth_summary()
             .expect("runtime ui depth summary");
+        assert_runtime_ui_depth_summary(
+            &depth,
+            RuntimeUiDepthExpectations {
+                prompt_depth: 0,
+                notice_depth: 0,
+                chat_depth: 0,
+                active_group_count: 0,
+                total_depth: 0,
+            },
+        );
         assert!(depth.is_empty());
     }
 
@@ -1518,8 +2027,18 @@ mod tests {
     }
 
     #[test]
+    fn runtime_ui_status_label_preserves_empty_field_order_and_default_markers() {
+        let runtime_ui = RuntimeUiObservability::default();
+
+        assert_eq!(
+            runtime_ui.status_label(),
+            "ui:hud=0/0/0@none/none:ann=0@none:info=0@none:toast=0/0@none/none:popup=0/0:clip0:uri0:choice=0/0:tin=0@none:none/none/none#0:nn:live=ent=0/0@none:unone/none:pnone:hn:snone:tp0/0:own=0/0:c0@none:lastnone/none/none:fx=0/0:ov0@none:unone:dnone:knone:cnone/none:bindnone:r?:hnone:pnone@none:ttlnone"
+        );
+    }
+
+    #[test]
     fn hud_summary_visibility_helpers_compute_counts_and_percentages() {
-        let summary = super::HudSummary {
+        let summary = HudSummary {
             player_name: "operator".to_string(),
             team_id: 2,
             selected_block: "payload-router".to_string(),
@@ -1531,44 +2050,38 @@ mod tests {
             fog_enabled: true,
             visible_tile_count: 25,
             hidden_tile_count: 15,
-            minimap: super::HudMinimapSummary {
-                focus_tile: Some((2, 3)),
-                view_window: super::HudViewWindowSummary {
-                    origin_x: 1,
-                    origin_y: 2,
-                    width: 4,
-                    height: 4,
-                },
-            },
+            minimap: hud_minimap_summary(Some((2, 3)), 1, 2, 4, 4),
+            ..hud_summary_fixture()
         };
 
-        assert_eq!(summary.map_tile_count(), 100);
-        assert_eq!(summary.known_tile_count(), 40);
-        assert_eq!(summary.unknown_tile_count(), 60);
-        assert_eq!(summary.known_tile_percent(), 40);
-        assert_eq!(summary.unknown_tile_percent(), 60);
-        assert_eq!(summary.visible_map_percent(), 25);
-        assert_eq!(summary.hidden_map_percent(), 15);
-        assert_eq!(summary.visibility_label(), "mixed");
-        assert_eq!(summary.overlay_label(), "on");
-        assert_eq!(summary.fog_label(), "on");
-        assert_eq!(summary.minimap.focus_tile_label(), "2:3");
-        assert_eq!(summary.minimap.view_window.tile_count(), 16);
-        assert_eq!(summary.minimap.view_window.origin_label(), "1:2");
-        assert_eq!(summary.minimap.view_window.size_label(), "4x4");
-        assert_eq!(
-            summary.minimap.view_window.summary_label(),
-            "origin=1:2 size=4x4"
+        assert_hud_visibility(
+            &summary,
+            HudVisibilityExpectations {
+                map_tile_count: 100,
+                known_tile_count: 40,
+                unknown_tile_count: 60,
+                known_tile_percent: 40,
+                unknown_tile_percent: 60,
+                visible_map_percent: 25,
+                hidden_map_percent: 15,
+                visibility_label: "mixed",
+                overlay_label: "on",
+                fog_label: "on",
+            },
         );
-        assert_eq!(
-            summary.minimap.view_window.detail_label(),
-            "origin=1:2 size=4x4 area=16"
+        assert_minimap_window_labels(
+            &summary.minimap,
+            MinimapWindowLabelExpectations {
+                focus_tile_label: "2:3",
+                tile_count: 16,
+                origin_label: "1:2",
+                size_label: "4x4",
+                summary_label: "origin=1:2 size=4x4",
+                view_window_detail_label: "origin=1:2 size=4x4 area=16",
+                detail_label: "focus=2:3 window-origin=1:2 window-size=4x4 window-area=16",
+            },
         );
         assert_eq!(summary.minimap.summary_label(), "focus=2:3 window=1:2+4x4");
-        assert_eq!(
-            summary.minimap.detail_label(),
-            "focus=2:3 window-origin=1:2 window-size=4x4 window-area=16"
-        );
         assert_eq!(
             summary.summary_label(),
             "team=2 block=payload-router plans=3 markers=4 vis=mixed known=40 visible=25 overlay=on fog=on minimap=focus=2:3 window=1:2+4x4"
@@ -1581,48 +2094,42 @@ mod tests {
 
     #[test]
     fn hud_summary_visibility_helpers_fail_closed_on_empty_and_overflowing_maps() {
-        let empty_summary = super::HudSummary {
-            player_name: String::new(),
-            team_id: 0,
-            selected_block: String::new(),
-            plan_count: 0,
-            marker_count: 0,
-            map_width: 0,
-            map_height: 0,
-            overlay_visible: false,
-            fog_enabled: false,
+        let empty_summary = HudSummary {
             visible_tile_count: usize::MAX,
             hidden_tile_count: usize::MAX,
-            minimap: super::HudMinimapSummary {
-                focus_tile: None,
-                view_window: super::HudViewWindowSummary {
-                    origin_x: 0,
-                    origin_y: 0,
-                    width: 0,
-                    height: 0,
-                },
-            },
+            ..hud_summary_fixture()
         };
 
-        assert_eq!(empty_summary.map_tile_count(), 0);
-        assert_eq!(empty_summary.known_tile_count(), usize::MAX);
-        assert_eq!(empty_summary.unknown_tile_count(), 0);
-        assert_eq!(empty_summary.known_tile_percent(), 0);
-        assert_eq!(empty_summary.unknown_tile_percent(), 0);
-        assert_eq!(empty_summary.visible_map_percent(), 0);
-        assert_eq!(empty_summary.hidden_map_percent(), 0);
-        assert_eq!(empty_summary.visibility_label(), "empty");
-        assert_eq!(empty_summary.overlay_label(), "off");
-        assert_eq!(empty_summary.fog_label(), "off");
-        assert_eq!(empty_summary.minimap.focus_tile_label(), "none");
-        assert_eq!(empty_summary.minimap.view_window.tile_count(), 0);
+        assert_hud_visibility(
+            &empty_summary,
+            HudVisibilityExpectations {
+                map_tile_count: 0,
+                known_tile_count: usize::MAX,
+                unknown_tile_count: 0,
+                known_tile_percent: 0,
+                unknown_tile_percent: 0,
+                visible_map_percent: 0,
+                hidden_map_percent: 0,
+                visibility_label: "empty",
+                overlay_label: "off",
+                fog_label: "off",
+            },
+        );
+        assert_minimap_window_labels(
+            &empty_summary.minimap,
+            MinimapWindowLabelExpectations {
+                focus_tile_label: "none",
+                tile_count: 0,
+                origin_label: "0:0",
+                size_label: "0x0",
+                summary_label: "origin=0:0 size=0x0",
+                view_window_detail_label: "origin=0:0 size=0x0 area=0",
+                detail_label: "focus=none window-origin=0:0 window-size=0x0 window-area=0",
+            },
+        );
         assert_eq!(
             empty_summary.minimap.summary_label(),
             "focus=none window=0:0+0x0"
-        );
-        assert_eq!(
-            empty_summary.minimap.detail_label(),
-            "focus=none window-origin=0:0 window-size=0x0 window-area=0"
         );
         assert_eq!(
             empty_summary.summary_label(),
@@ -1633,36 +2140,29 @@ mod tests {
             "player= team=0 block= plans=0 markers=0 map=0x0 tiles=0 vis=empty known=0 unknown=0 visible=0 hidden=0 overlay=off fog=off minimap=focus=none window-origin=0:0 window-size=0x0 window-area=0"
         );
 
-        let overflowing_summary = super::HudSummary {
-            player_name: String::new(),
-            team_id: 0,
-            selected_block: String::new(),
-            plan_count: 0,
-            marker_count: 0,
+        let overflowing_summary = HudSummary {
             map_width: usize::MAX,
             map_height: 2,
-            overlay_visible: false,
-            fog_enabled: false,
             visible_tile_count: 1,
             hidden_tile_count: 2,
-            minimap: super::HudMinimapSummary {
-                focus_tile: None,
-                view_window: super::HudViewWindowSummary {
-                    origin_x: 0,
-                    origin_y: 0,
-                    width: 0,
-                    height: 0,
-                },
-            },
+            ..hud_summary_fixture()
         };
 
-        assert_eq!(overflowing_summary.map_tile_count(), usize::MAX);
-        assert_eq!(overflowing_summary.known_tile_count(), 3);
-        assert_eq!(overflowing_summary.unknown_tile_count(), usize::MAX - 3);
-        assert_eq!(overflowing_summary.known_tile_percent(), 0);
-        assert_eq!(overflowing_summary.visible_map_percent(), 0);
-        assert_eq!(overflowing_summary.hidden_map_percent(), 0);
-        assert_eq!(overflowing_summary.visibility_label(), "mixed");
+        assert_hud_visibility(
+            &overflowing_summary,
+            HudVisibilityExpectations {
+                map_tile_count: usize::MAX,
+                known_tile_count: 3,
+                unknown_tile_count: usize::MAX - 3,
+                known_tile_percent: 0,
+                unknown_tile_percent: 1,
+                visible_map_percent: 0,
+                hidden_map_percent: 0,
+                visibility_label: "mixed",
+                overlay_label: "off",
+                fog_label: "off",
+            },
+        );
         assert_eq!(
             overflowing_summary.detail_label(),
             "player= team=0 block= plans=0 markers=0 map=18446744073709551615x2 tiles=18446744073709551615 vis=mixed known=0 unknown=1 visible=0 hidden=0 overlay=off fog=off minimap=focus=none window-origin=0:0 window-size=0x0 window-area=0"
@@ -1671,32 +2171,17 @@ mod tests {
 
     #[test]
     fn hud_summary_visibility_label_covers_state_transitions() {
-        let base = super::HudSummary {
-            player_name: String::new(),
-            team_id: 0,
-            selected_block: String::new(),
-            plan_count: 0,
-            marker_count: 0,
+        let base = HudSummary {
             map_width: 2,
             map_height: 2,
-            overlay_visible: false,
-            fog_enabled: false,
             visible_tile_count: 0,
             hidden_tile_count: 0,
-            minimap: super::HudMinimapSummary {
-                focus_tile: None,
-                view_window: super::HudViewWindowSummary {
-                    origin_x: 0,
-                    origin_y: 0,
-                    width: 0,
-                    height: 0,
-                },
-            },
+            ..hud_summary_fixture()
         };
 
         assert_eq!(base.visibility_label(), "unseen");
         assert_eq!(
-            super::HudSummary {
+            HudSummary {
                 hidden_tile_count: 4,
                 ..base.clone()
             }
@@ -1704,7 +2189,7 @@ mod tests {
             "hidden"
         );
         assert_eq!(
-            super::HudSummary {
+            HudSummary {
                 visible_tile_count: 4,
                 ..base.clone()
             }
@@ -1712,7 +2197,7 @@ mod tests {
             "clear"
         );
         assert_eq!(
-            super::HudSummary {
+            HudSummary {
                 visible_tile_count: 2,
                 hidden_tile_count: 2,
                 ..base
@@ -1723,12 +2208,51 @@ mod tests {
     }
 
     #[test]
+    fn hud_summary_visibility_regression_reports_mapped_summary_when_all_tiles_are_known() {
+        let summary = HudSummary {
+            map_width: 5,
+            map_height: 5,
+            visible_tile_count: 12,
+            hidden_tile_count: 13,
+            ..hud_summary_fixture()
+        };
+
+        assert_hud_visibility(
+            &summary,
+            HudVisibilityExpectations {
+                map_tile_count: 25,
+                known_tile_count: 25,
+                unknown_tile_count: 0,
+                known_tile_percent: 100,
+                unknown_tile_percent: 0,
+                visible_map_percent: 48,
+                hidden_map_percent: 52,
+                visibility_label: "mapped",
+                overlay_label: "off",
+                fog_label: "off",
+            },
+        );
+        assert_eq!(
+            summary.summary_label(),
+            "team=0 block= plans=0 markers=0 vis=mapped known=100 visible=48 overlay=off fog=off minimap=focus=none window=0:0+0x0"
+        );
+        assert_eq!(
+            summary.detail_label(),
+            "player= team=0 block= plans=0 markers=0 map=5x5 tiles=25 vis=mapped known=100 unknown=0 visible=48 hidden=52 overlay=off fog=off minimap=focus=none window-origin=0:0 window-size=0x0 window-area=0"
+        );
+    }
+
+    #[test]
     fn runtime_live_entity_detail_label_surfaces_local_owned_unit_facets() {
         let entity = RuntimeLiveEntitySummaryObservability {
             entity_count: 12,
             hidden_count: 3,
             player_count: 2,
             unit_count: 1,
+            player_with_owned_unit_count: 1,
+            owned_unit_count: 2,
+            ownership_conflict_count: 1,
+            ownership_conflict_unit_sample: vec![202, 303],
             last_entity_id: Some(202),
             last_player_entity_id: Some(102),
             last_unit_entity_id: Some(202),
@@ -1746,35 +2270,120 @@ mod tests {
             local_owned_unit_payload_class_id: Some(5),
             local_owned_unit_payload_revision: Some(7),
             local_owned_unit_payload_body_len: Some(12),
-            local_owned_unit_payload_sha256: Some(
-                "0123456789abcdef0123456789abcdef".to_string(),
-            ),
+            local_owned_unit_payload_sha256: Some("0123456789abcdef0123456789abcdef".to_string()),
             local_owned_unit_payload_nested_descendant_count: Some(2),
+            local_owned_unit_payload_status: Some(RuntimePayloadSubtreeStatusObservability {
+                total_count: 2,
+                dynamic_count: 1,
+                payload_with_status_count: 2,
+                first_status_id: Some(13),
+                first_status_name: Some("dynamic".to_string()),
+                first_status_time_bits: Some(4.5f32.to_bits()),
+                first_status_dynamic_field_count: Some(2),
+            }),
             local_owned_carried_item_id: Some(6),
             local_owned_carried_item_amount: Some(4),
             local_owned_controller_type: Some(4),
             local_owned_controller_value: Some(101),
+            local_owned_controller_detail: Some("legacy=1".to_string()),
+            local_owned_controller_v2: Some(RuntimeUnitControllerObservability {
+                controller_type: Some(4),
+                controller_value: Some(101),
+                target_position_tile: Some((12, 24)),
+                attack_target: Some(RuntimeUnitControllerAttackTargetObservability {
+                    kind: Some("b".to_string()),
+                    value: Some(789),
+                }),
+                command_id: Some(4),
+                command_queue: Some(RuntimeUnitControllerCommandQueueObservability {
+                    total_count: 2,
+                    building_count: 1,
+                    unit_count: 0,
+                    position_count: 0,
+                    ignored_count: 1,
+                }),
+                stance_id: Some(9),
+                status_count: Some(3),
+            }),
+            local_owned_unit_status_detail: Some("c=2:d=1:f=7/overdrive@5.5:fd=2".to_string()),
         };
 
+        assert_eq!(entity.ownership_conflict_unit_sample_label(), "202,303");
+        assert_eq!(entity.ownership_label(), "own=1/2:c1@202,303");
         assert_eq!(
             entity.local_owned_unit_payload_label(),
             "payload=count=2:unit=5/r7/l12:s0123456789ab"
         );
+        assert_eq!(entity.local_owned_unit_nested_label(), "nested=2");
         assert_eq!(
-            entity.local_owned_unit_nested_label(),
-            "nested=2"
+            entity.local_owned_unit_payload_status_label(),
+            "payload-status=c=2:d=1:n=2:f=13/dynamic@4.5:fd=2"
         );
-        assert_eq!(
-            entity.local_owned_unit_stack_label(),
-            "stack=6x4"
-        );
+        assert_eq!(entity.local_owned_unit_stack_label(), "stack=6x4");
         assert_eq!(
             entity.local_owned_unit_controller_label(),
-            "controller=4/101"
+            "controller=4/101:tp=12:24:atk=b/789:cmd=4:q=2/1/0/0/1:st=9:sts=3"
+        );
+        assert_eq!(
+            entity.local_owned_unit_status_label(),
+            "status=c=2:d=1:f=7/overdrive@5.5:fd=2"
         );
         assert_eq!(
             entity.detail_label(),
-            "local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=7 players=2 units=1 last=202/102/202 owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
+            "local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=7 players=2 units=1 own=1/2:c1@202,303 last=202/102/202 owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 payload-status=c=2:d=1:n=2:f=13/dynamic@4.5:fd=2 stack=6x4 controller=4/101:tp=12:24:atk=b/789:cmd=4:q=2/1/0/0/1:st=9:sts=3 status=c=2:d=1:f=7/overdrive@5.5:fd=2"
+        );
+    }
+
+    #[test]
+    fn runtime_live_entity_payload_status_label_defaults_to_none() {
+        let entity = RuntimeLiveEntitySummaryObservability::default();
+
+        assert_eq!(
+            entity.local_owned_unit_payload_status_label(),
+            "payload-status=none"
+        );
+    }
+
+    #[test]
+    fn runtime_unit_controller_observability_formats_detail_label() {
+        let controller = RuntimeUnitControllerObservability {
+            controller_type: Some(4),
+            controller_value: Some(101),
+            target_position_tile: Some((12, 24)),
+            attack_target: Some(RuntimeUnitControllerAttackTargetObservability {
+                kind: Some("b".to_string()),
+                value: Some(789),
+            }),
+            command_id: Some(4),
+            command_queue: Some(RuntimeUnitControllerCommandQueueObservability {
+                total_count: 2,
+                building_count: 1,
+                unit_count: 0,
+                position_count: 0,
+                ignored_count: 1,
+            }),
+            stance_id: Some(9),
+            status_count: Some(3),
+        };
+
+        assert_eq!(
+            controller.detail_label(),
+            "tp=12:24:atk=b/789:cmd=4:q=2/1/0/0/1:st=9:sts=3"
+        );
+    }
+
+    #[test]
+    fn runtime_live_entity_controller_label_falls_back_to_legacy_fields() {
+        let entity = RuntimeLiveEntitySummaryObservability {
+            local_owned_controller_type: Some(4),
+            local_owned_controller_value: Some(101),
+            local_owned_controller_detail: Some("cmd=4:q=2/1/0/0/1".to_string()),
+            ..RuntimeLiveEntitySummaryObservability::default()
+        };
+
+        assert_eq!(
+            entity.local_owned_unit_controller_label(),
+            "controller=4/101:cmd=4:q=2/1/0/0/1"
         );
     }
 }

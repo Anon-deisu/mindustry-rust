@@ -86,66 +86,55 @@ mod tests {
     use super::{parse_args, Args, ParseOutcome};
     use std::path::PathBuf;
 
+    fn argv<'a>(values: &'a [&'a str]) -> impl Iterator<Item = String> + 'a {
+        values.iter().map(|value| (*value).to_string())
+    }
+
+    fn assert_parsed_args(values: &[&str], expected: Args) {
+        let outcome = parse_args(argv(values)).unwrap();
+        match outcome {
+            ParseOutcome::Args(args) => assert_eq!(args, expected),
+            ParseOutcome::Help(_) => panic!("expected parsed args"),
+        }
+    }
+
+    fn assert_help_usage_starts_with(values: &[&str], expected_prefix: &str) {
+        let outcome = parse_args(argv(values)).unwrap();
+        match outcome {
+            ParseOutcome::Help(usage) => assert!(usage.starts_with(expected_prefix)),
+            ParseOutcome::Args(_) => panic!("expected help"),
+        }
+    }
+
+    fn assert_parse_err_eq(values: &[&str], expected: &str) {
+        assert_eq!(parse_args(argv(values)).unwrap_err(), expected);
+    }
+
     #[test]
     fn parse_args_accepts_optional_hex_path_and_locale() {
-        let args = match parse_args(
-            vec![
-                "--locale".to_string(),
-                "fr".to_string(),
-                "--world-stream-hex".to_string(),
-                "sample.hex".to_string(),
-            ]
-            .into_iter(),
-        )
-        .unwrap()
-        {
-            ParseOutcome::Args(args) => args,
-            ParseOutcome::Help(_) => panic!("expected parsed args"),
-        };
-
-        assert_eq!(
-            args,
+        assert_parsed_args(
+            &["--locale", "fr", "--world-stream-hex", "sample.hex"],
             Args {
                 locale: "fr".to_string(),
                 world_stream_hex: Some(PathBuf::from("sample.hex")),
-            }
+            },
         );
     }
 
     #[test]
     fn parse_args_help_is_not_an_error() {
-        let outcome = parse_args(vec!["--help".to_string()].into_iter()).unwrap();
-
-        match outcome {
-            ParseOutcome::Help(usage) => assert!(usage.starts_with("Usage: mdt-render-ui-ascii")),
-            ParseOutcome::Args(_) => panic!("expected help"),
-        }
+        assert_help_usage_starts_with(&["--help"], "Usage: mdt-render-ui-ascii");
     }
 
     #[test]
     fn parse_args_rejects_duplicate_ascii_flags() {
-        let locale_err = parse_args(
-            vec![
-                "--locale".to_string(),
-                "fr".to_string(),
-                "--locale".to_string(),
-                "de".to_string(),
-            ]
-            .into_iter(),
-        )
-        .unwrap_err();
-        assert_eq!(locale_err, "duplicate argument: --locale");
-
-        let hex_err = parse_args(
-            vec![
-                "--world-stream-hex".to_string(),
-                "a.hex".to_string(),
-                "--world-stream-hex".to_string(),
-                "b.hex".to_string(),
-            ]
-            .into_iter(),
-        )
-        .unwrap_err();
-        assert_eq!(hex_err, "duplicate argument: --world-stream-hex");
+        assert_parse_err_eq(
+            &["--locale", "fr", "--locale", "de"],
+            "duplicate argument: --locale",
+        );
+        assert_parse_err_eq(
+            &["--world-stream-hex", "a.hex", "--world-stream-hex", "b.hex"],
+            "duplicate argument: --world-stream-hex",
+        );
     }
 }

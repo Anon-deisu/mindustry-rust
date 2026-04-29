@@ -121,7 +121,7 @@ fn project_render_model_with_player_position_visibility(
     let mut objects = Vec::with_capacity(grid.tile_count() * 2 + 8);
 
     for tile in grid.iter_tiles() {
-        if !tile_visible_under_fog(session, fog_visibility, tile.x as usize, tile.y as usize) {
+        if !tile_visible_under_fog(session, fog_visibility, tile.x, tile.y) {
             continue;
         }
         let world_x = tile.x as f32 * TILE_SIZE;
@@ -513,8 +513,8 @@ fn fog_tile_counts(
         .fold((0usize, 0usize), |(visible, hidden), tile| {
             if fog_reveal_is_visible(session.graph().fog_revealed(
                 fog_visibility.team_id,
-                tile.x as usize,
-                tile.y as usize,
+                tile.x,
+                tile.y,
             )) {
                 (visible + 1, hidden)
             } else {
@@ -794,66 +794,77 @@ mod tests {
     };
     use crate::{RenderModel, RenderViewWindow};
     use mdt_world::{
-        parse_world_bundle, LineMarkerModel, MarkerEntry, MarkerModel, PointMarkerModel,
-        QuadMarkerModel, ShapeMarkerModel, TextMarkerModel, TextureMarkerModel, UnknownMarkerModel,
+        parse_world_bundle, LineMarkerModel, LoadedWorldSession, MarkerEntry, MarkerModel,
+        PointMarkerModel, QuadMarkerModel, ShapeMarkerModel, TextMarkerModel, TextureMarkerModel,
+        UnknownMarkerModel, WorldBundle,
     };
+
+    macro_rules! with_sample_session {
+        ($session:ident => $body:block) => {{
+            let bundle = sample_world_bundle();
+            let $session = bundle.loaded_session().unwrap();
+            $body
+        }};
+    }
 
     #[test]
     fn projects_loaded_world_session_into_render_and_hud_models() {
-        let bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
-        let session = bundle.loaded_session().unwrap();
+        with_sample_session!(session => {
+            let render = project_render_model(&session);
+            let hud = project_hud_model(&session, "fr");
+            let contract = session.enter_render_contract("fr");
+            let expected_plan_ids = session
+                .player_team_plans()
+                .into_iter()
+                .map(|plan| {
+                    format!(
+                        "plan:build:{}:{}:{}:{}",
+                        plan.team_id, plan.plan.x, plan.plan.y, plan.plan.block_id
+                    )
+                })
+                .collect::<Vec<_>>();
 
-        let render = project_render_model(&session);
-        let hud = project_hud_model(&session, "fr");
-        let contract = session.enter_render_contract("fr");
-        let expected_plan_ids = session
-            .player_team_plans()
-            .into_iter()
-            .map(|plan| {
-                format!(
-                    "plan:build:{}:{}:{}:{}",
-                    plan.team_id, plan.plan.x, plan.plan.y, plan.plan.block_id
-                )
-            })
-            .collect::<Vec<_>>();
+            assert_eq!(render.viewport.width, 64.0);
+            assert_eq!(render.viewport.height, 64.0);
+            assert!(render
+                .objects
+                .iter()
+                .any(|object| object.id.starts_with("terrain:")));
+            assert!(render
+                .objects
+                .iter()
+                .any(|object| object.id.starts_with("marker:")));
+            assert_render_has_object_id(&render, format!("player:{}", session.player().id));
+            assert!(render
+                .objects
+                .iter()
+                .any(|object| expected_plan_ids.contains(&object.id)));
+            assert_eq!(hud.title, "Golden Deterministic");
+            assert_eq!(hud.wave_text.as_deref(), contract.hud.wave_text.as_deref());
+            assert_eq!(
+                hud.status_text,
+                contract.hud.status_text.as_deref().unwrap_or_default()
+            );
+            assert_eq!(
+                hud.overlay_summary_text.as_deref(),
+                contract.overlay.summary_text.as_deref()
+            );
+            let summary = hud.summary.as_ref().expect("summary should be present");
+            assert_eq!(summary.plan_count, 1);
+            assert_eq!(summary.marker_count, 2);
+            assert_eq!(summary.map_width, 8);
+            assert_eq!(summary.map_height, 8);
+            assert!(summary.overlay_visible);
+            assert!(summary.fog_enabled);
+        });
+    }
 
-        assert_eq!(render.viewport.width, 64.0);
-        assert_eq!(render.viewport.height, 64.0);
-        assert!(render
-            .objects
-            .iter()
-            .any(|object| object.id.starts_with("terrain:")));
-        assert!(render
-            .objects
-            .iter()
-            .any(|object| object.id.starts_with("marker:")));
-        assert!(render
-            .objects
-            .iter()
-            .any(|object| object.id == format!("player:{}", session.player().id)));
-        assert!(render.objects.iter().any(|object| expected_plan_ids
-            .iter()
-            .any(|expected| object.id == *expected)));
-        assert_eq!(hud.title, "Golden Deterministic");
-        assert_eq!(hud.wave_text.as_deref(), contract.hud.wave_text.as_deref());
-        assert_eq!(
-            hud.status_text,
-            contract.hud.status_text.as_deref().unwrap_or_default()
-        );
-        assert_eq!(
-            hud.overlay_summary_text.as_deref(),
-            contract.overlay.summary_text.as_deref()
-        );
-        let summary = hud.summary.as_ref().expect("summary should be present");
-        assert_eq!(summary.plan_count, 1);
-        assert_eq!(summary.marker_count, 2);
-        assert_eq!(summary.map_width, 8);
-        assert_eq!(summary.map_height, 8);
-        assert!(summary.overlay_visible);
-        assert!(summary.fog_enabled);
+    #[test]
+    fn crop_origin_clamps_center_and_edges_stably() {
+        assert_eq!(super::crop_origin(5, 10, 4), 3);
+        assert_eq!(super::crop_origin(0, 10, 4), 0);
+        assert_eq!(super::crop_origin(9, 10, 4), 6);
+        assert_eq!(super::crop_origin(7, 10, 0), 7);
     }
 
     #[test]
@@ -865,51 +876,39 @@ mod tests {
 
     #[test]
     fn runtime_player_position_override_moves_player_object() {
-        let bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
-        let session = bundle.loaded_session().unwrap();
+        with_sample_session!(session => {
+            let render =
+                super::project_render_model_with_player_position(&session, Some((80.0, 96.0)));
+            let player = render
+                .objects
+                .iter()
+                .find(|object| object.id == format!("player:{}", session.player().id))
+                .unwrap();
 
-        let render = super::project_render_model_with_player_position(&session, Some((80.0, 96.0)));
-        let player = render
-            .objects
-            .iter()
-            .find(|object| object.id == format!("player:{}", session.player().id))
-            .unwrap();
-
-        assert_eq!((player.x, player.y), (80.0, 96.0));
+            assert_eq!((player.x, player.y), (80.0, 96.0));
+        });
     }
 
     #[test]
     fn view_window_projection_omits_offscreen_tiles() {
-        let bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
-        let session = bundle.loaded_session().unwrap();
+        with_sample_session!(session => {
+            let full = project_render_model(&session);
+            let cropped =
+                project_render_model_with_view_window(&session, Some((32.0, 32.0)), (4, 4));
 
-        let full = project_render_model(&session);
-        let cropped = project_render_model_with_view_window(&session, Some((32.0, 32.0)), (4, 4));
-
-        assert!(cropped.objects.len() < full.objects.len());
-        assert_eq!(
-            cropped.view_window,
-            Some(RenderViewWindow {
-                origin_x: 2,
-                origin_y: 2,
-                width: 4,
-                height: 4,
-            })
-        );
-        assert!(!cropped
-            .objects
-            .iter()
-            .any(|object| object.id == "terrain:0"));
-        assert!(cropped
-            .objects
-            .iter()
-            .any(|object| object.id == format!("player:{}", session.player().id)));
+            assert!(cropped.objects.len() < full.objects.len());
+            assert_eq!(
+                cropped.view_window,
+                Some(RenderViewWindow {
+                    origin_x: 2,
+                    origin_y: 2,
+                    width: 4,
+                    height: 4,
+                })
+            );
+            assert_render_omits_object_id(&cropped, "terrain:0");
+            assert_render_has_object_id(&cropped, format!("player:{}", session.player().id));
+        });
     }
 
     #[test]
@@ -1322,34 +1321,28 @@ mod tests {
 
     #[test]
     fn team_plan_projection_carries_build_semantic_and_block_id() {
-        let bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
-        let session = bundle.loaded_session().unwrap();
-        let plan = session
-            .player_team_plans()
-            .into_iter()
-            .next()
-            .expect("expected a sample build plan");
-        let expected_id = format!(
-            "plan:build:{}:{}:{}:{}",
-            plan.team_id, plan.plan.x, plan.plan.y, plan.plan.block_id
-        );
-        let expected_position = (plan.plan.x as f32 * 8.0, plan.plan.y as f32 * 8.0);
+        with_sample_session!(session => {
+            let plan = session
+                .player_team_plans()
+                .into_iter()
+                .next()
+                .expect("expected a sample build plan");
+            let expected_id = format!(
+                "plan:build:{}:{}:{}:{}",
+                plan.team_id, plan.plan.x, plan.plan.y, plan.plan.block_id
+            );
+            let expected_position = (plan.plan.x as f32 * 8.0, plan.plan.y as f32 * 8.0);
 
-        let projected = super::project_team_plan(plan);
+            let projected = super::project_team_plan(plan);
 
-        assert_eq!(projected.id, expected_id);
-        assert_eq!((projected.x, projected.y), expected_position);
+            assert_eq!(projected.id, expected_id);
+            assert_eq!((projected.x, projected.y), expected_position);
+        });
     }
 
     #[test]
     fn hud_projection_expresses_hidden_state_when_contract_hud_not_visible() {
-        let mut bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
+        let mut bundle = sample_world_bundle();
         bundle.tag_pairs.retain(|(key, _)| key != "name");
         let session = bundle.loaded_session().unwrap();
 
@@ -1368,10 +1361,7 @@ mod tests {
 
     #[test]
     fn hud_projection_populates_structured_summary() {
-        let bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
+        let bundle = sample_world_bundle();
         let session = bundle.loaded_session().unwrap();
 
         let hud = project_hud_model(&session, "fr");
@@ -1388,7 +1378,7 @@ mod tests {
             summary.overlay_visible,
             session.enter_render_contract("fr").overlay.visible
         );
-        assert_eq!(summary.fog_enabled, true);
+        assert!(summary.fog_enabled);
         assert_eq!(
             summary.visible_tile_count + summary.hidden_tile_count,
             session.graph().grid().tile_count()
@@ -1398,10 +1388,7 @@ mod tests {
 
     #[test]
     fn scene_projection_omits_overlay_objects_when_contract_overlay_not_visible() {
-        let mut bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
+        let mut bundle = sample_world_bundle();
         bundle.tag_pairs.retain(|(key, _)| key != "name");
         let session = bundle.loaded_session().unwrap();
 
@@ -1430,55 +1417,29 @@ mod tests {
 
     #[test]
     fn render_projection_omits_unrevealed_tiles_under_static_fog() {
-        let bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
-        let session = bundle.loaded_session().unwrap();
-        let player_team_id = session.player().team_id;
-        let hidden_tile = session
-            .graph()
-            .grid()
-            .iter_tiles()
-            .find(|tile| {
-                session
-                    .graph()
-                    .fog_revealed(player_team_id, tile.x as usize, tile.y as usize)
-                    == Some(false)
-            })
-            .map(|tile| tile.tile_index)
-            .expect("expected at least one unrevealed tile in sample world");
-        let revealed_tile = session
-            .graph()
-            .grid()
-            .iter_tiles()
-            .find(|tile| {
-                session
-                    .graph()
-                    .fog_revealed(player_team_id, tile.x as usize, tile.y as usize)
-                    == Some(true)
-            })
-            .map(|tile| tile.tile_index)
-            .expect("expected at least one revealed tile in sample world");
+        with_sample_session!(session => {
+            let (hidden_tile, revealed_tile) = sample_static_fog_tile_indices(&session);
+            let render = project_render_model(&session);
 
-        let render = project_render_model(&session);
+            assert_render_omits_object_id(&render, format!("terrain:{hidden_tile}"));
+            assert_render_has_object_id(&render, format!("terrain:{revealed_tile}"));
+        });
+    }
 
-        assert!(!render
-            .objects
-            .iter()
-            .any(|object| object.id == format!("terrain:{hidden_tile}")));
-        assert!(render
-            .objects
-            .iter()
-            .any(|object| object.id == format!("terrain:{revealed_tile}")));
+    #[test]
+    fn view_window_render_projection_omits_unrevealed_tiles_under_static_fog() {
+        with_sample_session!(session => {
+            let (hidden_tile, revealed_tile) = sample_static_fog_tile_indices(&session);
+            let render = project_render_model_with_view_window(&session, None, (8, 8));
+
+            assert_render_omits_object_id(&render, format!("terrain:{hidden_tile}"));
+            assert_render_has_object_id(&render, format!("terrain:{revealed_tile}"));
+        });
     }
 
     #[test]
     fn render_projection_drops_out_of_bounds_plans_under_fog() {
-        let mut bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
+        let mut bundle = sample_world_bundle();
         let player_team_id = {
             let session = bundle.loaded_session().unwrap();
             session.player().team_id as u32
@@ -1510,10 +1471,7 @@ mod tests {
 
     #[test]
     fn render_projection_drops_out_of_bounds_markers_under_fog() {
-        let mut bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
+        let mut bundle = sample_world_bundle();
         bundle.markers.push(MarkerEntry {
             id: 999,
             marker: MarkerModel::Point(PointMarkerModel {
@@ -1541,19 +1499,14 @@ mod tests {
 
     #[test]
     fn project_render_model_rejects_non_finite_player_position() {
-        let bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
-        let session = bundle.loaded_session().unwrap();
+        with_sample_session!(session => {
+            let render = project_render_model_with_player_position(
+                &session,
+                Some((f32::NAN, f32::INFINITY)),
+            );
 
-        let render =
-            project_render_model_with_player_position(&session, Some((f32::NAN, f32::INFINITY)));
-
-        assert!(!render
-            .objects
-            .iter()
-            .any(|object| object.id == format!("player:{}", session.player().id)));
+            assert_render_omits_object_id(&render, format!("player:{}", session.player().id));
+        });
     }
 
     #[test]
@@ -1567,23 +1520,20 @@ mod tests {
 
     #[test]
     fn hud_minimap_focus_tile_is_none_for_non_finite_player_position() {
-        let bundle = parse_world_bundle(&decode_hex(include_str!(
-            "../../../tests/src/test/resources/world-stream.hex"
-        )))
-        .unwrap();
-        let session = bundle.loaded_session().unwrap();
-        let visibility = super::scene_visibility(&session, "fr");
+        with_sample_session!(session => {
+            let visibility = super::scene_visibility(&session, "fr");
 
-        let hud = super::project_hud_model_with_visibility(
-            &session,
-            "fr",
-            visibility,
-            Some((f32::NAN, f32::INFINITY)),
-            None,
-        );
-        let summary = hud.summary.as_ref().expect("summary should be present");
+            let hud = super::project_hud_model_with_visibility(
+                &session,
+                "fr",
+                visibility,
+                Some((f32::NAN, f32::INFINITY)),
+                None,
+            );
+            let summary = hud.summary.as_ref().expect("summary should be present");
 
-        assert_eq!(summary.minimap.focus_tile, None);
+            assert_eq!(summary.minimap.focus_tile, None);
+        });
     }
 
     #[test]
@@ -1600,6 +1550,53 @@ mod tests {
         assert_eq!(i32::from(super::ProjectionLayer::Plan), 20);
         assert_eq!(i32::from(super::ProjectionLayer::Marker), 30);
         assert_eq!(i32::from(super::ProjectionLayer::Player), 40);
+    }
+
+    fn sample_world_bundle() -> WorldBundle {
+        parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap()
+    }
+
+    fn sample_static_fog_tile_indices(session: &LoadedWorldSession<'_>) -> (usize, usize) {
+        let player_team_id = session.player().team_id;
+        let hidden_tile = session
+            .graph()
+            .grid()
+            .iter_tiles()
+            .find(|tile| {
+                session.graph().fog_revealed(player_team_id, tile.x, tile.y) == Some(false)
+            })
+            .map(|tile| tile.tile_index)
+            .expect("expected at least one unrevealed tile in sample world");
+        let revealed_tile = session
+            .graph()
+            .grid()
+            .iter_tiles()
+            .find(|tile| session.graph().fog_revealed(player_team_id, tile.x, tile.y) == Some(true))
+            .map(|tile| tile.tile_index)
+            .expect("expected at least one revealed tile in sample world");
+        (hidden_tile, revealed_tile)
+    }
+
+    fn assert_render_has_object_id(render: &RenderModel, expected_id: impl AsRef<str>) {
+        let expected_id = expected_id.as_ref();
+        assert!(
+            render.objects.iter().any(|object| object.id == expected_id),
+            "expected render to include object id `{expected_id}`"
+        );
+    }
+
+    fn assert_render_omits_object_id(render: &RenderModel, unexpected_id: impl AsRef<str>) {
+        let unexpected_id = unexpected_id.as_ref();
+        assert!(
+            !render
+                .objects
+                .iter()
+                .any(|object| object.id == unexpected_id),
+            "expected render to omit object id `{unexpected_id}`"
+        );
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

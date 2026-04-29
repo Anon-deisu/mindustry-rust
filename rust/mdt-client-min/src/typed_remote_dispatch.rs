@@ -375,8 +375,7 @@ mod tests {
 
     #[test]
     fn typed_dispatch_ignores_method_only_decoy_packet_ids() {
-        let manifest = custom_channel_manifest_with_decoys();
-        let dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let dispatcher = inbound_dispatcher();
         let payload = encode_text_payload("mod.echo", "hello");
 
         assert_eq!(dispatcher.dispatch(9, &payload).unwrap(), None);
@@ -389,19 +388,14 @@ mod tests {
             })
         );
         assert_eq!(
-            dispatcher
-                .dispatch(10, &payload)
-                .unwrap()
-                .unwrap()
-                .route_label(),
+            dispatch_inbound(&dispatcher, 10, &payload).route_label(),
             "serverPacketReliable/text"
         );
     }
 
     #[test]
     fn typed_dispatch_decodes_client_logic_data_payloads() {
-        let manifest = custom_channel_manifest_with_decoys();
-        let dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let dispatcher = inbound_dispatcher();
         let value = TypeIoObject::ObjectArray(vec![
             TypeIoObject::Int(7),
             TypeIoObject::String(Some("router".to_string())),
@@ -418,129 +412,86 @@ mod tests {
             })
         );
         assert_eq!(
-            dispatcher
-                .dispatch(15, &payload)
-                .unwrap()
-                .unwrap()
-                .route_label(),
+            dispatch_inbound(&dispatcher, 15, &payload).route_label(),
             "clientLogicDataUnreliable/logic"
         );
     }
 
     #[test]
     fn typed_dispatch_reports_payload_shape_errors_with_family_context() {
-        let manifest = custom_channel_manifest_with_decoys();
-        let dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let dispatcher = inbound_dispatcher();
         let error = dispatcher.dispatch(10, &[1, 0, 3, b'a']).unwrap_err();
 
-        assert_eq!(error.family, InboundRemoteFamily::ServerPacketReliable);
-        assert_eq!(error.packet_id, 10);
-        assert_eq!(error.payload_kind, CustomChannelRemotePayloadKind::Text);
-        assert_eq!(
-            error.reason,
-            "unexpected EOF at 3: need 3 bytes, only 1 remaining".to_string()
+        assert_inbound_dispatch_error(
+            error,
+            InboundRemoteFamily::ServerPacketReliable,
+            10,
+            CustomChannelRemotePayloadKind::Text,
+            payload_shape_error_reason(),
         );
     }
 
     #[test]
     fn typed_dispatch_reports_trailing_bytes_for_binary_payloads() {
-        let manifest = custom_channel_manifest_with_decoys();
-        let dispatcher =
-            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let dispatcher = custom_dispatcher();
 
-        let mut binary_payload = encode_binary_payload("mod.bin", &[1, 2, 3, 4]);
-        binary_payload.push(0xff);
+        let binary_payload = with_trailing_byte(encode_binary_payload("mod.bin", &[1, 2, 3, 4]));
         let binary_error = dispatcher.dispatch(8, &binary_payload).unwrap_err();
-        assert_eq!(
-            binary_error.family,
-            CustomChannelRemoteFamily::ClientBinaryPacketUnreliable
-        );
-        assert_eq!(binary_error.packet_id, 8);
-        assert_eq!(
-            binary_error.payload_kind,
-            CustomChannelRemotePayloadKind::Binary
-        );
-        assert_eq!(
-            binary_error.reason,
-            format!(
-                "payload has trailing bytes: consumed {}, total {}",
-                binary_payload.len() - 1,
-                binary_payload.len()
-            )
+        assert_custom_dispatch_error(
+            binary_error,
+            CustomChannelRemoteFamily::ClientBinaryPacketUnreliable,
+            8,
+            CustomChannelRemotePayloadKind::Binary,
+            trailing_bytes_reason(&binary_payload),
         );
 
-        let value = TypeIoObject::ObjectArray(vec![TypeIoObject::Int(3), TypeIoObject::Bool(false)]);
-        let mut logic_payload = encode_logic_payload("logic.beta", &value);
-        logic_payload.push(0xff);
+        let value =
+            TypeIoObject::ObjectArray(vec![TypeIoObject::Int(3), TypeIoObject::Bool(false)]);
+        let logic_payload = with_trailing_byte(encode_logic_payload("logic.beta", &value));
         let logic_error = dispatcher.dispatch(14, &logic_payload).unwrap_err();
-        assert_eq!(
-            logic_error.family,
-            CustomChannelRemoteFamily::ClientLogicDataReliable
-        );
-        assert_eq!(logic_error.packet_id, 14);
-        assert_eq!(
-            logic_error.payload_kind,
-            CustomChannelRemotePayloadKind::LogicData
-        );
-        assert_eq!(
-            logic_error.reason,
-            format!(
-                "payload has trailing bytes: consumed {}, total {}",
-                logic_payload.len() - 1,
-                logic_payload.len()
-            )
+        assert_custom_dispatch_error(
+            logic_error,
+            CustomChannelRemoteFamily::ClientLogicDataReliable,
+            14,
+            CustomChannelRemotePayloadKind::LogicData,
+            trailing_bytes_reason(&logic_payload),
         );
     }
 
     #[test]
     fn typed_dispatch_reports_trailing_bytes_for_text_payloads() {
-        let manifest = custom_channel_manifest_with_decoys();
-        let inbound_dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
-        let mut inbound_payload = encode_text_payload("mod.echo", "hello");
-        inbound_payload.push(0xff);
-        let inbound_error = inbound_dispatcher.dispatch(10, &inbound_payload).unwrap_err();
-        assert_eq!(inbound_error.family, InboundRemoteFamily::ServerPacketReliable);
-        assert_eq!(inbound_error.packet_id, 10);
-        assert_eq!(inbound_error.payload_kind, CustomChannelRemotePayloadKind::Text);
-        assert_eq!(
-            inbound_error.reason,
-            format!(
-                "payload has trailing bytes: consumed {}, total {}",
-                inbound_payload.len() - 1,
-                inbound_payload.len()
-            )
+        let inbound_dispatcher = inbound_dispatcher();
+        let inbound_payload = with_trailing_byte(encode_text_payload("mod.echo", "hello"));
+        let inbound_error = inbound_dispatcher
+            .dispatch(10, &inbound_payload)
+            .unwrap_err();
+        assert_inbound_dispatch_error(
+            inbound_error,
+            InboundRemoteFamily::ServerPacketReliable,
+            10,
+            CustomChannelRemotePayloadKind::Text,
+            trailing_bytes_reason(&inbound_payload),
         );
 
-        let custom_dispatcher =
-            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
-        let mut custom_payload = encode_text_payload("mod.client", "hello");
-        custom_payload.push(0xff);
+        let custom_dispatcher = custom_dispatcher();
+        let custom_payload = with_trailing_byte(encode_text_payload("mod.client", "hello"));
         let custom_error = custom_dispatcher.dispatch(5, &custom_payload).unwrap_err();
-        assert_eq!(
-            custom_error.family,
-            CustomChannelRemoteFamily::ClientPacketReliable
-        );
-        assert_eq!(custom_error.packet_id, 5);
-        assert_eq!(custom_error.payload_kind, CustomChannelRemotePayloadKind::Text);
-        assert_eq!(
-            custom_error.reason,
-            format!(
-                "payload has trailing bytes: consumed {}, total {}",
-                custom_payload.len() - 1,
-                custom_payload.len()
-            )
+        assert_custom_dispatch_error(
+            custom_error,
+            CustomChannelRemoteFamily::ClientPacketReliable,
+            5,
+            CustomChannelRemotePayloadKind::Text,
+            trailing_bytes_reason(&custom_payload),
         );
     }
 
     #[test]
     fn typed_dispatch_reports_binary_route_label_symmetry() {
-        let manifest = custom_channel_manifest_with_decoys();
-        let inbound_dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
-        let custom_dispatcher =
-            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let inbound_dispatcher = inbound_dispatcher();
+        let custom_dispatcher = custom_dispatcher();
         let payload = encode_binary_payload("mod.bin", &[1, 2, 3, 4]);
 
-        let inbound = inbound_dispatcher.dispatch(12, &payload).unwrap().unwrap();
+        let inbound = dispatch_inbound(&inbound_dispatcher, 12, &payload);
         assert_eq!(inbound.payload_kind_label(), "binary");
         assert_eq!(inbound.route_label(), "serverBinaryPacketReliable/binary");
         assert_eq!(
@@ -552,7 +503,7 @@ mod tests {
             }
         );
 
-        let custom = custom_dispatcher.dispatch(8, &payload).unwrap().unwrap();
+        let custom = dispatch_custom(&custom_dispatcher, 8, &payload);
         assert_eq!(custom.payload_kind_label(), "binary");
         assert_eq!(custom.route_label(), "clientBinaryPacketUnreliable/binary");
         assert_eq!(
@@ -567,9 +518,7 @@ mod tests {
 
     #[test]
     fn custom_channel_typed_dispatch_ignores_method_only_decoy_packet_ids() {
-        let manifest = custom_channel_manifest_with_decoys();
-        let dispatcher =
-            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let dispatcher = custom_dispatcher();
         let payload = encode_text_payload("mod.client", "hello");
 
         assert_eq!(dispatcher.dispatch(4, &payload).unwrap(), None);
@@ -582,20 +531,14 @@ mod tests {
             })
         );
         assert_eq!(
-            dispatcher
-                .dispatch(5, &payload)
-                .unwrap()
-                .unwrap()
-                .route_label(),
+            dispatch_custom(&dispatcher, 5, &payload).route_label(),
             "clientPacketReliable/text"
         );
     }
 
     #[test]
     fn custom_channel_typed_dispatch_decodes_client_binary_payloads() {
-        let manifest = custom_channel_manifest_with_decoys();
-        let dispatcher =
-            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let dispatcher = custom_dispatcher();
         let payload = encode_binary_payload("mod.bin", &[1, 2, 3, 4]);
 
         assert_eq!(
@@ -610,9 +553,7 @@ mod tests {
 
     #[test]
     fn custom_channel_typed_dispatch_decodes_logic_payloads() {
-        let manifest = custom_channel_manifest_with_decoys();
-        let dispatcher =
-            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let dispatcher = custom_dispatcher();
         let value =
             TypeIoObject::ObjectArray(vec![TypeIoObject::Int(3), TypeIoObject::Bool(false)]);
         let payload = encode_logic_payload("logic.beta", &value);
@@ -626,35 +567,93 @@ mod tests {
             })
         );
         assert_eq!(
-            dispatcher
-                .dispatch(14, &payload)
-                .unwrap()
-                .unwrap()
-                .route_label(),
+            dispatch_custom(&dispatcher, 14, &payload).route_label(),
             "clientLogicDataReliable/logic"
         );
     }
 
     #[test]
     fn custom_channel_typed_dispatch_reports_payload_shape_errors_with_family_context() {
-        let manifest = custom_channel_manifest_with_decoys();
-        let dispatcher =
-            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let dispatcher = custom_dispatcher();
         let error = dispatcher.dispatch(5, &[1, 0, 3, b'a']).unwrap_err();
 
-        assert_eq!(
-            error.family,
-            CustomChannelRemoteFamily::ClientPacketReliable
-        );
-        assert_eq!(error.packet_id, 5);
-        assert_eq!(error.payload_kind, CustomChannelRemotePayloadKind::Text);
-        assert_eq!(
-            error.reason,
-            "unexpected EOF at 3: need 3 bytes, only 1 remaining".to_string()
+        assert_custom_dispatch_error(
+            error,
+            CustomChannelRemoteFamily::ClientPacketReliable,
+            5,
+            CustomChannelRemotePayloadKind::Text,
+            payload_shape_error_reason(),
         );
     }
 
-    fn custom_channel_manifest_with_decoys() -> RemoteManifest {
+    fn dispatch_inbound(
+        dispatcher: &TypedInboundRemoteDispatcher,
+        packet_id: u8,
+        payload: &[u8],
+    ) -> TypedInboundRemoteDispatch {
+        dispatcher.dispatch(packet_id, payload).unwrap().unwrap()
+    }
+
+    fn dispatch_custom(
+        dispatcher: &TypedCustomChannelRemoteDispatcher,
+        packet_id: u8,
+        payload: &[u8],
+    ) -> TypedCustomChannelRemoteDispatch {
+        dispatcher.dispatch(packet_id, payload).unwrap().unwrap()
+    }
+
+    fn inbound_dispatcher() -> TypedInboundRemoteDispatcher {
+        TypedInboundRemoteDispatcher::from_remote_manifest(&decoy_manifest()).unwrap()
+    }
+
+    fn custom_dispatcher() -> TypedCustomChannelRemoteDispatcher {
+        TypedCustomChannelRemoteDispatcher::from_remote_manifest(&decoy_manifest()).unwrap()
+    }
+
+    fn assert_inbound_dispatch_error(
+        error: super::TypedInboundRemoteDispatchError,
+        family: InboundRemoteFamily,
+        packet_id: u8,
+        payload_kind: CustomChannelRemotePayloadKind,
+        reason: String,
+    ) {
+        assert_eq!(error.family, family);
+        assert_eq!(error.packet_id, packet_id);
+        assert_eq!(error.payload_kind, payload_kind);
+        assert_eq!(error.reason, reason);
+    }
+
+    fn assert_custom_dispatch_error(
+        error: super::TypedCustomChannelRemoteDispatchError,
+        family: CustomChannelRemoteFamily,
+        packet_id: u8,
+        payload_kind: CustomChannelRemotePayloadKind,
+        reason: String,
+    ) {
+        assert_eq!(error.family, family);
+        assert_eq!(error.packet_id, packet_id);
+        assert_eq!(error.payload_kind, payload_kind);
+        assert_eq!(error.reason, reason);
+    }
+
+    fn payload_shape_error_reason() -> String {
+        "unexpected EOF at 3: need 3 bytes, only 1 remaining".to_string()
+    }
+
+    fn trailing_bytes_reason(payload: &[u8]) -> String {
+        format!(
+            "payload has trailing bytes: consumed {}, total {}",
+            payload.len() - 1,
+            payload.len()
+        )
+    }
+
+    fn with_trailing_byte(mut payload: Vec<u8>) -> Vec<u8> {
+        payload.push(0xff);
+        payload
+    }
+
+    fn decoy_manifest() -> RemoteManifest {
         RemoteManifest {
             schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
             generator: RemoteGeneratorInfo {

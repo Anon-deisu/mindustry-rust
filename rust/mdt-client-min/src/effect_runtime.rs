@@ -159,6 +159,12 @@ pub fn observe_runtime_effect_binding_state(
     let parent_ref = summary.first_parent_ref?;
     match parent_ref.semantic_ref {
         TypeIoSemanticRef::Building { build_pos } => {
+            if point_beam_prefers_snapshot_target(effect_id)
+                && point_beam_snapshot_world_position(summary.first_position_hint.as_ref(), Some(build_pos))
+                    .is_some()
+            {
+                return None;
+            }
             if !parent_building_binding_enabled(effect_id)
                 || !has_runtime_parent_building(session_state, build_pos)
             {
@@ -168,6 +174,12 @@ pub fn observe_runtime_effect_binding_state(
             }
         }
         TypeIoSemanticRef::Unit { unit_id } => {
+            if point_beam_prefers_snapshot_target(effect_id)
+                && point_beam_snapshot_world_position(summary.first_position_hint.as_ref(), None)
+                    .is_some()
+            {
+                return None;
+            }
             if matches!(
                 effect_contract(effect_id),
                 Some(RuntimeEffectContract::LegDestroy)
@@ -356,6 +368,17 @@ fn derive_runtime_effect_binding(
     if let Some(parent_ref) = summary.first_parent_ref {
         match parent_ref.semantic_ref {
             TypeIoSemanticRef::Building { build_pos } => {
+                if let Some((x_bits, y_bits)) = point_beam_snapshot_world_position(
+                    summary.first_position_hint.as_ref(),
+                    Some(build_pos),
+                )
+                .filter(|_| point_beam_prefers_snapshot_target(effect_id))
+                {
+                    return Some(DerivedRuntimeEffectBinding {
+                        binding: RuntimeEffectBinding::WorldPosition { x_bits, y_bits },
+                        initial_position_bits: Some((x_bits, y_bits)),
+                    });
+                }
                 let world_position_bits = world_bits_from_tile_pos(build_pos);
                 if !parent_building_binding_enabled(effect_id) {
                     return Some(DerivedRuntimeEffectBinding {
@@ -381,6 +404,15 @@ fn derive_runtime_effect_binding(
                 });
             }
             TypeIoSemanticRef::Unit { unit_id } => {
+                if let Some((x_bits, y_bits)) =
+                    point_beam_snapshot_world_position(summary.first_position_hint.as_ref(), None)
+                        .filter(|_| point_beam_prefers_snapshot_target(effect_id))
+                {
+                    return Some(DerivedRuntimeEffectBinding {
+                        binding: RuntimeEffectBinding::WorldPosition { x_bits, y_bits },
+                        initial_position_bits: Some((x_bits, y_bits)),
+                    });
+                }
                 let initial_position_bits =
                     position_hint_bits.or(Some((effect_x_bits, effect_y_bits)));
                 return Some(DerivedRuntimeEffectBinding {
@@ -983,6 +1015,19 @@ fn world_bits_from_tile_pos(tile_pos: i32) -> (u32, u32) {
     (world_x.to_bits(), world_y.to_bits())
 }
 
+fn point_beam_prefers_snapshot_target(effect_id: Option<i16>) -> bool {
+    matches!(effect_contract(effect_id), Some(RuntimeEffectContract::PointBeam))
+}
+
+fn point_beam_snapshot_world_position(
+    position_hint: Option<&TypeIoEffectPositionHint>,
+    building_pos: Option<i32>,
+) -> Option<(u32, u32)> {
+    position_hint
+        .and_then(position_hint_world_bits)
+        .or_else(|| building_pos.map(world_bits_from_tile_pos))
+}
+
 fn parent_binding_preserves_spawn_offset(effect_id: Option<i16>) -> bool {
     matches!(
         effect_contract(effect_id),
@@ -1006,7 +1051,7 @@ fn parent_binding_rotates_with_parent(effect_id: Option<i16>) -> bool {
 }
 
 fn source_binding_enabled(effect_id: Option<i16>) -> bool {
-    matches!(effect_id, Some(8 | 9 | 10 | 178 | 261 | 262))
+    matches!(effect_id, Some(8 | 9))
 }
 
 fn world_coords_from_tile_pos(tile_pos: i32) -> (f32, f32) {
@@ -1033,14 +1078,217 @@ mod tests {
         observe_runtime_effect_source_binding_state, resolve_runtime_effect_overlay_position,
         resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
         EffectRuntimeBindingState, EffectRuntimeInputView, RuntimeEffectBinding,
-        RuntimeEffectOverlay,
-        RuntimeEffectContract,
+        RuntimeEffectContract, RuntimeEffectOverlay,
     };
     use crate::session_state::{
         EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
         EntityUnitSemanticProjection, SessionState,
     };
     use mdt_typeio::{pack_point2, TypeIoObject};
+
+    const TEST_UNIT_ID: i32 = 404;
+    const DEFAULT_TEST_LIFETIME_TICKS: u8 = 10;
+    const DEFAULT_SPAWN_POSITION: (f32, f32) = (12.0, 20.0);
+    const SOURCE_BOUND_EFFECT_POSITION: (f32, f32) = (80.0, 160.0);
+    const BUILDING_PARENT_SPAWN_POSITION: (f32, f32) = (92.0, 148.0);
+
+    fn spawn_test_overlay(
+        effect_id: Option<i16>,
+        position: (f32, f32),
+        source_position: (f32, f32),
+        rotation: f32,
+        data_object: Option<&TypeIoObject>,
+    ) -> RuntimeEffectOverlay {
+        spawn_runtime_effect_overlay(
+            effect_id,
+            position.0,
+            position.1,
+            source_position.0,
+            source_position.1,
+            rotation,
+            0,
+            false,
+            data_object,
+            DEFAULT_TEST_LIFETIME_TICKS,
+        )
+    }
+
+    fn unit_parent_object(unit_id: i32) -> TypeIoObject {
+        TypeIoObject::UnitId(unit_id)
+    }
+
+    fn unit_parent_object_with_position_hint(unit_id: i32, x: i32, y: i32) -> TypeIoObject {
+        TypeIoObject::ObjectArray(vec![
+            TypeIoObject::UnitId(unit_id),
+            TypeIoObject::Point2 { x, y },
+        ])
+    }
+
+    fn building_parent_object(build_pos: i32) -> TypeIoObject {
+        TypeIoObject::BuildingPos(build_pos)
+    }
+
+    fn spawn_parent_building_overlay(effect_id: i16, build_pos: i32) -> RuntimeEffectOverlay {
+        let building_object = building_parent_object(build_pos);
+        spawn_test_overlay(
+            Some(effect_id),
+            BUILDING_PARENT_SPAWN_POSITION,
+            BUILDING_PARENT_SPAWN_POSITION,
+            0.0,
+            Some(&building_object),
+        )
+    }
+
+    fn spawn_source_bound_unit_overlay(
+        effect_id: i16,
+        data_object: &TypeIoObject,
+    ) -> RuntimeEffectOverlay {
+        spawn_test_overlay(
+            Some(effect_id),
+            SOURCE_BOUND_EFFECT_POSITION,
+            DEFAULT_SPAWN_POSITION,
+            0.0,
+            Some(data_object),
+        )
+    }
+
+    fn expected_source_bound_parent_unit_binding() -> RuntimeEffectBinding {
+        RuntimeEffectBinding::ParentUnit {
+            unit_id: TEST_UNIT_ID,
+            spawn_x_bits: DEFAULT_SPAWN_POSITION.0.to_bits(),
+            spawn_y_bits: DEFAULT_SPAWN_POSITION.1.to_bits(),
+            offset_x_bits: (-68.0f32).to_bits(),
+            offset_y_bits: (-140.0f32).to_bits(),
+            offset_initialized: true,
+            preserve_spawn_offset: true,
+            allow_fallback_offset_initialization: true,
+            rotate_with_parent: false,
+            parent_rotation_reference_bits: 0.0f32.to_bits(),
+            rotation_offset_bits: 0.0f32.to_bits(),
+            rotation_initialized: false,
+        }
+    }
+
+    fn set_unit_entity_position(state: &mut SessionState, unit_id: i32, x: f32, y: f32) {
+        state.entity_table_projection.by_entity_id.insert(
+            unit_id,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: x.to_bits(),
+                y_bits: y.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+    }
+
+    fn set_unit_semantic_rotation(
+        state: &mut SessionState,
+        unit_id: i32,
+        snapshot_count: u64,
+        rotation: f32,
+    ) {
+        state.entity_semantic_projection.by_entity_id.insert(
+            unit_id,
+            EntitySemanticProjectionEntry {
+                class_id: 12,
+                last_seen_entity_snapshot_count: snapshot_count,
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 1,
+                    unit_type_id: 55,
+                    health_bits: 0,
+                    rotation_bits: rotation.to_bits(),
+                    shield_bits: 0,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    statuses: Vec::new(),
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: None,
+                    controller_type: 0,
+                    controller_value: None,
+                    controller_snapshot: None,
+                }),
+            },
+        );
+    }
+
+    fn assert_effect_runtime_source_overlay_follows_parent_unit(
+        effect_id: i16,
+        data_object: TypeIoObject,
+        assert_binding: bool,
+    ) {
+        let mut overlay = spawn_source_bound_unit_overlay(effect_id, &data_object);
+        let input = EffectRuntimeInputView::default();
+        let mut state = session_state_with_unit_entity(
+            TEST_UNIT_ID,
+            SOURCE_BOUND_EFFECT_POSITION.0,
+            SOURCE_BOUND_EFFECT_POSITION.1,
+        );
+
+        let first_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(
+            first_position,
+            (
+                DEFAULT_SPAWN_POSITION.0.to_bits(),
+                DEFAULT_SPAWN_POSITION.1.to_bits()
+            )
+        );
+        if assert_binding {
+            assert_eq!(
+                overlay.source_binding,
+                Some(expected_source_bound_parent_unit_binding())
+            );
+        }
+
+        set_unit_entity_position(&mut state, TEST_UNIT_ID, 96.0, 184.0);
+
+        let second_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
+    }
+
+    fn assert_effect_runtime_source_overlay_keeps_spawn_position_without_parent_follow(
+        effect_id: i16,
+        data_object: TypeIoObject,
+    ) {
+        let mut overlay = spawn_source_bound_unit_overlay(effect_id, &data_object);
+        let input = EffectRuntimeInputView::default();
+        let mut state = session_state_with_unit_entity(
+            TEST_UNIT_ID,
+            SOURCE_BOUND_EFFECT_POSITION.0,
+            SOURCE_BOUND_EFFECT_POSITION.1,
+        );
+
+        let first_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(
+            first_position,
+            (
+                DEFAULT_SPAWN_POSITION.0.to_bits(),
+                DEFAULT_SPAWN_POSITION.1.to_bits()
+            )
+        );
+        assert_eq!(overlay.source_binding, None);
+
+        set_unit_entity_position(&mut state, TEST_UNIT_ID, 96.0, 184.0);
+
+        let second_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(
+            second_position,
+            (
+                DEFAULT_SPAWN_POSITION.0.to_bits(),
+                DEFAULT_SPAWN_POSITION.1.to_bits()
+            )
+        );
+    }
 
     #[test]
     fn effect_runtime_contract_maps_drill_steam_effect_id() {
@@ -1113,18 +1361,7 @@ mod tests {
     #[test]
     fn effect_runtime_spawn_runtime_effect_overlay_preserves_parent_building_spawn_position() {
         let build_pos = (10_i32 << 16) | 20_i32;
-        let overlay = spawn_runtime_effect_overlay(
-            Some(67),
-            92.0,
-            148.0,
-            92.0,
-            148.0,
-            0.0,
-            0,
-            false,
-            Some(&TypeIoObject::BuildingPos(build_pos)),
-            10,
-        );
+        let overlay = spawn_parent_building_overlay(67, build_pos);
 
         assert_eq!(overlay.x_bits, 92.0f32.to_bits());
         assert_eq!(overlay.y_bits, 148.0f32.to_bits());
@@ -1386,18 +1623,7 @@ mod tests {
     fn effect_runtime_resolve_runtime_effect_overlay_position_lazily_freezes_parent_building_offset(
     ) {
         let build_pos = (10_i32 << 16) | 20_i32;
-        let mut overlay = spawn_runtime_effect_overlay(
-            Some(67),
-            92.0,
-            148.0,
-            92.0,
-            148.0,
-            0.0,
-            0,
-            false,
-            Some(&TypeIoObject::BuildingPos(build_pos)),
-            10,
-        );
+        let mut overlay = spawn_parent_building_overlay(67, build_pos);
         let state = session_state_with_building(build_pos);
         let input = EffectRuntimeInputView::default();
 
@@ -1421,18 +1647,7 @@ mod tests {
     fn effect_runtime_resolve_runtime_effect_overlay_position_keeps_spawn_position_when_parent_building_is_missing(
     ) {
         let build_pos = (10_i32 << 16) | 20_i32;
-        let mut overlay = spawn_runtime_effect_overlay(
-            Some(67),
-            92.0,
-            148.0,
-            92.0,
-            148.0,
-            0.0,
-            0,
-            false,
-            Some(&TypeIoObject::BuildingPos(build_pos)),
-            10,
-        );
+        let mut overlay = spawn_parent_building_overlay(67, build_pos);
 
         let resolved = resolve_runtime_effect_overlay_position(
             &mut overlay,
@@ -1464,40 +1679,23 @@ mod tests {
 
     #[test]
     fn effect_runtime_resolve_runtime_effect_overlay_position_lazily_freezes_parent_unit_offset() {
-        let mut overlay = spawn_runtime_effect_overlay(
+        let unit_object = unit_parent_object(TEST_UNIT_ID);
+        let mut overlay = spawn_test_overlay(
             Some(257),
-            20.0,
-            24.0,
-            20.0,
-            24.0,
+            (20.0, 24.0),
+            (20.0, 24.0),
             0.0,
-            0,
-            false,
-            Some(&TypeIoObject::UnitId(404)),
-            10,
+            Some(&unit_object),
         );
         let input = EffectRuntimeInputView::default();
-        let mut state = SessionState::default();
-        state.entity_table_projection.by_entity_id.insert(
-            404,
-            EntityProjection {
-                class_id: 12,
-                hidden: false,
-                is_local_player: false,
-                unit_kind: 0,
-                unit_value: 0,
-                x_bits: 12.0f32.to_bits(),
-                y_bits: 16.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
+        let mut state = session_state_with_unit_entity(TEST_UNIT_ID, 12.0, 16.0);
 
         let first_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
         assert_eq!(first_position, (20.0f32.to_bits(), 24.0f32.to_bits()));
         assert_eq!(
             overlay.binding,
             Some(RuntimeEffectBinding::ParentUnit {
-                unit_id: 404,
+                unit_id: TEST_UNIT_ID,
                 spawn_x_bits: 20.0f32.to_bits(),
                 spawn_y_bits: 24.0f32.to_bits(),
                 offset_x_bits: 8.0f32.to_bits(),
@@ -1512,18 +1710,7 @@ mod tests {
             })
         );
 
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .x_bits = 24.0f32.to_bits();
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .y_bits = 28.0f32.to_bits();
+        set_unit_entity_position(&mut state, TEST_UNIT_ID, 24.0, 28.0);
 
         let second_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
         assert_eq!(second_position, (32.0f32.to_bits(), 36.0f32.to_bits()));
@@ -1532,340 +1719,101 @@ mod tests {
     #[test]
     fn effect_runtime_resolve_runtime_effect_overlay_source_position_follows_parent_unit_for_item_transfer(
     ) {
-        let mut overlay = spawn_runtime_effect_overlay(
-            Some(9),
-            80.0,
-            160.0,
-            12.0,
-            20.0,
-            0.0,
-            0,
-            false,
-            Some(&TypeIoObject::UnitId(404)),
-            10,
+        assert_effect_runtime_source_overlay_follows_parent_unit(
+            9,
+            unit_parent_object(TEST_UNIT_ID),
+            true,
         );
-        let input = EffectRuntimeInputView::default();
-        let mut state = SessionState::default();
-        state.entity_table_projection.by_entity_id.insert(
-            404,
-            EntityProjection {
-                class_id: 12,
-                hidden: false,
-                is_local_player: false,
-                unit_kind: 0,
-                unit_value: 0,
-                x_bits: 80.0f32.to_bits(),
-                y_bits: 160.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
-
-        let first_position =
-            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
-        assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
-        assert_eq!(
-            overlay.source_binding,
-            Some(RuntimeEffectBinding::ParentUnit {
-                unit_id: 404,
-                spawn_x_bits: 12.0f32.to_bits(),
-                spawn_y_bits: 20.0f32.to_bits(),
-                offset_x_bits: (-68.0f32).to_bits(),
-                offset_y_bits: (-140.0f32).to_bits(),
-                offset_initialized: true,
-                preserve_spawn_offset: true,
-                allow_fallback_offset_initialization: true,
-                rotate_with_parent: false,
-                parent_rotation_reference_bits: 0.0f32.to_bits(),
-                rotation_offset_bits: 0.0f32.to_bits(),
-                rotation_initialized: false,
-            })
-        );
-
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .x_bits = 96.0f32.to_bits();
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .y_bits = 184.0f32.to_bits();
-
-        let second_position =
-            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
-        assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
     }
 
     #[test]
-    fn effect_runtime_resolve_runtime_effect_overlay_source_position_follows_parent_unit_for_point_beam(
+    fn effect_runtime_resolve_runtime_effect_overlay_source_position_keeps_spawn_position_for_point_beam_snapshot_payload(
     ) {
-        let mut overlay = spawn_runtime_effect_overlay(
+        assert_effect_runtime_source_overlay_keeps_spawn_position_without_parent_follow(
+            10,
+            unit_parent_object_with_position_hint(TEST_UNIT_ID, 10, 20),
+        );
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_source_position_keeps_spawn_position_for_regen_suppress_seek(
+    ) {
+        assert_effect_runtime_source_overlay_keeps_spawn_position_without_parent_follow(
+            178,
+            unit_parent_object(TEST_UNIT_ID),
+        );
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_source_position_keeps_spawn_position_for_chain_lightning(
+    ) {
+        assert_effect_runtime_source_overlay_keeps_spawn_position_without_parent_follow(
+            261,
+            unit_parent_object(TEST_UNIT_ID),
+        );
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_source_position_keeps_spawn_position_for_chain_emp(
+    ) {
+        assert_effect_runtime_source_overlay_keeps_spawn_position_without_parent_follow(
+            262,
+            unit_parent_object(TEST_UNIT_ID),
+        );
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_position_keeps_point_beam_snapshot_target_static(
+    ) {
+        let data_object = unit_parent_object_with_position_hint(TEST_UNIT_ID, 10, 20);
+        let mut overlay = spawn_test_overlay(
             Some(10),
-            80.0,
-            160.0,
-            12.0,
-            20.0,
+            SOURCE_BOUND_EFFECT_POSITION,
+            DEFAULT_SPAWN_POSITION,
             0.0,
-            0,
-            false,
-            Some(&TypeIoObject::ObjectArray(vec![
-                TypeIoObject::UnitId(404),
-                TypeIoObject::Point2 { x: 10, y: 20 },
-            ])),
-            10,
+            Some(&data_object),
         );
         let input = EffectRuntimeInputView::default();
-        let mut state = SessionState::default();
-        state.entity_table_projection.by_entity_id.insert(
-            404,
-            EntityProjection {
-                class_id: 12,
-                hidden: false,
-                is_local_player: false,
-                unit_kind: 0,
-                unit_value: 0,
-                x_bits: 80.0f32.to_bits(),
-                y_bits: 160.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
+        let mut state =
+            session_state_with_unit_entity(TEST_UNIT_ID, SOURCE_BOUND_EFFECT_POSITION.0, SOURCE_BOUND_EFFECT_POSITION.1);
 
-        let first_position =
-            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
-        assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
+        let first_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
         assert_eq!(
-            overlay.source_binding,
-            Some(RuntimeEffectBinding::ParentUnit {
-                unit_id: 404,
-                spawn_x_bits: 12.0f32.to_bits(),
-                spawn_y_bits: 20.0f32.to_bits(),
-                offset_x_bits: (-68.0f32).to_bits(),
-                offset_y_bits: (-140.0f32).to_bits(),
-                offset_initialized: true,
-                preserve_spawn_offset: true,
-                allow_fallback_offset_initialization: true,
-                rotate_with_parent: false,
-                parent_rotation_reference_bits: 0.0f32.to_bits(),
-                rotation_offset_bits: 0.0f32.to_bits(),
-                rotation_initialized: false,
+            first_position,
+            (
+                SOURCE_BOUND_EFFECT_POSITION.0.to_bits(),
+                SOURCE_BOUND_EFFECT_POSITION.1.to_bits()
+            )
+        );
+        assert_eq!(
+            overlay.binding,
+            Some(RuntimeEffectBinding::WorldPosition {
+                x_bits: SOURCE_BOUND_EFFECT_POSITION.0.to_bits(),
+                y_bits: SOURCE_BOUND_EFFECT_POSITION.1.to_bits(),
             })
         );
 
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .x_bits = 96.0f32.to_bits();
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .y_bits = 184.0f32.to_bits();
+        set_unit_entity_position(&mut state, TEST_UNIT_ID, 96.0, 184.0);
 
         let second_position =
-            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
-        assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
-    }
-
-    #[test]
-    fn effect_runtime_resolve_runtime_effect_overlay_source_position_follows_parent_unit_for_regen_suppress_seek(
-    ) {
-        let mut overlay = spawn_runtime_effect_overlay(
-            Some(178),
-            80.0,
-            160.0,
-            12.0,
-            20.0,
-            0.0,
-            0,
-            false,
-            Some(&TypeIoObject::UnitId(404)),
-            10,
-        );
-        let input = EffectRuntimeInputView::default();
-        let mut state = SessionState::default();
-        state.entity_table_projection.by_entity_id.insert(
-            404,
-            EntityProjection {
-                class_id: 12,
-                hidden: false,
-                is_local_player: false,
-                unit_kind: 0,
-                unit_value: 0,
-                x_bits: 80.0f32.to_bits(),
-                y_bits: 160.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
-
-        let first_position =
-            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
-        assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
+            resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
         assert_eq!(
-            overlay.source_binding,
-            Some(RuntimeEffectBinding::ParentUnit {
-                unit_id: 404,
-                spawn_x_bits: 12.0f32.to_bits(),
-                spawn_y_bits: 20.0f32.to_bits(),
-                offset_x_bits: (-68.0f32).to_bits(),
-                offset_y_bits: (-140.0f32).to_bits(),
-                offset_initialized: true,
-                preserve_spawn_offset: true,
-                allow_fallback_offset_initialization: true,
-                rotate_with_parent: false,
-                parent_rotation_reference_bits: 0.0f32.to_bits(),
-                rotation_offset_bits: 0.0f32.to_bits(),
-                rotation_initialized: false,
-            })
+            second_position,
+            (
+                SOURCE_BOUND_EFFECT_POSITION.0.to_bits(),
+                SOURCE_BOUND_EFFECT_POSITION.1.to_bits()
+            )
         );
-
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .x_bits = 96.0f32.to_bits();
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .y_bits = 184.0f32.to_bits();
-
-        let second_position =
-            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
-        assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
-    }
-
-    #[test]
-    fn effect_runtime_resolve_runtime_effect_overlay_source_position_follows_parent_unit_for_chain_lightning(
-    ) {
-        let mut overlay = spawn_runtime_effect_overlay(
-            Some(261),
-            80.0,
-            160.0,
-            12.0,
-            20.0,
-            0.0,
-            0,
-            false,
-            Some(&TypeIoObject::UnitId(404)),
-            10,
-        );
-        let input = EffectRuntimeInputView::default();
-        let mut state = SessionState::default();
-        state.entity_table_projection.by_entity_id.insert(
-            404,
-            EntityProjection {
-                class_id: 12,
-                hidden: false,
-                is_local_player: false,
-                unit_kind: 0,
-                unit_value: 0,
-                x_bits: 80.0f32.to_bits(),
-                y_bits: 160.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
-
-        let first_position =
-            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
-        assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
-
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .x_bits = 96.0f32.to_bits();
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .y_bits = 184.0f32.to_bits();
-
-        let second_position =
-            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
-        assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
-    }
-
-    #[test]
-    fn effect_runtime_resolve_runtime_effect_overlay_source_position_follows_parent_unit_for_chain_emp(
-    ) {
-        let mut overlay = spawn_runtime_effect_overlay(
-            Some(262),
-            80.0,
-            160.0,
-            12.0,
-            20.0,
-            0.0,
-            0,
-            false,
-            Some(&TypeIoObject::UnitId(404)),
-            10,
-        );
-        let input = EffectRuntimeInputView::default();
-        let mut state = SessionState::default();
-        state.entity_table_projection.by_entity_id.insert(
-            404,
-            EntityProjection {
-                class_id: 12,
-                hidden: false,
-                is_local_player: false,
-                unit_kind: 0,
-                unit_value: 0,
-                x_bits: 80.0f32.to_bits(),
-                y_bits: 160.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
-
-        let first_position =
-            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
-        assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
-
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .x_bits = 96.0f32.to_bits();
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .y_bits = 184.0f32.to_bits();
-
-        let second_position =
-            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
-        assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
     }
 
     #[test]
     fn effect_runtime_resolve_runtime_effect_overlay_source_position_freezes_offset_from_snapshot_fallback(
     ) {
-        let mut overlay = spawn_runtime_effect_overlay(
-            Some(9),
-            80.0,
-            160.0,
-            12.0,
-            20.0,
-            0.0,
-            0,
-            false,
-            Some(&TypeIoObject::UnitId(404)),
-            10,
-        );
+        let unit_object = unit_parent_object(TEST_UNIT_ID);
+        let mut overlay = spawn_source_bound_unit_overlay(9, &unit_object);
         let input = EffectRuntimeInputView {
-            unit_id: Some(404),
-            position: Some((80.0, 160.0)),
+            unit_id: Some(TEST_UNIT_ID),
+            position: Some(SOURCE_BOUND_EFFECT_POSITION),
             ..EffectRuntimeInputView::default()
         };
         let mut state = SessionState::default();
@@ -1875,35 +1823,10 @@ mod tests {
         assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
         assert_eq!(
             overlay.source_binding,
-            Some(RuntimeEffectBinding::ParentUnit {
-                unit_id: 404,
-                spawn_x_bits: 12.0f32.to_bits(),
-                spawn_y_bits: 20.0f32.to_bits(),
-                offset_x_bits: (-68.0f32).to_bits(),
-                offset_y_bits: (-140.0f32).to_bits(),
-                offset_initialized: true,
-                preserve_spawn_offset: true,
-                allow_fallback_offset_initialization: true,
-                rotate_with_parent: false,
-                parent_rotation_reference_bits: 0.0f32.to_bits(),
-                rotation_offset_bits: 0.0f32.to_bits(),
-                rotation_initialized: false,
-            })
+            Some(expected_source_bound_parent_unit_binding())
         );
 
-        state.entity_table_projection.by_entity_id.insert(
-            404,
-            EntityProjection {
-                class_id: 12,
-                hidden: false,
-                is_local_player: false,
-                unit_kind: 0,
-                unit_value: 0,
-                x_bits: 96.0f32.to_bits(),
-                y_bits: 184.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
+        set_unit_entity_position(&mut state, TEST_UNIT_ID, 96.0, 184.0);
 
         let second_position =
             resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
@@ -1912,19 +1835,7 @@ mod tests {
 
     fn session_state_with_unit_entity(unit_id: i32, x: f32, y: f32) -> SessionState {
         let mut state = SessionState::default();
-        state.entity_table_projection.by_entity_id.insert(
-            unit_id,
-            EntityProjection {
-                class_id: 12,
-                hidden: false,
-                is_local_player: false,
-                unit_kind: 0,
-                unit_value: 0,
-                x_bits: x.to_bits(),
-                y_bits: y.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
+        set_unit_entity_position(&mut state, unit_id, x, y);
         state
     }
 
@@ -1953,7 +1864,7 @@ mod tests {
 
     #[test]
     fn effect_runtime_observe_runtime_effect_binding_state_rejects_lightning_building_parent() {
-        let object = TypeIoObject::BuildingPos(pack_point2(7, 11));
+        let object = building_parent_object(pack_point2(7, 11));
 
         assert_eq!(
             observe_runtime_effect_binding_state(
@@ -1969,7 +1880,7 @@ mod tests {
     #[test]
     fn effect_runtime_observe_runtime_effect_binding_state_follows_unit_parent_buildings_and_rejects_leg_destroy_unit(
     ) {
-        let building_object = TypeIoObject::BuildingPos(pack_point2(7, 11));
+        let building_object = building_parent_object(pack_point2(7, 11));
         let building_state = session_state_with_building(pack_point2(7, 11));
         for effect_id in [67i16, 68, 122, 257, 260] {
             assert_eq!(
@@ -1992,24 +1903,35 @@ mod tests {
             );
         }
 
-        let unit_object = TypeIoObject::UnitId(404);
+        let unit_object = unit_parent_object(TEST_UNIT_ID);
         assert_eq!(
             observe_runtime_effect_binding_state(
                 Some(263),
                 Some(&unit_object),
-                &session_state_with_unit_entity(404, 32.0, 48.0),
+                &session_state_with_unit_entity(TEST_UNIT_ID, 32.0, 48.0),
                 &EffectRuntimeInputView::default(),
             ),
             Some(EffectRuntimeBindingState::BindingRejected)
+        );
+
+        let point_beam_object = unit_parent_object_with_position_hint(TEST_UNIT_ID, 10, 20);
+        assert_eq!(
+            observe_runtime_effect_binding_state(
+                Some(10),
+                Some(&point_beam_object),
+                &session_state_with_unit_entity(TEST_UNIT_ID, 32.0, 48.0),
+                &EffectRuntimeInputView::default(),
+            ),
+            None
         );
     }
 
     #[test]
     fn effect_runtime_observe_runtime_effect_source_binding_state_tracks_unit_follow_and_fallback()
     {
-        let object = TypeIoObject::UnitId(404);
-        let followed = session_state_with_unit_entity(404, 32.0, 48.0);
-        for effect_id in [8i16, 9, 10, 178, 261, 262] {
+        let object = unit_parent_object(TEST_UNIT_ID);
+        let followed = session_state_with_unit_entity(TEST_UNIT_ID, 32.0, 48.0);
+        for effect_id in [8i16, 9] {
             assert_eq!(
                 observe_runtime_effect_source_binding_state(
                     Some(effect_id),
@@ -2032,9 +1954,38 @@ mod tests {
     }
 
     #[test]
+    fn effect_runtime_observe_runtime_effect_source_binding_state_ignores_non_parentized_families()
+    {
+        let unit_object = unit_parent_object(TEST_UNIT_ID);
+        let building_object = building_parent_object(pack_point2(3, 5));
+        let followed = session_state_with_unit_entity(TEST_UNIT_ID, 32.0, 48.0);
+
+        for effect_id in [10i16, 178, 261, 262] {
+            assert_eq!(
+                observe_runtime_effect_source_binding_state(
+                    Some(effect_id),
+                    Some(&unit_object),
+                    &followed,
+                    &EffectRuntimeInputView::default(),
+                ),
+                None
+            );
+            assert_eq!(
+                observe_runtime_effect_source_binding_state(
+                    Some(effect_id),
+                    Some(&building_object),
+                    &SessionState::default(),
+                    &EffectRuntimeInputView::default(),
+                ),
+                None
+            );
+        }
+    }
+
+    #[test]
     fn effect_runtime_observe_runtime_effect_source_binding_state_rejects_buildings_and_leaves_unreachable_parent_kinds_empty(
     ) {
-        let building_object = TypeIoObject::BuildingPos(pack_point2(3, 5));
+        let building_object = building_parent_object(pack_point2(3, 5));
         let content_object = TypeIoObject::ContentRaw {
             content_type: 1,
             content_id: 7,
@@ -2044,7 +1995,7 @@ mod tests {
             content_id: 9,
         };
 
-        for effect_id in [8i16, 9, 10, 178, 261, 262] {
+        for effect_id in [8i16, 9] {
             assert_eq!(
                 observe_runtime_effect_source_binding_state(
                     Some(effect_id),
@@ -2074,7 +2025,7 @@ mod tests {
             );
         }
 
-        let unit_object = TypeIoObject::UnitId(404);
+        let unit_object = unit_parent_object(TEST_UNIT_ID);
         assert_eq!(
             observe_runtime_effect_source_binding_state(
                 Some(67),
@@ -2089,19 +2040,9 @@ mod tests {
     #[test]
     fn effect_runtime_observe_runtime_effect_overlay_source_binding_state_tracks_follow_and_fallback(
     ) {
-        let overlay = spawn_runtime_effect_overlay(
-            Some(9),
-            80.0,
-            160.0,
-            12.0,
-            20.0,
-            0.0,
-            0,
-            false,
-            Some(&TypeIoObject::UnitId(404)),
-            10,
-        );
-        let followed = session_state_with_unit_entity(404, 32.0, 48.0);
+        let unit_object = unit_parent_object(TEST_UNIT_ID);
+        let overlay = spawn_source_bound_unit_overlay(9, &unit_object);
+        let followed = session_state_with_unit_entity(TEST_UNIT_ID, 32.0, 48.0);
 
         assert_eq!(
             observe_runtime_effect_overlay_source_binding_state(
@@ -2124,30 +2065,16 @@ mod tests {
     #[test]
     fn effect_runtime_observe_runtime_effect_overlay_source_binding_state_returns_none_without_source_binding(
     ) {
-        let unit_parent_overlay = spawn_runtime_effect_overlay(
+        let unit_object = unit_parent_object(TEST_UNIT_ID);
+        let building_object = building_parent_object(pack_point2(3, 5));
+        let unit_parent_overlay = spawn_test_overlay(
             Some(67),
-            20.0,
-            24.0,
-            20.0,
-            24.0,
+            (20.0, 24.0),
+            (20.0, 24.0),
             0.0,
-            0,
-            false,
-            Some(&TypeIoObject::UnitId(404)),
-            10,
+            Some(&unit_object),
         );
-        let building_parent_overlay = spawn_runtime_effect_overlay(
-            Some(9),
-            80.0,
-            160.0,
-            12.0,
-            20.0,
-            0.0,
-            0,
-            false,
-            Some(&TypeIoObject::BuildingPos(pack_point2(3, 5))),
-            10,
-        );
+        let building_parent_overlay = spawn_source_bound_unit_overlay(9, &building_object);
 
         assert_eq!(unit_parent_overlay.source_binding, None);
         assert_eq!(building_parent_overlay.source_binding, None);
@@ -2220,56 +2147,18 @@ mod tests {
         effect_id: i16,
         allow_fallback_offset_initialization: bool,
     ) {
-        let mut overlay = spawn_runtime_effect_overlay(
+        let unit_object = unit_parent_object(TEST_UNIT_ID);
+        let mut overlay = spawn_test_overlay(
             Some(effect_id),
-            12.0,
-            20.0,
-            12.0,
-            20.0,
+            DEFAULT_SPAWN_POSITION,
+            DEFAULT_SPAWN_POSITION,
             15.0,
-            0,
-            false,
-            Some(&TypeIoObject::UnitId(404)),
-            10,
+            Some(&unit_object),
         );
         let input = EffectRuntimeInputView::default();
         let mut state = SessionState::default();
-        state.entity_table_projection.by_entity_id.insert(
-            404,
-            EntityProjection {
-                class_id: 12,
-                hidden: false,
-                is_local_player: false,
-                unit_kind: 0,
-                unit_value: 0,
-                x_bits: 10.0f32.to_bits(),
-                y_bits: 20.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
-        state.entity_semantic_projection.by_entity_id.insert(
-            404,
-            EntitySemanticProjectionEntry {
-                class_id: 12,
-                last_seen_entity_snapshot_count: 1,
-                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
-                    team_id: 1,
-                    unit_type_id: 55,
-                    health_bits: 0,
-                    rotation_bits: 0.0f32.to_bits(),
-                    shield_bits: 0,
-                    mine_tile_pos: 0,
-                    status_count: 0,
-                    payload_count: None,
-                    building_pos: None,
-                    lifetime_bits: None,
-                    time_bits: None,
-                    runtime_sync: None,
-                    controller_type: 0,
-                    controller_value: None,
-                }),
-            },
-        );
+        set_unit_entity_position(&mut state, TEST_UNIT_ID, 10.0, 20.0);
+        set_unit_semantic_rotation(&mut state, TEST_UNIT_ID, 1, 0.0);
 
         let first_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
         assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
@@ -2277,7 +2166,7 @@ mod tests {
         assert_eq!(
             overlay.binding,
             Some(RuntimeEffectBinding::ParentUnit {
-                unit_id: 404,
+                unit_id: TEST_UNIT_ID,
                 spawn_x_bits: 12.0f32.to_bits(),
                 spawn_y_bits: 20.0f32.to_bits(),
                 offset_x_bits: 2.0f32.to_bits(),
@@ -2292,35 +2181,8 @@ mod tests {
             })
         );
 
-        state
-            .entity_table_projection
-            .by_entity_id
-            .get_mut(&404)
-            .expect("missing entity 404")
-            .x_bits = 16.0f32.to_bits();
-        state.entity_semantic_projection.by_entity_id.insert(
-            404,
-            EntitySemanticProjectionEntry {
-                class_id: 12,
-                last_seen_entity_snapshot_count: 2,
-                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
-                    team_id: 1,
-                    unit_type_id: 55,
-                    health_bits: 0,
-                    rotation_bits: 90.0f32.to_bits(),
-                    shield_bits: 0,
-                    mine_tile_pos: 0,
-                    status_count: 0,
-                    payload_count: None,
-                    building_pos: None,
-                    lifetime_bits: None,
-                    time_bits: None,
-                    runtime_sync: None,
-                    controller_type: 0,
-                    controller_value: None,
-                }),
-            },
-        );
+        set_unit_entity_position(&mut state, TEST_UNIT_ID, 16.0, 20.0);
+        set_unit_semantic_rotation(&mut state, TEST_UNIT_ID, 2, 90.0);
 
         let second_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
         assert_eq!(second_position, (16.0f32.to_bits(), 22.0f32.to_bits()));
@@ -2348,20 +2210,16 @@ mod tests {
         effect_id: i16,
         use_world_player_position: bool,
     ) {
-        let mut overlay = spawn_runtime_effect_overlay(
+        let unit_object = unit_parent_object(TEST_UNIT_ID);
+        let mut overlay = spawn_test_overlay(
             Some(effect_id),
-            46.0,
-            60.0,
-            46.0,
-            60.0,
+            (46.0, 60.0),
+            (46.0, 60.0),
             15.0,
-            0,
-            false,
-            Some(&TypeIoObject::UnitId(404)),
-            10,
+            Some(&unit_object),
         );
         let mut input = EffectRuntimeInputView {
-            unit_id: Some(404),
+            unit_id: Some(TEST_UNIT_ID),
             position: (!use_world_player_position).then_some((44.0, 60.0)),
             rotation: 0.0,
         };
@@ -2377,7 +2235,7 @@ mod tests {
         assert_eq!(
             overlay.binding,
             Some(RuntimeEffectBinding::ParentUnit {
-                unit_id: 404,
+                unit_id: TEST_UNIT_ID,
                 spawn_x_bits: 46.0f32.to_bits(),
                 spawn_y_bits: 60.0f32.to_bits(),
                 offset_x_bits: 2.0f32.to_bits(),

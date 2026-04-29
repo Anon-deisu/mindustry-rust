@@ -36,6 +36,27 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Resolve-CargoExecutable {
+    $cargoCommand = Get-Command cargo -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cargoCommand -and -not [string]::IsNullOrWhiteSpace($cargoCommand.Source)) {
+        return $cargoCommand.Source
+    }
+
+    $candidatePaths = @(
+        $env:CARGO,
+        $(if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) { Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe' }),
+        $(if (-not [string]::IsNullOrWhiteSpace($env:HOME)) { Join-Path $env:HOME '.cargo\bin\cargo.exe' })
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    foreach ($candidatePath in $candidatePaths) {
+        if (Test-Path $candidatePath) {
+            return (Resolve-Path $candidatePath).Path
+        }
+    }
+
+    throw 'cargo executable not found. Install Rust or add cargo to PATH.'
+}
+
 function Remove-StagePath {
     param(
         [string]$Path,
@@ -90,6 +111,7 @@ function Normalize-PathForComparison {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$cargoExe = Resolve-CargoExecutable
 $crateManifest = Join-Path $repoRoot 'rust\mdt-client-min\Cargo.toml'
 $renderUiManifest = Join-Path $repoRoot 'rust\mdt-render-ui\Cargo.toml'
 $renderUiDevtoolBins = @(
@@ -148,10 +170,10 @@ if ($CreateZip -and [string]::IsNullOrWhiteSpace($ZipPath)) {
 
 Push-Location $repoRoot
 try {
-    cargo build --release --manifest-path $crateManifest --bin mdt-client-min-online
+    & $cargoExe build --release --manifest-path $crateManifest --bin mdt-client-min-online
     if ($IncludeBenchTools) {
         foreach ($renderUiBin in $renderUiDevtoolBins) {
-            cargo build --release --manifest-path $renderUiManifest --bin $renderUiBin
+            & $cargoExe build --release --manifest-path $renderUiManifest --bin $renderUiBin
         }
     }
 } finally {

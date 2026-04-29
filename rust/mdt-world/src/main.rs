@@ -839,7 +839,8 @@ mod tests {
             output_dir: PathBuf::from("out"),
             input_root: Some(PathBuf::from("custom-input")),
         };
-        let candidates = world_stream_candidates(&args, Path::new("tests/resources"), Path::new("."));
+        let candidates =
+            world_stream_candidates(&args, Path::new("tests/resources"), Path::new("."));
         assert_eq!(
             candidates,
             vec![PathBuf::from("custom-input/world-stream.hex")]
@@ -868,7 +869,9 @@ mod tests {
             candidates,
             vec![
                 PathBuf::from("tests/resources/world-stream.hex"),
-                PathBuf::from("/repo/rust/fixtures/world-streams/archipelago-6567-world-stream.hex"),
+                PathBuf::from(
+                    "/repo/rust/fixtures/world-streams/archipelago-6567-world-stream.hex"
+                ),
                 PathBuf::from("/repo/fixtures/world-streams/archipelago-6567-world-stream.hex"),
             ]
         );

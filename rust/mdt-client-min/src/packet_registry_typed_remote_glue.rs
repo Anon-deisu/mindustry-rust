@@ -245,9 +245,7 @@ mod tests {
         match error {
             RemoteManifestError::InvalidPacketSequence(message) => {
                 assert!(
-                    message.contains(
-                        "duplicate high-frequency server->client snapshot packet id"
-                    ),
+                    message.contains("duplicate high-frequency server->client snapshot packet id"),
                     "unexpected duplicate snapshot packet-id error message: {message}"
                 );
                 assert!(

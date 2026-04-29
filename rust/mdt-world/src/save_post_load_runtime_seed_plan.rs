@@ -2,7 +2,9 @@ use crate::save_post_load_activation::{
     activation_surface_from_contract, building_activation_candidate, entity_activation_candidate,
 };
 use crate::{
-    BuildingSnapshot, ContentHeaderEntry, CustomChunkEntry, MarkerModel, ParsedCustomChunk,
+    bool_word_label, decode_save_content_patches_utf8,
+    save_post_load_runtime_source_region::find_source_region, BuildingSnapshot, ContentHeaderEntry,
+    CustomChunkEntry, MarkerModel, ParsedCustomChunk,
     SaveEntityChunkObservation, SaveEntityRemapEntry, SavePostLoadActivationSurface,
     SavePostLoadBuildingActivationCandidate, SavePostLoadEntityActivationCandidate,
     SavePostLoadWorldContract, SavePostLoadWorldObservation, StaticFogTeam, TeamPlan, WorldModel,
@@ -42,7 +44,7 @@ impl SavePostLoadRuntimeSeedPlan {
     pub fn summary_label(&self) -> String {
         format!(
             "seed={} steps={} regions={}",
-            bool_label(self.can_seed_runtime_apply()),
+            bool_word_label(self.can_seed_runtime_apply()),
             self.seed_step_count(),
             self.source_regions().len(),
         )
@@ -51,7 +53,7 @@ impl SavePostLoadRuntimeSeedPlan {
     pub fn detail_label(&self) -> String {
         format!(
             "seed={} steps={} regions=[{}]",
-            bool_label(self.can_seed_runtime_apply()),
+            bool_word_label(self.can_seed_runtime_apply()),
             self.seed_step_count(),
             self.source_regions()
                 .iter()
@@ -62,9 +64,9 @@ impl SavePostLoadRuntimeSeedPlan {
     }
 
     pub fn source_region(&self, source_region_name: &str) -> Option<SavePostLoadRuntimeSeedRegion> {
-        self.source_regions()
-            .into_iter()
-            .find(|region| region.source_region_name == source_region_name)
+        find_source_region(self.source_regions(), source_region_name, |region| {
+            region.source_region_name
+        })
     }
 
     pub fn source_regions(&self) -> Vec<SavePostLoadRuntimeSeedRegion> {
@@ -147,6 +149,10 @@ pub struct SavePostLoadRuntimeWorldSeed {
 }
 
 impl SavePostLoadRuntimeWorldSeed {
+    pub fn patch_texts(&self) -> Result<Vec<String>, String> {
+        decode_save_content_patches_utf8(&self.patches)
+    }
+
     pub fn tile_count(&self) -> usize {
         self.world.tile_count()
     }
@@ -467,21 +473,184 @@ fn runtime_entity_seed(
     }
 }
 
-fn bool_label(value: bool) -> &'static str {
-    if value { "yes" } else { "no" }
+#[cfg(test)]
+pub(crate) mod save_post_load_runtime_test_support {
+    pub(crate) use crate::save_post_load_runtime_execution::test_support::{
+        make_runtime_plan_observation_seedable as make_observation_seedable,
+        runtime_plan_seedable_test_observation as seedable_test_observation,
+        runtime_plan_test_observation as test_observation,
+    };
 }
 
 #[cfg(test)]
 mod tests {
+    use super::save_post_load_runtime_test_support::{make_observation_seedable, test_observation};
     use super::*;
     use crate::{
-        BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, CustomChunkEntry, MarkerEntry,
-        ParsedBuildingTail, PointMarkerModel, SaveEntityChunkObservation, SaveEntityClassKind,
-        SaveEntityClassSummary, SaveEntityPostLoadClassSummary, SaveEntityPostLoadKind,
-        SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
-        SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup,
-        TileModel, TypeIoValue,
+        CustomChunkEntry, ParsedCustomChunk, SavePostLoadRuntimeApplyScript,
+        SavePostLoadWorldObservation,
     };
+
+    #[derive(Clone, Copy)]
+    struct RegionCountExpectation {
+        source_region_name: &'static str,
+        world: usize,
+        remaps: usize,
+        plans: usize,
+        markers: usize,
+        fog: usize,
+        chunks: usize,
+        buildings: usize,
+        loadable: usize,
+        skipped: usize,
+    }
+
+    impl RegionCountExpectation {
+        fn total(self) -> usize {
+            self.world
+                + self.remaps
+                + self.plans
+                + self.markers
+                + self.fog
+                + self.chunks
+                + self.buildings
+                + self.loadable
+                + self.skipped
+        }
+
+        fn summary_label(self) -> String {
+            format!(
+                "region={} world={} remaps={} plans={} markers={} fog={} chunks={} buildings={} loadable={} skipped={} total={}",
+                self.source_region_name,
+                self.world,
+                self.remaps,
+                self.plans,
+                self.markers,
+                self.fog,
+                self.chunks,
+                self.buildings,
+                self.loadable,
+                self.skipped,
+                self.total(),
+            )
+        }
+    }
+
+    fn assert_plan_summary(
+        plan: &SavePostLoadRuntimeSeedPlan,
+        expected_seedable: bool,
+        expected_steps: usize,
+        expected_regions: usize,
+    ) {
+        assert_eq!(plan.seed_step_count(), expected_steps);
+        assert_eq!(
+            plan.summary_label(),
+            format!(
+                "seed={} steps={} regions={}",
+                bool_word_label(expected_seedable),
+                expected_steps,
+                expected_regions,
+            )
+        );
+        assert_eq!(plan.source_regions().len(), expected_regions);
+    }
+
+    fn assert_source_region_counts(
+        region: &SavePostLoadRuntimeSeedRegion,
+        expected: RegionCountExpectation,
+    ) {
+        assert_eq!(region.source_region_name, expected.source_region_name);
+        assert_eq!(region.seed_step_count(), expected.total());
+        assert_eq!(region.summary_label(), expected.summary_label());
+        assert_eq!(region.detail_label(), expected.summary_label());
+    }
+
+    fn expected_plan_detail_label(
+        expected_seedable: bool,
+        expected_steps: usize,
+        expected_regions: &[RegionCountExpectation],
+    ) -> String {
+        format!(
+            "seed={} steps={} regions=[{}]",
+            bool_word_label(expected_seedable),
+            expected_steps,
+            expected_regions
+                .iter()
+                .map(|expected| expected.summary_label())
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+
+    fn assert_static_fog_seed_blocked(
+        plan: &SavePostLoadRuntimeSeedPlan,
+        script: &SavePostLoadRuntimeApplyScript,
+        expected_chunk_name: &str,
+    ) {
+        let custom_region = plan
+            .source_region("custom")
+            .expect("custom region should stay present when static fog seeding is blocked");
+
+        assert_plan_summary(plan, false, 12, 4);
+        assert!(plan.static_fog_seed.is_none());
+        assert_eq!(plan.custom_chunk_seeds.len(), 1);
+        assert_eq!(plan.custom_chunk_seeds[0].name, expected_chunk_name);
+        assert_source_region_counts(
+            &custom_region,
+            RegionCountExpectation {
+                source_region_name: "custom",
+                world: 0,
+                remaps: 0,
+                plans: 0,
+                markers: 0,
+                fog: 0,
+                chunks: 1,
+                buildings: 0,
+                loadable: 0,
+                skipped: 0,
+            },
+        );
+        assert_eq!(script.total_step_count(), 12);
+        assert_eq!(script.total_step_count(), plan.seed_step_count());
+    }
+
+    #[test]
+    fn runtime_seed_plan_keeps_only_nonempty_map_region_and_rejects_missing_source_region() {
+        let mut observation = test_observation();
+        observation.entity_remap_entries.clear();
+        observation.team_plan_groups.clear();
+        observation.markers.clear();
+        observation.custom_chunks.clear();
+        observation.world_entity_chunks.clear();
+        observation.map.world.building_centers.clear();
+
+        let plan = observation.runtime_seed_plan();
+        let regions = plan.source_regions();
+        let map_region = RegionCountExpectation {
+            source_region_name: "map",
+            world: 1,
+            remaps: 0,
+            plans: 0,
+            markers: 0,
+            fog: 0,
+            chunks: 0,
+            buildings: 0,
+            loadable: 0,
+            skipped: 0,
+        };
+
+        assert_plan_summary(&plan, false, 1, 1);
+        assert_eq!(
+            plan.detail_label(),
+            expected_plan_detail_label(false, 1, &[map_region])
+        );
+        assert_eq!(regions.len(), 1);
+        assert_source_region_counts(&regions[0], map_region);
+        assert_eq!(plan.source_region("map"), Some(regions[0].clone()));
+        assert!(plan.source_region("entities").is_none());
+        assert!(plan.source_region("markers").is_none());
+        assert!(plan.source_region("custom").is_none());
+    }
 
     #[test]
     fn runtime_seed_plan_carries_deterministic_runtime_inputs() {
@@ -489,15 +658,60 @@ mod tests {
         let plan = observation.runtime_seed_plan();
         let source_regions = plan.source_regions();
         let entities = plan.source_region("entities").unwrap();
+        let map_region = RegionCountExpectation {
+            source_region_name: "map",
+            world: 1,
+            remaps: 0,
+            plans: 0,
+            markers: 0,
+            fog: 0,
+            chunks: 0,
+            buildings: 1,
+            loadable: 0,
+            skipped: 0,
+        };
+        let entities_region = RegionCountExpectation {
+            source_region_name: "entities",
+            world: 0,
+            remaps: 2,
+            plans: 2,
+            markers: 0,
+            fog: 0,
+            chunks: 0,
+            buildings: 0,
+            loadable: 2,
+            skipped: 1,
+        };
+        let markers_region = RegionCountExpectation {
+            source_region_name: "markers",
+            world: 0,
+            remaps: 0,
+            plans: 0,
+            markers: 2,
+            fog: 0,
+            chunks: 0,
+            buildings: 0,
+            loadable: 0,
+            skipped: 0,
+        };
+        let custom_region = RegionCountExpectation {
+            source_region_name: "custom",
+            world: 0,
+            remaps: 0,
+            plans: 0,
+            markers: 0,
+            fog: 1,
+            chunks: 2,
+            buildings: 0,
+            loadable: 0,
+            skipped: 0,
+        };
 
         assert_eq!(plan.contract, observation.projection_contract());
         assert_eq!(plan.activation, observation.activation_surface());
         assert!(!plan.can_seed_runtime_apply());
-        assert_eq!(plan.seed_step_count(), 14);
-        assert_eq!(plan.summary_label(), "seed=no steps=14 regions=4");
-        assert!(plan
-            .detail_label()
-            .contains("region=entities world=0 remaps=2 plans=2 markers=0 fog=0 chunks=0 buildings=0 loadable=2 skipped=1 total=7"));
+        assert_plan_summary(&plan, false, 14, 4);
+        assert!(plan.detail_label().contains(&entities_region.summary_label()));
         assert_eq!(
             source_regions
                 .iter()
@@ -505,25 +719,22 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["map", "entities", "markers", "custom"]
         );
-        assert_eq!(source_regions[0].seed_step_count(), 2);
-        assert_eq!(source_regions[1].seed_step_count(), 7);
-        assert_eq!(source_regions[2].seed_step_count(), 2);
-        assert_eq!(source_regions[3].seed_step_count(), 3);
+        assert_source_region_counts(&source_regions[0], map_region);
+        assert_source_region_counts(&source_regions[1], entities_region);
+        assert_source_region_counts(&source_regions[2], markers_region);
+        assert_source_region_counts(&source_regions[3], custom_region);
         assert_eq!(
-            source_regions[0].summary_label(),
-            "region=map world=1 remaps=0 plans=0 markers=0 fog=0 chunks=0 buildings=1 loadable=0 skipped=0 total=2"
+            source_regions[0].world_seed.as_ref(),
+            Some(&plan.world_seed)
         );
-        assert_eq!(source_regions[0].world_seed.as_ref(), Some(&plan.world_seed));
         assert_eq!(source_regions[0].building_seeds.len(), 1);
-        assert_eq!(entities.seed_step_count(), 7);
-        assert_eq!(entities.entity_remap_seeds.len(), 2);
+        assert_source_region_counts(&entities, entities_region);
         assert_eq!(entities.team_plan_seeds.len(), 2);
-        assert_eq!(entities.loadable_entity_seeds.len(), 2);
-        assert_eq!(entities.skipped_entity_seeds.len(), 1);
 
         assert_eq!(plan.world_seed.save_version, 11);
         assert_eq!(plan.world_seed.tile_count(), 4);
         assert_eq!(plan.world_seed.building_center_count(), 1);
+        assert_eq!(plan.world_seed.patch_texts(), observation.patch_texts());
         assert_eq!(plan.entity_remap_seeds.len(), 2);
         assert_eq!(
             plan.entity_remap_seeds[0],
@@ -652,59 +863,7 @@ mod tests {
     #[test]
     fn runtime_seed_plan_is_seedable_when_activation_surface_is_clean() {
         let mut observation = test_observation();
-        observation.world_entity_chunks[1].class_id = 3;
-        observation.world_entity_chunks[1].custom_name = None;
-        observation
-            .entity_remap_summary
-            .unresolved_effective_names
-            .clear();
-        observation.entity_summary.loadable_entities = 3;
-        observation.entity_summary.skipped_entities = 0;
-        observation.entity_summary.builtin_entities = 2;
-        observation.entity_summary.custom_entities = 1;
-        observation.entity_summary.class_summaries = vec![
-            SaveEntityClassSummary {
-                class_id: 3,
-                kind: SaveEntityClassKind::Builtin,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-            SaveEntityClassSummary {
-                class_id: 4,
-                kind: SaveEntityClassKind::Builtin,
-                resolved_name: "mace".to_string(),
-                count: 1,
-            },
-            SaveEntityClassSummary {
-                class_id: 255,
-                kind: SaveEntityClassKind::Custom,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-        ];
-        observation.entity_summary.post_load_class_summaries = vec![
-            SaveEntityPostLoadClassSummary {
-                source_class_ids: vec![3],
-                effective_class_id: Some(3),
-                kind: SaveEntityPostLoadKind::Builtin,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-            SaveEntityPostLoadClassSummary {
-                source_class_ids: vec![4],
-                effective_class_id: Some(4),
-                kind: SaveEntityPostLoadKind::Builtin,
-                resolved_name: "mace".to_string(),
-                count: 1,
-            },
-            SaveEntityPostLoadClassSummary {
-                source_class_ids: vec![255],
-                effective_class_id: Some(3),
-                kind: SaveEntityPostLoadKind::RemappedBuiltin,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-        ];
+        make_observation_seedable(&mut observation);
 
         let plan = observation.runtime_seed_plan();
 
@@ -712,7 +871,7 @@ mod tests {
         assert!(plan.can_seed_runtime_apply());
         assert!(plan.activation.can_seed_runtime_apply());
         assert!(plan.skipped_entity_seeds.is_empty());
-        assert_eq!(plan.summary_label(), "seed=yes steps=14 regions=4");
+        assert_plan_summary(&plan, true, 14, 4);
         assert_eq!(
             plan.loadable_entity_seeds
                 .iter()
@@ -724,6 +883,21 @@ mod tests {
 
     #[test]
     fn runtime_seed_plan_blocks_duplicate_static_fog_data_chunks() {
+        let observation = test_observation_with_duplicate_static_fog_chunk();
+        let (plan, script) = runtime_seed_outputs(&observation);
+
+        assert_static_fog_seed_blocked(&plan, &script, "mystery");
+    }
+
+    #[test]
+    fn runtime_seed_plan_blocks_damaged_static_fog_data_chunk() {
+        let observation = test_observation_with_damaged_static_fog_chunk();
+        let (plan, script) = runtime_seed_outputs(&observation);
+
+        assert_static_fog_seed_blocked(&plan, &script, "static-fog-data");
+    }
+
+    fn test_observation_with_duplicate_static_fog_chunk() -> SavePostLoadWorldObservation {
         let mut observation = test_observation();
         observation.custom_chunks.push(CustomChunkEntry {
             name: "static-fog-data".to_string(),
@@ -732,319 +906,24 @@ mod tests {
             chunk_sha256: "fog-duplicate".to_string(),
             parsed: ParsedCustomChunk::Unknown,
         });
-
-        let plan = observation.runtime_seed_plan();
-        let script = observation.runtime_apply_script();
-
-        assert!(plan.static_fog_seed.is_none());
-        assert_eq!(plan.seed_step_count(), 12);
-        assert_eq!(plan.summary_label(), "seed=no steps=12 regions=4");
-        assert_eq!(plan.custom_chunk_seeds.len(), 1);
-        assert_eq!(plan.custom_chunk_seeds[0].name, "mystery");
-        assert_eq!(script.total_step_count(), 12);
-        assert_eq!(script.total_step_count(), plan.seed_step_count());
+        observation
     }
 
-    #[test]
-    fn runtime_seed_plan_blocks_damaged_static_fog_data_chunk() {
+    fn test_observation_with_damaged_static_fog_chunk() -> SavePostLoadWorldObservation {
         let mut observation = test_observation();
         observation.custom_chunks.truncate(1);
         observation.custom_chunks[0].parsed = ParsedCustomChunk::Unknown;
         observation.custom_chunks[0].chunk_bytes = vec![10, 11, 12];
         observation.custom_chunks[0].chunk_sha256 = "fog-corrupt".to_string();
-
-        let plan = observation.runtime_seed_plan();
-        let script = observation.runtime_apply_script();
-
-        assert!(plan.static_fog_seed.is_none());
-        assert_eq!(plan.custom_chunk_seeds.len(), 1);
-        assert_eq!(plan.custom_chunk_seeds[0].name, "static-fog-data");
-        assert_eq!(plan.seed_step_count(), 12);
-        assert!(plan
-            .detail_label()
-            .contains("region=custom world=0 remaps=0 plans=0 markers=0 fog=0 chunks=1 buildings=0 loadable=0 skipped=0 total=1"));
-        assert_eq!(script.total_step_count(), 12);
-        assert_eq!(script.total_step_count(), plan.seed_step_count());
+        observation
     }
 
-    fn test_observation() -> SavePostLoadWorldObservation {
-        SavePostLoadWorldObservation {
-            save_version: 11,
-            content_header: vec![ContentHeaderEntry {
-                content_type: 1,
-                names: vec!["core-nucleus".to_string(), "duo".to_string()],
-            }],
-            patches: vec![vec![0xaa, 0xbb]],
-            map: SaveMapRegionObservation {
-                floor_runs: 1,
-                floor_region_bytes: vec![1],
-                block_runs: 1,
-                block_region_bytes: vec![2],
-                world: test_world(),
-            },
-            entity_remap_entries: vec![
-                SaveEntityRemapEntry {
-                    custom_id: 255,
-                    name: "flare".to_string(),
-                },
-                SaveEntityRemapEntry {
-                    custom_id: 254,
-                    name: "mod-unit".to_string(),
-                },
-            ],
-            entity_remap_bytes: Vec::new(),
-            entity_remap_summary: SaveEntityRemapSummary {
-                remap_count: 2,
-                unique_custom_ids: 2,
-                duplicate_custom_ids: Vec::new(),
-                unique_names: 2,
-                duplicate_names: Vec::new(),
-                effective_custom_ids: 1,
-                resolved_builtin_custom_ids: vec![255],
-                unresolved_effective_names: vec!["mod-unit".to_string()],
-            },
-            team_plan_groups: vec![
-                TeamPlanGroup {
-                    team_id: 1,
-                    plan_count: 1,
-                    plans: vec![TeamPlan {
-                        x: 1,
-                        y: 1,
-                        rotation: 0,
-                        block_id: 0x0101,
-                        config: TypeIoValue::Null,
-                        config_bytes: Vec::new(),
-                        config_sha256: "plan-a".to_string(),
-                    }],
-                },
-                TeamPlanGroup {
-                    team_id: 2,
-                    plan_count: 1,
-                    plans: vec![TeamPlan {
-                        x: 0,
-                        y: 1,
-                        rotation: 1,
-                        block_id: 0x0102,
-                        config: TypeIoValue::Integer(7),
-                        config_bytes: vec![7],
-                        config_sha256: "plan-b".to_string(),
-                    }],
-                },
-            ],
-            team_region_bytes: vec![3],
-            world_entity_count: 3,
-            world_entity_bytes: vec![4],
-            world_entity_chunks: vec![
-                SaveEntityChunkObservation {
-                    chunk_len: 3,
-                    chunk_bytes: vec![4, 5, 6],
-                    chunk_sha256: "chunk-remap".to_string(),
-                    class_id: 255,
-                    custom_name: Some("flare".to_string()),
-                    entity_id: 42,
-                    body_len: 2,
-                    body_bytes: vec![5, 6],
-                    body_sha256: "entity-remap".to_string(),
-                },
-                SaveEntityChunkObservation {
-                    chunk_len: 3,
-                    chunk_bytes: vec![6, 7, 8],
-                    chunk_sha256: "chunk-skip".to_string(),
-                    class_id: 254,
-                    custom_name: Some("mod-unit".to_string()),
-                    entity_id: 43,
-                    body_len: 2,
-                    body_bytes: vec![7, 8],
-                    body_sha256: "entity-skip".to_string(),
-                },
-                SaveEntityChunkObservation {
-                    chunk_len: 3,
-                    chunk_bytes: vec![8, 9, 10],
-                    chunk_sha256: "chunk-builtin".to_string(),
-                    class_id: 4,
-                    custom_name: None,
-                    entity_id: 44,
-                    body_len: 2,
-                    body_bytes: vec![9, 10],
-                    body_sha256: "entity-builtin".to_string(),
-                },
-            ],
-            markers: vec![
-                MarkerEntry {
-                    id: 11,
-                    marker: MarkerModel::Point(PointMarkerModel {
-                        class_tag: "Minimap".to_string(),
-                        world: true,
-                        minimap: true,
-                        autoscale: false,
-                        draw_layer_bits: 0.0f32.to_bits(),
-                        x_bits: 8.0f32.to_bits(),
-                        y_bits: 0.0f32.to_bits(),
-                        radius_bits: 1.0f32.to_bits(),
-                        stroke_bits: 1.0f32.to_bits(),
-                        color: Some("ffffff".to_string()),
-                    }),
-                },
-                MarkerEntry {
-                    id: 12,
-                    marker: MarkerModel::Point(PointMarkerModel {
-                        class_tag: "Objective".to_string(),
-                        world: true,
-                        minimap: false,
-                        autoscale: false,
-                        draw_layer_bits: 0.0f32.to_bits(),
-                        x_bits: 0.0f32.to_bits(),
-                        y_bits: 8.0f32.to_bits(),
-                        radius_bits: 1.5f32.to_bits(),
-                        stroke_bits: 1.0f32.to_bits(),
-                        color: Some("00ff00".to_string()),
-                    }),
-                },
-            ],
-            marker_region_bytes: b"{markers}".to_vec(),
-            custom_chunks: vec![
-                CustomChunkEntry {
-                    name: "static-fog-data".to_string(),
-                    chunk_len: 1,
-                    chunk_bytes: vec![7],
-                    chunk_sha256: "fog".to_string(),
-                    parsed: ParsedCustomChunk::StaticFog(StaticFogChunk {
-                        used_teams: 2,
-                        width: 2,
-                        height: 2,
-                        teams: vec![
-                            StaticFogTeam {
-                                team_id: 1,
-                                run_count: 1,
-                                rle_bytes: vec![8],
-                                discovered: vec![true, false, true, true],
-                            },
-                            StaticFogTeam {
-                                team_id: 2,
-                                run_count: 1,
-                                rle_bytes: vec![9],
-                                discovered: vec![false, true, false, true],
-                            },
-                        ],
-                    }),
-                },
-                CustomChunkEntry {
-                    name: "mystery".to_string(),
-                    chunk_len: 2,
-                    chunk_bytes: vec![1, 2],
-                    chunk_sha256: "mystery".to_string(),
-                    parsed: ParsedCustomChunk::Unknown,
-                },
-            ],
-            custom_region_bytes: vec![9],
-            entity_summary: SaveEntityPostLoadSummary {
-                total_entities: 3,
-                unique_entity_ids: 3,
-                duplicate_entity_ids: Vec::new(),
-                builtin_entities: 1,
-                custom_entities: 2,
-                unknown_entities: 0,
-                class_summaries: Vec::new(),
-                loadable_entities: 2,
-                skipped_entities: 1,
-                post_load_class_summaries: Vec::new(),
-            },
-        }
-    }
-
-    fn test_world() -> WorldModel {
-        let floors = vec![1, 1, 1, 1];
-        let overlays = vec![0, 0, 0, 0];
-        let blocks = vec![0x0153, 0, 0, 0];
-        WorldModel {
-            width: 2,
-            height: 2,
-            floors: floors.clone(),
-            overlays: overlays.clone(),
-            blocks: blocks.clone(),
-            tiles: vec![
-                TileModel {
-                    tile_index: 0,
-                    x: 0,
-                    y: 0,
-                    floor_id: floors[0],
-                    overlay_id: overlays[0],
-                    block_id: blocks[0],
-                    building_center_index: Some(0),
-                },
-                TileModel {
-                    tile_index: 1,
-                    x: 1,
-                    y: 0,
-                    floor_id: floors[1],
-                    overlay_id: overlays[1],
-                    block_id: blocks[1],
-                    building_center_index: None,
-                },
-                TileModel {
-                    tile_index: 2,
-                    x: 0,
-                    y: 1,
-                    floor_id: floors[2],
-                    overlay_id: overlays[2],
-                    block_id: blocks[2],
-                    building_center_index: None,
-                },
-                TileModel {
-                    tile_index: 3,
-                    x: 1,
-                    y: 1,
-                    floor_id: floors[3],
-                    overlay_id: overlays[3],
-                    block_id: blocks[3],
-                    building_center_index: None,
-                },
-            ],
-            building_centers: vec![BuildingCenter {
-                tile_index: 0,
-                x: 0,
-                y: 0,
-                block_id: 0x0153,
-                chunk_len: 3,
-                chunk_bytes: vec![0, 1, 2],
-                chunk_sha256: "center".to_string(),
-                building: BuildingSnapshot {
-                    revision: 0,
-                    base_len: 0,
-                    base: BuildingBaseSnapshot {
-                        health_bits: 1.0f32.to_bits(),
-                        rotation: 0,
-                        team_id: 1,
-                        legacy: false,
-                        save_version: None,
-                        enabled: None,
-                        module_bitmask: None,
-                        item_module: None,
-                        power_module: None,
-                        liquid_module: None,
-                        time_scale_bits: None,
-                        time_scale_duration_bits: None,
-                        last_disabler_pos: None,
-                        legacy_consume_connected: None,
-                        efficiency: None,
-                        optional_efficiency: None,
-                        visible_flags: None,
-                    },
-                    tail_len: 0,
-                    tail_bytes: Vec::new(),
-                    tail_sha256: "tail".to_string(),
-                    parsed_tail: ParsedBuildingTail::Core(crate::CoreTailSnapshot {
-                        command_pos_present: false,
-                        command_pos_x_bits: 0,
-                        command_pos_y_bits: 0,
-                    }),
-                },
-            }],
-            data_tiles: 1,
-            team_count: 2,
-            total_plans: 2,
-            team_ids: vec![1, 2],
-            team_plan_counts: vec![1, 1],
-        }
+    fn runtime_seed_outputs(
+        observation: &SavePostLoadWorldObservation,
+    ) -> (SavePostLoadRuntimeSeedPlan, SavePostLoadRuntimeApplyScript) {
+        (
+            observation.runtime_seed_plan(),
+            observation.runtime_apply_script(),
+        )
     }
 }

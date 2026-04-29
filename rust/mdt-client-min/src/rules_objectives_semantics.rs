@@ -1305,6 +1305,57 @@ mod tests {
     }
 
     #[test]
+    fn objectives_projection_set_flag_does_not_complete_matching_flag_objective_locally() {
+        let mut projection = ObjectivesProjection::default();
+
+        projection.replace_from_json(
+            r#"[{"type":"Flag","flag":"boss","completed":false,"text":"@boss"}]"#,
+        );
+
+        assert_eq!(projection.objectives.len(), 1);
+        assert!(!projection.objectives[0].completed);
+        assert!(projection.objectives[0].qualified);
+
+        projection.apply_set_flag(Some("boss"), true);
+
+        assert!(projection.objective_flags.contains("boss"));
+        assert!(!projection.objectives[0].completed);
+        assert!(projection.objectives[0].qualified);
+        assert_eq!(projection.complete_by_index_count, 0);
+        assert_eq!(projection.last_completed_index, None);
+    }
+
+    #[test]
+    fn objectives_projection_set_flag_hit_does_not_advance_parent_child_qualified_chain() {
+        let mut projection = ObjectivesProjection::default();
+
+        projection.replace_from_json(
+            r#"[{"type":"Flag","flag":"boss","completed":false},{"type":"Research","content":"router","completed":false,"parents":[0]},{"type":"Research","content":"duo","completed":false,"parents":[1]}]"#,
+        );
+
+        assert_eq!(projection.objectives.len(), 3);
+        assert!(projection.objectives[0].qualified);
+        assert!(!projection.objectives[1].qualified);
+        assert!(!projection.objectives[2].qualified);
+
+        projection.apply_set_flag(Some("boss"), true);
+
+        assert!(projection.objective_flags.contains("boss"));
+        assert!(!projection.objectives[0].completed);
+        assert!(projection.objectives[0].qualified);
+        assert!(!projection.objectives[1].qualified);
+        assert!(!projection.objectives[2].qualified);
+        assert_eq!(projection.qualified_count(), 1);
+
+        projection.complete_by_index(0);
+
+        assert!(projection.objectives[0].completed);
+        assert!(projection.objectives[1].qualified);
+        assert!(!projection.objectives[2].qualified);
+        assert_eq!(projection.qualified_count(), 1);
+    }
+
+    #[test]
     fn objectives_projection_counts_only_parsed_string_flags() {
         let mut projection = ObjectivesProjection::default();
 
@@ -1373,6 +1424,36 @@ mod tests {
         assert_eq!(projection.complete_by_index_count, 2);
         assert_eq!(projection.complete_out_of_range_count, 0);
         assert_eq!(projection.last_completed_index, Some(0));
+    }
+
+    #[test]
+    fn objectives_projection_replace_from_json_preserves_flags_and_skips_completed_flag_replay() {
+        let mut projection = ObjectivesProjection::default();
+
+        projection.replace_from_json(
+            r#"[{"type":"Research","content":"router","completed":false,"flagsAdded":["persisted-add"],"flagsRemoved":["seed-removed"]}]"#,
+        );
+        projection.apply_set_flag(Some("seed-removed"), true);
+        projection.apply_set_flag(Some("sticky"), true);
+        projection.complete_by_index(0);
+
+        let flags_before_replace = projection.objective_flags.clone();
+        assert!(flags_before_replace.contains("persisted-add"));
+        assert!(flags_before_replace.contains("sticky"));
+        assert!(!flags_before_replace.contains("seed-removed"));
+
+        projection.replace_from_json(
+            r#"[{"type":"Research","content":"duo","completed":true,"flagsAdded":["replayed-add"],"flagsRemoved":["persisted-add","sticky"]},{"type":"Research","content":"surge","completed":false,"parents":[0]}]"#,
+        );
+
+        assert_eq!(projection.objective_flags, flags_before_replace);
+        assert!(!projection.objective_flags.contains("replayed-add"));
+        assert!(projection.objectives[0].completed);
+        assert!(!projection.objectives[0].qualified);
+        assert!(projection.objectives[1].qualified);
+        assert_eq!(projection.replaced_from_set_objectives_count, 2);
+        assert_eq!(projection.complete_by_index_count, 1);
+        assert_eq!(projection.last_completed_index, None);
     }
 
     #[test]

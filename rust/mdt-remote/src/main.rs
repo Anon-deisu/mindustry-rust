@@ -7,6 +7,7 @@ use std::{
 
 const USAGE: &str =
     "usage: mdt-remote <manifest-path> [registry-output-path] [high-frequency-output-path] [inbound-dispatch-output-path]";
+type CliParseArgs = (String, Option<PathBuf>, Option<PathBuf>, Option<PathBuf>);
 
 fn main() -> Result<(), Box<dyn Error>> {
     let (manifest_path, output_path, high_frequency_output_path, inbound_dispatch_output_path) =
@@ -47,9 +48,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn parse_args(
-    mut args: impl Iterator<Item = String>,
-) -> Result<(String, Option<PathBuf>, Option<PathBuf>, Option<PathBuf>), &'static str> {
+fn parse_args(mut args: impl Iterator<Item = String>) -> Result<CliParseArgs, &'static str> {
     let manifest_path = args.next().ok_or(USAGE)?;
     let output_path = args.next().map(PathBuf::from);
     let high_frequency_output_path = args.next().map(PathBuf::from);
@@ -180,13 +179,17 @@ where
         if let Some(high_frequency_output_path) = high_frequency_output_path {
             write_output_file(
                 high_frequency_output_path,
-                generated_high_frequency.as_deref().expect("generated above"),
+                generated_high_frequency
+                    .as_deref()
+                    .expect("generated above"),
             )?;
         }
         if let Some(inbound_dispatch_output_path) = inbound_dispatch_output_path {
             write_output_file(
                 inbound_dispatch_output_path,
-                generated_inbound_dispatch.as_deref().expect("generated above"),
+                generated_inbound_dispatch
+                    .as_deref()
+                    .expect("generated above"),
             )?;
         }
         Ok(None)
@@ -223,19 +226,68 @@ fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        default_high_frequency_output_path, default_inbound_dispatch_output_path,
-        emit_outputs, parse_args, reject_overlapping_output_paths, USAGE,
+        default_high_frequency_output_path, default_inbound_dispatch_output_path, emit_outputs,
+        parse_args, reject_overlapping_output_paths, USAGE,
     };
     use std::{
         fs,
-        path::Path,
+        path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    struct TempDirFixture {
+        path: PathBuf,
+    }
+
+    impl TempDirFixture {
+        fn new(prefix: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "{prefix}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            Self { path }
+        }
+
+        fn join(&self, path: &str) -> PathBuf {
+            self.path.join(path)
+        }
+    }
+
+    impl Drop for TempDirFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn remote_output_path(file_name: &str) -> PathBuf {
+        Path::new("build").join("mdt-remote").join(file_name)
+    }
+
+    fn assert_overlap_error(
+        output_path: &Path,
+        high_frequency_output_path: &Path,
+        inbound_dispatch_output_path: &Path,
+        expected_labels: &str,
+    ) {
+        let err = reject_overlapping_output_paths(
+            Some(output_path),
+            Some(high_frequency_output_path),
+            Some(inbound_dispatch_output_path),
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains(&format!(
+            "output paths for {expected_labels} must not overlap"
+        )));
+    }
+
     #[test]
     fn derives_sibling_high_frequency_output_path() {
-        let actual =
-            default_high_frequency_output_path(Path::new("build/mdt-remote/remote-registry.rs"));
+        let actual = default_high_frequency_output_path(&remote_output_path("remote-registry.rs"));
         assert!(actual.ends_with("build/mdt-remote/remote-high-frequency.rs"));
     }
 
@@ -248,7 +300,7 @@ mod tests {
     #[test]
     fn derives_sibling_inbound_dispatch_output_path() {
         let actual =
-            default_inbound_dispatch_output_path(Path::new("build/mdt-remote/remote-registry.rs"));
+            default_inbound_dispatch_output_path(&remote_output_path("remote-registry.rs"));
         assert!(actual.ends_with("build/mdt-remote/remote-inbound-dispatch.rs"));
     }
 
@@ -260,14 +312,16 @@ mod tests {
 
     #[test]
     fn rejects_extra_arguments() {
-        let err = parse_args(vec![
-            "manifest.json".to_string(),
-            "registry.rs".to_string(),
-            "high-frequency.rs".to_string(),
-            "inbound.rs".to_string(),
-            "extra.rs".to_string(),
-        ]
-        .into_iter())
+        let err = parse_args(
+            vec![
+                "manifest.json".to_string(),
+                "registry.rs".to_string(),
+                "high-frequency.rs".to_string(),
+                "inbound.rs".to_string(),
+                "extra.rs".to_string(),
+            ]
+            .into_iter(),
+        )
         .unwrap_err();
 
         assert_eq!(err, USAGE);
@@ -295,14 +349,7 @@ mod tests {
 
     #[test]
     fn emit_outputs_does_not_leave_partial_artifacts_on_generation_error() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "mdt-remote-emit-outputs-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let temp_dir = TempDirFixture::new("mdt-remote-emit-outputs");
         let registry_path = temp_dir.join("registry.rs");
         let high_frequency_path = temp_dir.join("high-frequency.rs");
         let inbound_dispatch_path = temp_dir.join("inbound-dispatch.rs");
@@ -324,35 +371,25 @@ mod tests {
         assert!(!registry_path.exists());
         assert!(!high_frequency_path.exists());
         assert!(!inbound_dispatch_path.exists());
-
-        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
     fn rejects_overlapping_output_paths() {
-        let err = reject_overlapping_output_paths(
-            Some(Path::new("build/mdt-remote/remote-registry.rs")),
-            Some(Path::new("build/mdt-remote/remote-registry.rs")),
-            Some(Path::new("build/mdt-remote/remote-inbound-dispatch.rs")),
-        )
-        .unwrap_err();
-
-        assert!(err
-            .to_string()
-            .contains("output paths for registry and high-frequency must not overlap"));
+        assert_overlap_error(
+            &remote_output_path("remote-registry.rs"),
+            &remote_output_path("remote-registry.rs"),
+            &remote_output_path("remote-inbound-dispatch.rs"),
+            "registry and high-frequency",
+        );
     }
 
     #[test]
     fn reject_overlapping_output_paths_canonicalizes_relative_segments() {
-        let err = reject_overlapping_output_paths(
-            Some(Path::new("build/mdt-remote/remote-registry.rs")),
-            Some(Path::new("build/mdt-remote/./remote-registry.rs")),
-            Some(Path::new("build/mdt-remote/remote-inbound-dispatch.rs")),
-        )
-        .unwrap_err();
-
-        assert!(err
-            .to_string()
-            .contains("output paths for registry and high-frequency must not overlap"));
+        assert_overlap_error(
+            &remote_output_path("remote-registry.rs"),
+            Path::new("build/mdt-remote/./remote-registry.rs"),
+            &remote_output_path("remote-inbound-dispatch.rs"),
+            "registry and high-frequency",
+        );
     }
 }

@@ -43,6 +43,9 @@ These are already landed and should not be re-opened as if missing:
     - `message` family empty-string fallback shell
     - reconstructor family explicit `None` command shell when runtime/config is absent
   - remaining work is broader family depth and deeper Java-like runtime semantics, not re-adding these shell baselines
+- power-node alias live-apply regression coverage is now explicitly landed.
+  - `power-node-large` / `surge-tower` / `beam-link` now have direct `runtime_typed_building_apply_projection` + `building_live_state_projection` regression coverage across `constructFinish -> tileConfig -> deconstructFinish`
+  - remaining work is deeper live building semantics, not re-opening alias-level `PowerNode` runtime wiring as if missing
 - `hiddenSnapshot` lifecycle delete is already narrowed to known runtime-owned non-local semantics instead of deleting every hidden entity row.
   - current cleanup now covers non-local `Unit` / `Fire` / `Puddle` / `WeatherState`
   - `WorldLabel` is still intentionally preserved as a conservative boundary
@@ -53,6 +56,8 @@ These are already landed and should not be re-opened as if missing:
   - `EntityTableProjection::apply_hidden_ids(...)` mirrors the newest hidden-id set instead of only setting `hidden=true`
   - remaining hidden work is deeper runtime semantics, not re-fixing stale hidden flags on surviving rows
 - `effect(..., data)` runtime overlay already consumes the `float_length` contract for ray-endpoint projection.
+- `effect_id=12` / `move_command` is already pinned as a payload-driven compatibility path.
+  - keep the named `move_command` contract label, but do not reopen it as a generic `PositionTarget` business-projection bug
 - `tileConfig` authority reconcile is no longer a single-value last-write-only pending model.
   - per-building local intents now keep FIFO request order
   - authoritative `tileConfig` / `constructFinish` / parse-fail fallback only resolve the oldest pending request
@@ -94,11 +99,15 @@ These are already landed and should not be re-opened as if missing:
   - `relay` spec parser regressions now pin empty-field / extra-`@` / invalid-transport rejection
   - `surface` reset regressions now also pin summary/latest-view clearing for redirect/world-stream resets
   - `surface` decode-error regressions now also cover invalid UTF-8 binary payloads and logic `no_string_payload` failures
+- runtime transient reset trigger classification is now centralized on `ClientSessionEvent`.
+  - `WorldDataBegin` / `WorldStreamStarted` / `ConnectRedirectRequested` now share `resets_runtime_transients()` plus `preferred_runtime_transient_reset_reason(...)`
+  - `custom_packet_runtime_relay`, `custom_packet_runtime_surface`, and `render_runtime` now consume that shared policy instead of keeping their own parallel match trees
 - `net_loop` inbound packet invariants are now covered on all three low-risk paths.
   - regression coverage now pins decode-failure no-op, unknown-packet no-op, and classified snapshot success-path counter/state updates
 - minimal command-mode state container is already landed.
   - `mdt-input` now carries `CommandModeState` / `CommandModeProjection` with selected-units, command-buildings, command-rect, control-groups, and last target/command/stance selections
   - `mdt-client-min-online` runtime outbound action sync now updates that container instead of keeping command-mode as packet-observability-only state
+  - `SetTarget` must not regress back to unit-style target recording that clears `command_buildings`
 - builder-queue local activity now treats incomplete observation sets as non-authoritative for reordering.
   - `update_local_activity(...)` only rotates/falls back when the active queue has a complete observation set
   - missing later observations no longer spuriously move the queue head
@@ -128,6 +137,12 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-world` runtime-apply batch view helper is now also landed.
   - `runtime_apply_batch_view()` now folds non-empty consumer runtime stages into deterministic contiguous apply batches, preserving batch order, per-batch disposition, stage detail, aggregated `step_count`, and deduplicated blockers for later runtime owners
   - remaining `M7-3` work is still executing those batches inside real runtime/world ownership, not re-adding this passive batch-view helper
+- `mdt-world` save-post-load source-region / bool-label helper drift is now centralized.
+  - `save_post_load_runtime_source_region.rs` now owns shared step -> source-region mapping and sort order, while `lib.rs` owns shared `yes/no` and `1/0` bool label helpers used by save-post-load summaries
+  - future work on execution/consumer/contract/ownership views should extend those shared helpers instead of reintroducing per-module copies
+- `mdt-render-ui` runtime UI text helper drift is now centralized.
+  - `compact_runtime_ui_text`, Unicode-scalar text length, and URI-scheme extraction now live in `presenter_view.rs`
+  - `ascii_presenter`, `window_presenter`, and `hud_model` now reuse that shared helper surface instead of keeping local copies
 - `mdt-typeio` raw `WeaponMount[]` codec is already landed.
   - remaining non-object codec gap is now more about `abilities/status` and wider unit-sync families than mounts specifically
 - `mdt-typeio` read-side guard coverage is now wider for several low-risk scalar/container paths.
@@ -264,9 +279,9 @@ These are already landed and should not be re-opened as if missing:
   - `effect_contract(Some(142))` now resolves to `drop_item`, and the runtime effect executor projects the overlay origin forward along rotation with fixed-length `dropItem` behavior instead of leaving it as a generic item-content packet summary
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this first `drop_item` slice
 - narrow `effect_id=10` `point_beam` contract/executor wiring is now also landed.
-  - `effect_contract(Some(10))` now resolves to `point_beam`, contract-aware business projection still reuses the existing `PositionTarget { source, target }` payload semantics, and runtime rendering now keeps the dedicated beam line behavior keyed to `effect_id=10`
-  - Rust now also carries the same narrow unit-parent source-follow binding for `effect_id=10`, so the spawned beam start no longer freezes at the original packet origin when the parent unit later moves
-  - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families plus deeper parent/source parity, not re-adding this `point_beam` slice
+  - `effect_contract(Some(10))` now resolves to `point_beam`, contract-aware business projection still reuses the existing `PositionTarget { source, target }` payload semantics, and runtime rendering now keeps the dedicated snapshot-beam line behavior keyed to `effect_id=10`
+  - Upstream-equivalent reading for `effect_id=10` is `snapshot beam`, not source-follow: this slice should be counted as beam rendering over the captured packet `source/target` snapshot rather than as a parentized source-follow family
+  - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families plus deeper parent/source parity elsewhere, not reclassifying this `point_beam` slice as source-follow
 - narrow `effect_id=11` `pointHit` contract/executor wiring is now also landed.
   - `effect_contract(Some(11))` now resolves to `point_hit`, session/runtime surfaces keep the dedicated contract name, and runtime rendering now emits an expanding hit-ring fallback from the effect position instead of stopping at a generic marker
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this `pointHit` slice
@@ -287,6 +302,7 @@ These are already landed and should not be re-opened as if missing:
   - remaining `E3` work is now narrower: Rust still lacks full `position_target` source-follow parity, richer binding/fallback observability, and deeper effect-instance parity, but live building-parent follow, missing-parent fallback, `rotWithParent`, `startDelay`, `clip`, and the first lifetime-aware overlay path are already landed
 - narrow `effect_id=261/262` `chainLightning` / `chainEmp` executor wiring is now also landed.
   - Rust now keeps deterministic segmented chain line overlays for `261/262` on top of the existing `position_target` payload semantics instead of stopping at a single marker/target projection
+  - Upstream-equivalent source semantics for `178/261/262` remain explicit `no-follow`; this landed slice closes executor/render coverage only and should not be counted as source-follow support
 - narrow `effect_id=13` `lightning` contract/executor wiring is now also landed.
   - Rust now maps `effect_id=13` to `lightning`, preserves `Vec2Array` polyline payloads in business/runtime projection, and renders per-overlay lightning segments instead of collapsing to a single first-point marker
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding these first chain-effect slices

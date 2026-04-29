@@ -24,11 +24,14 @@ pub use hud_model::{
     RuntimeCoreBindingObservability, RuntimeHudTextObservability, RuntimeKickObservability,
     RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
     RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
-    RuntimeLoadingObservability, RuntimeMenuObservability, RuntimeReconnectObservability,
+    RuntimeLoadingObservability, RuntimeMenuObservability,
+    RuntimePayloadSubtreeStatusObservability, RuntimeReconnectObservability,
     RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
     RuntimeResourceDeltaObservability, RuntimeRulesObservability, RuntimeSessionObservability,
     RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeTextInputObservability,
-    RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
+    RuntimeToastObservability, RuntimeUiObservability,
+    RuntimeUnitControllerAttackTargetObservability, RuntimeUnitControllerCommandQueueObservability,
+    RuntimeUnitControllerObservability, RuntimeWorldLabelObservability,
     RuntimeWorldPositionObservability, RuntimeWorldReloadObservability,
 };
 pub use projection::{

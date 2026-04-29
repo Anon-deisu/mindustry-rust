@@ -134,17 +134,31 @@ mod tests {
     use super::{parse_args, USAGE};
     use std::path::PathBuf;
 
+    fn argv(args: &[&str]) -> std::vec::IntoIter<String> {
+        args.iter()
+            .map(|arg| (*arg).to_string())
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    fn parse_ok(args: &[&str]) -> PathBuf {
+        parse_args(argv(args)).unwrap()
+    }
+
+    fn parse_err(args: &[&str]) -> String {
+        parse_args(argv(args)).unwrap_err().to_string()
+    }
+
     #[test]
     fn rejects_extra_arguments() {
-        let err = parse_args(vec!["out".to_string(), "extra".to_string()].into_iter())
-            .unwrap_err();
+        let err = parse_err(&["out", "extra"]);
 
-        assert_eq!(err.to_string(), USAGE);
+        assert_eq!(err, USAGE);
     }
 
     #[test]
     fn accepts_single_output_dir() {
-        let output_dir = parse_args(vec!["out".to_string()].into_iter()).unwrap();
+        let output_dir = parse_ok(&["out"]);
 
         assert_eq!(output_dir, PathBuf::from("out"));
     }

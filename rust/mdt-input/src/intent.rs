@@ -110,10 +110,7 @@ mod tests {
             "mining=none"
         );
         assert_eq!(
-            PlayerIntent::SetMiningTile {
-                tile: Some((7, 8))
-            }
-            .summary_label(),
+            PlayerIntent::SetMiningTile { tile: Some((7, 8)) }.summary_label(),
             "mining=7,8"
         );
         assert_eq!(

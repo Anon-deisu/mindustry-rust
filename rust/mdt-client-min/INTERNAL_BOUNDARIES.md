@@ -3,6 +3,11 @@
 This note is a local placement guide for new `mdt-client-min` work.
 It does not redefine release scope or claim full Java parity.
 
+## Default Parity Baseline
+
+- Unless a task explicitly names another target, parity comparison/default upstream baseline is `D:/MDT/mindustry-upstream-v157.4`.
+- This baseline tracks upstream latest release `v157.4` (2026-04-22).
+
 ## Current Role Map
 
 `client_session.rs`
@@ -49,6 +54,42 @@ It does not redefine release scope or claim full Java parity.
 - New HUD/status labels belong in `render_runtime.rs`.
 - New print/watch summaries belong in `event_summary.rs`.
 - If a change only needs packet dispatch plus projection updates, keep it out of snapshot/bootstrap files.
+
+## Runtime Observability Contract: `controller_v2`
+
+`controller_v2` is the preferred runtime observability contract for owned-unit controller state.
+Treat it as a structured DTO exposed from business/session projections into runtime render/UI layers.
+Do not introduce new controller meaning by extending opaque text labels first.
+
+### Contract Shape
+
+- `controller_v2` is the source-of-truth contract for runtime observability.
+- It should carry structured fields with stable semantics that UI/render layers can format deterministically.
+- Legacy controller detail text may still exist for compatibility, but it is a fallback/output bridge rather than the primary contract.
+
+### Legacy Compatibility
+
+- Keep legacy `detail`/string output only for compatibility with existing HUD, ASCII, window, or test expectations.
+- New logic should read structured `controller_v2` fields first and derive text from them.
+- Do not add new controller-only semantics exclusively inside legacy detail strings.
+
+### Minimal Field Semantics
+
+At minimum, `controller_v2` should preserve the smallest stable meaning set needed by runtime observability:
+
+- controller kind/type identity
+- controller value/entity/unit reference identity when present
+- command/control mode linkage needed by runtime summaries
+- queue/selection/target summary bits only when they are part of controller meaning rather than unrelated UI state
+
+If a field is not required to preserve controller meaning across runtime summaries, do not force it into the base contract.
+
+### Modification Rules
+
+- Extend `controller_v2` only when the new field has stable cross-layer meaning and more than one consumer would otherwise need to re-parse text.
+- Prefer additive changes; avoid renaming or redefining existing structured semantics without updating all downstream formatters/tests together.
+- When adding a new structured field, keep legacy text output behavior compatible until all consumers are migrated.
+- If text formatting changes are required, treat them as a formatter/output change layered on top of the structured contract, not as the contract itself.
 
 ## High-Conflict Areas
 

@@ -215,17 +215,62 @@ fn normalize_vector(value: (f32, f32)) -> (f32, f32) {
 mod tests {
     use super::*;
 
+    const DEFAULT_UNIT_ID: i32 = 7;
+
+    fn probe_controller(step: (f32, f32)) -> MovementProbeController {
+        MovementProbeController::new(MovementProbeConfig { step })
+    }
+
+    fn live_runtime(position: (f32, f32)) -> RuntimeInputState {
+        RuntimeInputState {
+            unit_id: Some(DEFAULT_UNIT_ID),
+            dead: false,
+            position: Some(position),
+            pointer: None,
+        }
+    }
+
+    fn idle_sample() -> RuntimeInputSample {
+        RuntimeInputSample {
+            position: None,
+            pointer: None,
+            velocity: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        }
+    }
+
+    fn assert_probe_update(
+        update: &MovementProbeUpdate,
+        expected_position: (f32, f32),
+        expected_pointer: (f32, f32),
+    ) {
+        assert_eq!(update.position, expected_position);
+        assert_eq!(update.view_center, expected_position);
+        assert_eq!(update.pointer, expected_pointer);
+    }
+
+    fn assert_snapshot_axes(
+        snapshot: &InputSnapshot,
+        expected_move_axis: (f32, f32),
+        expected_aim_axis: (f32, f32),
+    ) {
+        assert_eq!(snapshot.move_axis, expected_move_axis);
+        assert_eq!(snapshot.aim_axis, expected_aim_axis);
+    }
+
     #[test]
     fn advance_returns_none_without_live_positioned_unit() {
-        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (1.0, 0.0) });
+        let mut controller = probe_controller((1.0, 0.0));
 
         assert_eq!(
             controller.advance(
                 RuntimeInputState {
                     unit_id: None,
-                    dead: false,
-                    position: Some((1.0, 2.0)),
-                    pointer: None,
+                    ..live_runtime((1.0, 2.0))
                 },
                 100,
                 50,
@@ -236,10 +281,8 @@ mod tests {
         assert_eq!(
             controller.advance(
                 RuntimeInputState {
-                    unit_id: Some(7),
                     dead: true,
-                    position: Some((1.0, 2.0)),
-                    pointer: None,
+                    ..live_runtime((1.0, 2.0))
                 },
                 100,
                 50,
@@ -250,10 +293,8 @@ mod tests {
         assert_eq!(
             controller.advance(
                 RuntimeInputState {
-                    unit_id: Some(7),
-                    dead: false,
                     position: None,
-                    pointer: None,
+                    ..live_runtime((1.0, 2.0))
                 },
                 100,
                 50,
@@ -265,18 +306,14 @@ mod tests {
 
     #[test]
     fn advance_steps_once_per_interval_and_tracks_time() {
-        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (2.0, 3.0) });
+        let mut controller = probe_controller((2.0, 3.0));
         let runtime = RuntimeInputState {
             unit_id: Some(77),
-            dead: false,
-            position: Some((10.0, 20.0)),
-            pointer: None,
+            ..live_runtime((10.0, 20.0))
         };
 
         let first = controller.advance(runtime, 1_000, 500, None).unwrap();
-        assert_eq!(first.position, (12.0, 23.0));
-        assert_eq!(first.view_center, (12.0, 23.0));
-        assert_eq!(first.pointer, (12.0, 23.0));
+        assert_probe_update(&first, (12.0, 23.0), (12.0, 23.0));
         assert_eq!(first.velocity, (2.0, 3.0));
         assert_eq!(first.rotation_degrees, probe_heading_degrees((2.0, 3.0)));
         assert_eq!(
@@ -288,21 +325,19 @@ mod tests {
         assert_eq!(controller.advance(runtime, 1_200, 500, None), None);
 
         let second = controller.advance(runtime, 1_500, 500, None).unwrap();
-        assert_eq!(second.position, (12.0, 23.0));
+        assert_probe_update(&second, (12.0, 23.0), (12.0, 23.0));
         assert_eq!(controller.last_step_at_ms(), Some(1_500));
     }
 
     #[test]
     fn advance_keeps_locked_pointer_when_present() {
-        let mut controller =
-            MovementProbeController::new(MovementProbeConfig { step: (1.0, -2.0) });
+        let mut controller = probe_controller((1.0, -2.0));
         let update = controller
             .advance(
                 RuntimeInputState {
                     unit_id: Some(99),
-                    dead: false,
-                    position: Some((5.0, 6.0)),
                     pointer: Some((100.0, 200.0)),
+                    ..live_runtime((5.0, 6.0))
                 },
                 250,
                 100,
@@ -310,21 +345,18 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(update.position, (6.0, 4.0));
-        assert_eq!(update.pointer, (100.0, 200.0));
+        assert_probe_update(&update, (6.0, 4.0), (100.0, 200.0));
     }
 
     #[test]
     fn advance_preserves_runtime_pointer_when_no_locked_pointer_is_configured() {
-        let mut controller =
-            MovementProbeController::new(MovementProbeConfig { step: (1.0, -2.0) });
+        let mut controller = probe_controller((1.0, -2.0));
         let update = controller
             .advance(
                 RuntimeInputState {
                     unit_id: Some(99),
-                    dead: false,
-                    position: Some((5.0, 6.0)),
                     pointer: Some((40.0, 50.0)),
+                    ..live_runtime((5.0, 6.0))
                 },
                 250,
                 100,
@@ -332,21 +364,17 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(update.position, (6.0, 4.0));
-        assert_eq!(update.view_center, (6.0, 4.0));
-        assert_eq!(update.pointer, (40.0, 50.0));
+        assert_probe_update(&update, (6.0, 4.0), (40.0, 50.0));
     }
 
     #[test]
     fn advance_falls_back_to_next_position_when_runtime_pointer_is_non_finite() {
-        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (2.0, 1.0) });
+        let mut controller = probe_controller((2.0, 1.0));
         let update = controller
             .advance(
                 RuntimeInputState {
-                    unit_id: Some(7),
-                    dead: false,
-                    position: Some((10.0, 20.0)),
                     pointer: Some((f32::NAN, 99.0)),
+                    ..live_runtime((10.0, 20.0))
                 },
                 100,
                 50,
@@ -354,20 +382,17 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(update.position, (12.0, 21.0));
-        assert_eq!(update.pointer, (12.0, 21.0));
+        assert_probe_update(&update, (12.0, 21.0), (12.0, 21.0));
     }
 
     #[test]
     fn advance_falls_back_to_next_position_when_locked_and_runtime_pointers_are_non_finite() {
-        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (2.0, 1.0) });
+        let mut controller = probe_controller((2.0, 1.0));
         let update = controller
             .advance(
                 RuntimeInputState {
-                    unit_id: Some(7),
-                    dead: false,
-                    position: Some((10.0, 20.0)),
                     pointer: Some((f32::NAN, 99.0)),
+                    ..live_runtime((10.0, 20.0))
                 },
                 100,
                 50,
@@ -375,24 +400,15 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(update.position, (12.0, 21.0));
-        assert_eq!(update.view_center, (12.0, 21.0));
-        assert_eq!(update.pointer, (12.0, 21.0));
+        assert_probe_update(&update, (12.0, 21.0), (12.0, 21.0));
     }
 
     #[test]
     fn advance_ignores_non_finite_position_or_step() {
-        let mut controller = MovementProbeController::new(MovementProbeConfig {
-            step: (f32::NAN, 1.0),
-        });
+        let mut controller = probe_controller((f32::NAN, 1.0));
         assert_eq!(
             controller.advance(
-                RuntimeInputState {
-                    unit_id: Some(7),
-                    dead: false,
-                    position: Some((10.0, 20.0)),
-                    pointer: None,
-                },
+                live_runtime((10.0, 20.0)),
                 100,
                 50,
                 None,
@@ -400,30 +416,18 @@ mod tests {
             None
         );
 
-        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (0.0, 0.0) });
+        let mut controller = probe_controller((0.0, 0.0));
         assert_eq!(
-            controller.advance(
-                RuntimeInputState {
-                    unit_id: Some(7),
-                    dead: false,
-                    position: Some((10.0, 20.0)),
-                    pointer: None,
-                },
-                100,
-                50,
-                None,
-            ),
+            controller.advance(live_runtime((10.0, 20.0)), 100, 50, None),
             None
         );
 
-        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (1.0, 2.0) });
+        let mut controller = probe_controller((1.0, 2.0));
         assert_eq!(
             controller.advance(
                 RuntimeInputState {
-                    unit_id: Some(7),
-                    dead: false,
                     position: Some((f32::INFINITY, 20.0)),
-                    pointer: None,
+                    ..live_runtime((10.0, 20.0))
                 },
                 100,
                 50,
@@ -435,16 +439,13 @@ mod tests {
 
     #[test]
     fn advance_rejects_overflowing_step_results() {
-        let mut controller =
-            MovementProbeController::new(MovementProbeConfig { step: (f32::MAX, 0.0) });
+        let mut controller = probe_controller((f32::MAX, 0.0));
 
         assert_eq!(
             controller.advance(
                 RuntimeInputState {
-                    unit_id: Some(7),
-                    dead: false,
                     position: Some((f32::MAX, 1.0)),
-                    pointer: None,
+                    ..live_runtime((10.0, 20.0))
                 },
                 100,
                 50,
@@ -465,11 +466,10 @@ mod tests {
             building: true,
             shooting: true,
             boosting: true,
-            chatting: false,
+            ..idle_sample()
         });
 
-        assert_eq!(snapshot.move_axis, (1.5, -2.5));
-        assert_eq!(snapshot.aim_axis, (16.0, 24.0));
+        assert_snapshot_axes(&snapshot, (1.5, -2.5), (16.0, 24.0));
         assert_eq!(snapshot.mining_tile, Some((9, 11)));
         assert!(snapshot.building);
         assert_eq!(
@@ -482,34 +482,20 @@ mod tests {
     fn sample_runtime_input_snapshot_falls_back_to_position_for_aim_axis() {
         let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
             position: Some((5.0, 6.0)),
-            pointer: None,
-            velocity: (0.0, 0.0),
-            mining_tile: None,
-            building: false,
-            shooting: false,
-            boosting: false,
             chatting: true,
+            ..idle_sample()
         });
 
-        assert_eq!(snapshot.aim_axis, (5.0, 6.0));
+        assert_snapshot_axes(&snapshot, (0.0, 0.0), (5.0, 6.0));
         assert_eq!(snapshot.active_actions, vec![BinaryAction::Chat]);
         assert_eq!(snapshot.config_tap_tile, None);
     }
 
     #[test]
     fn sample_runtime_input_snapshot_defaults_aim_axis_when_runtime_has_no_position_or_pointer() {
-        let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
-            position: None,
-            pointer: None,
-            velocity: (0.0, 0.0),
-            mining_tile: None,
-            building: false,
-            shooting: false,
-            boosting: false,
-            chatting: false,
-        });
+        let snapshot = sample_runtime_input_snapshot(idle_sample());
 
-        assert_eq!(snapshot.aim_axis, (0.0, 0.0));
+        assert_snapshot_axes(&snapshot, (0.0, 0.0), (0.0, 0.0));
         assert!(snapshot.active_actions.is_empty());
     }
 
@@ -519,26 +505,17 @@ mod tests {
             position: Some((f32::INFINITY, 6.0)),
             pointer: Some((f32::NAN, 24.0)),
             velocity: (f32::NAN, 0.0),
-            mining_tile: None,
-            building: false,
-            shooting: false,
-            boosting: false,
-            chatting: false,
+            ..idle_sample()
         });
 
-        assert_eq!(snapshot.aim_axis, (0.0, 0.0));
-        assert_eq!(snapshot.move_axis, (0.0, 0.0));
-        assert!(!(RuntimeInputSample {
-            position: None,
-            pointer: None,
-            velocity: (f32::NAN, 0.0),
-            mining_tile: None,
-            building: false,
-            shooting: false,
-            boosting: false,
-            chatting: false,
-        }
-        .has_movement()));
+        assert_snapshot_axes(&snapshot, (0.0, 0.0), (0.0, 0.0));
+        assert!(
+            !(RuntimeInputSample {
+                velocity: (f32::NAN, 0.0),
+                ..idle_sample()
+            }
+            .has_movement())
+        );
     }
 
     #[test]
@@ -546,13 +523,8 @@ mod tests {
         assert_eq!(
             classify_runtime_input_sample(RuntimeInputSample {
                 position: Some((1.0, 2.0)),
-                pointer: None,
                 velocity: (f32::INFINITY, 0.0),
-                mining_tile: None,
-                building: false,
-                shooting: false,
-                boosting: false,
-                chatting: false,
+                ..idle_sample()
             }),
             RuntimeInputSampleKind::Idle
         );
@@ -562,40 +534,24 @@ mod tests {
     fn classify_runtime_input_sample_tracks_idle_movement_action_and_mixed_states() {
         assert_eq!(
             classify_runtime_input_sample(RuntimeInputSample {
-                position: None,
-                pointer: None,
-                velocity: (0.0, 0.0),
-                mining_tile: None,
-                building: false,
-                shooting: false,
-                boosting: false,
-                chatting: false,
+                ..idle_sample()
             }),
             RuntimeInputSampleKind::Idle
         );
         assert_eq!(
             classify_runtime_input_sample(RuntimeInputSample {
                 position: Some((1.0, 2.0)),
-                pointer: None,
                 velocity: (1.0, 0.0),
-                mining_tile: None,
-                building: false,
-                shooting: false,
-                boosting: false,
-                chatting: false,
+                ..idle_sample()
             }),
             RuntimeInputSampleKind::MovementOnly
         );
         assert_eq!(
             classify_runtime_input_sample(RuntimeInputSample {
-                position: None,
-                pointer: None,
-                velocity: (0.0, 0.0),
                 mining_tile: Some((3, 4)),
                 building: true,
-                shooting: false,
                 boosting: true,
-                chatting: false,
+                ..idle_sample()
             }),
             RuntimeInputSampleKind::ActionOnly
         );
@@ -605,15 +561,17 @@ mod tests {
                 pointer: Some((7.0, 8.0)),
                 velocity: (0.5, -0.25),
                 mining_tile: Some((9, 10)),
-                building: false,
                 shooting: true,
-                boosting: false,
                 chatting: true,
+                ..idle_sample()
             }),
             RuntimeInputSampleKind::Mixed
         );
         assert_eq!(RuntimeInputSampleKind::Idle.label(), "idle");
-        assert_eq!(RuntimeInputSampleKind::MovementOnly.label(), "movement-only");
+        assert_eq!(
+            RuntimeInputSampleKind::MovementOnly.label(),
+            "movement-only"
+        );
         assert_eq!(RuntimeInputSampleKind::ActionOnly.label(), "action-only");
         assert_eq!(RuntimeInputSampleKind::Mixed.label(), "mixed");
     }

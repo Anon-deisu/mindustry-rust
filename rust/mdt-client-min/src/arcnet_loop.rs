@@ -613,6 +613,7 @@ mod tests {
     }
 
     const LOCAL_ARCNET_BIND_ATTEMPTS: usize = 512;
+    const DISCOVERY_PROBE_BUFFER_BYTES: usize = 64;
 
     fn bind_local_arcnet_server() -> (TcpListener, UdpSocket, SocketAddr) {
         for _ in 0..LOCAL_ARCNET_BIND_ATTEMPTS {
@@ -625,6 +626,38 @@ mod tests {
             thread::sleep(Duration::from_millis(1));
         }
         panic!("failed to bind local TCP+UDP sockets on the same port");
+    }
+
+    fn bind_udp_fixture() -> (UdpSocket, SocketAddr) {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = socket.local_addr().unwrap();
+        (socket, addr)
+    }
+
+    fn recv_discovery_probe(socket: &UdpSocket) -> SocketAddr {
+        let mut packet = [0u8; DISCOVERY_PROBE_BUFFER_BYTES];
+        let (len, from) = socket.recv_from(&mut packet).unwrap();
+        assert_eq!(
+            decode_framework_message(&packet[..len]).unwrap(),
+            FrameworkMessage::DiscoverHost
+        );
+        from
+    }
+
+    fn send_discovery_reply(socket: &UdpSocket, target: SocketAddr, message: FrameworkMessage) {
+        socket
+            .send_to(&encode_framework_message(&message), target)
+            .unwrap();
+    }
+
+    fn spawn_discovery_responder<F>(socket: UdpSocket, respond: F) -> thread::JoinHandle<()>
+    where
+        F: FnOnce(UdpSocket, SocketAddr) + Send + 'static,
+    {
+        thread::spawn(move || {
+            let from = recv_discovery_probe(&socket);
+            respond(socket, from);
+        })
     }
 
     fn write_tcp_frame(stream: &mut TcpStream, payload: &[u8]) {
@@ -659,24 +692,16 @@ mod tests {
 
     #[test]
     fn discover_first_server_returns_udp_responder_addr() {
-        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let server_addr = server.local_addr().unwrap();
-        let handle = thread::spawn(move || {
-            let mut packet = [0u8; 64];
-            let (len, from) = server.recv_from(&mut packet).unwrap();
-            assert_eq!(
-                decode_framework_message(&packet[..len]).unwrap(),
-                FrameworkMessage::DiscoverHost
+        let (server, server_addr) = bind_udp_fixture();
+        let handle = spawn_discovery_responder(server, |server, from| {
+            send_discovery_reply(
+                &server,
+                from,
+                FrameworkMessage::Ping {
+                    id: 7,
+                    is_reply: true,
+                },
             );
-            server
-                .send_to(
-                    &encode_framework_message(&FrameworkMessage::Ping {
-                        id: 7,
-                        is_reply: true,
-                    }),
-                    from,
-                )
-                .unwrap();
         });
 
         let found =
@@ -689,8 +714,7 @@ mod tests {
 
     #[test]
     fn discover_first_server_returns_none_on_timeout() {
-        let _silent = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let target = _silent.local_addr().unwrap();
+        let (_silent, target) = bind_udp_fixture();
 
         let found =
             ArcNetSessionDriver::discover_first_server(&[target], Duration::from_millis(50))
@@ -701,26 +725,18 @@ mod tests {
 
     #[test]
     fn discover_first_server_rejects_non_framework_replies() {
-        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let server_addr = server.local_addr().unwrap();
-        let handle = thread::spawn(move || {
-            let mut packet = [0u8; 64];
-            let (len, from) = server.recv_from(&mut packet).unwrap();
-            assert_eq!(
-                decode_framework_message(&packet[..len]).unwrap(),
-                FrameworkMessage::DiscoverHost
-            );
+        let (server, server_addr) = bind_udp_fixture();
+        let handle = spawn_discovery_responder(server, |server, from| {
             server.send_to(b"plain-udp-noise", from).unwrap();
             thread::sleep(Duration::from_millis(25));
-            server
-                .send_to(
-                    &encode_framework_message(&FrameworkMessage::Ping {
-                        id: 99,
-                        is_reply: true,
-                    }),
-                    from,
-                )
-                .unwrap();
+            send_discovery_reply(
+                &server,
+                from,
+                FrameworkMessage::Ping {
+                    id: 99,
+                    is_reply: true,
+                },
+            );
         });
 
         let found =
@@ -733,26 +749,17 @@ mod tests {
 
     #[test]
     fn discover_first_server_skips_silent_targets_and_returns_later_responder() {
-        let _silent = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let silent_addr = _silent.local_addr().unwrap();
-        let responder = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let responder_addr = responder.local_addr().unwrap();
-        let handle = thread::spawn(move || {
-            let mut packet = [0u8; 64];
-            let (len, from) = responder.recv_from(&mut packet).unwrap();
-            assert_eq!(
-                decode_framework_message(&packet[..len]).unwrap(),
-                FrameworkMessage::DiscoverHost
+        let (_silent, silent_addr) = bind_udp_fixture();
+        let (responder, responder_addr) = bind_udp_fixture();
+        let handle = spawn_discovery_responder(responder, |responder, from| {
+            send_discovery_reply(
+                &responder,
+                from,
+                FrameworkMessage::Ping {
+                    id: 11,
+                    is_reply: true,
+                },
             );
-            responder
-                .send_to(
-                    &encode_framework_message(&FrameworkMessage::Ping {
-                        id: 11,
-                        is_reply: true,
-                    }),
-                    from,
-                )
-                .unwrap();
         });
 
         let found = ArcNetSessionDriver::discover_first_server(
@@ -891,7 +898,10 @@ mod tests {
 
         assert_eq!(completed_packet_ids, vec![11]);
         assert_eq!(pending.frames.len(), 1);
-        assert_eq!(pending.frames.front().map(|frame| frame.remaining_bytes), Some(3));
+        assert_eq!(
+            pending.frames.front().map(|frame| frame.remaining_bytes),
+            Some(3)
+        );
 
         pending.record_flushed_bytes(3, &mut completed_packet_ids);
 

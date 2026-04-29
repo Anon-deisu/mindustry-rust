@@ -521,18 +521,53 @@ mod tests {
         }
     }
 
+    const DEFAULT_DATA_TYPE_TAG: u8 = 5;
+    const PAYLOAD_TARGET_CONTENT_EFFECT_ID: i16 = 26;
+
+    fn object_array(values: Vec<TypeIoObject>) -> TypeIoObject {
+        TypeIoObject::ObjectArray(values)
+    }
+
+    fn point2(x: i32, y: i32) -> TypeIoObject {
+        TypeIoObject::Point2 { x, y }
+    }
+
+    fn point2_position_hint(x: i32, y: i32, path: &[usize]) -> TypeIoEffectPositionHint {
+        TypeIoEffectPositionHint::Point2 {
+            x,
+            y,
+            path: path.to_vec(),
+        }
+    }
+
+    fn derive_effect_data_business_input_default(
+        effect_id: Option<i16>,
+        object: &TypeIoObject,
+    ) -> EffectDataBusinessInput {
+        derive_effect_data_business_input(
+            effect_id,
+            Some(object),
+            Some(DEFAULT_DATA_TYPE_TAG),
+            false,
+            None,
+        )
+    }
+
+    fn derive_payload_target_content_input(object: &TypeIoObject) -> EffectDataBusinessInput {
+        derive_effect_data_business_input_default(Some(PAYLOAD_TARGET_CONTENT_EFFECT_ID), object)
+    }
+
     #[test]
     fn derive_effect_data_business_input_captures_payload_target_content_hints() {
-        let object = TypeIoObject::ObjectArray(vec![
-            TypeIoObject::Point2 { x: 4, y: 6 },
+        let object = object_array(vec![
+            point2(4, 6),
             TypeIoObject::ContentRaw {
                 content_type: 1,
                 content_id: 33,
             },
         ]);
 
-        let input =
-            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+        let input = derive_payload_target_content_input(&object);
 
         assert_eq!(
             input,
@@ -545,13 +580,11 @@ mod tests {
                     content_type: 1,
                     content_id: 33,
                     content_path: vec![1],
-                    target: EffectDataBusinessTargetHint::PositionHint(
-                        TypeIoEffectPositionHint::Point2 {
-                            x: 4,
-                            y: 6,
-                            path: vec![0],
-                        },
-                    ),
+                    target: EffectDataBusinessTargetHint::PositionHint(point2_position_hint(
+                        4,
+                        6,
+                        &[0]
+                    ),),
                 }),
                 data_type_tag: Some(5),
                 parse_failed: false,
@@ -562,39 +595,32 @@ mod tests {
 
     #[test]
     fn derive_effect_data_business_input_prefers_move_command_position_hint() {
-        let object = TypeIoObject::ObjectArray(vec![
-            TypeIoObject::UnitId(9999),
-            TypeIoObject::Point2 { x: 4, y: 6 },
-        ]);
+        let object = object_array(vec![TypeIoObject::UnitId(9999), point2(4, 6)]);
 
-        let input =
-            derive_effect_data_business_input(Some(12), Some(&object), Some(5), false, None);
+        let input = derive_effect_data_business_input_default(Some(12), &object);
 
         assert_eq!(input.contract_name, Some("move_command"));
         assert_eq!(
             input.primary,
-            Some(EffectDataBusinessHint::PositionHint(
-                TypeIoEffectPositionHint::Point2 {
-                    x: 4,
-                    y: 6,
-                    path: vec![1],
-                }
-            ))
+            Some(EffectDataBusinessHint::PositionHint(point2_position_hint(
+                4,
+                6,
+                &[1]
+            )))
         );
     }
 
     #[test]
     fn derive_effect_data_business_input_captures_technode_payload_target_content_hints() {
-        let object = TypeIoObject::ObjectArray(vec![
+        let object = object_array(vec![
             TypeIoObject::TechNodeRaw {
                 content_type: 1,
                 content_id: 33,
             },
-            TypeIoObject::Point2 { x: 4, y: 6 },
+            point2(4, 6),
         ]);
 
-        let input =
-            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+        let input = derive_payload_target_content_input(&object);
 
         assert_eq!(
             input,
@@ -607,13 +633,11 @@ mod tests {
                     content_type: 1,
                     content_id: 33,
                     content_path: vec![0],
-                    target: EffectDataBusinessTargetHint::PositionHint(
-                        TypeIoEffectPositionHint::Point2 {
-                            x: 4,
-                            y: 6,
-                            path: vec![1],
-                        },
-                    ),
+                    target: EffectDataBusinessTargetHint::PositionHint(point2_position_hint(
+                        4,
+                        6,
+                        &[1]
+                    ),),
                 }),
                 data_type_tag: Some(5),
                 parse_failed: false,
@@ -629,7 +653,7 @@ mod tests {
             content_id: 33,
         };
 
-        let input = derive_effect_data_business_input(Some(3), Some(&object), Some(5), false, None);
+        let input = derive_effect_data_business_input_default(Some(3), &object);
 
         assert_eq!(
             input,
@@ -660,7 +684,7 @@ mod tests {
             content_id: 44,
         };
 
-        let input = derive_effect_data_business_input(Some(3), Some(&object), Some(5), false, None);
+        let input = derive_effect_data_business_input_default(Some(3), &object);
 
         assert_eq!(
             input.primary,
@@ -677,7 +701,7 @@ mod tests {
     #[test]
     fn derive_effect_data_business_input_finds_later_eligible_content_ref_for_content_icon_contract(
     ) {
-        let object = TypeIoObject::ObjectArray(vec![
+        let object = object_array(vec![
             TypeIoObject::ContentRaw {
                 content_type: 0,
                 content_id: 12,
@@ -688,7 +712,7 @@ mod tests {
             },
         ]);
 
-        let input = derive_effect_data_business_input(Some(3), Some(&object), Some(5), false, None);
+        let input = derive_effect_data_business_input_default(Some(3), &object);
 
         assert_eq!(input.contract_name, Some("content_icon"));
         assert_eq!(
@@ -709,8 +733,7 @@ mod tests {
             content_id: 12,
         };
 
-        let input =
-            derive_effect_data_business_input(Some(15), Some(&object), Some(5), false, None);
+        let input = derive_effect_data_business_input_default(Some(15), &object);
 
         assert_eq!(input.contract_name, Some("block_content_icon"));
         assert_eq!(
@@ -727,17 +750,16 @@ mod tests {
     fn derive_effect_data_business_input_captures_deep_payload_target_content_hints() {
         let object = nested_object_array(
             3,
-            TypeIoObject::ObjectArray(vec![
+            object_array(vec![
                 TypeIoObject::ContentRaw {
                     content_type: 1,
                     content_id: 33,
                 },
-                TypeIoObject::Point2 { x: 4, y: 6 },
+                point2(4, 6),
             ]),
         );
 
-        let input =
-            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+        let input = derive_payload_target_content_input(&object);
 
         assert_eq!(
             input.primary,
@@ -746,13 +768,11 @@ mod tests {
                 content_type: 1,
                 content_id: 33,
                 content_path: vec![0, 0, 0, 0],
-                target: EffectDataBusinessTargetHint::PositionHint(
-                    TypeIoEffectPositionHint::Point2 {
-                        x: 4,
-                        y: 6,
-                        path: vec![0, 0, 0, 1],
-                    },
-                ),
+                target: EffectDataBusinessTargetHint::PositionHint(point2_position_hint(
+                    4,
+                    6,
+                    &[0, 0, 0, 1]
+                ),),
             })
         );
         assert_eq!(input.contract_name, Some("payload_target_content"));
@@ -762,17 +782,16 @@ mod tests {
     fn derive_effect_data_business_input_handles_deeply_nested_payload_target_groups() {
         let object = nested_object_array(
             super::EFFECT_DATA_MAX_DEPTH + 1,
-            TypeIoObject::ObjectArray(vec![
+            object_array(vec![
                 TypeIoObject::ContentRaw {
                     content_type: 1,
                     content_id: 33,
                 },
-                TypeIoObject::Point2 { x: 4, y: 6 },
+                point2(4, 6),
             ]),
         );
 
-        let input =
-            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+        let input = derive_payload_target_content_input(&object);
 
         assert_eq!(input.contract_name, Some("payload_target_content"));
         assert_eq!(input.primary, None);
@@ -781,28 +800,27 @@ mod tests {
 
     #[test]
     fn derive_effect_data_business_input_skips_overdeep_sibling_branches() {
-        let object = TypeIoObject::ObjectArray(vec![
+        let object = object_array(vec![
             nested_object_array(
                 super::EFFECT_DATA_MAX_DEPTH + 1,
-                TypeIoObject::ObjectArray(vec![
+                object_array(vec![
                     TypeIoObject::ContentRaw {
                         content_type: 1,
                         content_id: 33,
                     },
-                    TypeIoObject::Point2 { x: 4, y: 6 },
+                    point2(4, 6),
                 ]),
             ),
-            TypeIoObject::ObjectArray(vec![
+            object_array(vec![
                 TypeIoObject::ContentRaw {
                     content_type: 1,
                     content_id: 34,
                 },
-                TypeIoObject::Point2 { x: 7, y: 9 },
+                point2(7, 9),
             ]),
         ]);
 
-        let input =
-            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+        let input = derive_payload_target_content_input(&object);
 
         assert_eq!(input.contract_name, Some("payload_target_content"));
         assert_eq!(
@@ -812,28 +830,27 @@ mod tests {
                 content_type: 1,
                 content_id: 34,
                 content_path: vec![1, 0],
-                target: EffectDataBusinessTargetHint::PositionHint(TypeIoEffectPositionHint::Point2 {
-                    x: 7,
-                    y: 9,
-                    path: vec![1, 1],
-                }),
+                target: EffectDataBusinessTargetHint::PositionHint(point2_position_hint(
+                    7,
+                    9,
+                    &[1, 1]
+                )),
             })
         );
     }
 
     #[test]
     fn derive_effect_data_business_input_prefers_mixed_content_and_position_hints() {
-        let object = TypeIoObject::ObjectArray(vec![
+        let object = object_array(vec![
             TypeIoObject::ContentRaw {
                 content_type: 1,
                 content_id: 33,
             },
-            TypeIoObject::Point2 { x: 4, y: 6 },
+            point2(4, 6),
             TypeIoObject::UnitId(404),
         ]);
 
-        let input =
-            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+        let input = derive_payload_target_content_input(&object);
 
         assert_eq!(input.contract_name, Some("payload_target_content"));
         assert_eq!(
@@ -843,13 +860,11 @@ mod tests {
                 content_type: 1,
                 content_id: 33,
                 content_path: vec![0],
-                target: EffectDataBusinessTargetHint::PositionHint(
-                    TypeIoEffectPositionHint::Point2 {
-                        x: 4,
-                        y: 6,
-                        path: vec![1],
-                    },
-                ),
+                target: EffectDataBusinessTargetHint::PositionHint(point2_position_hint(
+                    4,
+                    6,
+                    &[1]
+                ),),
             })
         );
         assert_eq!(
@@ -860,7 +875,7 @@ mod tests {
 
     #[test]
     fn derive_effect_data_business_input_uses_semantic_ref_target_for_payload_target_content() {
-        let object = TypeIoObject::ObjectArray(vec![
+        let object = object_array(vec![
             TypeIoObject::ContentRaw {
                 content_type: 1,
                 content_id: 33,
@@ -868,8 +883,7 @@ mod tests {
             TypeIoObject::UnitId(404),
         ]);
 
-        let input =
-            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+        let input = derive_payload_target_content_input(&object);
 
         assert_eq!(
             input.primary,
@@ -892,18 +906,45 @@ mod tests {
     }
 
     #[test]
-    fn derive_effect_data_business_input_does_not_splice_payload_target_content_from_different_branches(
-    ) {
-        let object = TypeIoObject::ObjectArray(vec![
+    fn derive_effect_data_business_input_prefers_first_target_in_payload_target_group() {
+        let object = object_array(vec![
             TypeIoObject::ContentRaw {
                 content_type: 1,
                 content_id: 33,
             },
-            TypeIoObject::ObjectArray(vec![TypeIoObject::UnitId(404)]),
+            TypeIoObject::UnitId(404),
+            point2(4, 6),
         ]);
 
-        let input =
-            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+        let input = derive_payload_target_content_input(&object);
+
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::PayloadTargetContent {
+                content_kind: EffectBusinessContentKind::Content,
+                content_type: 1,
+                content_id: 33,
+                content_path: vec![0],
+                target: EffectDataBusinessTargetHint::SemanticRef(TypeIoSemanticMatch {
+                    semantic_ref: TypeIoSemanticRef::Unit { unit_id: 404 },
+                    path: vec![1],
+                }),
+            })
+        );
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_does_not_splice_payload_target_content_from_different_branches(
+    ) {
+        let object = object_array(vec![
+            TypeIoObject::ContentRaw {
+                content_type: 1,
+                content_id: 33,
+            },
+            object_array(vec![TypeIoObject::UnitId(404)]),
+        ]);
+
+        let input = derive_payload_target_content_input(&object);
 
         assert_eq!(input.contract_name, Some("payload_target_content"));
         assert_eq!(input.primary, None);
@@ -911,23 +952,22 @@ mod tests {
 
     #[test]
     fn derive_effect_data_business_input_prefers_shallow_payload_target_content_pair() {
-        let object = TypeIoObject::ObjectArray(vec![
-            TypeIoObject::ObjectArray(vec![
+        let object = object_array(vec![
+            object_array(vec![
                 TypeIoObject::ContentRaw {
                     content_type: 1,
                     content_id: 11,
                 },
-                TypeIoObject::Point2 { x: 1, y: 2 },
+                point2(1, 2),
             ]),
             TypeIoObject::ContentRaw {
                 content_type: 1,
                 content_id: 33,
             },
-            TypeIoObject::Point2 { x: 4, y: 6 },
+            point2(4, 6),
         ]);
 
-        let input =
-            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+        let input = derive_payload_target_content_input(&object);
 
         assert_eq!(
             input.primary,
@@ -936,13 +976,11 @@ mod tests {
                 content_type: 1,
                 content_id: 33,
                 content_path: vec![1],
-                target: EffectDataBusinessTargetHint::PositionHint(
-                    TypeIoEffectPositionHint::Point2 {
-                        x: 4,
-                        y: 6,
-                        path: vec![2],
-                    },
-                ),
+                target: EffectDataBusinessTargetHint::PositionHint(point2_position_hint(
+                    4,
+                    6,
+                    &[2]
+                ),),
             })
         );
         assert_eq!(input.contract_name, Some("payload_target_content"));
@@ -950,10 +988,7 @@ mod tests {
 
     #[test]
     fn derive_effect_data_business_input_prefers_parent_ref_for_unit_parent_contract() {
-        let object = TypeIoObject::ObjectArray(vec![
-            TypeIoObject::UnitId(404),
-            TypeIoObject::Point2 { x: 9, y: 12 },
-        ]);
+        let object = object_array(vec![TypeIoObject::UnitId(404), point2(9, 12)]);
 
         let input =
             derive_effect_data_business_input(Some(67), Some(&object), Some(18), false, None);
@@ -970,23 +1005,18 @@ mod tests {
 
     #[test]
     fn derive_effect_data_business_input_position_contract_prefers_position_over_parent_ref() {
-        let object = TypeIoObject::ObjectArray(vec![
-            TypeIoObject::UnitId(404),
-            TypeIoObject::Point2 { x: 4, y: 6 },
-        ]);
+        let object = object_array(vec![TypeIoObject::UnitId(404), point2(4, 6)]);
 
         let input =
             derive_effect_data_business_input(Some(8), Some(&object), Some(18), false, None);
 
         assert_eq!(
             input.primary,
-            Some(EffectDataBusinessHint::PositionHint(
-                TypeIoEffectPositionHint::Point2 {
-                    x: 4,
-                    y: 6,
-                    path: vec![1],
-                },
-            ))
+            Some(EffectDataBusinessHint::PositionHint(point2_position_hint(
+                4,
+                6,
+                &[1]
+            ),))
         );
         assert_eq!(input.contract_name, Some("position_target"));
     }
@@ -998,8 +1028,7 @@ mod tests {
             content_id: 33,
         };
 
-        let input =
-            derive_effect_data_business_input(Some(142), Some(&object), Some(5), false, None);
+        let input = derive_effect_data_business_input_default(Some(142), &object);
 
         assert_eq!(
             input.primary,
@@ -1066,10 +1095,7 @@ mod tests {
     #[test]
     fn position_hint_from_value_rejects_non_finite_vec2_coordinates() {
         assert_eq!(
-            position_hint_from_value(
-                &TypeIoObject::Point2 { x: 7, y: -8 },
-                vec![2],
-            ),
+            position_hint_from_value(&TypeIoObject::Point2 { x: 7, y: -8 }, vec![2],),
             Some(TypeIoEffectPositionHint::Point2 {
                 x: 7,
                 y: -8,
@@ -1077,13 +1103,7 @@ mod tests {
             })
         );
         assert_eq!(
-            position_hint_from_value(
-                &TypeIoObject::Vec2 {
-                    x: 1.5,
-                    y: -2.25,
-                },
-                vec![3],
-            ),
+            position_hint_from_value(&TypeIoObject::Vec2 { x: 1.5, y: -2.25 }, vec![3],),
             Some(TypeIoEffectPositionHint::Vec2 {
                 x_bits: 1.5f32.to_bits(),
                 y_bits: (-2.25f32).to_bits(),
@@ -1101,10 +1121,7 @@ mod tests {
             None
         );
         assert_eq!(
-            position_hint_from_value(
-                &TypeIoObject::Vec2Array(vec![(1.5, -2.25)]),
-                vec![4],
-            ),
+            position_hint_from_value(&TypeIoObject::Vec2Array(vec![(1.5, -2.25)]), vec![4],),
             Some(TypeIoEffectPositionHint::Vec2ArrayFirst {
                 x_bits: 1.5f32.to_bits(),
                 y_bits: (-2.25f32).to_bits(),
@@ -1112,10 +1129,7 @@ mod tests {
             })
         );
         assert_eq!(
-            position_hint_from_value(
-                &TypeIoObject::Vec2Array(vec![(f32::NAN, 4.5)]),
-                vec![4],
-            ),
+            position_hint_from_value(&TypeIoObject::Vec2Array(vec![(f32::NAN, 4.5)]), vec![4],),
             None
         );
     }
@@ -1165,8 +1179,8 @@ mod tests {
 
     #[test]
     fn derive_effect_data_business_input_preserves_object_semantics_on_parse_failure() {
-        let object = TypeIoObject::ObjectArray(vec![
-            TypeIoObject::Point2 { x: 4, y: 6 },
+        let object = object_array(vec![
+            point2(4, 6),
             TypeIoObject::ContentRaw {
                 content_type: 1,
                 content_id: 33,
@@ -1194,13 +1208,11 @@ mod tests {
                 content_type: 1,
                 content_id: 33,
                 content_path: vec![1],
-                target: EffectDataBusinessTargetHint::PositionHint(
-                    TypeIoEffectPositionHint::Point2 {
-                        x: 4,
-                        y: 6,
-                        path: vec![0],
-                    },
-                ),
+                target: EffectDataBusinessTargetHint::PositionHint(point2_position_hint(
+                    4,
+                    6,
+                    &[0]
+                ),),
             })
         );
         assert_eq!(input.data_type_tag, Some(5));
@@ -1211,15 +1223,15 @@ mod tests {
     #[test]
     fn derive_effect_data_business_input_falls_back_to_content_hint_for_unstructured_mixed_payload()
     {
-        let object = TypeIoObject::ObjectArray(vec![
+        let object = object_array(vec![
             TypeIoObject::ContentRaw {
                 content_type: 1,
                 content_id: 33,
             },
-            TypeIoObject::Point2 { x: 4, y: 6 },
+            point2(4, 6),
         ]);
 
-        let input = derive_effect_data_business_input(None, Some(&object), Some(5), false, None);
+        let input = derive_effect_data_business_input_default(None, &object);
 
         assert_eq!(input.contract_name, None);
         assert_eq!(input.semantic, Some(EffectDataSemantic::ObjectArrayLen(2)));
@@ -1240,7 +1252,7 @@ mod tests {
 
     #[test]
     fn derive_effect_data_business_input_prefers_payload_target_content_for_unknown_effect_data() {
-        let object = TypeIoObject::ObjectArray(vec![
+        let object = object_array(vec![
             TypeIoObject::ContentRaw {
                 content_type: 1,
                 content_id: 33,
@@ -1248,7 +1260,7 @@ mod tests {
             TypeIoObject::UnitId(404),
         ]);
 
-        let input = derive_effect_data_business_input(Some(999), Some(&object), Some(5), false, None);
+        let input = derive_effect_data_business_input_default(Some(999), &object);
 
         assert_eq!(input.contract_name, None);
         assert_eq!(input.semantic, Some(EffectDataSemantic::ObjectArrayLen(2)));
@@ -1277,8 +1289,7 @@ mod tests {
             content_type: 1,
             content_id: 33,
         };
-        let tech_input =
-            derive_effect_data_business_input(None, Some(&tech_node), Some(5), false, None);
+        let tech_input = derive_effect_data_business_input_default(None, &tech_node);
 
         assert_eq!(
             tech_input.primary,
@@ -1298,7 +1309,7 @@ mod tests {
         );
 
         let unit = TypeIoObject::UnitId(404);
-        let unit_input = derive_effect_data_business_input(None, Some(&unit), Some(5), false, None);
+        let unit_input = derive_effect_data_business_input_default(None, &unit);
 
         assert_eq!(
             unit_input.primary,

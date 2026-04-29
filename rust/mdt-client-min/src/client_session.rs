@@ -126,6 +126,19 @@ const BLOCK_CONTENT_TYPE: u8 = 1;
 const ITEM_CONTENT_TYPE: u8 = 0;
 const LIQUID_CONTENT_TYPE: u8 = 4;
 const UNIT_CONTENT_TYPE: u8 = 6;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildingResourceDeltaFinalizeMode {
+    SeedWorldBaseline,
+    ReplaceAuthoritative,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildingRuntimeRefreshMode {
+    None,
+    Tables,
+}
+
 const BLOCK_NAME_CONVEYOR: &str = "conveyor";
 const BLOCK_NAME_REPAIR_POINT: &str = "repair-point";
 const BLOCK_NAME_REPAIR_TURRET: &str = "repair-turret";
@@ -1497,6 +1510,60 @@ impl ClientSession {
         }
     }
 
+    fn finalize_building_live_apply(
+        &mut self,
+        build_pos: i32,
+        build_item_stacks: &[(i16, i32)],
+        build_liquid_stacks: &[(i16, u32)],
+        resource_delta_mode: BuildingResourceDeltaFinalizeMode,
+        runtime_refresh_mode: BuildingRuntimeRefreshMode,
+    ) {
+        match resource_delta_mode {
+            BuildingResourceDeltaFinalizeMode::SeedWorldBaseline => {
+                self.state
+                    .resource_delta_projection
+                    .seed_world_build_items(build_pos, build_item_stacks);
+                self.state
+                    .resource_delta_projection
+                    .seed_world_build_liquids(build_pos, build_liquid_stacks);
+            }
+            BuildingResourceDeltaFinalizeMode::ReplaceAuthoritative => {
+                if !build_item_stacks.is_empty()
+                    || self
+                        .state
+                        .resource_delta_projection
+                        .building_items_by_build
+                        .contains_key(&build_pos)
+                {
+                    self.state.record_replace_build_items_resource_delta(
+                        Some(build_pos),
+                        build_item_stacks,
+                    );
+                }
+                if !build_liquid_stacks.is_empty()
+                    || self
+                        .state
+                        .resource_delta_projection
+                        .building_liquids_by_build
+                        .contains_key(&build_pos)
+                {
+                    self.state.record_replace_build_liquids_resource_delta(
+                        Some(build_pos),
+                        build_liquid_stacks,
+                    );
+                }
+            }
+        }
+
+        match runtime_refresh_mode {
+            BuildingRuntimeRefreshMode::None => {}
+            BuildingRuntimeRefreshMode::Tables => {
+                self.state
+                    .refresh_runtime_typed_building_from_tables(build_pos);
+            }
+        }
+    }
+
     fn live_build_positions(&self) -> BTreeSet<i32> {
         let build_positions = self
             .state
@@ -2440,7 +2507,12 @@ impl ClientSession {
             | BLOCK_NAME_TANK_FABRICATOR
             | BLOCK_NAME_SHIP_FABRICATOR
             | BLOCK_NAME_MECH_FABRICATOR => {
-                if let Some(current_plan) =
+                if let Some(command_id) = configured_reconstructor_command(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_unit_factory_command(build_pos, command_id);
+                    ConfiguredBlockOutcome::Applied
+                } else if let Some(current_plan) =
                     configured_int(config_object).and_then(|value| i16::try_from(value).ok())
                 {
                     self.state
@@ -3242,6 +3314,8 @@ impl ClientSession {
                 if packet.payload.is_empty() {
                     self.state.received_hide_hud_text_count =
                         self.state.received_hide_hud_text_count.saturating_add(1);
+                    self.state.last_set_hud_text_message = None;
+                    self.state.last_set_hud_text_reliable_message = None;
                     Ok(ClientSessionEvent::HideHudText)
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -7250,12 +7324,13 @@ impl ClientSession {
             );
             let build_item_stacks = summarize_item_module_stacks(base.item_module.as_ref());
             let build_liquid_stacks = summarize_liquid_module_stacks(base.liquid_module.as_ref());
-            self.state
-                .resource_delta_projection
-                .seed_world_build_items(build_pos, &build_item_stacks);
-            self.state
-                .resource_delta_projection
-                .seed_world_build_liquids(build_pos, &build_liquid_stacks);
+            self.finalize_building_live_apply(
+                build_pos,
+                &build_item_stacks,
+                &build_liquid_stacks,
+                BuildingResourceDeltaFinalizeMode::SeedWorldBaseline,
+                BuildingRuntimeRefreshMode::None,
+            );
             self.apply_loaded_world_parsed_tail_business(
                 build_pos,
                 block_name.as_deref(),
@@ -7397,6 +7472,58 @@ impl ClientSession {
         }
     }
 
+    fn entity_snapshot_unit_runtime_sync_projection(
+        ammo_bits: u32,
+        elevation_bits: u32,
+        flag_bits: u64,
+        base_rotation_bits: Option<u32>,
+    ) -> Option<EntityUnitRuntimeSyncProjection> {
+        Some(EntityUnitRuntimeSyncProjection {
+            ammo_bits,
+            elevation_bits,
+            flag_bits,
+            base_rotation_bits,
+        })
+    }
+
+    fn entity_snapshot_unit_semantic_projection(
+        team_id: u8,
+        unit_type_id: i16,
+        health_bits: u32,
+        rotation_bits: u32,
+        shield_bits: u32,
+        mine_tile_pos: i32,
+        status_count: i32,
+        statuses: Vec<mdt_world::EntityUnitStatusSnapshot>,
+        payload_count: Option<i32>,
+        building_pos: Option<i32>,
+        lifetime_bits: Option<u32>,
+        time_bits: Option<u32>,
+        runtime_sync: Option<EntityUnitRuntimeSyncProjection>,
+        controller_type: u8,
+        controller_value: Option<i32>,
+        controller_snapshot: Option<mdt_world::EntityUnitControllerSnapshot>,
+    ) -> EntityUnitSemanticProjection {
+        EntityUnitSemanticProjection {
+            team_id,
+            unit_type_id,
+            health_bits,
+            rotation_bits,
+            shield_bits,
+            mine_tile_pos,
+            status_count,
+            statuses,
+            payload_count,
+            building_pos,
+            lifetime_bits,
+            time_bits,
+            runtime_sync,
+            controller_type,
+            controller_value,
+            controller_snapshot,
+        }
+    }
+
     fn apply_entity_snapshot_unit_item_stack(
         &mut self,
         entity_id: i32,
@@ -7420,11 +7547,16 @@ impl ClientSession {
         )
     }
 
-    fn apply_parseable_alpha_unit_row_from_entity_snapshot(
+    fn apply_parseable_unit_row_from_entity_snapshot(
         &mut self,
         entity_id: i32,
         class_id: u8,
-        sync: &mdt_world::EntityAlphaSyncSnapshot,
+        x_bits: u32,
+        y_bits: u32,
+        stack_item_id: i16,
+        stack_amount: i32,
+        semantic_projection: EntityUnitSemanticProjection,
+        payload_apply: Option<(i32, Option<i32>, Option<mdt_world::UnitPayloadSnapshot>)>,
     ) {
         if self.should_skip_entity_snapshot_upsert(entity_id, false) {
             return;
@@ -7435,8 +7567,8 @@ impl ClientSession {
             false,
             2,
             u32::try_from(entity_id).unwrap_or_default(),
-            sync.x_bits,
-            sync.y_bits,
+            x_bits,
+            y_bits,
             false,
             self.state.received_entity_snapshot_count,
         );
@@ -7444,37 +7576,121 @@ impl ClientSession {
             entity_id,
             class_id,
             self.state.received_entity_snapshot_count,
-            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
-                team_id: sync.team_id,
-                unit_type_id: sync.unit_type_id,
-                health_bits: sync.health_bits,
-                rotation_bits: sync.rotation_bits,
-                shield_bits: sync.shield_bits,
-                mine_tile_pos: sync.mine_tile_pos,
-                status_count: sync.status_count,
-                payload_count: None,
-                building_pos: None,
-                lifetime_bits: None,
-                time_bits: None,
-                runtime_sync: Some(EntityUnitRuntimeSyncProjection {
-                    ammo_bits: sync.ammo_bits,
-                    elevation_bits: sync.elevation_bits,
-                    flag_bits: sync.flag_bits,
-                    base_rotation_bits: None,
-                }),
-                controller_type: sync.controller_type,
-                controller_value: sync.controller_value,
-            }),
+            EntitySemanticProjection::Unit(semantic_projection),
         );
-        self.apply_entity_snapshot_unit_item_stack(
-            entity_id,
-            sync.stack_item_id,
-            sync.stack_amount,
-        );
-        self.state
-            .clear_entity_snapshot_payload_apply_projection(entity_id);
+        self.apply_entity_snapshot_unit_item_stack(entity_id, stack_item_id, stack_amount);
+        if let Some((payload_count, building_pos, unit_payload)) = payload_apply {
+            self.state.apply_entity_snapshot_payload_apply_projection(
+                entity_id,
+                class_id,
+                payload_count,
+                building_pos,
+                unit_payload,
+                Self::entity_snapshot_unit_item_stack_projection(stack_item_id, stack_amount),
+            );
+        } else {
+            self.state
+                .clear_entity_snapshot_payload_apply_projection(entity_id);
+        }
         self.state
             .refresh_runtime_typed_entity_from_tables(entity_id);
+    }
+
+    fn apply_parseable_non_unit_entity_row_from_entity_snapshot(
+        &mut self,
+        entity_id: i32,
+        class_id: u8,
+        x_bits: u32,
+        y_bits: u32,
+        semantic_projection: EntitySemanticProjection,
+    ) {
+        if self.should_skip_entity_snapshot_upsert(entity_id, false) {
+            return;
+        }
+        self.state.entity_table_projection.upsert_entity(
+            entity_id,
+            class_id,
+            false,
+            0,
+            0,
+            x_bits,
+            y_bits,
+            false,
+            self.state.received_entity_snapshot_count,
+        );
+        self.state.entity_semantic_projection.upsert(
+            entity_id,
+            class_id,
+            self.state.received_entity_snapshot_count,
+            semantic_projection,
+        );
+        self.state
+            .refresh_runtime_typed_entity_from_tables(entity_id);
+    }
+
+    fn apply_parseable_payload_like_unit_row_from_entity_snapshot(
+        &mut self,
+        entity_id: i32,
+        class_id: u8,
+        x_bits: u32,
+        y_bits: u32,
+        stack_item_id: i16,
+        stack_amount: i32,
+        payload_count: i32,
+        building_pos: Option<i32>,
+        unit_payload: Option<mdt_world::UnitPayloadSnapshot>,
+        semantic_projection: EntityUnitSemanticProjection,
+    ) {
+        self.apply_parseable_unit_row_from_entity_snapshot(
+            entity_id,
+            class_id,
+            x_bits,
+            y_bits,
+            stack_item_id,
+            stack_amount,
+            semantic_projection,
+            Some((payload_count, building_pos, unit_payload)),
+        );
+    }
+
+    fn apply_parseable_alpha_unit_row_from_entity_snapshot(
+        &mut self,
+        entity_id: i32,
+        class_id: u8,
+        sync: &mdt_world::EntityAlphaSyncSnapshot,
+    ) {
+        self.apply_parseable_unit_row_from_entity_snapshot(
+            entity_id,
+            class_id,
+            sync.x_bits,
+            sync.y_bits,
+            sync.stack_item_id,
+            sync.stack_amount,
+            Self::entity_snapshot_unit_semantic_projection(
+                sync.team_id,
+                sync.unit_type_id,
+                sync.health_bits,
+                sync.rotation_bits,
+                sync.shield_bits,
+                sync.mine_tile_pos,
+                sync.status_count,
+                sync.statuses.clone(),
+                None,
+                None,
+                None,
+                None,
+                Self::entity_snapshot_unit_runtime_sync_projection(
+                    sync.ammo_bits,
+                    sync.elevation_bits,
+                    sync.flag_bits,
+                    None,
+                ),
+                sync.controller_type,
+                sync.controller_value,
+                sync.controller_snapshot.clone(),
+            ),
+            None,
+        );
     }
 
     fn apply_parseable_building_rows_from_entity_snapshot(
@@ -7497,33 +7713,8 @@ impl ClientSession {
                 self.state.received_entity_snapshot_count,
             );
             let block_name = self.loaded_world_block_name(row.block_id);
-            let tail_summary = summarize_building_turret_tail_fields(&row.sync.parsed_tail);
-            let config_object = loaded_world_config_object_from_parsed_tail(
-                block_name.as_deref(),
-                &row.sync.parsed_tail,
-            );
-            self.state
-                .building_table_projection
-                .apply_block_snapshot_head_with_tail_summary(
-                    row.build_pos,
-                    row.block_id,
-                    block_name.clone(),
-                    Some(row.sync.base.rotation),
-                    Some(row.sync.base.team_id),
-                    row.sync.base.save_version,
-                    row.sync.base.module_bitmask,
-                    row.sync.base.time_scale_bits,
-                    row.sync.base.time_scale_duration_bits,
-                    row.sync.base.last_disabler_pos,
-                    row.sync.base.legacy_consume_connected,
-                    config_object,
-                    Some(row.sync.base.health_bits),
-                    row.sync.base.enabled,
-                    row.sync.base.efficiency,
-                    row.sync.base.optional_efficiency,
-                    row.sync.base.visible_flags,
-                    tail_summary,
-                );
+            loaded_world_block_snapshot_head_apply_from_entity_row(row, block_name.clone())
+                .apply_to(&mut self.state.building_table_projection);
             self.apply_loaded_world_parsed_tail_business(
                 row.build_pos,
                 block_name.as_deref(),
@@ -7533,32 +7724,13 @@ impl ClientSession {
                 summarize_item_module_stacks(row.sync.base.item_module.as_ref());
             let build_liquid_stacks =
                 summarize_liquid_module_stacks(row.sync.base.liquid_module.as_ref());
-            if !build_item_stacks.is_empty()
-                || self
-                    .state
-                    .resource_delta_projection
-                    .building_items_by_build
-                    .contains_key(&row.build_pos)
-            {
-                self.state.record_replace_build_items_resource_delta(
-                    Some(row.build_pos),
-                    &build_item_stacks,
-                );
-            }
-            if !build_liquid_stacks.is_empty()
-                || self
-                    .state
-                    .resource_delta_projection
-                    .building_liquids_by_build
-                    .contains_key(&row.build_pos)
-            {
-                self.state.record_replace_build_liquids_resource_delta(
-                    Some(row.build_pos),
-                    &build_liquid_stacks,
-                );
-            }
-            self.state
-                .refresh_runtime_typed_building_from_tables(row.build_pos);
+            self.finalize_building_live_apply(
+                row.build_pos,
+                &build_item_stacks,
+                &build_liquid_stacks,
+                BuildingResourceDeltaFinalizeMode::ReplaceAuthoritative,
+                BuildingRuntimeRefreshMode::None,
+            );
             self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
@@ -7566,55 +7738,38 @@ impl ClientSession {
 
     fn apply_parseable_mech_rows_from_entity_snapshot(&mut self, mech_rows: &[EntityMechSyncRow]) {
         for row in mech_rows {
-            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
-                continue;
-            }
-            self.state.entity_table_projection.upsert_entity(
+            self.apply_parseable_unit_row_from_entity_snapshot(
                 row.entity_id,
                 row.class_id,
-                false,
-                2,
-                u32::try_from(row.entity_id).unwrap_or_default(),
                 row.sync.x_bits,
                 row.sync.y_bits,
-                false,
-                self.state.received_entity_snapshot_count,
-            );
-            self.state.entity_semantic_projection.upsert(
-                row.entity_id,
-                row.class_id,
-                self.state.received_entity_snapshot_count,
-                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
-                    team_id: row.sync.team_id,
-                    unit_type_id: row.sync.unit_type_id,
-                    health_bits: row.sync.health_bits,
-                    rotation_bits: row.sync.rotation_bits,
-                    shield_bits: row.sync.shield_bits,
-                    mine_tile_pos: row.sync.mine_tile_pos,
-                    status_count: row.sync.status_count,
-                    payload_count: None,
-                    building_pos: None,
-                    lifetime_bits: None,
-                    time_bits: None,
-                    runtime_sync: Some(EntityUnitRuntimeSyncProjection {
-                        ammo_bits: row.sync.ammo_bits,
-                        elevation_bits: row.sync.elevation_bits,
-                        flag_bits: row.sync.flag_bits,
-                        base_rotation_bits: Some(row.sync.base_rotation_bits),
-                    }),
-                    controller_type: row.sync.controller_type,
-                    controller_value: row.sync.controller_value,
-                }),
-            );
-            self.apply_entity_snapshot_unit_item_stack(
-                row.entity_id,
                 row.sync.stack_item_id,
                 row.sync.stack_amount,
+                Self::entity_snapshot_unit_semantic_projection(
+                    row.sync.team_id,
+                    row.sync.unit_type_id,
+                    row.sync.health_bits,
+                    row.sync.rotation_bits,
+                    row.sync.shield_bits,
+                    row.sync.mine_tile_pos,
+                    row.sync.status_count,
+                    row.sync.statuses.clone(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Self::entity_snapshot_unit_runtime_sync_projection(
+                        row.sync.ammo_bits,
+                        row.sync.elevation_bits,
+                        row.sync.flag_bits,
+                        Some(row.sync.base_rotation_bits),
+                    ),
+                    row.sync.controller_type,
+                    row.sync.controller_value,
+                    row.sync.controller_snapshot.clone(),
+                ),
+                None,
             );
-            self.state
-                .clear_entity_snapshot_payload_apply_projection(row.entity_id);
-            self.state
-                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -7623,55 +7778,38 @@ impl ClientSession {
         missile_rows: &[EntityMissileSyncRow],
     ) {
         for row in missile_rows {
-            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
-                continue;
-            }
-            self.state.entity_table_projection.upsert_entity(
+            self.apply_parseable_unit_row_from_entity_snapshot(
                 row.entity_id,
                 row.class_id,
-                false,
-                2,
-                u32::try_from(row.entity_id).unwrap_or_default(),
                 row.sync.x_bits,
                 row.sync.y_bits,
-                false,
-                self.state.received_entity_snapshot_count,
-            );
-            self.state.entity_semantic_projection.upsert(
-                row.entity_id,
-                row.class_id,
-                self.state.received_entity_snapshot_count,
-                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
-                    team_id: row.sync.team_id,
-                    unit_type_id: row.sync.unit_type_id,
-                    health_bits: row.sync.health_bits,
-                    rotation_bits: row.sync.rotation_bits,
-                    shield_bits: row.sync.shield_bits,
-                    mine_tile_pos: row.sync.mine_tile_pos,
-                    status_count: row.sync.status_count,
-                    payload_count: None,
-                    building_pos: None,
-                    lifetime_bits: Some(row.sync.lifetime_bits),
-                    time_bits: Some(row.sync.time_bits),
-                    runtime_sync: Some(EntityUnitRuntimeSyncProjection {
-                        ammo_bits: row.sync.ammo_bits,
-                        elevation_bits: row.sync.elevation_bits,
-                        flag_bits: row.sync.flag_bits,
-                        base_rotation_bits: None,
-                    }),
-                    controller_type: row.sync.controller_type,
-                    controller_value: row.sync.controller_value,
-                }),
-            );
-            self.apply_entity_snapshot_unit_item_stack(
-                row.entity_id,
                 row.sync.stack_item_id,
                 row.sync.stack_amount,
+                Self::entity_snapshot_unit_semantic_projection(
+                    row.sync.team_id,
+                    row.sync.unit_type_id,
+                    row.sync.health_bits,
+                    row.sync.rotation_bits,
+                    row.sync.shield_bits,
+                    row.sync.mine_tile_pos,
+                    row.sync.status_count,
+                    row.sync.statuses.clone(),
+                    None,
+                    None,
+                    Some(row.sync.lifetime_bits),
+                    Some(row.sync.time_bits),
+                    Self::entity_snapshot_unit_runtime_sync_projection(
+                        row.sync.ammo_bits,
+                        row.sync.elevation_bits,
+                        row.sync.flag_bits,
+                        None,
+                    ),
+                    row.sync.controller_type,
+                    row.sync.controller_value,
+                    row.sync.controller_snapshot.clone(),
+                ),
+                None,
             );
-            self.state
-                .clear_entity_snapshot_payload_apply_projection(row.entity_id);
-            self.state
-                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -7680,64 +7818,40 @@ impl ClientSession {
         payload_rows: &[EntityPayloadSyncRow],
     ) {
         for row in payload_rows {
-            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
-                continue;
-            }
-            self.state.entity_table_projection.upsert_entity(
+            self.apply_parseable_payload_like_unit_row_from_entity_snapshot(
                 row.entity_id,
                 row.class_id,
-                false,
-                2,
-                u32::try_from(row.entity_id).unwrap_or_default(),
                 row.sync.x_bits,
                 row.sync.y_bits,
-                false,
-                self.state.received_entity_snapshot_count,
-            );
-            self.state.entity_semantic_projection.upsert(
-                row.entity_id,
-                row.class_id,
-                self.state.received_entity_snapshot_count,
-                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
-                    team_id: row.sync.team_id,
-                    unit_type_id: row.sync.unit_type_id,
-                    health_bits: row.sync.health_bits,
-                    rotation_bits: row.sync.rotation_bits,
-                    shield_bits: row.sync.shield_bits,
-                    mine_tile_pos: row.sync.mine_tile_pos,
-                    status_count: row.sync.status_count,
-                    payload_count: Some(row.sync.payload_count),
-                    building_pos: None,
-                    lifetime_bits: None,
-                    time_bits: None,
-                    runtime_sync: Some(EntityUnitRuntimeSyncProjection {
-                        ammo_bits: row.sync.ammo_bits,
-                        elevation_bits: row.sync.elevation_bits,
-                        flag_bits: row.sync.flag_bits,
-                        base_rotation_bits: None,
-                    }),
-                    controller_type: row.sync.controller_type,
-                    controller_value: row.sync.controller_value,
-                }),
-            );
-            self.apply_entity_snapshot_unit_item_stack(
-                row.entity_id,
                 row.sync.stack_item_id,
                 row.sync.stack_amount,
-            );
-            self.state.apply_entity_snapshot_payload_apply_projection(
-                row.entity_id,
-                row.class_id,
                 row.sync.payload_count,
                 None,
                 row.unit_payload.clone(),
-                Self::entity_snapshot_unit_item_stack_projection(
-                    row.sync.stack_item_id,
-                    row.sync.stack_amount,
+                Self::entity_snapshot_unit_semantic_projection(
+                    row.sync.team_id,
+                    row.sync.unit_type_id,
+                    row.sync.health_bits,
+                    row.sync.rotation_bits,
+                    row.sync.shield_bits,
+                    row.sync.mine_tile_pos,
+                    row.sync.status_count,
+                    row.sync.statuses.clone(),
+                    Some(row.sync.payload_count),
+                    None,
+                    None,
+                    None,
+                    Self::entity_snapshot_unit_runtime_sync_projection(
+                        row.sync.ammo_bits,
+                        row.sync.elevation_bits,
+                        row.sync.flag_bits,
+                        None,
+                    ),
+                    row.sync.controller_type,
+                    row.sync.controller_value,
+                    row.sync.controller_snapshot.clone(),
                 ),
             );
-            self.state
-                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -7746,95 +7860,56 @@ impl ClientSession {
         tether_payload_rows: &[EntityBuildingTetherPayloadSyncRow],
     ) {
         for row in tether_payload_rows {
-            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
-                continue;
-            }
-            self.state.entity_table_projection.upsert_entity(
+            self.apply_parseable_payload_like_unit_row_from_entity_snapshot(
                 row.entity_id,
                 row.class_id,
-                false,
-                2,
-                u32::try_from(row.entity_id).unwrap_or_default(),
                 row.sync.x_bits,
                 row.sync.y_bits,
-                false,
-                self.state.received_entity_snapshot_count,
-            );
-            self.state.entity_semantic_projection.upsert(
-                row.entity_id,
-                row.class_id,
-                self.state.received_entity_snapshot_count,
-                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
-                    team_id: row.sync.team_id,
-                    unit_type_id: row.sync.unit_type_id,
-                    health_bits: row.sync.health_bits,
-                    rotation_bits: row.sync.rotation_bits,
-                    shield_bits: row.sync.shield_bits,
-                    mine_tile_pos: row.sync.mine_tile_pos,
-                    status_count: row.sync.status_count,
-                    payload_count: Some(row.sync.payload_count),
-                    building_pos: Some(row.sync.building_pos),
-                    lifetime_bits: None,
-                    time_bits: None,
-                    runtime_sync: Some(EntityUnitRuntimeSyncProjection {
-                        ammo_bits: row.sync.ammo_bits,
-                        elevation_bits: row.sync.elevation_bits,
-                        flag_bits: row.sync.flag_bits,
-                        base_rotation_bits: None,
-                    }),
-                    controller_type: row.sync.controller_type,
-                    controller_value: row.sync.controller_value,
-                }),
-            );
-            self.apply_entity_snapshot_unit_item_stack(
-                row.entity_id,
                 row.sync.stack_item_id,
                 row.sync.stack_amount,
-            );
-            self.state.apply_entity_snapshot_payload_apply_projection(
-                row.entity_id,
-                row.class_id,
                 row.sync.payload_count,
                 Some(row.sync.building_pos),
                 row.unit_payload.clone(),
-                Self::entity_snapshot_unit_item_stack_projection(
-                    row.sync.stack_item_id,
-                    row.sync.stack_amount,
+                Self::entity_snapshot_unit_semantic_projection(
+                    row.sync.team_id,
+                    row.sync.unit_type_id,
+                    row.sync.health_bits,
+                    row.sync.rotation_bits,
+                    row.sync.shield_bits,
+                    row.sync.mine_tile_pos,
+                    row.sync.status_count,
+                    row.sync.statuses.clone(),
+                    Some(row.sync.payload_count),
+                    Some(row.sync.building_pos),
+                    None,
+                    None,
+                    Self::entity_snapshot_unit_runtime_sync_projection(
+                        row.sync.ammo_bits,
+                        row.sync.elevation_bits,
+                        row.sync.flag_bits,
+                        None,
+                    ),
+                    row.sync.controller_type,
+                    row.sync.controller_value,
+                    row.sync.controller_snapshot.clone(),
                 ),
             );
-            self.state
-                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
     fn apply_parseable_fire_rows_from_entity_snapshot(&mut self, fire_rows: &[EntityFireSyncRow]) {
         for row in fire_rows {
-            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
-                continue;
-            }
-            self.state.entity_table_projection.upsert_entity(
+            self.apply_parseable_non_unit_entity_row_from_entity_snapshot(
                 row.entity_id,
                 row.class_id,
-                false,
-                0,
-                0,
                 row.sync.x_bits,
                 row.sync.y_bits,
-                false,
-                self.state.received_entity_snapshot_count,
-            );
-            self.state.entity_semantic_projection.upsert(
-                row.entity_id,
-                row.class_id,
-                self.state.received_entity_snapshot_count,
                 EntitySemanticProjection::Fire(EntityFireSemanticProjection {
                     tile_pos: row.sync.tile_pos,
                     lifetime_bits: row.sync.lifetime_bits,
                     time_bits: row.sync.time_bits,
                 }),
             );
-            self.state
-                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -7843,32 +7918,17 @@ impl ClientSession {
         puddle_rows: &[EntityPuddleSyncRow],
     ) {
         for row in puddle_rows {
-            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
-                continue;
-            }
-            self.state.entity_table_projection.upsert_entity(
+            self.apply_parseable_non_unit_entity_row_from_entity_snapshot(
                 row.entity_id,
                 row.class_id,
-                false,
-                0,
-                0,
                 row.sync.x_bits,
                 row.sync.y_bits,
-                false,
-                self.state.received_entity_snapshot_count,
-            );
-            self.state.entity_semantic_projection.upsert(
-                row.entity_id,
-                row.class_id,
-                self.state.received_entity_snapshot_count,
                 EntitySemanticProjection::Puddle(EntityPuddleSemanticProjection {
                     tile_pos: row.sync.tile_pos,
                     liquid_id: row.sync.liquid_id,
                     amount_bits: row.sync.amount_bits,
                 }),
             );
-            self.state
-                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -7877,24 +7937,11 @@ impl ClientSession {
         weather_state_rows: &[EntityWeatherStateSyncRow],
     ) {
         for row in weather_state_rows {
-            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
-                continue;
-            }
-            self.state.entity_table_projection.upsert_entity(
+            self.apply_parseable_non_unit_entity_row_from_entity_snapshot(
                 row.entity_id,
                 row.class_id,
-                false,
-                0,
-                0,
                 row.sync.x_bits,
                 row.sync.y_bits,
-                false,
-                self.state.received_entity_snapshot_count,
-            );
-            self.state.entity_semantic_projection.upsert(
-                row.entity_id,
-                row.class_id,
-                self.state.received_entity_snapshot_count,
                 EntitySemanticProjection::WeatherState(EntityWeatherStateSemanticProjection {
                     weather_id: row.sync.weather_id,
                     intensity_bits: row.sync.intensity_bits,
@@ -7904,8 +7951,6 @@ impl ClientSession {
                     wind_y_bits: row.sync.wind_y_bits,
                 }),
             );
-            self.state
-                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -7914,24 +7959,11 @@ impl ClientSession {
         world_label_rows: &[EntityWorldLabelSyncRow],
     ) {
         for row in world_label_rows {
-            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
-                continue;
-            }
-            self.state.entity_table_projection.upsert_entity(
+            self.apply_parseable_non_unit_entity_row_from_entity_snapshot(
                 row.entity_id,
                 row.class_id,
-                false,
-                0,
-                0,
                 row.sync.x_bits,
                 row.sync.y_bits,
-                false,
-                self.state.received_entity_snapshot_count,
-            );
-            self.state.entity_semantic_projection.upsert(
-                row.entity_id,
-                row.class_id,
-                self.state.received_entity_snapshot_count,
                 EntitySemanticProjection::WorldLabel(EntityWorldLabelSemanticProjection {
                     flags: row.sync.flags,
                     font_size_bits: row.sync.font_size_bits,
@@ -7939,8 +7971,6 @@ impl ClientSession {
                     z_bits: row.sync.z_bits,
                 }),
             );
-            self.state
-                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -8015,32 +8045,11 @@ impl ClientSession {
         let Some(head) = self.state.block_snapshot_head_projection.clone() else {
             return;
         };
-        let block_name = self.loaded_world_block_name(head.block_id);
-
-        self.state
-            .building_table_projection
-            .apply_block_snapshot_head(
-                head.build_pos,
-                head.block_id,
-                block_name,
-                head.rotation,
-                head.team_id,
-                head.io_version,
-                head.module_bitmask,
-                head.time_scale_bits,
-                head.time_scale_duration_bits,
-                head.last_disabler_pos,
-                head.legacy_consume_connected,
-                None,
-                head.health_bits,
-                head.enabled,
-                head.efficiency,
-                head.optional_efficiency,
-                head.visible_flags,
-                None,
-                None,
-                None,
-            );
+        loaded_world_block_snapshot_head_apply_from_projection(
+            &head,
+            self.loaded_world_block_name(head.block_id),
+        )
+        .apply_to(&mut self.state.building_table_projection);
         self.state
             .refresh_runtime_typed_building_from_tables(head.build_pos);
     }
@@ -8343,31 +8352,8 @@ impl ClientSession {
         entries: Vec<BlockSnapshotExtraEntrySummary>,
     ) {
         for entry in entries {
-            let config_object = loaded_world_config_object_from_block_snapshot_entry(&entry);
-            self.state
-                .building_table_projection
-                .apply_block_snapshot_head(
-                    entry.build_pos,
-                    entry.block_id,
-                    entry.block_name.clone(),
-                    entry.rotation,
-                    entry.team_id,
-                    entry.io_version,
-                    entry.module_bitmask,
-                    entry.time_scale_bits,
-                    entry.time_scale_duration_bits,
-                    entry.last_disabler_pos,
-                    entry.legacy_consume_connected,
-                    config_object,
-                    entry.health_bits,
-                    entry.enabled,
-                    entry.efficiency,
-                    entry.optional_efficiency,
-                    entry.visible_flags,
-                    entry.build_turret_rotation_bits,
-                    entry.build_turret_plans_present,
-                    entry.build_turret_plan_count,
-                );
+            loaded_world_block_snapshot_head_apply_from_entry(&entry)
+                .apply_to(&mut self.state.building_table_projection);
             self.apply_loaded_world_block_snapshot_entry_business(&entry);
         }
     }
@@ -9098,14 +9084,13 @@ impl ClientSession {
                     .apply_door_open(entry.build_pos, Some(enabled));
             }
         }
-        self.state
-            .resource_delta_projection
-            .seed_world_build_items(entry.build_pos, &entry.build_item_stacks);
-        self.state
-            .resource_delta_projection
-            .seed_world_build_liquids(entry.build_pos, &entry.build_liquid_stacks);
-        self.state
-            .refresh_runtime_typed_building_from_tables(entry.build_pos);
+        self.finalize_building_live_apply(
+            entry.build_pos,
+            &entry.build_item_stacks,
+            &entry.build_liquid_stacks,
+            BuildingResourceDeltaFinalizeMode::SeedWorldBaseline,
+            BuildingRuntimeRefreshMode::Tables,
+        );
     }
 
     fn try_apply_local_player_spawn_from_packet(
@@ -9120,17 +9105,7 @@ impl ClientSession {
         let (tile_x, tile_y) = unpack_point2(tile_pos);
         let x = tile_x as f32 * 8.0;
         let y = tile_y as f32 * 8.0;
-        self.state.world_player_x_bits = Some(x.to_bits());
-        self.state.world_player_y_bits = Some(y.to_bits());
-        self.state
-            .entity_table_projection
-            .update_local_player_position(player_id, x.to_bits(), y.to_bits(), false);
-        self.state
-            .refresh_runtime_typed_entity_from_tables(player_id);
-        self.snapshot_input.unit_id = None;
-        self.snapshot_input.dead = false;
-        self.snapshot_input.position = Some((x, y));
-        self.snapshot_input.view_center = Some((x, y));
+        self.apply_local_player_spawn_sync(player_id, x, y);
         Some((player_id, x, y))
     }
 
@@ -9147,6 +9122,27 @@ impl ClientSession {
             return false;
         }
 
+        self.clear_local_player_sync();
+        true
+    }
+
+    fn apply_local_player_spawn_sync(&mut self, player_id: i32, x: f32, y: f32) {
+        let x_bits = x.to_bits();
+        let y_bits = y.to_bits();
+        self.state.world_player_x_bits = Some(x_bits);
+        self.state.world_player_y_bits = Some(y_bits);
+        self.state
+            .entity_table_projection
+            .update_local_player_position(player_id, x_bits, y_bits, false);
+        self.state
+            .refresh_runtime_typed_entity_from_tables(player_id);
+        self.snapshot_input.unit_id = None;
+        self.snapshot_input.dead = false;
+        self.snapshot_input.position = Some((x, y));
+        self.snapshot_input.view_center = Some((x, y));
+    }
+
+    fn clear_local_player_sync(&mut self) {
         self.state.world_player_semantic_projection = None;
         self.state.world_player_unit_kind = None;
         self.state.world_player_unit_value = None;
@@ -9156,7 +9152,27 @@ impl ClientSession {
         self.snapshot_input.dead = true;
         self.snapshot_input.position = None;
         self.snapshot_input.view_center = None;
-        true
+    }
+
+    fn clear_world_reload_pending_state_and_runtime_caches(&mut self) {
+        self.pending_packets.clear();
+        self.deferred_inbound_packets.clear();
+        self.replayed_loading_events.clear();
+        self.pending_world_stream = None;
+        self.loaded_world_bundle = None;
+        self.radar_runtime_by_build_pos.borrow_mut().clear();
+        self.separator_runtime_by_build_pos.borrow_mut().clear();
+        self.shielded_wall_runtime_by_build_pos.borrow_mut().clear();
+        self.power_reactor_runtime_by_build_pos.borrow_mut().clear();
+    }
+
+    fn clear_kick_state(&mut self) {
+        self.kicked = false;
+        self.last_kick_reason_text = None;
+        self.last_kick_reason_ordinal = None;
+        self.last_kick_duration_ms = None;
+        self.last_kick_hint_category = None;
+        self.last_kick_hint_text = None;
     }
 
     fn quiet_reset_for_reconnect(&mut self) {
@@ -9173,12 +9189,8 @@ impl ClientSession {
         let received_connect_redirect_count = self.state.received_connect_redirect_count;
         let last_connect_redirect_ip = self.state.last_connect_redirect_ip.clone();
         let last_connect_redirect_port = self.state.last_connect_redirect_port;
-        self.pending_packets.clear();
-        self.deferred_inbound_packets.clear();
-        self.replayed_loading_events.clear();
-        self.pending_world_stream = None;
+        self.clear_world_reload_pending_state_and_runtime_caches();
         self.loading_world_data = false;
-        self.loaded_world_bundle = None;
         self.last_inbound_at_ms = None;
         self.last_ready_inbound_liveness_at_ms = None;
         self.last_snapshot_at_ms = None;
@@ -9186,19 +9198,10 @@ impl ClientSession {
         self.last_client_snapshot_at_ms = None;
         self.last_remote_ping_at_ms = None;
         self.last_remote_ping_rtt_ms = None;
-        self.kicked = false;
-        self.last_kick_reason_text = None;
-        self.last_kick_reason_ordinal = None;
-        self.last_kick_duration_ms = None;
-        self.last_kick_hint_category = None;
-        self.last_kick_hint_text = None;
+        self.clear_kick_state();
         self.next_client_snapshot_id = 1;
         self.timed_out = false;
         self.snapshot_input = ClientSnapshotInputState::default();
-        self.radar_runtime_by_build_pos.borrow_mut().clear();
-        self.separator_runtime_by_build_pos.borrow_mut().clear();
-        self.shielded_wall_runtime_by_build_pos.borrow_mut().clear();
-        self.power_reactor_runtime_by_build_pos.borrow_mut().clear();
         self.state = SessionState::default();
         self.stats = NetLoopStats::default();
         self.state.last_timeout = last_timeout;
@@ -9239,15 +9242,7 @@ impl ClientSession {
             cleared_deferred_inbound_packets: self.deferred_inbound_packets.len(),
             cleared_replayed_loading_events: self.replayed_loading_events.len(),
         };
-        self.pending_world_stream = None;
-        self.loaded_world_bundle = None;
-        self.radar_runtime_by_build_pos.borrow_mut().clear();
-        self.separator_runtime_by_build_pos.borrow_mut().clear();
-        self.shielded_wall_runtime_by_build_pos.borrow_mut().clear();
-        self.power_reactor_runtime_by_build_pos.borrow_mut().clear();
-        self.pending_packets.clear();
-        self.deferred_inbound_packets.clear();
-        self.replayed_loading_events.clear();
+        self.clear_world_reload_pending_state_and_runtime_caches();
         self.loading_world_data = true;
         self.timed_out = false;
         self.state.connection_timed_out = false;
@@ -9485,12 +9480,7 @@ impl ClientSession {
         self.last_snapshot_at_ms = None;
         self.last_remote_ping_at_ms = None;
         self.last_remote_ping_rtt_ms = None;
-        self.kicked = false;
-        self.last_kick_reason_text = None;
-        self.last_kick_reason_ordinal = None;
-        self.last_kick_duration_ms = None;
-        self.last_kick_hint_category = None;
-        self.last_kick_hint_text = None;
+        self.clear_kick_state();
         self.snapshot_input.unit_id = None;
         self.snapshot_input.dead = true;
         self.snapshot_input.position = None;
@@ -10222,6 +10212,71 @@ pub enum ClientSessionEvent {
         packet_id: u8,
         remote: Option<IgnoredRemotePacketMeta>,
     },
+}
+
+impl ClientSessionEvent {
+    pub fn resets_runtime_transients(&self) -> bool {
+        matches!(
+            self,
+            Self::WorldDataBegin
+                | Self::WorldStreamStarted { .. }
+                | Self::ConnectRedirectRequested { .. }
+        )
+    }
+
+    pub fn runtime_transient_reset_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::ConnectRedirectRequested { .. } => Some("connect_redirect"),
+            Self::WorldStreamStarted { .. } => Some("world_stream_started"),
+            Self::WorldDataBegin => Some("world_data_begin"),
+            _ => None,
+        }
+    }
+
+    pub fn preferred_runtime_transient_reset_reason(events: &[Self]) -> Option<&'static str> {
+        for reason in [
+            "connect_redirect",
+            "world_stream_started",
+            "world_data_begin",
+        ] {
+            if events
+                .iter()
+                .any(|event| event.runtime_transient_reset_reason() == Some(reason))
+            {
+                return Some(reason);
+            }
+        }
+
+        None
+    }
+}
+
+#[cfg(test)]
+mod client_session_event_tests {
+    use super::ClientSessionEvent;
+
+    #[test]
+    fn preferred_runtime_transient_reset_reason_prioritizes_redirect_then_stream_then_begin() {
+        let events = vec![
+            ClientSessionEvent::WorldDataBegin,
+            ClientSessionEvent::WorldStreamStarted {
+                stream_id: 7,
+                total_bytes: 32,
+            },
+            ClientSessionEvent::ConnectRedirectRequested {
+                ip: "127.0.0.1".into(),
+                port: 6567,
+            },
+        ];
+
+        assert_eq!(
+            ClientSessionEvent::preferred_runtime_transient_reset_reason(&events),
+            Some("connect_redirect")
+        );
+        assert!(events
+            .iter()
+            .all(ClientSessionEvent::resets_runtime_transients));
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12517,6 +12572,27 @@ fn derive_effect_business_projection(
         ))
     }
 
+    fn point_beam_snapshot_projection(
+        effect_x: f32,
+        effect_y: f32,
+        object: &TypeIoObject,
+        max_depth: usize,
+        max_nodes: usize,
+    ) -> Option<(EffectBusinessProjection, Vec<usize>)> {
+        let (target_projection, path) =
+            nth_explicit_position_projection(object, max_depth, max_nodes, 0)?;
+        let (target_x_bits, target_y_bits) = position_bits_from_projection(&target_projection)?;
+        Some((
+            EffectBusinessProjection::PositionTarget {
+                source_x_bits: effect_x.to_bits(),
+                source_y_bits: effect_y.to_bits(),
+                target_x_bits,
+                target_y_bits,
+            },
+            path,
+        ))
+    }
+
     fn lightning_path_projection(value: &TypeIoObject) -> Option<EffectBusinessProjection> {
         let TypeIoObject::Vec2Array(values) = value else {
             return None;
@@ -12769,6 +12845,13 @@ fn derive_effect_business_projection(
         }
         if matches!(contract, RuntimeEffectContract::LegDestroy) {
             return leg_destroy_projection(effect_x, effect_y, object, max_depth, max_nodes);
+        }
+        if matches!(contract, RuntimeEffectContract::PointBeam) {
+            if let Some(projection) =
+                point_beam_snapshot_projection(effect_x, effect_y, object, max_depth, max_nodes)
+            {
+                return Some(projection);
+            }
         }
         if let Some(projection) = projection_from_contract_object(
             state,
@@ -13586,6 +13669,138 @@ struct BlockSnapshotExtraEntrySummary {
     build_liquid_stacks: Vec<(i16, u32)>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct LoadedWorldBlockSnapshotHeadApply {
+    build_pos: i32,
+    block_id: i16,
+    block_name: Option<String>,
+    rotation: Option<u8>,
+    team_id: Option<u8>,
+    io_version: Option<u8>,
+    module_bitmask: Option<u8>,
+    time_scale_bits: Option<u32>,
+    time_scale_duration_bits: Option<u32>,
+    last_disabler_pos: Option<i32>,
+    legacy_consume_connected: Option<bool>,
+    config: Option<TypeIoObject>,
+    health_bits: Option<u32>,
+    enabled: Option<bool>,
+    efficiency: Option<u8>,
+    optional_efficiency: Option<u8>,
+    visible_flags: Option<u64>,
+    tail_summary: BuildingTailSummaryProjection,
+}
+
+impl LoadedWorldBlockSnapshotHeadApply {
+    fn apply_to(self, table: &mut BuildingTableProjection) {
+        table.apply_block_snapshot_head_with_tail_summary(
+            self.build_pos,
+            self.block_id,
+            self.block_name,
+            self.rotation,
+            self.team_id,
+            self.io_version,
+            self.module_bitmask,
+            self.time_scale_bits,
+            self.time_scale_duration_bits,
+            self.last_disabler_pos,
+            self.legacy_consume_connected,
+            self.config,
+            self.health_bits,
+            self.enabled,
+            self.efficiency,
+            self.optional_efficiency,
+            self.visible_flags,
+            self.tail_summary,
+        );
+    }
+}
+
+fn loaded_world_block_snapshot_head_apply_from_entity_row(
+    row: &EntityBuildingSyncRow,
+    block_name: Option<String>,
+) -> LoadedWorldBlockSnapshotHeadApply {
+    LoadedWorldBlockSnapshotHeadApply {
+        build_pos: row.build_pos,
+        block_id: row.block_id,
+        rotation: Some(row.sync.base.rotation),
+        team_id: Some(row.sync.base.team_id),
+        io_version: row.sync.base.save_version,
+        module_bitmask: row.sync.base.module_bitmask,
+        time_scale_bits: row.sync.base.time_scale_bits,
+        time_scale_duration_bits: row.sync.base.time_scale_duration_bits,
+        last_disabler_pos: row.sync.base.last_disabler_pos,
+        legacy_consume_connected: row.sync.base.legacy_consume_connected,
+        config: loaded_world_config_object_from_parsed_tail(
+            block_name.as_deref(),
+            &row.sync.parsed_tail,
+        ),
+        health_bits: Some(row.sync.base.health_bits),
+        enabled: row.sync.base.enabled,
+        efficiency: row.sync.base.efficiency,
+        optional_efficiency: row.sync.base.optional_efficiency,
+        visible_flags: row.sync.base.visible_flags,
+        tail_summary: summarize_building_turret_tail_fields(&row.sync.parsed_tail),
+        block_name,
+    }
+}
+
+fn loaded_world_block_snapshot_head_apply_from_projection(
+    head: &crate::session_state::BlockSnapshotHeadProjection,
+    block_name: Option<String>,
+) -> LoadedWorldBlockSnapshotHeadApply {
+    LoadedWorldBlockSnapshotHeadApply {
+        build_pos: head.build_pos,
+        block_id: head.block_id,
+        block_name,
+        rotation: head.rotation,
+        team_id: head.team_id,
+        io_version: head.io_version,
+        module_bitmask: head.module_bitmask,
+        time_scale_bits: head.time_scale_bits,
+        time_scale_duration_bits: head.time_scale_duration_bits,
+        last_disabler_pos: head.last_disabler_pos,
+        legacy_consume_connected: head.legacy_consume_connected,
+        config: None,
+        health_bits: head.health_bits,
+        enabled: head.enabled,
+        efficiency: head.efficiency,
+        optional_efficiency: head.optional_efficiency,
+        visible_flags: head.visible_flags,
+        tail_summary: BuildingTailSummaryProjection::default(),
+    }
+}
+
+fn loaded_world_block_snapshot_head_apply_from_entry(
+    entry: &BlockSnapshotExtraEntrySummary,
+) -> LoadedWorldBlockSnapshotHeadApply {
+    LoadedWorldBlockSnapshotHeadApply {
+        build_pos: entry.build_pos,
+        block_id: entry.block_id,
+        block_name: entry.block_name.clone(),
+        rotation: entry.rotation,
+        team_id: entry.team_id,
+        io_version: entry.io_version,
+        module_bitmask: entry.module_bitmask,
+        time_scale_bits: entry.time_scale_bits,
+        time_scale_duration_bits: entry.time_scale_duration_bits,
+        last_disabler_pos: entry.last_disabler_pos,
+        legacy_consume_connected: entry.legacy_consume_connected,
+        config: loaded_world_config_object_from_block_snapshot_entry(entry),
+        health_bits: entry.health_bits,
+        enabled: entry.enabled,
+        efficiency: entry.efficiency,
+        optional_efficiency: entry.optional_efficiency,
+        visible_flags: entry.visible_flags,
+        tail_summary: BuildingTailSummaryProjection {
+            build_turret_rotation_bits: entry.build_turret_rotation_bits,
+            build_turret_plans_present: entry.build_turret_plans_present,
+            build_turret_plan_count: entry.build_turret_plan_count,
+            ..BuildingTailSummaryProjection::default()
+        },
+    }
+}
+
 fn loaded_world_nullable_content_object(content_type: u8, content_id: Option<i16>) -> TypeIoObject {
     match content_id {
         Some(content_id) => TypeIoObject::ContentRaw {
@@ -13606,25 +13821,102 @@ fn loaded_world_nullable_content_ref_object(content: Option<ConfiguredContentRef
     }
 }
 
-fn loaded_world_config_object_from_summary(
-    block_name: Option<&str>,
+#[derive(Debug, Clone)]
+struct LoadedWorldConfigSummary<'a> {
+    block_name: Option<&'a str>,
     constructor_recipe_block_id: Option<Option<i16>>,
     unit_factory_current_plan: Option<i16>,
     landing_pad_config_item_id: Option<Option<i16>>,
-    message_text: Option<&str>,
+    message_text: Option<String>,
     payload_source_content: Option<Option<ConfiguredContentRef>>,
     payload_router_sorted_content: Option<Option<ConfiguredContentRef>>,
     duct_unloader_item_id: Option<Option<i16>>,
     directional_unloader_item_id: Option<Option<i16>>,
     reconstructor_command_id: Option<Option<u16>>,
-    canvas_bytes: Option<&[u8]>,
+    canvas_bytes: Option<Vec<u8>>,
     mass_driver_link: Option<i32>,
     payload_mass_driver_link: Option<i32>,
     nullable_item_id: Option<Option<i16>>,
     item_bridge_link: Option<i32>,
     light_color: Option<i32>,
     switch_enabled: Option<bool>,
+}
+
+impl<'a> LoadedWorldConfigSummary<'a> {
+    fn from_parsed_tail(
+        block_name: Option<&'a str>,
+        parsed_tail: &'a mdt_world::ParsedBuildingTail,
+    ) -> Self {
+        Self {
+            block_name,
+            constructor_recipe_block_id: summarize_constructor_recipe_block_id(parsed_tail),
+            unit_factory_current_plan: summarize_unit_factory_current_plan(parsed_tail),
+            landing_pad_config_item_id: summarize_landing_pad_config_item_id(parsed_tail),
+            message_text: summarize_message_tail_text(parsed_tail),
+            payload_source_content: summarize_payload_source_content(parsed_tail),
+            payload_router_sorted_content: summarize_payload_router_sorted_content(parsed_tail),
+            duct_unloader_item_id: summarize_duct_unloader_item_id(parsed_tail),
+            directional_unloader_item_id: if block_name == Some(BLOCK_NAME_DIRECTIONAL_UNLOADER) {
+                summarize_nullable_item_config_item_id(parsed_tail)
+            } else {
+                None
+            },
+            reconstructor_command_id: summarize_reconstructor_command_id(parsed_tail),
+            canvas_bytes: summarize_canvas_bytes(parsed_tail),
+            mass_driver_link: summarize_mass_driver_link(parsed_tail),
+            payload_mass_driver_link: summarize_payload_mass_driver_link(parsed_tail),
+            nullable_item_id: summarize_nullable_item_config_item_id(parsed_tail),
+            item_bridge_link: summarize_item_bridge_link(parsed_tail),
+            light_color: summarize_one_i32_tail_value(parsed_tail),
+            switch_enabled: summarize_one_bool_tail_value(parsed_tail),
+        }
+    }
+
+    fn from_block_snapshot_entry(entry: &'a BlockSnapshotExtraEntrySummary) -> Self {
+        Self {
+            block_name: entry.block_name.as_deref(),
+            constructor_recipe_block_id: entry.constructor_recipe_block_id,
+            unit_factory_current_plan: entry.unit_factory_current_plan,
+            landing_pad_config_item_id: entry.landing_pad_config_item_id,
+            message_text: entry.message_text.clone(),
+            payload_source_content: entry.payload_source_content,
+            payload_router_sorted_content: entry.payload_router_sorted_content,
+            duct_unloader_item_id: entry.duct_unloader_item_id,
+            directional_unloader_item_id: entry.directional_unloader_item_id,
+            reconstructor_command_id: entry.reconstructor_command_id,
+            canvas_bytes: entry.canvas_bytes.clone(),
+            mass_driver_link: entry.mass_driver_link,
+            payload_mass_driver_link: entry.payload_mass_driver_link,
+            nullable_item_id: entry.nullable_item_id,
+            item_bridge_link: entry.item_bridge_link,
+            light_color: entry.light_color,
+            switch_enabled: entry.switch_enabled,
+        }
+    }
+}
+
+fn loaded_world_config_object_from_summary(
+    summary: LoadedWorldConfigSummary<'_>,
 ) -> Option<TypeIoObject> {
+    let LoadedWorldConfigSummary {
+        block_name,
+        constructor_recipe_block_id,
+        unit_factory_current_plan,
+        landing_pad_config_item_id,
+        message_text,
+        payload_source_content,
+        payload_router_sorted_content,
+        duct_unloader_item_id,
+        directional_unloader_item_id,
+        reconstructor_command_id,
+        canvas_bytes,
+        mass_driver_link,
+        payload_mass_driver_link,
+        nullable_item_id,
+        item_bridge_link,
+        light_color,
+        switch_enabled,
+    } = summary;
     if let Some(block_id) = constructor_recipe_block_id {
         return Some(loaded_world_nullable_content_object(
             BLOCK_CONTENT_TYPE,
@@ -13653,7 +13945,7 @@ fn loaded_world_config_object_from_summary(
         ));
     }
     if let Some(text) = message_text {
-        return Some(TypeIoObject::String(Some(text.to_string())));
+        return Some(TypeIoObject::String(Some(text)));
     }
     if let Some(content) = payload_source_content {
         return Some(loaded_world_nullable_content_ref_object(content));
@@ -13681,7 +13973,7 @@ fn loaded_world_config_object_from_summary(
         );
     }
     if let Some(bytes) = canvas_bytes {
-        return Some(TypeIoObject::Bytes(bytes.to_vec()));
+        return Some(TypeIoObject::Bytes(bytes));
     }
     if let Some(link) = mass_driver_link {
         if block_name == Some(BLOCK_NAME_MASS_DRIVER) {
@@ -13754,53 +14046,18 @@ fn loaded_world_config_object_from_parsed_tail(
     block_name: Option<&str>,
     parsed_tail: &mdt_world::ParsedBuildingTail,
 ) -> Option<TypeIoObject> {
-    loaded_world_config_object_from_summary(
+    loaded_world_config_object_from_summary(LoadedWorldConfigSummary::from_parsed_tail(
         block_name,
-        summarize_constructor_recipe_block_id(parsed_tail),
-        summarize_unit_factory_current_plan(parsed_tail),
-        summarize_landing_pad_config_item_id(parsed_tail),
-        summarize_message_tail_text(parsed_tail).as_deref(),
-        summarize_payload_source_content(parsed_tail),
-        summarize_payload_router_sorted_content(parsed_tail),
-        summarize_duct_unloader_item_id(parsed_tail),
-        if block_name == Some(BLOCK_NAME_DIRECTIONAL_UNLOADER) {
-            summarize_nullable_item_config_item_id(parsed_tail)
-        } else {
-            None
-        },
-        summarize_reconstructor_command_id(parsed_tail),
-        summarize_canvas_bytes(parsed_tail).as_deref(),
-        summarize_mass_driver_link(parsed_tail),
-        summarize_payload_mass_driver_link(parsed_tail),
-        summarize_nullable_item_config_item_id(parsed_tail),
-        summarize_item_bridge_link(parsed_tail),
-        summarize_one_i32_tail_value(parsed_tail),
-        summarize_one_bool_tail_value(parsed_tail),
-    )
+        parsed_tail,
+    ))
 }
 
 fn loaded_world_config_object_from_block_snapshot_entry(
     entry: &BlockSnapshotExtraEntrySummary,
 ) -> Option<TypeIoObject> {
-    loaded_world_config_object_from_summary(
-        entry.block_name.as_deref(),
-        entry.constructor_recipe_block_id,
-        entry.unit_factory_current_plan,
-        entry.landing_pad_config_item_id,
-        entry.message_text.as_deref(),
-        entry.payload_source_content,
-        entry.payload_router_sorted_content,
-        entry.duct_unloader_item_id,
-        entry.directional_unloader_item_id,
-        entry.reconstructor_command_id,
-        entry.canvas_bytes.as_deref(),
-        entry.mass_driver_link,
-        entry.payload_mass_driver_link,
-        entry.nullable_item_id,
-        entry.item_bridge_link,
-        entry.light_color,
-        entry.switch_enabled,
-    )
+    loaded_world_config_object_from_summary(LoadedWorldConfigSummary::from_block_snapshot_entry(
+        entry,
+    ))
 }
 
 fn summarize_build_turret_tail_fields(
@@ -14037,18 +14294,18 @@ fn summarize_constructor_projection(
     parsed_tail: &mdt_world::ParsedBuildingTail,
 ) -> Option<ConstructorRuntimeProjection> {
     match parsed_tail {
-        mdt_world::ParsedBuildingTail::Constructor(constructor) => Some(
-            summarize_constructor_runtime_from_payload_block(
+        mdt_world::ParsedBuildingTail::Constructor(constructor) => {
+            Some(summarize_constructor_runtime_from_payload_block(
                 &constructor.payload_block,
                 constructor.progress_bits,
-            ),
-        ),
-        mdt_world::ParsedBuildingTail::BlockProducer(block_producer) => Some(
-            summarize_constructor_runtime_from_payload_block(
+            ))
+        }
+        mdt_world::ParsedBuildingTail::BlockProducer(block_producer) => {
+            Some(summarize_constructor_runtime_from_payload_block(
                 &block_producer.payload_block,
                 block_producer.progress_bits,
-            ),
-        ),
+            ))
+        }
         _ => None,
     }
 }
@@ -14913,6 +15170,7 @@ fn try_parse_alpha_sync_rows_from_entity_snapshot_prefix(
     parse_alpha_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
 }
 
+#[cfg(test)]
 fn try_parse_building_sync_rows_from_entity_snapshot_with_loaded_world(
     payload: &[u8],
     loaded_world: Option<LoadedWorldState<'_>>,
@@ -17240,9 +17498,12 @@ mod tests {
     use crate::bootstrap_flow::encode_world_stream_packets;
     use crate::session_state::AppliedStateSnapshot;
     use mdt_protocol::{decode_framework_message, decode_packet, encode_packet, FrameworkMessage};
-    use mdt_remote::{read_remote_manifest, RemotePacketRegistry, WellKnownRemoteMethod};
+    use mdt_remote::{
+        read_remote_manifest, RemoteManifest, RemotePacketEntry, RemotePacketRegistry,
+        WellKnownRemoteMethod,
+    };
     use std::cell::RefCell;
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     use std::path::PathBuf;
     use std::rc::Rc;
@@ -17437,6 +17698,339 @@ mod tests {
         decode_hex_text(hex)
     }
 
+    fn golden_key_value_map(text: &str) -> BTreeMap<String, String> {
+        text.lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
+            .collect()
+    }
+
+    fn golden_required_value<'a>(goldens: &'a BTreeMap<String, String>, key: &str) -> &'a str {
+        goldens
+            .get(key)
+            .map(String::as_str)
+            .unwrap_or_else(|| panic!("missing golden key: {key}"))
+    }
+
+    fn golden_optional_value<'a>(
+        goldens: &'a BTreeMap<String, String>,
+        key: &str,
+    ) -> Option<&'a str> {
+        match golden_required_value(goldens, key) {
+            "none" => None,
+            value => Some(value),
+        }
+    }
+
+    fn golden_required_bool(goldens: &BTreeMap<String, String>, key: &str) -> bool {
+        match golden_required_value(goldens, key) {
+            "0" => false,
+            "1" => true,
+            other => panic!("invalid bool golden value for {key}: {other}"),
+        }
+    }
+
+    fn golden_required_hex_u8(goldens: &BTreeMap<String, String>, key: &str) -> u8 {
+        u8::from_str_radix(golden_required_value(goldens, key), 16).unwrap()
+    }
+
+    fn golden_required_hex_u16(goldens: &BTreeMap<String, String>, key: &str) -> u16 {
+        u16::from_str_radix(golden_required_value(goldens, key), 16).unwrap()
+    }
+
+    fn ingest_command_and_control_golden_case(
+        manifest: &RemoteManifest,
+        goldens: &BTreeMap<String, String>,
+        sample_name: &str,
+        method: &str,
+    ) -> (ClientSession, ClientSessionEvent) {
+        let mut session = ClientSession::from_remote_manifest(manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == method)
+            .unwrap()
+            .packet_id;
+        assert_eq!(
+            format!("{packet_id:02x}"),
+            golden_required_value(goldens, &format!("{sample_name}.packetId"))
+        );
+
+        let payload = decode_hex_text(golden_required_value(
+            goldens,
+            &format!("{sample_name}.payload"),
+        ));
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        let decoded = decode_packet(&packet).unwrap();
+        assert_eq!(
+            decoded.raw_length,
+            golden_required_hex_u16(goldens, &format!("{sample_name}.rawLength"))
+        );
+        assert_eq!(
+            decoded.compression,
+            golden_required_hex_u8(goldens, &format!("{sample_name}.compression"))
+        );
+        assert_eq!(decoded.payload, payload);
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+        (session, event)
+    }
+
+    fn golden_required_hex_u32(goldens: &BTreeMap<String, String>, key: &str) -> u32 {
+        u32::from_str_radix(golden_required_value(goldens, key), 16).unwrap()
+    }
+
+    fn golden_required_hex_i32(goldens: &BTreeMap<String, String>, key: &str) -> i32 {
+        golden_required_hex_u32(goldens, key) as i32
+    }
+
+    fn golden_required_hex_usize(goldens: &BTreeMap<String, String>, key: &str) -> usize {
+        golden_required_hex_u32(goldens, key) as usize
+    }
+
+    fn golden_optional_hex_u8(goldens: &BTreeMap<String, String>, key: &str) -> Option<u8> {
+        golden_optional_value(goldens, key).map(|value| u8::from_str_radix(value, 16).unwrap())
+    }
+
+    fn golden_optional_hex_u16(goldens: &BTreeMap<String, String>, key: &str) -> Option<u16> {
+        golden_optional_value(goldens, key).map(|value| u16::from_str_radix(value, 16).unwrap())
+    }
+
+    fn golden_optional_hex_usize(goldens: &BTreeMap<String, String>, key: &str) -> Option<usize> {
+        golden_optional_value(goldens, key).map(|value| usize::from_str_radix(value, 16).unwrap())
+    }
+
+    fn golden_optional_string(goldens: &BTreeMap<String, String>, key: &str) -> Option<String> {
+        golden_optional_value(goldens, key).map(str::to_string)
+    }
+
+    fn golden_optional_configured_content_ref(
+        goldens: &BTreeMap<String, String>,
+        prefix: &str,
+    ) -> Option<ConfiguredContentRef> {
+        match (
+            golden_optional_hex_u8(goldens, &format!("{prefix}.contentType")),
+            golden_optional_hex_u16(goldens, &format!("{prefix}.contentId")),
+        ) {
+            (Some(content_type), Some(content_id)) => Some(ConfiguredContentRef {
+                content_type,
+                content_id: content_id as i16,
+            }),
+            (None, None) => None,
+            other => panic!("invalid configured content golden at {prefix}: {other:?}"),
+        }
+    }
+
+    fn payload_block_tail_from_golden(
+        goldens: &BTreeMap<String, String>,
+        prefix: &str,
+    ) -> mdt_world::PayloadBlockTailSnapshot {
+        mdt_world::PayloadBlockTailSnapshot {
+            pay_vector_x_bits: golden_required_hex_u32(
+                goldens,
+                &format!("{prefix}.payVectorXBits"),
+            ),
+            pay_vector_y_bits: golden_required_hex_u32(
+                goldens,
+                &format!("{prefix}.payVectorYBits"),
+            ),
+            pay_rotation_bits: golden_required_hex_u32(
+                goldens,
+                &format!("{prefix}.payRotationBits"),
+            ),
+            payload_present: golden_required_bool(goldens, &format!("{prefix}.present")),
+            payload_type: golden_optional_hex_u8(goldens, &format!("{prefix}.type")),
+            build_block_id: golden_optional_hex_u16(goldens, &format!("{prefix}.buildBlockId")),
+            build_revision: golden_optional_hex_u8(goldens, &format!("{prefix}.buildRevision")),
+            build_payload: None,
+            unit_class_id: golden_optional_hex_u8(goldens, &format!("{prefix}.unitClassId")),
+            unit_payload_len: golden_optional_hex_usize(
+                goldens,
+                &format!("{prefix}.unitPayloadLen"),
+            ),
+            unit_payload_sha256: golden_optional_string(
+                goldens,
+                &format!("{prefix}.unitPayloadSha256"),
+            ),
+        }
+    }
+
+    fn nullable_vec2_tail_from_golden(
+        goldens: &BTreeMap<String, String>,
+        prefix: &str,
+    ) -> mdt_world::NullableVec2TailSnapshot {
+        mdt_world::NullableVec2TailSnapshot {
+            present: golden_required_bool(goldens, &format!("{prefix}.present")),
+            x_bits: golden_required_hex_u32(goldens, &format!("{prefix}.xBits")),
+            y_bits: golden_required_hex_u32(goldens, &format!("{prefix}.yBits")),
+        }
+    }
+
+    fn payload_router_tail_from_golden(
+        goldens: &BTreeMap<String, String>,
+        prefix: &str,
+    ) -> mdt_world::PayloadRouterTailSnapshot {
+        let payload_serialized_len =
+            golden_required_hex_usize(goldens, &format!("{prefix}.payloadSerializedLen"));
+        let payload_serialized_sha256 =
+            golden_required_value(goldens, &format!("{prefix}.payloadSerializedSha256"))
+                .to_string();
+        let parsed_payload =
+            match golden_required_value(goldens, &format!("{prefix}.parsedPayloadKind")) {
+                "none" => None,
+                "null" => Some(Box::new(mdt_world::PayloadSnapshot::Null)),
+                "unit" => Some(Box::new(mdt_world::PayloadSnapshot::Unit(
+                    mdt_world::UnitPayloadSnapshot {
+                        class_id: golden_required_hex_u8(goldens, &format!("{prefix}.unitClassId")),
+                        revision: i16::from(golden_required_hex_u8(
+                            goldens,
+                            &format!("{prefix}.unitRevision"),
+                        )),
+                        body_len: payload_serialized_len,
+                        body_sha256: payload_serialized_sha256.clone(),
+                        status_count: 0,
+                        statuses: Vec::new(),
+                        nested_unit_payloads: vec![],
+                    },
+                ))),
+                other => panic!("unsupported payload router golden parsed payload kind: {other}"),
+            };
+        mdt_world::PayloadRouterTailSnapshot {
+            progress_bits: golden_required_hex_u32(goldens, &format!("{prefix}.progressBits")),
+            item_rotation_bits: golden_required_hex_u32(
+                goldens,
+                &format!("{prefix}.itemRotationBits"),
+            ),
+            payload_present: golden_required_bool(goldens, &format!("{prefix}.payloadPresent")),
+            payload_type: golden_optional_hex_u8(goldens, &format!("{prefix}.payloadType")),
+            payload_serialized_len,
+            payload_serialized_sha256,
+            parsed_payload,
+            sorted: mdt_world::MixedContentRefTailSnapshot {
+                content_type: golden_optional_hex_u8(
+                    goldens,
+                    &format!("{prefix}.sorted.contentType"),
+                ),
+                content_id: golden_optional_hex_u16(goldens, &format!("{prefix}.sorted.contentId")),
+            },
+            rec_dir: golden_required_hex_u8(goldens, &format!("{prefix}.recDir")),
+        }
+    }
+
+    fn decode_hex_i32_words(text: &str) -> Vec<i32> {
+        let bytes = decode_hex_text(text);
+        assert_eq!(bytes.len() % 4, 0, "expected 4-byte words");
+        bytes
+            .chunks_exact(4)
+            .map(|chunk| i32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect()
+    }
+
+    fn payload_seq_tail_from_golden(
+        goldens: &BTreeMap<String, String>,
+        prefix: &str,
+    ) -> mdt_world::PayloadSeqSnapshot {
+        let entry_count = golden_required_hex_usize(goldens, &format!("{prefix}.entryCount"));
+        let entries = (0..entry_count)
+            .map(|index| {
+                let entry_prefix = format!("{prefix}.entry{index}");
+                mdt_world::PayloadSeqEntrySnapshot {
+                    content_type: golden_required_hex_u8(
+                        goldens,
+                        &format!("{entry_prefix}.contentType"),
+                    ),
+                    content_id: golden_required_hex_u16(
+                        goldens,
+                        &format!("{entry_prefix}.contentId"),
+                    ) as i16,
+                    amount: golden_required_hex_i32(goldens, &format!("{entry_prefix}.amount")),
+                }
+            })
+            .collect();
+        mdt_world::PayloadSeqSnapshot {
+            legacy_format: golden_required_bool(goldens, &format!("{prefix}.legacyFormat")),
+            entry_count,
+            entries,
+        }
+    }
+
+    fn payload_router_runtime_from_golden(
+        goldens: &BTreeMap<String, String>,
+        prefix: &str,
+    ) -> PayloadRouterRuntimeProjection {
+        let payload_kind =
+            match golden_optional_value(goldens, &format!("{prefix}.parsedPayloadKind")) {
+                None => None,
+                Some("null") => Some(PayloadRouterPayloadKind::Null),
+                Some("build") => Some(PayloadRouterPayloadKind::Build),
+                Some("unit") => Some(PayloadRouterPayloadKind::Unit),
+                Some(other) => {
+                    panic!("invalid payload router kind for {prefix}.parsedPayloadKind: {other}")
+                }
+            };
+        PayloadRouterRuntimeProjection {
+            progress_bits: golden_required_hex_u32(goldens, &format!("{prefix}.progressBits")),
+            item_rotation_bits: golden_required_hex_u32(
+                goldens,
+                &format!("{prefix}.itemRotationBits"),
+            ),
+            payload_present: golden_required_bool(goldens, &format!("{prefix}.payloadPresent")),
+            payload_type: golden_optional_hex_u8(goldens, &format!("{prefix}.payloadType")),
+            payload_kind: payload_kind.clone(),
+            payload_build_block_id: None,
+            payload_build_revision: None,
+            payload_unit_class_id: match payload_kind {
+                Some(PayloadRouterPayloadKind::Unit) => {
+                    golden_optional_hex_u8(goldens, &format!("{prefix}.unitClassId"))
+                }
+                _ => None,
+            },
+            payload_unit_revision: match payload_kind {
+                Some(PayloadRouterPayloadKind::Unit) => {
+                    golden_optional_hex_u8(goldens, &format!("{prefix}.unitRevision"))
+                        .map(i16::from)
+                }
+                _ => None,
+            },
+            payload_serialized_len: golden_required_hex_usize(
+                goldens,
+                &format!("{prefix}.payloadSerializedLen"),
+            ),
+            payload_serialized_sha256: golden_required_value(
+                goldens,
+                &format!("{prefix}.payloadSerializedSha256"),
+            )
+            .to_string(),
+            rec_dir: golden_required_hex_u8(goldens, &format!("{prefix}.recDir")),
+        }
+    }
+
+    fn seed_loaded_world_block_baseline(
+        session: &mut ClientSession,
+        build_pos: i32,
+        block_id: i16,
+        block_name: &str,
+    ) {
+        session.state.building_table_projection.seed_world_baseline(
+            build_pos,
+            block_id,
+            Some(block_name.to_string()),
+            1,
+            2,
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            0x4040_0000,
+            Some(true),
+            Some(0x20),
+            Some(0x10),
+            Some(77),
+        );
+    }
+
     fn synthetic_mech_sync_bytes() -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.push(0);
@@ -17468,6 +18062,34 @@ mod tests {
         bytes.push(1);
         bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
         bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
+    fn synthetic_alpha_sync_bytes_with_controller(controller_bytes: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(controller_bytes);
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
         bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
         bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
         bytes
@@ -17692,7 +18314,8 @@ mod tests {
         unit_body
     }
 
-    fn synthetic_building_tether_revision_one_unit_payload_body_with_nested_unit_payload() -> Vec<u8> {
+    fn synthetic_building_tether_revision_one_unit_payload_body_with_nested_unit_payload() -> Vec<u8>
+    {
         let mut unit_body = Vec::new();
         unit_body.extend_from_slice(&1i16.to_be_bytes());
         unit_body.push(0);
@@ -17860,6 +18483,40 @@ mod tests {
         bytes
     }
 
+    fn synthetic_payload_sync_bytes_with_payload_entries(
+        payload_count: i32,
+        payload_bytes: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&payload_count.to_be_bytes());
+        bytes.extend_from_slice(payload_bytes);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
     fn synthetic_building_tether_payload_sync_bytes() -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.push(0);
@@ -17957,6 +18614,41 @@ mod tests {
         bytes.push(0);
         bytes.push(unit_class_id);
         bytes.extend_from_slice(unit_body);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
+    fn synthetic_building_tether_payload_sync_bytes_with_payload_entries(
+        payload_count: i32,
+        payload_bytes: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&payload_count.to_be_bytes());
+        bytes.extend_from_slice(payload_bytes);
         bytes.extend_from_slice(&0i32.to_be_bytes());
         bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
         bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
@@ -18285,6 +18977,236 @@ mod tests {
                 .resource_delta_projection
                 .authoritative_build_update_count,
             0
+        );
+    }
+
+    #[test]
+    fn world_stream_ready_seeds_resource_delta_projection_from_world_liquid_modules() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let liquid_entry = session
+            .loaded_world_state()
+            .unwrap()
+            .content_entry(LIQUID_CONTENT_TYPE)
+            .unwrap();
+        assert!(
+            liquid_entry.names.len() >= 2,
+            "expected at least two loaded-world liquid content names"
+        );
+        let first_liquid_id = 0i16;
+        let second_liquid_id = 1i16;
+        let first_amount_bits = 1.25f32.to_bits();
+
+        let (build_pos, _) = reapply_loaded_world_baseline_with_synthetic_center_mutation(
+            &mut session,
+            BLOCK_NAME_SORTER,
+            |center| {
+                center.building.base.liquid_module =
+                    Some(mdt_world::BuildingLiquidModuleSnapshot {
+                        count: 2,
+                        entries: vec![
+                            mdt_world::BuildingLiquidEntry {
+                                liquid_id: u16::try_from(first_liquid_id).unwrap(),
+                                amount_bits: first_amount_bits,
+                            },
+                            mdt_world::BuildingLiquidEntry {
+                                liquid_id: u16::try_from(second_liquid_id).unwrap(),
+                                amount_bits: 0.0f32.to_bits(),
+                            },
+                        ],
+                    });
+            },
+        );
+
+        assert_resource_delta_build_liquids(
+            &session,
+            build_pos,
+            &[(first_liquid_id, first_amount_bits)],
+        );
+    }
+
+    #[test]
+    fn world_data_begin_clears_seeded_resource_delta_from_loaded_world_baseline() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let copper_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+        let water_id = loaded_world_content_id_for_name(&session, LIQUID_CONTENT_TYPE, "water");
+        let water_amount_bits = 0.5f32.to_bits();
+        let (build_pos, _) = reapply_loaded_world_baseline_with_synthetic_center_mutation(
+            &mut session,
+            BLOCK_NAME_SORTER,
+            |center| {
+                center.building.base.item_module = Some(mdt_world::BuildingItemModuleSnapshot {
+                    count: 1,
+                    entries: vec![mdt_world::BuildingItemEntry {
+                        item_id: u16::try_from(copper_id).unwrap(),
+                        amount: 4,
+                    }],
+                });
+                center.building.base.liquid_module =
+                    Some(mdt_world::BuildingLiquidModuleSnapshot {
+                        count: 1,
+                        entries: vec![mdt_world::BuildingLiquidEntry {
+                            liquid_id: u16::try_from(water_id).unwrap(),
+                            amount_bits: water_amount_bits,
+                        }],
+                    });
+            },
+        );
+        assert_resource_delta_build_items(&session, build_pos, &[(copper_id, 4)]);
+        assert_resource_delta_build_liquids(&session, build_pos, &[(water_id, water_amount_bits)]);
+        session.state.resource_delta_projection.take_items_count = 3;
+        session
+            .state
+            .resource_delta_projection
+            .authoritative_build_update_count = 7;
+        session
+            .state
+            .resource_delta_projection
+            .last_changed_build_pos = Some(build_pos);
+        session.state.resource_delta_projection.last_changed_item_id = Some(copper_id);
+        session.state.resource_delta_projection.last_changed_amount = Some(4);
+
+        session.begin_world_data_reload();
+
+        assert_eq!(
+            session.state().resource_delta_projection,
+            crate::session_state::ResourceDeltaProjection::default()
+        );
+    }
+
+    #[test]
+    fn world_stream_ready_seeds_building_live_config_from_world_parsed_tails() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let parsed_tail = mdt_world::ParsedBuildingTail::Message(mdt_world::MessageTailSnapshot {
+            message: "world-ready parsed tail message".to_string(),
+        });
+        let expected_config = loaded_world_config_object_from_parsed_tail(
+            Some(BLOCK_NAME_WORLD_MESSAGE),
+            &parsed_tail,
+        )
+        .unwrap();
+        let expected_message = configured_message_text(&expected_config).unwrap();
+
+        let (build_pos, block_id) = reapply_loaded_world_baseline_with_synthetic_parsed_tail(
+            &mut session,
+            BLOCK_NAME_WORLD_MESSAGE,
+            parsed_tail,
+        );
+        let live = session.building_live_state_at(build_pos).unwrap();
+
+        assert_eq!(live.projection.block_id, Some(block_id));
+        assert_eq!(
+            live.projection.block_name.as_deref(),
+            Some(BLOCK_NAME_WORLD_MESSAGE)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .message_text_by_build_pos
+                .get(&build_pos),
+            Some(&expected_message)
+        );
+    }
+
+    #[test]
+    fn world_stream_ready_refreshes_runtime_typed_building_from_loaded_world_tail() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        let message_text = "world-ready parsed tail message".to_string();
+        let (message_pos, message_block_id) =
+            reapply_loaded_world_baseline_with_synthetic_parsed_tail(
+                &mut session,
+                BLOCK_NAME_WORLD_MESSAGE,
+                mdt_world::ParsedBuildingTail::Message(mdt_world::MessageTailSnapshot {
+                    message: message_text.clone(),
+                }),
+            );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(message_pos)
+                .map(|building| (building.block_id, building.kind, building.value.clone())),
+            Some((
+                Some(message_block_id),
+                crate::session_state::TypedBuildingRuntimeKind::Message,
+                crate::session_state::TypedBuildingRuntimeValue::Text(message_text),
+            ))
+        );
+
+        let memory_values_bits = vec![0.5f64.to_bits(), 8.0f64.to_bits(), (-1.25f64).to_bits()];
+        let (memory_pos, memory_block_id) =
+            reapply_loaded_world_baseline_with_synthetic_parsed_tail(
+                &mut session,
+                BLOCK_NAME_MEMORY_BANK,
+                mdt_world::ParsedBuildingTail::Memory(mdt_world::MemoryTailSnapshot {
+                    len: memory_values_bits.len(),
+                    values_bits: memory_values_bits.clone(),
+                }),
+            );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(memory_pos)
+                .map(|building| (building.block_id, building.kind, building.value.clone())),
+            Some((
+                Some(memory_block_id),
+                crate::session_state::TypedBuildingRuntimeKind::Memory,
+                crate::session_state::TypedBuildingRuntimeValue::Memory(memory_values_bits),
+            ))
+        );
+
+        let canvas_bytes = canvas_config_bytes(LARGE_CANVAS_CONFIG_BYTES_LEN, 0x81);
+        let (canvas_pos, canvas_block_id) =
+            reapply_loaded_world_baseline_with_synthetic_parsed_tail(
+                &mut session,
+                BLOCK_NAME_LARGE_CANVAS,
+                mdt_world::ParsedBuildingTail::Canvas(mdt_world::CanvasTailSnapshot {
+                    data_len: canvas_bytes.len(),
+                    data_sha256: String::new(),
+                    data_bytes: canvas_bytes.clone(),
+                }),
+            );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(canvas_pos)
+                .map(|building| (building.block_id, building.kind, building.value.clone())),
+            Some((
+                Some(canvas_block_id),
+                crate::session_state::TypedBuildingRuntimeKind::Canvas,
+                crate::session_state::TypedBuildingRuntimeValue::Bytes(canvas_bytes),
+            ))
+        );
+
+        let (build_tower_pos, build_tower_block_id) =
+            reapply_loaded_world_baseline_with_synthetic_parsed_tail(
+                &mut session,
+                "build-tower",
+                mdt_world::ParsedBuildingTail::BuildTurret(mdt_world::BuildTurretTailSnapshot {
+                    rotation_bits: 0x4210_0000,
+                    plans_present: true,
+                    plan_count: 5,
+                    plans: Vec::new(),
+                }),
+            );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_tower_pos)
+                .map(|building| (building.block_id, building.kind, building.value.clone())),
+            Some((
+                Some(build_tower_block_id),
+                crate::session_state::TypedBuildingRuntimeKind::BuildTower,
+                crate::session_state::TypedBuildingRuntimeValue::BuildTower {
+                    rotation_bits: Some(0x4210_0000),
+                    plans_present: Some(true),
+                    plan_count: Some(5),
+                },
+            ))
         );
     }
 
@@ -19584,6 +20506,143 @@ mod tests {
     }
 
     #[test]
+    fn entity_snapshot_packet_projects_controller_snapshot_fields_into_semantic_projection() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let sample_body_len = u16::from_be_bytes([sample_payload[2], sample_payload[3]]) as usize;
+        let sample_body = &sample_payload[4..4 + sample_body_len];
+        let player_rows = try_parse_player_sync_rows_from_entity_snapshot(&sample_payload);
+        assert_eq!(player_rows.len(), 1);
+        let player_row = sample_body[player_rows[0].start..player_rows[0].end].to_vec();
+        let mut controller_bytes = Vec::new();
+        controller_bytes.push(9);
+        controller_bytes.push(1);
+        controller_bytes.push(1);
+        controller_bytes.extend_from_slice(&12.0f32.to_bits().to_be_bytes());
+        controller_bytes.extend_from_slice(&24.0f32.to_bits().to_be_bytes());
+        controller_bytes.push(6);
+        controller_bytes.extend_from_slice(&789i32.to_be_bytes());
+        controller_bytes.push(4);
+        controller_bytes.push(2);
+        controller_bytes.push(3);
+        controller_bytes.push(0);
+        controller_bytes.extend_from_slice(&0x0bad_cafeu32.to_be_bytes());
+        controller_bytes.push(3);
+        controller_bytes.extend_from_slice(&[1, 5, 9]);
+
+        let alpha_entity_id = 100;
+        let alpha_row = build_entity_snapshot_row(
+            alpha_entity_id,
+            0,
+            &synthetic_alpha_sync_bytes_with_controller(&controller_bytes),
+        );
+        let payload = build_entity_snapshot_payload(&[player_row, alpha_row]);
+        let alpha_rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&payload);
+        assert_eq!(alpha_rows.len(), 1);
+        let expected_controller = alpha_rows[0]
+            .sync
+            .controller_snapshot
+            .clone()
+            .expect("synthetic alpha row should carry controller snapshot");
+        let has_key_field = expected_controller.command_id_raw.is_some()
+            || expected_controller.stance_id_raw.is_some()
+            || expected_controller.stance_count.is_some()
+            || expected_controller
+                .command_queue
+                .as_ref()
+                .is_some_and(|queue| queue.total_count > 0);
+        assert!(
+            has_key_field,
+            "synthetic alpha controller snapshot should expose at least one key field"
+        );
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
+        );
+
+        let projected_controller = match session
+            .state()
+            .entity_semantic_projection
+            .by_entity_id
+            .get(&alpha_entity_id)
+        {
+            Some(crate::session_state::EntitySemanticProjectionEntry {
+                projection: crate::session_state::EntitySemanticProjection::Unit(unit),
+                ..
+            }) => unit
+                .controller_snapshot
+                .as_ref()
+                .expect("semantic projection should retain controller snapshot"),
+            other => panic!("expected unit semantic projection for alpha row, got {other:?}"),
+        };
+
+        assert_eq!(
+            projected_controller.command_id_raw,
+            expected_controller.command_id_raw
+        );
+        assert_eq!(
+            projected_controller.stance_id_raw,
+            expected_controller.stance_id_raw
+        );
+        assert_eq!(
+            projected_controller.stance_count,
+            expected_controller.stance_count
+        );
+        assert_eq!(
+            projected_controller
+                .command_queue
+                .as_ref()
+                .map(|queue| queue.total_count),
+            expected_controller
+                .command_queue
+                .as_ref()
+                .map(|queue| queue.total_count)
+        );
+
+        let runtime_projected_controller =
+            match session.state().typed_runtime_entity_at(alpha_entity_id) {
+                Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit)) => unit
+                    .semantic
+                    .controller_snapshot
+                    .clone()
+                    .expect("runtime projection should retain controller snapshot"),
+                other => panic!("expected runtime unit projection for alpha row, got {other:?}"),
+            };
+        assert_eq!(
+            runtime_projected_controller.command_id_raw,
+            expected_controller.command_id_raw
+        );
+        assert_eq!(
+            runtime_projected_controller.stance_id_raw,
+            expected_controller.stance_id_raw
+        );
+        assert_eq!(
+            runtime_projected_controller.stance_count,
+            expected_controller.stance_count
+        );
+    }
+
+    #[test]
     fn entity_snapshot_packet_applies_non_local_player_unit_ownership_to_runtime_projection() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -19658,14 +20717,24 @@ mod tests {
         assert_eq!(runtime_projection.unit_count, 1);
         assert_eq!(runtime_projection.player_with_owned_unit_count, 1);
         assert_eq!(runtime_projection.owned_unit_count, 1);
-        assert_eq!(runtime_projection.owned_unit_entity_id_for_player(99), Some(100));
-        assert_eq!(runtime_projection.owner_player_entity_id_for_unit(100), Some(99));
         assert_eq!(
-            runtime_projection.player_owned_unit_by_player_entity_id.get(&99),
+            runtime_projection.owned_unit_entity_id_for_player(99),
+            Some(100)
+        );
+        assert_eq!(
+            runtime_projection.owner_player_entity_id_for_unit(100),
+            Some(99)
+        );
+        assert_eq!(
+            runtime_projection
+                .player_owned_unit_by_player_entity_id
+                .get(&99),
             Some(&100)
         );
         assert_eq!(
-            runtime_projection.unit_owner_player_by_unit_entity_id.get(&100),
+            runtime_projection
+                .unit_owner_player_by_unit_entity_id
+                .get(&100),
             Some(&99)
         );
     }
@@ -20160,6 +21229,53 @@ mod tests {
         );
     }
 
+    fn entity_snapshot_resource_delta_building_row(
+        build_pos: i32,
+        block_id: i16,
+        item_module: Option<mdt_world::BuildingItemModuleSnapshot>,
+        liquid_module: Option<mdt_world::BuildingLiquidModuleSnapshot>,
+    ) -> EntityBuildingSyncRow {
+        let module_bitmask = Some(u8::from(item_module.is_some() || liquid_module.is_some()));
+        let (tile_x, tile_y) = unpack_point2(build_pos);
+        EntityBuildingSyncRow {
+            entity_id: build_pos,
+            class_id: 6,
+            build_pos,
+            block_id,
+            sync: mdt_world::BuildingSnapshot {
+                revision: 0,
+                base_len: 0,
+                base: mdt_world::BuildingBaseSnapshot {
+                    health_bits: 0x4120_0000,
+                    rotation: 1,
+                    team_id: 1,
+                    legacy: false,
+                    save_version: None,
+                    enabled: Some(true),
+                    module_bitmask,
+                    item_module,
+                    power_module: None,
+                    liquid_module,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                },
+                tail_len: 0,
+                tail_bytes: Vec::new(),
+                tail_sha256: String::new(),
+                parsed_tail: mdt_world::ParsedBuildingTail::Empty,
+            },
+            x_bits: (tile_x as f32 * 8.0).to_bits(),
+            y_bits: (tile_y as f32 * 8.0).to_bits(),
+            start: 0,
+            end: 0,
+        }
+    }
+
     #[test]
     fn entity_snapshot_building_rows_replace_stale_resource_items_from_item_module() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
@@ -20177,49 +21293,18 @@ mod tests {
             );
         session.state.received_entity_snapshot_count = 1;
 
-        let row = EntityBuildingSyncRow {
-            entity_id: build_pos,
-            class_id: 6,
+        let row = entity_snapshot_resource_delta_building_row(
             build_pos,
             block_id,
-            sync: mdt_world::BuildingSnapshot {
-                revision: 0,
-                base_len: 0,
-                base: mdt_world::BuildingBaseSnapshot {
-                    health_bits: 0x4120_0000,
-                    rotation: 1,
-                    team_id: 1,
-                    legacy: false,
-                    save_version: None,
-                    enabled: Some(true),
-                    module_bitmask: Some(1),
-                    item_module: Some(mdt_world::BuildingItemModuleSnapshot {
-                        count: 1,
-                        entries: vec![mdt_world::BuildingItemEntry {
-                            item_id: u16::from_be_bytes(copper_id.to_be_bytes()),
-                            amount: 12,
-                        }],
-                    }),
-                    power_module: None,
-                    liquid_module: None,
-                    time_scale_bits: None,
-                    time_scale_duration_bits: None,
-                    last_disabler_pos: None,
-                    legacy_consume_connected: None,
-                    efficiency: None,
-                    optional_efficiency: None,
-                    visible_flags: None,
-                },
-                tail_len: 0,
-                tail_bytes: Vec::new(),
-                tail_sha256: String::new(),
-                parsed_tail: mdt_world::ParsedBuildingTail::Empty,
-            },
-            x_bits: (40.0f32 * 8.0).to_bits(),
-            y_bits: (62.0f32 * 8.0).to_bits(),
-            start: 0,
-            end: 0,
-        };
+            Some(mdt_world::BuildingItemModuleSnapshot {
+                count: 1,
+                entries: vec![mdt_world::BuildingItemEntry {
+                    item_id: u16::from_be_bytes(copper_id.to_be_bytes()),
+                    amount: 12,
+                }],
+            }),
+            None,
+        );
 
         session.apply_parseable_building_rows_from_entity_snapshot(&[row]);
 
@@ -20231,6 +21316,62 @@ mod tests {
                 .get(&build_pos)
                 .cloned(),
             Some(std::collections::BTreeMap::from([(copper_id, 12)]))
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .authoritative_build_update_count,
+            1
+        );
+    }
+
+    #[test]
+    fn entity_snapshot_building_rows_replace_stale_resource_liquids_from_liquid_module() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(42, 64);
+        let block_id = loaded_world_block_id_for_name(&session, "router");
+        let water_id = loaded_world_content_id_for_name(&session, LIQUID_CONTENT_TYPE, "water");
+        let slag_id = loaded_world_content_id_for_name(&session, LIQUID_CONTENT_TYPE, "slag");
+        session
+            .state
+            .resource_delta_projection
+            .building_liquids_by_build
+            .insert(
+                build_pos,
+                std::collections::BTreeMap::from([
+                    (water_id, 0.25f32.to_bits()),
+                    (slag_id, 0.75f32.to_bits()),
+                ]),
+            );
+        session.state.received_entity_snapshot_count = 1;
+
+        let row = entity_snapshot_resource_delta_building_row(
+            build_pos,
+            block_id,
+            None,
+            Some(mdt_world::BuildingLiquidModuleSnapshot {
+                count: 1,
+                entries: vec![mdt_world::BuildingLiquidEntry {
+                    liquid_id: u16::from_be_bytes(water_id.to_be_bytes()),
+                    amount_bits: 1.5f32.to_bits(),
+                }],
+            }),
+        );
+
+        session.apply_parseable_building_rows_from_entity_snapshot(&[row]);
+
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_liquids_by_build
+                .get(&build_pos)
+                .cloned(),
+            Some(std::collections::BTreeMap::from([(
+                water_id,
+                1.5f32.to_bits()
+            )]))
         );
         assert_eq!(
             session
@@ -20257,43 +21398,7 @@ mod tests {
             );
         session.state.received_entity_snapshot_count = 1;
 
-        let row = EntityBuildingSyncRow {
-            entity_id: build_pos,
-            class_id: 6,
-            build_pos,
-            block_id,
-            sync: mdt_world::BuildingSnapshot {
-                revision: 0,
-                base_len: 0,
-                base: mdt_world::BuildingBaseSnapshot {
-                    health_bits: 0x4120_0000,
-                    rotation: 1,
-                    team_id: 1,
-                    legacy: false,
-                    save_version: None,
-                    enabled: Some(true),
-                    module_bitmask: Some(0),
-                    item_module: None,
-                    power_module: None,
-                    liquid_module: None,
-                    time_scale_bits: None,
-                    time_scale_duration_bits: None,
-                    last_disabler_pos: None,
-                    legacy_consume_connected: None,
-                    efficiency: None,
-                    optional_efficiency: None,
-                    visible_flags: None,
-                },
-                tail_len: 0,
-                tail_bytes: Vec::new(),
-                tail_sha256: String::new(),
-                parsed_tail: mdt_world::ParsedBuildingTail::Empty,
-            },
-            x_bits: (41.0f32 * 8.0).to_bits(),
-            y_bits: (63.0f32 * 8.0).to_bits(),
-            start: 0,
-            end: 0,
-        };
+        let row = entity_snapshot_resource_delta_building_row(build_pos, block_id, None, None);
 
         session.apply_parseable_building_rows_from_entity_snapshot(&[row]);
 
@@ -20308,6 +21413,73 @@ mod tests {
                 .resource_delta_projection
                 .authoritative_build_update_count,
             1
+        );
+    }
+
+    #[test]
+    fn entity_snapshot_building_rows_clear_stale_resource_liquids_when_liquid_module_is_absent() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(43, 65);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+        let water_id = loaded_world_content_id_for_name(&session, LIQUID_CONTENT_TYPE, "water");
+        session
+            .state
+            .resource_delta_projection
+            .building_liquids_by_build
+            .insert(
+                build_pos,
+                std::collections::BTreeMap::from([(water_id, 0.5f32.to_bits())]),
+            );
+        session.state.received_entity_snapshot_count = 1;
+
+        let row = entity_snapshot_resource_delta_building_row(build_pos, block_id, None, None);
+
+        session.apply_parseable_building_rows_from_entity_snapshot(&[row]);
+
+        assert!(!session
+            .state()
+            .resource_delta_projection
+            .building_liquids_by_build
+            .contains_key(&build_pos));
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .authoritative_build_update_count,
+            1
+        );
+    }
+
+    #[test]
+    fn finalize_building_live_apply_replace_authoritative_skips_empty_absent_items_and_liquids() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let build_pos = pack_point2(9, 9);
+
+        session.finalize_building_live_apply(
+            build_pos,
+            &[],
+            &[],
+            BuildingResourceDeltaFinalizeMode::ReplaceAuthoritative,
+            BuildingRuntimeRefreshMode::None,
+        );
+
+        assert!(!session
+            .state()
+            .resource_delta_projection
+            .building_items_by_build
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .resource_delta_projection
+            .building_liquids_by_build
+            .contains_key(&build_pos));
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .authoritative_build_update_count,
+            0
         );
     }
 
@@ -20801,10 +21973,11 @@ mod tests {
             tether_row,
             fire_row,
         ]);
-        let payload_rows = try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
-            &payload,
-            content_header,
-        );
+        let payload_rows =
+            try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            );
         let tether_rows =
             try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
                 &payload,
@@ -20812,7 +21985,10 @@ mod tests {
             );
 
         assert_eq!(
-            payload_rows.iter().map(|row| row.entity_id).collect::<Vec<_>>(),
+            payload_rows
+                .iter()
+                .map(|row| row.entity_id)
+                .collect::<Vec<_>>(),
             vec![777, 778, 779]
         );
         assert_eq!(
@@ -20827,7 +22003,10 @@ mod tests {
             ]
         );
         assert_eq!(
-            tether_rows.iter().map(|row| row.entity_id).collect::<Vec<_>>(),
+            tether_rows
+                .iter()
+                .map(|row| row.entity_id)
+                .collect::<Vec<_>>(),
             vec![888]
         );
         assert_eq!(
@@ -21616,14 +22795,14 @@ mod tests {
                 })
             );
             assert!(matches!(
-                session.state().runtime_typed_entity_projection().entity_at(entity_id),
-                Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
-            if unit.carried_item_stack
-                        == Some(crate::session_state::ResourceUnitItemStack {
-                            item_id: Some(item_id),
-                            amount,
-                        })
-        ));
+                    session.state().runtime_typed_entity_projection().entity_at(entity_id),
+                    Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.carried_item_stack
+                            == Some(crate::session_state::ResourceUnitItemStack {
+                                item_id: Some(item_id),
+                                amount,
+                            })
+            ));
         }
     }
 
@@ -21635,20 +22814,21 @@ mod tests {
         let world_bundle = parse_world_bundle(&sample_world_stream_bytes()).unwrap();
         let content_header = Some(world_bundle.content_header.as_slice());
 
-        let mut payload_row = try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
-            &build_entity_snapshot_payload(&[build_entity_snapshot_row(
-                777,
-                5,
-                &synthetic_payload_sync_bytes_with_unit_payload(
-                    23,
-                    &synthetic_quad_revision_six_unit_payload_body_with_nested_unit_payload(),
-                ),
-            )]),
-            content_header,
-        )
-        .into_iter()
-        .next()
-        .unwrap();
+        let mut payload_row =
+            try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                    777,
+                    5,
+                    &synthetic_payload_sync_bytes_with_unit_payload(
+                        23,
+                        &synthetic_quad_revision_six_unit_payload_body_with_nested_unit_payload(),
+                    ),
+                )]),
+                content_header,
+            )
+            .into_iter()
+            .next()
+            .unwrap();
         payload_row.sync.payload_count = 2;
         payload_row.sync.stack_item_id = 6;
         payload_row.sync.stack_amount = 8;
@@ -21689,7 +22869,8 @@ mod tests {
             tether_row.unit_payload,
             Some(expected_unit_payload_snapshot(
                 36,
-                &synthetic_building_tether_revision_one_unit_payload_body_with_nested_unit_payload(),
+                &synthetic_building_tether_revision_one_unit_payload_body_with_nested_unit_payload(
+                ),
             ))
         );
         assert_eq!(
@@ -21788,12 +22969,43 @@ mod tests {
         mech_row.sync.stack_item_id = 2;
         mech_row.sync.stack_amount = 5;
 
+        let mut missile_row = try_parse_missile_sync_rows_from_entity_snapshot_prefix(
+            &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                999,
+                39,
+                &synthetic_missile_sync_bytes(),
+            )]),
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+        missile_row.sync.stack_item_id = 3;
+        missile_row.sync.stack_amount = 6;
+
+        session
+            .state
+            .apply_entity_snapshot_payload_apply_projection(
+                999,
+                39,
+                4,
+                None,
+                Some(expected_unit_payload_snapshot(
+                    23,
+                    &synthetic_quad_revision_six_unit_payload_body_with_nested_unit_payload(),
+                )),
+                Some(crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(9),
+                    amount: 10,
+                }),
+            );
+
         session.apply_parseable_alpha_unit_row_from_entity_snapshot(
             777,
             alpha_row.class_id,
             &alpha_row.sync,
         );
         session.apply_parseable_mech_rows_from_entity_snapshot(&[mech_row]);
+        session.apply_parseable_missile_rows_from_entity_snapshot(&[missile_row]);
 
         assert!(!session
             .state()
@@ -21805,6 +23017,11 @@ mod tests {
             .entity_snapshot_payload_apply_projection
             .by_entity_id
             .contains_key(&888));
+        assert!(!session
+            .state()
+            .entity_snapshot_payload_apply_projection
+            .by_entity_id
+            .contains_key(&999));
         assert!(matches!(
             session.state().runtime_typed_entity_projection().entity_at(777),
             Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
@@ -21825,6 +23042,176 @@ mod tests {
                         == Some(crate::session_state::ResourceUnitItemStack {
                             item_id: Some(2),
                             amount: 5,
+                        })
+        ));
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().entity_at(999),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count.is_none()
+                    && unit.semantic.building_pos.is_none()
+                    && unit.unit_payload.is_none()
+                    && unit.carried_item_stack
+                        == Some(crate::session_state::ResourceUnitItemStack {
+                            item_id: Some(3),
+                            amount: 6,
+                        })
+        ));
+    }
+
+    #[test]
+    fn payload_entity_snapshot_apply_consumes_multiple_root_unit_payload_entries_but_surfaces_only_first_unit_payload(
+    ) {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        session.state.received_entity_snapshot_count = 1;
+        let content_header = Vec::<ContentHeaderEntry>::new();
+        let first_unit_body = synthetic_payload_campaign_unit_payload_body();
+        let first_unit_payload_bytes = synthetic_nested_unit_payload_bytes(0, &first_unit_body);
+        let second_unit_body =
+            synthetic_quad_revision_six_unit_payload_body_with_nested_unit_payload();
+        let second_unit_payload_bytes = synthetic_nested_unit_payload_bytes(23, &second_unit_body);
+        let expected_first_unit_payload = expected_unit_payload_snapshot(0, &first_unit_body);
+        let expected_second_unit_payload = expected_unit_payload_snapshot(23, &second_unit_body);
+        let mut all_payload_bytes = first_unit_payload_bytes.clone();
+        all_payload_bytes.extend_from_slice(&second_unit_payload_bytes);
+
+        let mut payload_row =
+            try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                    777,
+                    5,
+                    &synthetic_payload_sync_bytes_with_payload_entries(2, &all_payload_bytes),
+                )]),
+                Some(content_header.as_slice()),
+            )
+            .into_iter()
+            .next()
+            .unwrap();
+        payload_row.sync.stack_item_id = 6;
+        payload_row.sync.stack_amount = 8;
+
+        assert_eq!(payload_row.sync.payload_count, 2);
+        assert_eq!(
+            payload_row.unit_payload,
+            Some(expected_first_unit_payload.clone())
+        );
+        assert_ne!(
+            payload_row.unit_payload,
+            Some(expected_second_unit_payload.clone())
+        );
+
+        session.apply_parseable_payload_rows_from_entity_snapshot(&[payload_row]);
+
+        assert_eq!(
+            session
+                .state()
+                .entity_snapshot_payload_apply_projection
+                .by_entity_id
+                .get(&777),
+            Some(&crate::session_state::EntitySnapshotPayloadApplyEntry {
+                class_id: 5,
+                last_seen_entity_snapshot_count: 1,
+                payload_count: 2,
+                building_pos: None,
+                unit_payload: Some(expected_first_unit_payload.clone()),
+                carried_item_stack: Some(crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(6),
+                    amount: 8,
+                }),
+            })
+        );
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().entity_at(777),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count == Some(2)
+                    && unit.semantic.building_pos.is_none()
+                    && unit.unit_payload == Some(expected_first_unit_payload.clone())
+                    && unit.unit_payload != Some(expected_second_unit_payload.clone())
+                    && unit.carried_item_stack
+                        == Some(crate::session_state::ResourceUnitItemStack {
+                            item_id: Some(6),
+                            amount: 8,
+                        })
+        ));
+    }
+
+    #[test]
+    fn tether_payload_entity_snapshot_apply_consumes_multiple_root_unit_payload_entries_but_surfaces_only_first_unit_payload(
+    ) {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        session.state.received_entity_snapshot_count = 1;
+        let content_header = Vec::<ContentHeaderEntry>::new();
+        let first_unit_body = synthetic_payload_campaign_unit_payload_body();
+        let first_unit_payload_bytes = synthetic_nested_unit_payload_bytes(0, &first_unit_body);
+        let second_unit_body =
+            synthetic_building_tether_revision_one_unit_payload_body_with_nested_unit_payload();
+        let second_unit_payload_bytes = synthetic_nested_unit_payload_bytes(36, &second_unit_body);
+        let expected_first_unit_payload = expected_unit_payload_snapshot(0, &first_unit_body);
+        let expected_second_unit_payload = expected_unit_payload_snapshot(36, &second_unit_body);
+        let mut all_payload_bytes = first_unit_payload_bytes.clone();
+        all_payload_bytes.extend_from_slice(&second_unit_payload_bytes);
+
+        let mut tether_row =
+            try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                    888,
+                    36,
+                    &synthetic_building_tether_payload_sync_bytes_with_payload_entries(
+                        2,
+                        &all_payload_bytes,
+                    ),
+                )]),
+                Some(content_header.as_slice()),
+            )
+            .into_iter()
+            .next()
+            .unwrap();
+        tether_row.sync.stack_item_id = 7;
+        tether_row.sync.stack_amount = 9;
+
+        assert_eq!(tether_row.sync.payload_count, 2);
+        assert_eq!(tether_row.sync.building_pos, 12345);
+        assert_eq!(
+            tether_row.unit_payload,
+            Some(expected_first_unit_payload.clone())
+        );
+        assert_ne!(
+            tether_row.unit_payload,
+            Some(expected_second_unit_payload.clone())
+        );
+
+        session.apply_parseable_building_tether_payload_rows_from_entity_snapshot(&[tether_row]);
+
+        assert_eq!(
+            session
+                .state()
+                .entity_snapshot_payload_apply_projection
+                .by_entity_id
+                .get(&888),
+            Some(&crate::session_state::EntitySnapshotPayloadApplyEntry {
+                class_id: 36,
+                last_seen_entity_snapshot_count: 1,
+                payload_count: 2,
+                building_pos: Some(12345),
+                unit_payload: Some(expected_first_unit_payload.clone()),
+                carried_item_stack: Some(crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(7),
+                    amount: 9,
+                }),
+            })
+        );
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().entity_at(888),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count == Some(2)
+                    && unit.semantic.building_pos == Some(12345)
+                    && unit.unit_payload == Some(expected_first_unit_payload.clone())
+                    && unit.unit_payload != Some(expected_second_unit_payload.clone())
+                    && unit.carried_item_stack
+                        == Some(crate::session_state::ResourceUnitItemStack {
+                            item_id: Some(7),
+                            amount: 9,
                         })
         ));
     }
@@ -21995,6 +23382,7 @@ mod tests {
                         shield_bits: mech_sync.shield_bits,
                         mine_tile_pos: mech_sync.mine_tile_pos,
                         status_count: mech_sync.status_count,
+                        statuses: Vec::new(),
                         payload_count: None,
                         building_pos: None,
                         lifetime_bits: None,
@@ -22007,6 +23395,7 @@ mod tests {
                         }),
                         controller_type: mech_sync.controller_type,
                         controller_value: mech_sync.controller_value,
+                        controller_snapshot: mech_sync.controller_snapshot.clone(),
                     }
                 ),
             })
@@ -22029,6 +23418,7 @@ mod tests {
                         shield_bits: missile_sync.shield_bits,
                         mine_tile_pos: missile_sync.mine_tile_pos,
                         status_count: missile_sync.status_count,
+                        statuses: Vec::new(),
                         payload_count: None,
                         building_pos: None,
                         lifetime_bits: Some(missile_sync.lifetime_bits),
@@ -22041,6 +23431,7 @@ mod tests {
                         }),
                         controller_type: missile_sync.controller_type,
                         controller_value: missile_sync.controller_value,
+                        controller_snapshot: missile_sync.controller_snapshot.clone(),
                     }
                 ),
             })
@@ -22063,6 +23454,7 @@ mod tests {
                         shield_bits: payload_sync.shield_bits,
                         mine_tile_pos: payload_sync.mine_tile_pos,
                         status_count: payload_sync.status_count,
+                        statuses: Vec::new(),
                         payload_count: Some(payload_sync.payload_count),
                         building_pos: None,
                         lifetime_bits: None,
@@ -22075,6 +23467,7 @@ mod tests {
                         }),
                         controller_type: payload_sync.controller_type,
                         controller_value: payload_sync.controller_value,
+                        controller_snapshot: payload_sync.controller_snapshot.clone(),
                     }
                 ),
             })
@@ -22097,6 +23490,7 @@ mod tests {
                         shield_bits: tether_sync.shield_bits,
                         mine_tile_pos: tether_sync.mine_tile_pos,
                         status_count: tether_sync.status_count,
+                        statuses: Vec::new(),
                         payload_count: Some(tether_sync.payload_count),
                         building_pos: Some(tether_sync.building_pos),
                         lifetime_bits: None,
@@ -22109,6 +23503,7 @@ mod tests {
                         }),
                         controller_type: tether_sync.controller_type,
                         controller_value: tether_sync.controller_value,
+                        controller_snapshot: tether_sync.controller_snapshot.clone(),
                     }
                 ),
             })
@@ -22725,6 +24120,101 @@ mod tests {
         (manifest, session)
     }
 
+    fn reapply_loaded_world_baseline_with_synthetic_center_mutation(
+        session: &mut ClientSession,
+        block_name: &str,
+        mutate: impl FnOnce(&mut mdt_world::BuildingCenter),
+    ) -> (i32, i16) {
+        let block_id = loaded_world_block_id_for_name(session, block_name);
+        let bundle = {
+            let bundle = session.loaded_world_bundle.as_mut().unwrap();
+            assert!(
+                !bundle.world.building_centers.is_empty(),
+                "sample world missing building centers"
+            );
+            let center = &mut bundle.world.building_centers[0];
+            center.block_id = u16::try_from(block_id).unwrap();
+            mutate(center);
+            bundle.world.blocks[center.tile_index] = center.block_id;
+            bundle.world.tiles[center.tile_index].block_id = center.block_id;
+            bundle.clone()
+        };
+        let center = &bundle.world.building_centers[0];
+        let build_pos = pack_build_pos_for_block_snapshot_test(center.x, center.y);
+
+        session.clear_authoritative_building_state(build_pos, Some(block_id));
+        session.apply_world_baseline_from_bundle(&bundle);
+        session.loaded_world_bundle = Some(bundle);
+
+        (build_pos, block_id)
+    }
+
+    fn reapply_loaded_world_baseline_with_synthetic_parsed_tail(
+        session: &mut ClientSession,
+        block_name: &str,
+        parsed_tail: mdt_world::ParsedBuildingTail,
+    ) -> (i32, i16) {
+        reapply_loaded_world_baseline_with_synthetic_center_mutation(
+            session,
+            block_name,
+            |center| {
+                center.building.parsed_tail = parsed_tail;
+            },
+        )
+    }
+
+    fn assert_resource_delta_build_items(
+        session: &ClientSession,
+        build_pos: i32,
+        expected: &[(i16, i32)],
+    ) {
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&build_pos)
+                .cloned(),
+            Some(std::collections::BTreeMap::from_iter(
+                expected.iter().copied()
+            ))
+        );
+    }
+
+    fn assert_resource_delta_build_items_absent(session: &ClientSession, build_pos: i32) {
+        assert!(!session
+            .state()
+            .resource_delta_projection
+            .building_items_by_build
+            .contains_key(&build_pos));
+    }
+
+    fn assert_resource_delta_build_liquids(
+        session: &ClientSession,
+        build_pos: i32,
+        expected: &[(i16, u32)],
+    ) {
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_liquids_by_build
+                .get(&build_pos)
+                .cloned(),
+            Some(std::collections::BTreeMap::from_iter(
+                expected.iter().copied()
+            ))
+        );
+    }
+
+    fn assert_resource_delta_build_liquids_absent(session: &ClientSession, build_pos: i32) {
+        assert!(!session
+            .state()
+            .resource_delta_projection
+            .building_liquids_by_build
+            .contains_key(&build_pos));
+    }
+
     fn loaded_world_content_id_for_name(
         session: &ClientSession,
         content_type: u8,
@@ -22814,6 +24304,87 @@ mod tests {
         session.ingest_packet_bytes(&packet).unwrap();
     }
 
+    fn assert_last_configured_block_outcome(
+        session: &ClientSession,
+        expected: crate::session_state::ConfiguredBlockOutcome,
+    ) {
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(expected)
+        );
+    }
+
+    fn assert_unit_factory_current_plan(
+        session: &ClientSession,
+        build_pos: i32,
+        expected: i16,
+    ) {
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_factory_current_plan_by_build_pos
+                .get(&build_pos),
+            Some(&expected)
+        );
+    }
+
+    fn assert_unit_factory_command(
+        session: &ClientSession,
+        build_pos: i32,
+        expected: Option<u16>,
+    ) {
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_factory_command_by_build_pos
+                .get(&build_pos),
+            Some(&expected)
+        );
+    }
+
+    fn assert_unit_factory_runtime_value(
+        session: &ClientSession,
+        build_pos: i32,
+        expected_current_plan: Option<i16>,
+        expected_command_id: Option<u8>,
+    ) {
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_projection()
+                .building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(crate::session_state::TypedBuildingRuntimeValue::UnitFactory {
+                current_plan: expected_current_plan,
+                progress_bits: None,
+                command_pos: None,
+                command_id: expected_command_id,
+                payload_present: None,
+                pay_rotation_bits: None,
+            })
+        );
+    }
+
+    fn assert_reconstructor_command(
+        session: &ClientSession,
+        build_pos: i32,
+        expected: Option<u16>,
+    ) {
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .reconstructor_command_by_build_pos
+                .get(&build_pos),
+            Some(&expected)
+        );
+    }
+
     fn build_loaded_world_block_snapshot_payload(
         session: &ClientSession,
         take: usize,
@@ -22840,6 +24411,75 @@ mod tests {
         payload.extend_from_slice(&u16::try_from(data.len()).unwrap().to_be_bytes());
         payload.extend_from_slice(&data);
         (payload, entries)
+    }
+
+    fn resource_delta_block_snapshot_entry_template(
+        build_pos: i32,
+    ) -> BlockSnapshotExtraEntrySummary {
+        BlockSnapshotExtraEntrySummary {
+            build_pos,
+            block_id: 302,
+            block_name: Some(BLOCK_NAME_SORTER.to_string()),
+            health_bits: Some(0x3f80_0000),
+            rotation: Some(1),
+            team_id: Some(2),
+            io_version: Some(3),
+            enabled: Some(true),
+            module_bitmask: Some(4),
+            time_scale_bits: Some(0x3f00_0000),
+            time_scale_duration_bits: Some(0x3e80_0000),
+            last_disabler_pos: Some(77),
+            legacy_consume_connected: Some(false),
+            efficiency: Some(0x40),
+            optional_efficiency: Some(0x20),
+            visible_flags: Some(9),
+            build_turret_rotation_bits: None,
+            build_turret_plans_present: None,
+            build_turret_plan_count: None,
+            core_runtime: None,
+            repair_turret_runtime: None,
+            radar_runtime: None,
+            separator_runtime: None,
+            shielded_wall_runtime: None,
+            launch_pad_runtime: None,
+            interplanetary_accelerator_runtime: None,
+            power_generator_runtime: None,
+            power_reactor_runtime: None,
+            constructor_recipe_block_id: None,
+            constructor_runtime: None,
+            unit_factory_current_plan: None,
+            unit_factory_runtime: None,
+            payload_loader_runtime: None,
+            landing_pad_config_item_id: None,
+            landing_pad_runtime: None,
+            message_text: None,
+            payload_source_content: None,
+            payload_source_runtime: None,
+            payload_router_sorted_content: None,
+            payload_router_runtime: None,
+            duct_unloader_item_id: None,
+            duct_unloader_runtime: None,
+            duct_runtime: None,
+            shield_projector_runtime: None,
+            directional_unloader_item_id: None,
+            reconstructor_command_id: None,
+            memory_values_bits: None,
+            canvas_bytes: None,
+            mass_driver_link: None,
+            mass_driver_runtime: None,
+            payload_mass_driver_link: None,
+            payload_mass_driver_runtime: None,
+            sorter_runtime: None,
+            item_buffer_runtime: None,
+            conveyor_runtime: None,
+            nullable_item_id: None,
+            item_bridge_link: None,
+            item_bridge_runtime: None,
+            light_color: None,
+            switch_enabled: None,
+            build_item_stacks: Vec::new(),
+            build_liquid_stacks: Vec::new(),
+        }
     }
 
     #[test]
@@ -23460,153 +25100,45 @@ mod tests {
 
         session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
             BlockSnapshotExtraEntrySummary {
-                build_pos,
-                block_id: 302,
-                block_name: Some(BLOCK_NAME_SORTER.to_string()),
-                health_bits: Some(0x3f80_0000),
-                rotation: Some(1),
-                team_id: Some(2),
-                io_version: Some(3),
-                enabled: Some(true),
-                module_bitmask: Some(4),
-                time_scale_bits: Some(0x3f00_0000),
-                time_scale_duration_bits: Some(0x3e80_0000),
-                last_disabler_pos: Some(77),
-                legacy_consume_connected: Some(false),
-                efficiency: Some(0x40),
-                optional_efficiency: Some(0x20),
-                visible_flags: Some(9),
-                build_turret_rotation_bits: None,
-                build_turret_plans_present: None,
-                build_turret_plan_count: None,
-                core_runtime: None,
-                repair_turret_runtime: None,
-                radar_runtime: None,
-                separator_runtime: None,
-                shielded_wall_runtime: None,
-                launch_pad_runtime: None,
-                interplanetary_accelerator_runtime: None,
-                power_generator_runtime: None,
-                power_reactor_runtime: None,
-                constructor_recipe_block_id: None,
-                constructor_runtime: None,
-                unit_factory_current_plan: None,
-                unit_factory_runtime: None,
-                payload_loader_runtime: None,
-                landing_pad_config_item_id: None,
-                landing_pad_runtime: None,
-                message_text: None,
-                payload_source_content: None,
-                payload_source_runtime: None,
-                payload_router_sorted_content: None,
-                payload_router_runtime: None,
-                duct_unloader_item_id: None,
-                duct_unloader_runtime: None,
-                duct_runtime: None,
-                shield_projector_runtime: None,
-                directional_unloader_item_id: None,
-                reconstructor_command_id: None,
-                memory_values_bits: None,
-                canvas_bytes: None,
-                mass_driver_link: None,
-                mass_driver_runtime: None,
-                payload_mass_driver_link: None,
-                payload_mass_driver_runtime: None,
-                sorter_runtime: None,
-                item_buffer_runtime: None,
-                conveyor_runtime: None,
                 nullable_item_id: Some(Some(7)),
-                item_bridge_link: None,
-                item_bridge_runtime: None,
-                light_color: None,
-                switch_enabled: None,
                 build_item_stacks: vec![(7, 11), (8, 0)],
-                build_liquid_stacks: Vec::new(),
+                ..resource_delta_block_snapshot_entry_template(build_pos)
             },
         ]);
 
-        assert_eq!(
-            session
-                .state()
-                .resource_delta_projection
-                .building_items_by_build
-                .get(&build_pos)
-                .cloned(),
-            Some(std::collections::BTreeMap::from([(7, 11)]))
-        );
+        assert_resource_delta_build_items(&session, build_pos, &[(7, 11)]);
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            resource_delta_block_snapshot_entry_template(build_pos),
+        ]);
+
+        assert_resource_delta_build_items_absent(&session, build_pos);
+    }
+
+    #[test]
+    fn apply_loaded_world_block_snapshot_entries_refresh_resource_delta_liquid_baselines() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(8, 9);
+
+        session
+            .state
+            .resource_delta_projection
+            .seed_world_build_liquids(build_pos, &[(5, 0.5f32.to_bits())]);
 
         session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
             BlockSnapshotExtraEntrySummary {
-                build_pos,
-                block_id: 302,
-                block_name: Some(BLOCK_NAME_SORTER.to_string()),
-                health_bits: Some(0x3f80_0000),
-                rotation: Some(1),
-                team_id: Some(2),
-                io_version: Some(3),
-                enabled: Some(true),
-                module_bitmask: Some(4),
-                time_scale_bits: Some(0x3f00_0000),
-                time_scale_duration_bits: Some(0x3e80_0000),
-                last_disabler_pos: Some(77),
-                legacy_consume_connected: Some(false),
-                efficiency: Some(0x40),
-                optional_efficiency: Some(0x20),
-                visible_flags: Some(9),
-                build_turret_rotation_bits: None,
-                build_turret_plans_present: None,
-                build_turret_plan_count: None,
-                core_runtime: None,
-                repair_turret_runtime: None,
-                radar_runtime: None,
-                separator_runtime: None,
-                shielded_wall_runtime: None,
-                launch_pad_runtime: None,
-                interplanetary_accelerator_runtime: None,
-                power_generator_runtime: None,
-                power_reactor_runtime: None,
-                constructor_recipe_block_id: None,
-                constructor_runtime: None,
-                unit_factory_current_plan: None,
-                unit_factory_runtime: None,
-                payload_loader_runtime: None,
-                landing_pad_config_item_id: None,
-                landing_pad_runtime: None,
-                message_text: None,
-                payload_source_content: None,
-                payload_source_runtime: None,
-                payload_router_sorted_content: None,
-                payload_router_runtime: None,
-                duct_unloader_item_id: None,
-                duct_unloader_runtime: None,
-                duct_runtime: None,
-                shield_projector_runtime: None,
-                directional_unloader_item_id: None,
-                reconstructor_command_id: None,
-                memory_values_bits: None,
-                canvas_bytes: None,
-                mass_driver_link: None,
-                mass_driver_runtime: None,
-                payload_mass_driver_link: None,
-                payload_mass_driver_runtime: None,
-                sorter_runtime: None,
-                item_buffer_runtime: None,
-                conveyor_runtime: None,
-                nullable_item_id: None,
-                item_bridge_link: None,
-                item_bridge_runtime: None,
-                light_color: None,
-                switch_enabled: None,
-                build_item_stacks: Vec::new(),
-                build_liquid_stacks: Vec::new(),
+                build_liquid_stacks: vec![(9, 1.25f32.to_bits()), (10, 0.0f32.to_bits())],
+                ..resource_delta_block_snapshot_entry_template(build_pos)
             },
         ]);
 
-        assert!(!session
-            .state()
-            .resource_delta_projection
-            .building_items_by_build
-            .contains_key(&build_pos));
+        assert_resource_delta_build_liquids(&session, build_pos, &[(9, 1.25f32.to_bits())]);
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            resource_delta_block_snapshot_entry_template(build_pos),
+        ]);
+
+        assert_resource_delta_build_liquids_absent(&session, build_pos);
     }
 
     #[test]
@@ -23696,6 +25228,8 @@ mod tests {
                         revision: 2,
                         body_len: payload_router_runtime.payload_serialized_len,
                         body_sha256: payload_router_runtime.payload_serialized_sha256.clone(),
+                        status_count: 0,
+                        statuses: Vec::new(),
                         nested_unit_payloads: vec![],
                     },
                 ))),
@@ -23777,6 +25311,370 @@ mod tests {
                         payload_router_runtime.payload_serialized_sha256.clone(),
                     ),
                     rec_dir: Some(payload_router_runtime.rec_dir),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn loaded_world_tail_business_helper_preserves_payload_router_metadata_when_parsed_payload_is_missing(
+    ) {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos_router = pack_build_pos_for_block_snapshot_test(22, 23);
+        let router_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_ROUTER);
+        let payload_router_runtime = PayloadRouterRuntimeProjection {
+            progress_bits: 0x3f40_0000,
+            item_rotation_bits: 0x4040_0000,
+            payload_present: true,
+            payload_type: Some(0),
+            payload_kind: None,
+            payload_build_block_id: None,
+            payload_build_revision: None,
+            payload_unit_class_id: None,
+            payload_unit_revision: None,
+            payload_serialized_len: 5,
+            payload_serialized_sha256: "0123456789abcdef".to_string(),
+            rec_dir: 3,
+        };
+
+        session.state.building_table_projection.seed_world_baseline(
+            build_pos_router,
+            router_block_id,
+            Some(BLOCK_NAME_PAYLOAD_ROUTER.to_string()),
+            1,
+            2,
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            0x4040_0000,
+            Some(true),
+            Some(0x20),
+            Some(0x10),
+            Some(77),
+        );
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos_router,
+            Some(BLOCK_NAME_PAYLOAD_ROUTER),
+            &mdt_world::ParsedBuildingTail::PayloadRouter(mdt_world::PayloadRouterTailSnapshot {
+                progress_bits: payload_router_runtime.progress_bits,
+                item_rotation_bits: payload_router_runtime.item_rotation_bits,
+                payload_present: payload_router_runtime.payload_present,
+                payload_type: payload_router_runtime.payload_type,
+                payload_serialized_len: payload_router_runtime.payload_serialized_len,
+                payload_serialized_sha256: payload_router_runtime.payload_serialized_sha256.clone(),
+                parsed_payload: None,
+                sorted: mdt_world::MixedContentRefTailSnapshot {
+                    content_type: None,
+                    content_id: None,
+                },
+                rec_dir: payload_router_runtime.rec_dir,
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_router_runtime_by_build_pos
+                .get(&build_pos_router),
+            Some(&payload_router_runtime)
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos_router)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::PayloadRouter,
+                crate::session_state::TypedBuildingRuntimeValue::PayloadRouter {
+                    sorted_content: None,
+                    progress_bits: Some(payload_router_runtime.progress_bits),
+                    item_rotation_bits: Some(payload_router_runtime.item_rotation_bits),
+                    payload_present: Some(payload_router_runtime.payload_present),
+                    payload_type: payload_router_runtime.payload_type,
+                    payload_kind: None,
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: None,
+                    payload_unit_revision: None,
+                    payload_serialized_len: Some(payload_router_runtime.payload_serialized_len),
+                    payload_serialized_sha256: Some(
+                        payload_router_runtime.payload_serialized_sha256.clone(),
+                    ),
+                    rec_dir: Some(payload_router_runtime.rec_dir),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn loaded_world_tail_business_helper_preserves_payload_router_sorted_content_when_parsed_payload_is_missing(
+    ) {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos_router = pack_build_pos_for_block_snapshot_test(22, 23);
+        let router_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_ROUTER);
+        let payload_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+        let payload_router_runtime = PayloadRouterRuntimeProjection {
+            progress_bits: 0x3f40_0000,
+            item_rotation_bits: 0x4040_0000,
+            payload_present: true,
+            payload_type: Some(0),
+            payload_kind: None,
+            payload_build_block_id: None,
+            payload_build_revision: None,
+            payload_unit_class_id: None,
+            payload_unit_revision: None,
+            payload_serialized_len: 5,
+            payload_serialized_sha256: "0123456789abcdef".to_string(),
+            rec_dir: 3,
+        };
+
+        session.state.building_table_projection.seed_world_baseline(
+            build_pos_router,
+            router_block_id,
+            Some(BLOCK_NAME_PAYLOAD_ROUTER.to_string()),
+            1,
+            2,
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            0x4040_0000,
+            Some(true),
+            Some(0x20),
+            Some(0x10),
+            Some(77),
+        );
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos_router,
+            Some(BLOCK_NAME_PAYLOAD_ROUTER),
+            &mdt_world::ParsedBuildingTail::PayloadRouter(mdt_world::PayloadRouterTailSnapshot {
+                progress_bits: payload_router_runtime.progress_bits,
+                item_rotation_bits: payload_router_runtime.item_rotation_bits,
+                payload_present: payload_router_runtime.payload_present,
+                payload_type: payload_router_runtime.payload_type,
+                payload_serialized_len: payload_router_runtime.payload_serialized_len,
+                payload_serialized_sha256: payload_router_runtime.payload_serialized_sha256.clone(),
+                parsed_payload: None,
+                sorted: mdt_world::MixedContentRefTailSnapshot {
+                    content_type: Some(BLOCK_CONTENT_TYPE),
+                    content_id: Some(payload_block_id as u16),
+                },
+                rec_dir: payload_router_runtime.rec_dir,
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_router_sorted_content_by_build_pos
+                .get(&build_pos_router),
+            Some(&Some(ConfiguredContentRef {
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: payload_block_id,
+            }))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_router_runtime_by_build_pos
+                .get(&build_pos_router),
+            Some(&payload_router_runtime)
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos_router)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::PayloadRouter,
+                crate::session_state::TypedBuildingRuntimeValue::PayloadRouter {
+                    sorted_content: Some(ConfiguredContentRef {
+                        content_type: BLOCK_CONTENT_TYPE,
+                        content_id: payload_block_id,
+                    }),
+                    progress_bits: Some(payload_router_runtime.progress_bits),
+                    item_rotation_bits: Some(payload_router_runtime.item_rotation_bits),
+                    payload_present: Some(payload_router_runtime.payload_present),
+                    payload_type: payload_router_runtime.payload_type,
+                    payload_kind: None,
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: None,
+                    payload_unit_revision: None,
+                    payload_serialized_len: Some(payload_router_runtime.payload_serialized_len),
+                    payload_serialized_sha256: Some(
+                        payload_router_runtime.payload_serialized_sha256.clone(),
+                    ),
+                    rec_dir: Some(payload_router_runtime.rec_dir),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn loaded_world_tail_business_helper_clears_stale_payload_router_kind_metadata_when_parsed_payload_degrades(
+    ) {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos_router = pack_build_pos_for_block_snapshot_test(22, 23);
+        let router_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_ROUTER);
+        let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
+        let unit_class_id = u8::try_from(unit_id).unwrap();
+        let payload_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+        let parsed_runtime = PayloadRouterRuntimeProjection {
+            progress_bits: 0x3f40_0000,
+            item_rotation_bits: 0x4040_0000,
+            payload_present: true,
+            payload_type: Some(0),
+            payload_kind: Some(PayloadRouterPayloadKind::Unit),
+            payload_build_block_id: None,
+            payload_build_revision: None,
+            payload_unit_class_id: Some(unit_class_id),
+            payload_unit_revision: Some(2),
+            payload_serialized_len: 5,
+            payload_serialized_sha256: "0123456789abcdef".to_string(),
+            rec_dir: 3,
+        };
+        let degraded_runtime = PayloadRouterRuntimeProjection {
+            progress_bits: 0x3f20_0000,
+            item_rotation_bits: 0x4000_0000,
+            payload_present: true,
+            payload_type: Some(1),
+            payload_kind: None,
+            payload_build_block_id: None,
+            payload_build_revision: None,
+            payload_unit_class_id: None,
+            payload_unit_revision: None,
+            payload_serialized_len: 7,
+            payload_serialized_sha256: "fedcba9876543210".to_string(),
+            rec_dir: 1,
+        };
+
+        session.state.building_table_projection.seed_world_baseline(
+            build_pos_router,
+            router_block_id,
+            Some(BLOCK_NAME_PAYLOAD_ROUTER.to_string()),
+            1,
+            2,
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            0x4040_0000,
+            Some(true),
+            Some(0x20),
+            Some(0x10),
+            Some(77),
+        );
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos_router,
+            Some(BLOCK_NAME_PAYLOAD_ROUTER),
+            &mdt_world::ParsedBuildingTail::PayloadRouter(mdt_world::PayloadRouterTailSnapshot {
+                progress_bits: parsed_runtime.progress_bits,
+                item_rotation_bits: parsed_runtime.item_rotation_bits,
+                payload_present: parsed_runtime.payload_present,
+                payload_type: parsed_runtime.payload_type,
+                payload_serialized_len: parsed_runtime.payload_serialized_len,
+                payload_serialized_sha256: parsed_runtime.payload_serialized_sha256.clone(),
+                parsed_payload: Some(Box::new(mdt_world::PayloadSnapshot::Unit(
+                    mdt_world::UnitPayloadSnapshot {
+                        class_id: unit_class_id,
+                        revision: 2,
+                        body_len: parsed_runtime.payload_serialized_len,
+                        body_sha256: parsed_runtime.payload_serialized_sha256.clone(),
+                        status_count: 0,
+                        statuses: Vec::new(),
+                        nested_unit_payloads: vec![],
+                    },
+                ))),
+                sorted: mdt_world::MixedContentRefTailSnapshot {
+                    content_type: Some(UNIT_CONTENT_TYPE),
+                    content_id: Some(unit_id as u16),
+                },
+                rec_dir: parsed_runtime.rec_dir,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos_router,
+            Some(BLOCK_NAME_PAYLOAD_ROUTER),
+            &mdt_world::ParsedBuildingTail::PayloadRouter(mdt_world::PayloadRouterTailSnapshot {
+                progress_bits: degraded_runtime.progress_bits,
+                item_rotation_bits: degraded_runtime.item_rotation_bits,
+                payload_present: degraded_runtime.payload_present,
+                payload_type: degraded_runtime.payload_type,
+                payload_serialized_len: degraded_runtime.payload_serialized_len,
+                payload_serialized_sha256: degraded_runtime.payload_serialized_sha256.clone(),
+                parsed_payload: None,
+                sorted: mdt_world::MixedContentRefTailSnapshot {
+                    content_type: Some(BLOCK_CONTENT_TYPE),
+                    content_id: Some(payload_block_id as u16),
+                },
+                rec_dir: degraded_runtime.rec_dir,
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_router_sorted_content_by_build_pos
+                .get(&build_pos_router),
+            Some(&Some(ConfiguredContentRef {
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: payload_block_id,
+            }))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_router_runtime_by_build_pos
+                .get(&build_pos_router),
+            Some(&degraded_runtime)
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos_router)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::PayloadRouter,
+                crate::session_state::TypedBuildingRuntimeValue::PayloadRouter {
+                    sorted_content: Some(ConfiguredContentRef {
+                        content_type: BLOCK_CONTENT_TYPE,
+                        content_id: payload_block_id,
+                    }),
+                    progress_bits: Some(degraded_runtime.progress_bits),
+                    item_rotation_bits: Some(degraded_runtime.item_rotation_bits),
+                    payload_present: Some(degraded_runtime.payload_present),
+                    payload_type: degraded_runtime.payload_type,
+                    payload_kind: None,
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: None,
+                    payload_unit_revision: None,
+                    payload_serialized_len: Some(degraded_runtime.payload_serialized_len),
+                    payload_serialized_sha256: Some(
+                        degraded_runtime.payload_serialized_sha256.clone(),
+                    ),
+                    rec_dir: Some(degraded_runtime.rec_dir),
                 },
             ))
         );
@@ -24404,24 +26302,22 @@ mod tests {
         session.apply_loaded_world_parsed_tail_business(
             build_pos,
             Some(BLOCK_NAME_BLOCK_PRODUCER),
-            &mdt_world::ParsedBuildingTail::BlockProducer(
-                mdt_world::BlockProducerTailSnapshot {
-                    payload_block: mdt_world::PayloadBlockTailSnapshot {
-                        pay_vector_x_bits: 0,
-                        pay_vector_y_bits: 0,
-                        pay_rotation_bits: 0x4020_0000,
-                        payload_present: true,
-                        payload_type: Some(1),
-                        build_block_id: Some(payload_block_id as u16),
-                        build_revision: Some(3),
-                        build_payload: None,
-                        unit_class_id: None,
-                        unit_payload_len: None,
-                        unit_payload_sha256: None,
-                    },
-                    progress_bits: 0x3f20_0000,
+            &mdt_world::ParsedBuildingTail::BlockProducer(mdt_world::BlockProducerTailSnapshot {
+                payload_block: mdt_world::PayloadBlockTailSnapshot {
+                    pay_vector_x_bits: 0,
+                    pay_vector_y_bits: 0,
+                    pay_rotation_bits: 0x4020_0000,
+                    payload_present: true,
+                    payload_type: Some(1),
+                    build_block_id: Some(payload_block_id as u16),
+                    build_revision: Some(3),
+                    build_payload: None,
+                    unit_class_id: None,
+                    unit_payload_len: None,
+                    unit_payload_sha256: None,
                 },
-            ),
+                progress_bits: 0x3f20_0000,
+            }),
         );
 
         assert_eq!(
@@ -25881,6 +27777,191 @@ mod tests {
     }
 
     #[test]
+    fn payload_campaign_compound_goldens_apply_builder_family_projection() {
+        let goldens = golden_key_value_map(include_str!(
+            "../../../tests/src/test/resources/payload-campaign-compound-goldens.txt"
+        ));
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let constructor_pos = pack_build_pos_for_block_snapshot_test(92, 93);
+        let unit_assembler_pos = pack_build_pos_for_block_snapshot_test(94, 95);
+        let landing_pad_pos = pack_build_pos_for_block_snapshot_test(96, 97);
+        let constructor_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_CONSTRUCTOR);
+        let unit_assembler_block_id = loaded_world_block_id_for_name(&session, "tank-assembler");
+        let landing_pad_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_LANDING_PAD);
+
+        seed_loaded_world_block_baseline(
+            &mut session,
+            constructor_pos,
+            constructor_block_id,
+            BLOCK_NAME_CONSTRUCTOR,
+        );
+        seed_loaded_world_block_baseline(
+            &mut session,
+            unit_assembler_pos,
+            unit_assembler_block_id,
+            "tank-assembler",
+        );
+        seed_loaded_world_block_baseline(
+            &mut session,
+            landing_pad_pos,
+            landing_pad_block_id,
+            BLOCK_NAME_LANDING_PAD,
+        );
+
+        let constructor_prefix = "payloadCampaignCompound.constructors.0";
+        session.apply_loaded_world_parsed_tail_business(
+            constructor_pos,
+            Some(BLOCK_NAME_CONSTRUCTOR),
+            &mdt_world::ParsedBuildingTail::Constructor(mdt_world::ConstructorTailSnapshot {
+                payload_block: payload_block_tail_from_golden(
+                    &goldens,
+                    &format!("{constructor_prefix}.payload"),
+                ),
+                progress_bits: golden_required_hex_u32(
+                    &goldens,
+                    &format!("{constructor_prefix}.tail.constructor.progressBits"),
+                ),
+                recipe_block_id: golden_optional_hex_u16(
+                    &goldens,
+                    &format!("{constructor_prefix}.tail.constructor.recipeBlockId"),
+                ),
+            }),
+        );
+
+        let unit_assembler_prefix = "payloadCampaignCompound.unitAssemblers.0";
+        let unit_ids = decode_hex_i32_words(golden_required_value(
+            &goldens,
+            &format!("{unit_assembler_prefix}.tail.unitAssembler.unitIds"),
+        ));
+        assert_eq!(
+            unit_ids.len(),
+            golden_required_hex_usize(
+                &goldens,
+                &format!("{unit_assembler_prefix}.tail.unitAssembler.unitCount"),
+            )
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            unit_assembler_pos,
+            Some("tank-assembler"),
+            &mdt_world::ParsedBuildingTail::UnitAssembler(mdt_world::UnitAssemblerTailSnapshot {
+                payload_block: payload_block_tail_from_golden(
+                    &goldens,
+                    &format!("{unit_assembler_prefix}.payload"),
+                ),
+                progress_bits: golden_required_hex_u32(
+                    &goldens,
+                    &format!("{unit_assembler_prefix}.tail.unitAssembler.progressBits"),
+                ),
+                unit_ids: unit_ids.clone(),
+                blocks: payload_seq_tail_from_golden(
+                    &goldens,
+                    &format!("{unit_assembler_prefix}.tail.unitAssembler.blocks"),
+                ),
+                command_pos: nullable_vec2_tail_from_golden(
+                    &goldens,
+                    &format!("{unit_assembler_prefix}.tail.unitAssembler.commandPos"),
+                ),
+            }),
+        );
+
+        let landing_pad_prefix = "payloadCampaignCompound.landingPads.0.tail.landingPad";
+        session.apply_loaded_world_parsed_tail_business(
+            landing_pad_pos,
+            Some(BLOCK_NAME_LANDING_PAD),
+            &mdt_world::ParsedBuildingTail::LandingPad(mdt_world::LandingPadTailSnapshot {
+                config_item_id: golden_optional_hex_u16(
+                    &goldens,
+                    &format!("{landing_pad_prefix}.configItemId"),
+                ),
+                priority: golden_required_hex_i32(
+                    &goldens,
+                    &format!("{landing_pad_prefix}.priority"),
+                ),
+                cooldown_bits: golden_required_hex_u32(
+                    &goldens,
+                    &format!("{landing_pad_prefix}.cooldownBits"),
+                ),
+                arriving_item_id: golden_optional_hex_u16(
+                    &goldens,
+                    &format!("{landing_pad_prefix}.arrivingItemId"),
+                ),
+                arriving_timer_bits: golden_required_hex_u32(
+                    &goldens,
+                    &format!("{landing_pad_prefix}.arrivingTimerBits"),
+                ),
+                liquid_removed_bits: golden_required_hex_u32(
+                    &goldens,
+                    &format!("{landing_pad_prefix}.liquidRemovedBits"),
+                ),
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .constructor_recipe_block_by_build_pos
+                .get(&constructor_pos),
+            Some(&Some(0x0123))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .constructor_runtime_by_build_pos
+                .get(&constructor_pos),
+            Some(&ConstructorRuntimeProjection {
+                progress_bits: 0x3f40_0000,
+                payload_present: true,
+                pay_rotation_bits: 0x0000_000d,
+                payload_build_block_id: Some(0x0001),
+                payload_unit_class_id: None,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_assembler_by_build_pos
+                .get(&unit_assembler_pos),
+            Some(&UnitAssemblerRuntimeProjection {
+                progress_bits: 0x3e80_0000,
+                unit_ids,
+                block_entry_count: 1,
+                block_sample: Some(ConfiguredContentRef {
+                    content_type: 0x01,
+                    content_id: 0x0003,
+                }),
+                command_pos: None,
+                payload_present: false,
+                pay_rotation_bits: 0x0000_0010,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .landing_pad_item_by_build_pos
+                .get(&landing_pad_pos),
+            Some(&Some(0x0001))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .landing_pad_runtime_by_build_pos
+                .get(&landing_pad_pos),
+            Some(&LandingPadRuntimeProjection {
+                priority: 42,
+                cooldown_bits: 0x4120_0000,
+                arriving_item_id: Some(0x0002),
+                arriving_timer_bits: 0x4140_0000,
+                liquid_removed_bits: 0x3e80_0000,
+            })
+        );
+    }
+
+    #[test]
     fn loaded_world_tail_business_helper_applies_unit_factory_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(56, 57);
@@ -26179,6 +28260,351 @@ mod tests {
                     payload_unit_payload_sha256: None,
                 },
                 Some(0x4040_0000),
+            ))
+        );
+    }
+
+    #[test]
+    fn payload_campaign_compound_goldens_apply_payload_family_projection() {
+        let goldens = golden_key_value_map(include_str!(
+            "../../../tests/src/test/resources/payload-campaign-compound-goldens.txt"
+        ));
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let payload_loader_pos = pack_build_pos_for_block_snapshot_test(98, 99);
+        let payload_source_pos = pack_build_pos_for_block_snapshot_test(100, 101);
+        let payload_mass_driver_pos = pack_build_pos_for_block_snapshot_test(102, 103);
+        let payload_loader_block_id =
+            loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_LOADER);
+        let payload_source_block_id =
+            loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_SOURCE);
+        let payload_mass_driver_block_id =
+            loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_MASS_DRIVER);
+
+        seed_loaded_world_block_baseline(
+            &mut session,
+            payload_loader_pos,
+            payload_loader_block_id,
+            BLOCK_NAME_PAYLOAD_LOADER,
+        );
+        seed_loaded_world_block_baseline(
+            &mut session,
+            payload_source_pos,
+            payload_source_block_id,
+            BLOCK_NAME_PAYLOAD_SOURCE,
+        );
+        seed_loaded_world_block_baseline(
+            &mut session,
+            payload_mass_driver_pos,
+            payload_mass_driver_block_id,
+            BLOCK_NAME_PAYLOAD_MASS_DRIVER,
+        );
+
+        let payload_loader_prefix = "payloadCampaignCompound.payloadLoaders.0";
+        session.apply_loaded_world_parsed_tail_business(
+            payload_loader_pos,
+            Some(BLOCK_NAME_PAYLOAD_LOADER),
+            &mdt_world::ParsedBuildingTail::PayloadLoader(mdt_world::PayloadLoaderTailSnapshot {
+                payload_block: payload_block_tail_from_golden(
+                    &goldens,
+                    &format!("{payload_loader_prefix}.payload"),
+                ),
+                exporting: golden_required_bool(
+                    &goldens,
+                    &format!("{payload_loader_prefix}.exporting"),
+                ),
+            }),
+        );
+
+        let payload_source_prefix = "payloadCampaignCompound.payloadSources.0";
+        session.apply_loaded_world_parsed_tail_business(
+            payload_source_pos,
+            Some(BLOCK_NAME_PAYLOAD_SOURCE),
+            &mdt_world::ParsedBuildingTail::PayloadSource(mdt_world::PayloadSourceTailSnapshot {
+                payload_block: payload_block_tail_from_golden(
+                    &goldens,
+                    &format!("{payload_source_prefix}.payload"),
+                ),
+                unit_id: golden_optional_hex_u16(
+                    &goldens,
+                    &format!("{payload_source_prefix}.unitId"),
+                ),
+                config_block_id: golden_optional_hex_u16(
+                    &goldens,
+                    &format!("{payload_source_prefix}.configBlockId"),
+                ),
+                command_pos: nullable_vec2_tail_from_golden(
+                    &goldens,
+                    &format!("{payload_source_prefix}.commandPos"),
+                ),
+            }),
+        );
+
+        let payload_mass_driver_prefix = "payloadCampaignCompound.payloadMassDrivers.0";
+        session.apply_loaded_world_parsed_tail_business(
+            payload_mass_driver_pos,
+            Some(BLOCK_NAME_PAYLOAD_MASS_DRIVER),
+            &mdt_world::ParsedBuildingTail::PayloadMassDriver(
+                mdt_world::PayloadMassDriverTailSnapshot {
+                    payload_block: payload_block_tail_from_golden(
+                        &goldens,
+                        &format!("{payload_mass_driver_prefix}.payload"),
+                    ),
+                    link: golden_required_hex_i32(
+                        &goldens,
+                        &format!("{payload_mass_driver_prefix}.link"),
+                    ),
+                    turret_rotation_bits: golden_required_hex_u32(
+                        &goldens,
+                        &format!("{payload_mass_driver_prefix}.turretRotationBits"),
+                    ),
+                    state_ordinal: golden_required_hex_u8(
+                        &goldens,
+                        &format!("{payload_mass_driver_prefix}.stateOrdinal"),
+                    ),
+                    reload_counter_bits: golden_required_hex_u32(
+                        &goldens,
+                        &format!("{payload_mass_driver_prefix}.reloadCounterBits"),
+                    ),
+                    charge_bits: golden_required_hex_u32(
+                        &goldens,
+                        &format!("{payload_mass_driver_prefix}.chargeBits"),
+                    ),
+                    loaded: golden_required_bool(
+                        &goldens,
+                        &format!("{payload_mass_driver_prefix}.loaded"),
+                    ),
+                    charging: golden_required_bool(
+                        &goldens,
+                        &format!("{payload_mass_driver_prefix}.charging"),
+                    ),
+                },
+            ),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_loader_runtime_by_build_pos
+                .get(&payload_loader_pos),
+            Some(&PayloadLoaderRuntimeProjection {
+                exporting: true,
+                payload_present: true,
+                payload_type: Some(0),
+                pay_rotation_bits: 0x0000_0003,
+                payload_build_block_id: None,
+                payload_build_revision: None,
+                payload_unit_class_id: Some(0),
+                payload_unit_payload_len: Some(0x60),
+                payload_unit_payload_sha256: Some(
+                    "10dad84175c9df244c404bbd15d5bceb2a29f219ead8375d275ba52f83ce17a6".to_string(),
+                ),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_content_by_build_pos
+                .get(&payload_source_pos),
+            Some(&Some(ConfiguredContentRef {
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: 0x0123,
+            }))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_runtime_by_build_pos
+                .get(&payload_source_pos),
+            Some(&PayloadSourceRuntimeProjection {
+                command_pos: Some((0x4120_0000, 0x41a0_0000)),
+                pay_vector_x_bits: 0x0000_0004,
+                pay_vector_y_bits: 0x0000_0005,
+                pay_rotation_bits: 0x0000_0006,
+                payload_present: false,
+                payload_type: None,
+                payload_build_block_id: None,
+                payload_build_revision: None,
+                payload_unit_class_id: None,
+                payload_unit_payload_len: None,
+                payload_unit_payload_sha256: None,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_mass_driver_link_by_build_pos
+                .get(&payload_mass_driver_pos),
+            Some(&Some(10))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_mass_driver_runtime_by_build_pos
+                .get(&payload_mass_driver_pos),
+            Some(&PayloadMassDriverRuntimeProjection {
+                turret_rotation_bits: 0x4220_0000,
+                state_ordinal: 2,
+                reload_counter_bits: 0x3f80_0000,
+                charge_bits: 0x4000_0000,
+                loaded: true,
+                charging: false,
+                payload_present: false,
+            })
+        );
+    }
+
+    #[test]
+    fn payload_campaign_compound_goldens_apply_payload_router_family_projection() {
+        let goldens = golden_key_value_map(include_str!(
+            "../../../tests/src/test/resources/payload-campaign-compound-goldens.txt"
+        ));
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let entry_count =
+            golden_required_hex_usize(&goldens, "payloadCampaignCompound.payloadRouters.count");
+
+        for index in 0..entry_count {
+            let entry_prefix = format!("payloadCampaignCompound.payloadRouters.{index}");
+            let tail_prefix = format!("{entry_prefix}.tail.payloadRouter");
+            let block_name = golden_required_value(&goldens, &format!("{entry_prefix}.blockName"));
+            let build_pos =
+                pack_build_pos_for_block_snapshot_test(104usize + index * 2, 105usize + index * 2);
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            let expected_sorted_content =
+                golden_optional_configured_content_ref(&goldens, &format!("{tail_prefix}.sorted"));
+            let expected_runtime = payload_router_runtime_from_golden(&goldens, &tail_prefix);
+
+            seed_loaded_world_block_baseline(&mut session, build_pos, block_id, block_name);
+            session.apply_loaded_world_parsed_tail_business(
+                build_pos,
+                Some(block_name),
+                &mdt_world::ParsedBuildingTail::PayloadRouter(payload_router_tail_from_golden(
+                    &goldens,
+                    &tail_prefix,
+                )),
+            );
+
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .payload_router_sorted_content_by_build_pos
+                    .get(&build_pos),
+                Some(&expected_sorted_content)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .payload_router_runtime_by_build_pos
+                    .get(&build_pos),
+                Some(&expected_runtime)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .runtime_typed_building_apply_projection
+                    .building_at(build_pos)
+                    .map(|building| (building.kind, building.value.clone())),
+                Some((
+                    crate::session_state::TypedBuildingRuntimeKind::PayloadRouter,
+                    crate::session_state::TypedBuildingRuntimeValue::PayloadRouter {
+                        sorted_content: expected_sorted_content,
+                        progress_bits: Some(expected_runtime.progress_bits),
+                        item_rotation_bits: Some(expected_runtime.item_rotation_bits),
+                        payload_present: Some(expected_runtime.payload_present),
+                        payload_type: expected_runtime.payload_type,
+                        payload_kind: expected_runtime.payload_kind.clone(),
+                        payload_build_block_id: expected_runtime.payload_build_block_id,
+                        payload_build_revision: expected_runtime.payload_build_revision,
+                        payload_unit_class_id: expected_runtime.payload_unit_class_id,
+                        payload_unit_revision: expected_runtime.payload_unit_revision,
+                        payload_serialized_len: Some(expected_runtime.payload_serialized_len),
+                        payload_serialized_sha256: Some(
+                            expected_runtime.payload_serialized_sha256.clone(),
+                        ),
+                        rec_dir: Some(expected_runtime.rec_dir),
+                    },
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn payload_campaign_compound_goldens_apply_reconstructor_family_projection() {
+        let goldens = golden_key_value_map(include_str!(
+            "../../../tests/src/test/resources/payload-campaign-compound-goldens.txt"
+        ));
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let entry_prefix = "payloadCampaignCompound.reconstructors.0";
+        let block_name = golden_required_value(&goldens, &format!("{entry_prefix}.blockName"));
+        let build_pos = pack_build_pos_for_block_snapshot_test(112, 113);
+        let block_id = loaded_world_block_id_for_name(&session, block_name);
+
+        seed_loaded_world_block_baseline(&mut session, build_pos, block_id, block_name);
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos,
+            Some(block_name),
+            &mdt_world::ParsedBuildingTail::Reconstructor(mdt_world::ReconstructorTailSnapshot {
+                payload_block: payload_block_tail_from_golden(
+                    &goldens,
+                    &format!("{entry_prefix}.payload"),
+                ),
+                progress_bits: golden_required_hex_u32(
+                    &goldens,
+                    &format!("{entry_prefix}.tail.reconstructor.progressBits"),
+                ),
+                command_pos: nullable_vec2_tail_from_golden(
+                    &goldens,
+                    &format!("{entry_prefix}.tail.reconstructor.commandPos"),
+                ),
+                command_id: golden_optional_hex_u8(
+                    &goldens,
+                    &format!("{entry_prefix}.tail.reconstructor.commandId"),
+                ),
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .reconstructor_command_by_build_pos
+                .get(&build_pos),
+            Some(&Some(7))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .reconstructor_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&ReconstructorRuntimeProjection {
+                progress_bits: 0x3f40_0000,
+                command_pos: Some((0x4148_0000, 0x4190_0000)),
+                payload_present: true,
+                pay_rotation_bits: 0x4000_0000,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::Reconstructor,
+                crate::session_state::TypedBuildingRuntimeValue::Reconstructor {
+                    command_id: Some(7),
+                    progress_bits: Some(0x3f40_0000),
+                    command_pos: Some((0x4148_0000, 0x4190_0000)),
+                    payload_present: Some(true),
+                    pay_rotation_bits: Some(0x4000_0000),
+                },
             ))
         );
     }
@@ -33944,19 +36370,70 @@ mod tests {
         );
     }
 
+    fn objective_packet_id_for_test(manifest: &mdt_remote::RemoteManifest, method: &str) -> u8 {
+        manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == method)
+            .unwrap()
+            .packet_id
+    }
+
+    fn set_objectives_packet_for_test(
+        manifest: &mdt_remote::RemoteManifest,
+        json: &str,
+    ) -> Vec<u8> {
+        let payload = encode_length_prefixed_utf8_payload(json);
+        encode_packet(
+            objective_packet_id_for_test(manifest, "setObjectives"),
+            &payload,
+            false,
+        )
+        .unwrap()
+    }
+
+    fn set_flag_packet_for_test(
+        manifest: &mdt_remote::RemoteManifest,
+        flag: &str,
+        add: bool,
+    ) -> Vec<u8> {
+        let mut payload = encode_typeio_string_payload(flag);
+        payload.push(u8::from(add));
+        encode_packet(
+            objective_packet_id_for_test(manifest, "setFlag"),
+            &payload,
+            false,
+        )
+        .unwrap()
+    }
+
+    fn complete_objective_packet_for_test(
+        manifest: &mdt_remote::RemoteManifest,
+        index: i32,
+    ) -> Vec<u8> {
+        encode_packet(
+            objective_packet_id_for_test(manifest, "completeObjective"),
+            &index.to_be_bytes(),
+            false,
+        )
+        .unwrap()
+    }
+
+    fn clear_objectives_packet_for_test(manifest: &mdt_remote::RemoteManifest) -> Vec<u8> {
+        encode_packet(
+            objective_packet_id_for_test(manifest, "clearObjectives"),
+            &[],
+            false,
+        )
+        .unwrap()
+    }
+
     #[test]
     fn set_objectives_packet_emits_event_and_updates_state() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setObjectives")
-            .unwrap()
-            .packet_id;
-        let payload =
-            encode_length_prefixed_utf8_payload("[{\"type\":\"Timer\",\"duration\":90.0}]");
-        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        let packet =
+            set_objectives_packet_for_test(&manifest, "[{\"type\":\"Timer\",\"duration\":90.0}]");
 
         let event = session.ingest_packet_bytes(&packet).unwrap();
 
@@ -34028,12 +36505,7 @@ mod tests {
     fn set_objectives_packet_with_truncated_json_is_ignored_and_records_parse_fail() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setObjectives")
-            .unwrap()
-            .packet_id;
+        let packet_id = objective_packet_id_for_test(&manifest, "setObjectives");
         let packet = encode_packet(packet_id, &5i32.to_be_bytes(), false).unwrap();
 
         let event = session.ingest_packet_bytes(&packet).unwrap();
@@ -34311,13 +36783,7 @@ mod tests {
     fn clear_objectives_packet_emits_event_and_updates_state() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "clearObjectives")
-            .unwrap()
-            .packet_id;
-        let packet = encode_packet(packet_id, &[], false).unwrap();
+        let packet = clear_objectives_packet_for_test(&manifest);
 
         let event = session.ingest_packet_bytes(&packet).unwrap();
 
@@ -34331,13 +36797,7 @@ mod tests {
     fn complete_objective_packet_emits_event_and_updates_state() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "completeObjective")
-            .unwrap()
-            .packet_id;
-        let packet = encode_packet(packet_id, &3i32.to_be_bytes(), false).unwrap();
+        let packet = complete_objective_packet_for_test(&manifest, 3);
 
         let event = session.ingest_packet_bytes(&packet).unwrap();
 
@@ -34365,38 +36825,66 @@ mod tests {
     }
 
     #[test]
+    fn set_flag_packet_records_flag_without_locally_completing_objective() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_packet = set_objectives_packet_for_test(
+            &manifest,
+            "[{\"type\":\"Flag\",\"flag\":\"beta\",\"completed\":false,\"flagsAdded\":[\"alpha\"],\"flagsRemoved\":[\"beta\"]}]",
+        );
+        session.ingest_packet_bytes(&set_packet).unwrap();
+
+        assert_eq!(session.state().objectives_projection.objectives.len(), 1);
+        assert!(!session.state().objectives_projection.objectives[0].completed);
+        assert!(session.state().objectives_projection.objectives[0].qualified);
+
+        let event = session
+            .ingest_packet_bytes(&set_flag_packet_for_test(&manifest, "beta", true))
+            .unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SetFlag {
+                flag: Some("beta".to_string()),
+                add: true,
+            }
+        );
+        assert_eq!(session.state().received_set_flag_count, 1);
+        assert_eq!(session.state().last_set_flag.as_deref(), Some("beta"));
+        assert_eq!(session.state().last_set_flag_add, Some(true));
+        assert!(session
+            .state()
+            .objectives_projection
+            .objective_flags
+            .contains("beta"));
+        assert!(!session
+            .state()
+            .objectives_projection
+            .objective_flags
+            .contains("alpha"));
+        assert!(!session.state().objectives_projection.objectives[0].completed);
+        assert!(session.state().objectives_projection.objectives[0].qualified);
+        assert_eq!(
+            session
+                .state()
+                .objectives_projection
+                .complete_by_index_count,
+            0
+        );
+        assert_eq!(
+            session.state().objectives_projection.last_completed_index,
+            None
+        );
+    }
+
+    #[test]
     fn objectives_projection_tracks_replace_complete_and_clear_transitions() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let set_flag_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setFlag")
-            .unwrap()
-            .packet_id;
-        let set_objectives_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setObjectives")
-            .unwrap()
-            .packet_id;
-        let complete_objective_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "completeObjective")
-            .unwrap()
-            .packet_id;
-        let clear_objectives_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "clearObjectives")
-            .unwrap()
-            .packet_id;
-
-        let set_payload = encode_length_prefixed_utf8_payload(
+        let set_packet = set_objectives_packet_for_test(
+            &manifest,
             "[{\"type\":\"Timer\"},{\"type\":\"Destroy\",\"parents\":[0],\"flagsAdded\":[\"alpha\"],\"flagsRemoved\":[\"beta\"]}]",
         );
-        let set_packet = encode_packet(set_objectives_packet_id, &set_payload, false).unwrap();
         session.ingest_packet_bytes(&set_packet).unwrap();
 
         assert_eq!(session.state().objectives_projection.objectives.len(), 2);
@@ -34405,12 +36893,8 @@ mod tests {
         assert!(session.state().objectives_projection.objectives[0].qualified);
         assert!(!session.state().objectives_projection.objectives[1].qualified);
 
-        let mut set_flag_payload = encode_typeio_string_payload("beta");
-        set_flag_payload.push(1);
         session
-            .ingest_packet_bytes(
-                &encode_packet(set_flag_packet_id, &set_flag_payload, false).unwrap(),
-            )
+            .ingest_packet_bytes(&set_flag_packet_for_test(&manifest, "beta", true))
             .unwrap();
         assert!(session
             .state()
@@ -34418,8 +36902,7 @@ mod tests {
             .objective_flags
             .contains("beta"));
 
-        let complete_packet =
-            encode_packet(complete_objective_packet_id, &1i32.to_be_bytes(), false).unwrap();
+        let complete_packet = complete_objective_packet_for_test(&manifest, 1);
         session.ingest_packet_bytes(&complete_packet).unwrap();
 
         assert!(!session.state().objectives_projection.objectives[0].completed);
@@ -34449,7 +36932,7 @@ mod tests {
             0
         );
 
-        let clear_packet = encode_packet(clear_objectives_packet_id, &[], false).unwrap();
+        let clear_packet = clear_objectives_packet_for_test(&manifest);
         session.ingest_packet_bytes(&clear_packet).unwrap();
 
         assert!(session.state().objectives_projection.objectives.is_empty());
@@ -34462,6 +36945,25 @@ mod tests {
         assert_eq!(session.state().received_set_objectives_count, 1);
         assert_eq!(session.state().received_complete_objective_count, 1);
         assert_eq!(session.state().received_clear_objectives_count, 1);
+    }
+
+    fn encode_remove_queue_block_packet_for_test(
+        manifest: &mdt_remote::RemoteManifest,
+        x: i32,
+        y: i32,
+        breaking: bool,
+    ) -> Vec<u8> {
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeQueueBlock")
+            .unwrap()
+            .packet_id;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&x.to_be_bytes());
+        payload.extend_from_slice(&y.to_be_bytes());
+        payload.push(u8::from(breaking));
+        encode_packet(packet_id, &payload, false).unwrap()
     }
 
     #[test]
@@ -34485,17 +36987,7 @@ mod tests {
             },
         ]);
 
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "removeQueueBlock")
-            .unwrap()
-            .packet_id;
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&5i32.to_be_bytes());
-        payload.extend_from_slice(&6i32.to_be_bytes());
-        payload.push(1);
-        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        let packet = encode_remove_queue_block_packet_for_test(&manifest, 5, 6, true);
 
         let event = session.ingest_packet_bytes(&packet).unwrap();
 
@@ -34582,17 +37074,7 @@ mod tests {
             },
         ]);
 
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "removeQueueBlock")
-            .unwrap()
-            .packet_id;
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&5i32.to_be_bytes());
-        payload.extend_from_slice(&6i32.to_be_bytes());
-        payload.push(1);
-        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        let packet = encode_remove_queue_block_packet_for_test(&manifest, 5, 6, true);
 
         let event = session.ingest_packet_bytes(&packet).unwrap();
 
@@ -34621,17 +37103,7 @@ mod tests {
     fn remove_queue_block_packet_tracks_orphan_authoritative_without_local_plan() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "removeQueueBlock")
-            .unwrap()
-            .packet_id;
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&8i32.to_be_bytes());
-        payload.extend_from_slice(&9i32.to_be_bytes());
-        payload.push(0);
-        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        let packet = encode_remove_queue_block_packet_for_test(&manifest, 8, 9, false);
 
         let event = session.ingest_packet_bytes(&packet).unwrap();
 
@@ -34668,17 +37140,7 @@ mod tests {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         session.snapshot_input_mut().building = true;
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "removeQueueBlock")
-            .unwrap()
-            .packet_id;
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&8i32.to_be_bytes());
-        payload.extend_from_slice(&9i32.to_be_bytes());
-        payload.push(0);
-        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        let packet = encode_remove_queue_block_packet_for_test(&manifest, 8, 9, false);
 
         let event = session.ingest_packet_bytes(&packet).unwrap();
 
@@ -34700,38 +37162,7 @@ mod tests {
     }
 
     #[test]
-    fn building_control_select_packet_emits_observability_event() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "buildingControlSelect")
-            .unwrap()
-            .packet_id;
-        let build_pos = Some(pack_point2(12, 34));
-        let packet = encode_packet(
-            packet_id,
-            &encode_player_prefixed_payload(42, &encode_building_payload(build_pos)),
-            false,
-        )
-        .unwrap();
-
-        let event = session.ingest_packet_bytes(&packet).unwrap();
-
-        assert_eq!(
-            event,
-            ClientSessionEvent::BuildingControlSelect { build_pos }
-        );
-        assert_eq!(session.state().received_building_control_select_count, 1);
-        assert_eq!(
-            session.state().last_building_control_select_build_pos,
-            build_pos
-        );
-    }
-
-    #[test]
-    fn unit_clear_and_unit_control_packets_emit_observability_events() {
+    fn unit_clear_packet_emits_observability_event() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let unit_clear_packet_id = manifest
@@ -34740,260 +37171,315 @@ mod tests {
             .find(|entry| entry.method == "unitClear")
             .unwrap()
             .packet_id;
-        let unit_control_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "unitControl")
-            .unwrap()
-            .packet_id;
 
         let clear_event = session
             .ingest_packet_bytes(&encode_packet(unit_clear_packet_id, &[], false).unwrap())
             .unwrap();
         assert_eq!(clear_event, ClientSessionEvent::UnitClear);
         assert_eq!(session.state().received_unit_clear_count, 1);
-
-        let target = Some(UnitRefProjection {
-            kind: 2,
-            value: 222,
-        });
-        let control_event = session
-            .ingest_packet_bytes(
-                &encode_packet(
-                    unit_control_packet_id,
-                    &encode_player_prefixed_payload(
-                        42,
-                        &encode_unit_payload(ClientUnitRef::Standard(222)),
-                    ),
-                    false,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        assert_eq!(control_event, ClientSessionEvent::UnitControl { target });
-        assert_eq!(session.state().received_unit_control_count, 1);
-        assert_eq!(session.state().last_unit_control_target, target);
     }
 
     #[test]
-    fn unit_building_control_select_packet_emits_observability_event() {
+    fn command_and_control_goldens_drive_expected_observability_events() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "unitBuildingControlSelect")
-            .unwrap()
-            .packet_id;
-        let target = Some(UnitRefProjection {
-            kind: 2,
-            value: 222,
-        });
-        let build_pos = Some(pack_point2(12, 34));
-        let packet = encode_packet(
-            packet_id,
-            &encode_unit_building_payload(ClientUnitRef::Standard(222), build_pos),
-            false,
-        )
-        .unwrap();
+        let goldens = golden_key_value_map(include_str!(
+            "../../../tests/src/test/resources/control-packet-goldens.txt"
+        ));
 
-        let event = session.ingest_packet_bytes(&packet).unwrap();
-
-        assert_eq!(
-            event,
-            ClientSessionEvent::UnitBuildingControlSelect { target, build_pos }
-        );
-        assert_eq!(
-            session.state().received_unit_building_control_select_count,
-            1
-        );
-        assert_eq!(
-            session.state().last_unit_building_control_select_target,
-            target
-        );
-        assert_eq!(
-            session.state().last_unit_building_control_select_build_pos,
-            build_pos
-        );
+        for (sample_name, method) in [
+            ("buildingControlSelect", "buildingControlSelect"),
+            ("unitBuildingControlSelect", "unitBuildingControlSelect"),
+            ("unitControl", "unitControl"),
+            ("commandBuilding", "commandBuilding"),
+            ("commandUnits", "commandUnits"),
+            ("setUnitCommand", "setUnitCommand"),
+            ("setUnitStance", "setUnitStance"),
+        ] {
+            let (session, event) =
+                ingest_command_and_control_golden_case(&manifest, &goldens, sample_name, method);
+            match sample_name {
+                "buildingControlSelect" => {
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::BuildingControlSelect { build_pos: None }
+                    );
+                    assert_eq!(session.state().received_building_control_select_count, 1);
+                    assert_eq!(session.state().last_building_control_select_build_pos, None);
+                }
+                "unitBuildingControlSelect" => {
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::UnitBuildingControlSelect {
+                            target: None,
+                            build_pos: None,
+                        }
+                    );
+                    assert_eq!(
+                        session.state().received_unit_building_control_select_count,
+                        1
+                    );
+                    assert_eq!(
+                        session.state().last_unit_building_control_select_target,
+                        None
+                    );
+                    assert_eq!(
+                        session.state().last_unit_building_control_select_build_pos,
+                        None
+                    );
+                }
+                "unitControl" => {
+                    assert_eq!(event, ClientSessionEvent::UnitControl { target: None });
+                    assert_eq!(session.state().received_unit_control_count, 1);
+                    assert_eq!(session.state().last_unit_control_target, None);
+                }
+                "commandBuilding" => {
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::CommandBuilding {
+                            buildings: Vec::new(),
+                            x: 0.0,
+                            y: 0.0,
+                        }
+                    );
+                    assert_eq!(session.state().received_command_building_count, 1);
+                    assert_eq!(session.state().last_command_building_count, 0);
+                    assert_eq!(session.state().last_command_building_first_build_pos, None);
+                    assert_eq!(
+                        session.state().last_command_building_x_bits,
+                        Some(0.0f32.to_bits())
+                    );
+                    assert_eq!(
+                        session.state().last_command_building_y_bits,
+                        Some(0.0f32.to_bits())
+                    );
+                }
+                "commandUnits" => {
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::CommandUnits {
+                            unit_ids: Vec::new(),
+                            build_target: None,
+                            unit_target: None,
+                            x: 0.0,
+                            y: 0.0,
+                            queue_command: false,
+                            final_batch: false,
+                        }
+                    );
+                    assert_eq!(session.state().received_command_units_count, 1);
+                    assert_eq!(session.state().last_command_units_count, 0);
+                    assert_eq!(session.state().last_command_units_first_unit_id, None);
+                    assert_eq!(session.state().last_command_units_build_target, None);
+                    assert_eq!(session.state().last_command_units_unit_target, None);
+                    assert_eq!(
+                        session.state().last_command_units_x_bits,
+                        Some(0.0f32.to_bits())
+                    );
+                    assert_eq!(
+                        session.state().last_command_units_y_bits,
+                        Some(0.0f32.to_bits())
+                    );
+                    assert_eq!(session.state().last_command_units_queue, Some(false));
+                    assert_eq!(session.state().last_command_units_final_batch, Some(false));
+                }
+                "setUnitCommand" => {
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::SetUnitCommand {
+                            unit_ids: Vec::new(),
+                            command_id: None,
+                        }
+                    );
+                    assert_eq!(session.state().received_set_unit_command_count, 1);
+                    assert_eq!(session.state().last_set_unit_command_count, 0);
+                    assert_eq!(session.state().last_set_unit_command_first_unit_id, None);
+                    assert_eq!(session.state().last_set_unit_command_id, None);
+                }
+                "setUnitStance" => {
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::SetUnitStance {
+                            unit_ids: Vec::new(),
+                            stance_id: None,
+                            enable: false,
+                        }
+                    );
+                    assert_eq!(session.state().received_set_unit_stance_count, 1);
+                    assert_eq!(session.state().last_set_unit_stance_count, 0);
+                    assert_eq!(session.state().last_set_unit_stance_first_unit_id, None);
+                    assert_eq!(session.state().last_set_unit_stance_id, None);
+                    assert_eq!(session.state().last_set_unit_stance_enable, Some(false));
+                }
+                other => panic!("unexpected command/control golden case: {other}"),
+            }
+        }
     }
 
     #[test]
-    fn command_building_packet_emits_observability_event() {
+    fn command_and_control_rich_goldens_drive_expected_observability_events() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "commandBuilding")
-            .unwrap()
-            .packet_id;
-        let buildings = vec![pack_point2(5, 6), pack_point2(-7, 8)];
-        let packet = encode_packet(
-            packet_id,
-            &encode_command_building_payload(&buildings, 12.5, -4.0),
-            false,
-        )
-        .unwrap();
+        let goldens = golden_key_value_map(include_str!(
+            "../../../tests/src/test/resources/control-packet-goldens.txt"
+        ));
 
-        let event = session.ingest_packet_bytes(&packet).unwrap();
-
-        assert_eq!(
-            event,
-            ClientSessionEvent::CommandBuilding {
-                buildings: buildings.clone(),
-                x: 12.5,
-                y: -4.0,
+        for (sample_name, method) in [
+            ("buildingControlSelectRich", "buildingControlSelect"),
+            ("unitBuildingControlSelectRich", "unitBuildingControlSelect"),
+            ("unitControlRich", "unitControl"),
+            ("commandBuildingRich", "commandBuilding"),
+            ("commandUnitsRich", "commandUnits"),
+            ("setUnitCommandRich", "setUnitCommand"),
+            ("setUnitStanceRich", "setUnitStance"),
+        ] {
+            let (session, event) =
+                ingest_command_and_control_golden_case(&manifest, &goldens, sample_name, method);
+            match sample_name {
+                "buildingControlSelectRich" => {
+                    let build_pos = Some(pack_point2(12, 34));
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::BuildingControlSelect { build_pos }
+                    );
+                    assert_eq!(session.state().received_building_control_select_count, 1);
+                    assert_eq!(
+                        session.state().last_building_control_select_build_pos,
+                        build_pos
+                    );
+                }
+                "unitBuildingControlSelectRich" => {
+                    let target = Some(UnitRefProjection {
+                        kind: 2,
+                        value: 222,
+                    });
+                    let build_pos = Some(pack_point2(12, 34));
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::UnitBuildingControlSelect { target, build_pos }
+                    );
+                    assert_eq!(
+                        session.state().received_unit_building_control_select_count,
+                        1
+                    );
+                    assert_eq!(
+                        session.state().last_unit_building_control_select_target,
+                        target
+                    );
+                    assert_eq!(
+                        session.state().last_unit_building_control_select_build_pos,
+                        build_pos
+                    );
+                }
+                "unitControlRich" => {
+                    let target = Some(UnitRefProjection {
+                        kind: 2,
+                        value: 222,
+                    });
+                    assert_eq!(event, ClientSessionEvent::UnitControl { target });
+                    assert_eq!(session.state().received_unit_control_count, 1);
+                    assert_eq!(session.state().last_unit_control_target, target);
+                }
+                "commandBuildingRich" => {
+                    let buildings = vec![pack_point2(5, 6), pack_point2(-7, 8)];
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::CommandBuilding {
+                            buildings: buildings.clone(),
+                            x: 12.5,
+                            y: -4.0,
+                        }
+                    );
+                    assert_eq!(session.state().received_command_building_count, 1);
+                    assert_eq!(session.state().last_command_building_count, 2);
+                    assert_eq!(
+                        session.state().last_command_building_first_build_pos,
+                        buildings.first().copied()
+                    );
+                    assert_eq!(
+                        session.state().last_command_building_x_bits,
+                        Some(12.5f32.to_bits())
+                    );
+                    assert_eq!(
+                        session.state().last_command_building_y_bits,
+                        Some((-4.0f32).to_bits())
+                    );
+                }
+                "commandUnitsRich" => {
+                    let unit_ids = vec![333, 444];
+                    let build_target = Some(pack_point2(9, 10));
+                    let unit_target = Some(UnitRefProjection {
+                        kind: 1,
+                        value: pack_point2(7, 8),
+                    });
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::CommandUnits {
+                            unit_ids: unit_ids.clone(),
+                            build_target,
+                            unit_target,
+                            x: 12.5,
+                            y: -4.0,
+                            queue_command: true,
+                            final_batch: false,
+                        }
+                    );
+                    assert_eq!(session.state().received_command_units_count, 1);
+                    assert_eq!(session.state().last_command_units_count, 2);
+                    assert_eq!(session.state().last_command_units_first_unit_id, Some(333));
+                    assert_eq!(
+                        session.state().last_command_units_build_target,
+                        build_target
+                    );
+                    assert_eq!(session.state().last_command_units_unit_target, unit_target);
+                    assert_eq!(
+                        session.state().last_command_units_x_bits,
+                        Some(12.5f32.to_bits())
+                    );
+                    assert_eq!(
+                        session.state().last_command_units_y_bits,
+                        Some((-4.0f32).to_bits())
+                    );
+                    assert_eq!(session.state().last_command_units_queue, Some(true));
+                    assert_eq!(session.state().last_command_units_final_batch, Some(false));
+                }
+                "setUnitCommandRich" => {
+                    let unit_ids = vec![555, 666];
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::SetUnitCommand {
+                            unit_ids: unit_ids.clone(),
+                            command_id: Some(12),
+                        }
+                    );
+                    assert_eq!(session.state().received_set_unit_command_count, 1);
+                    assert_eq!(session.state().last_set_unit_command_count, 2);
+                    assert_eq!(
+                        session.state().last_set_unit_command_first_unit_id,
+                        Some(555)
+                    );
+                    assert_eq!(session.state().last_set_unit_command_id, Some(12));
+                }
+                "setUnitStanceRich" => {
+                    let unit_ids = vec![555, 666];
+                    assert_eq!(
+                        event,
+                        ClientSessionEvent::SetUnitStance {
+                            unit_ids,
+                            stance_id: Some(7),
+                            enable: false,
+                        }
+                    );
+                    assert_eq!(session.state().received_set_unit_stance_count, 1);
+                    assert_eq!(session.state().last_set_unit_stance_count, 2);
+                    assert_eq!(
+                        session.state().last_set_unit_stance_first_unit_id,
+                        Some(555)
+                    );
+                    assert_eq!(session.state().last_set_unit_stance_id, Some(7));
+                    assert_eq!(session.state().last_set_unit_stance_enable, Some(false));
+                }
+                other => panic!("unexpected rich command/control golden case: {other}"),
             }
-        );
-        assert_eq!(session.state().received_command_building_count, 1);
-        assert_eq!(session.state().last_command_building_count, 2);
-        assert_eq!(
-            session.state().last_command_building_first_build_pos,
-            buildings.first().copied()
-        );
-        assert_eq!(
-            session.state().last_command_building_x_bits,
-            Some(12.5f32.to_bits())
-        );
-        assert_eq!(
-            session.state().last_command_building_y_bits,
-            Some((-4.0f32).to_bits())
-        );
-    }
-
-    #[test]
-    fn command_units_packet_emits_observability_event() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "commandUnits")
-            .unwrap()
-            .packet_id;
-        let unit_ids = vec![333, 444];
-        let build_target = Some(pack_point2(9, 10));
-        let unit_target = Some(UnitRefProjection {
-            kind: 1,
-            value: pack_point2(7, 8),
-        });
-        let packet = encode_packet(
-            packet_id,
-            &encode_command_units_payload(
-                &unit_ids,
-                build_target,
-                ClientUnitRef::Block(pack_point2(7, 8)),
-                Some((12.5, -4.0)),
-                true,
-                false,
-            ),
-            false,
-        )
-        .unwrap();
-
-        let event = session.ingest_packet_bytes(&packet).unwrap();
-
-        assert_eq!(
-            event,
-            ClientSessionEvent::CommandUnits {
-                unit_ids: unit_ids.clone(),
-                build_target,
-                unit_target,
-                x: 12.5,
-                y: -4.0,
-                queue_command: true,
-                final_batch: false,
-            }
-        );
-        assert_eq!(session.state().received_command_units_count, 1);
-        assert_eq!(session.state().last_command_units_count, 2);
-        assert_eq!(session.state().last_command_units_first_unit_id, Some(333));
-        assert_eq!(
-            session.state().last_command_units_build_target,
-            build_target
-        );
-        assert_eq!(session.state().last_command_units_unit_target, unit_target);
-        assert_eq!(
-            session.state().last_command_units_x_bits,
-            Some(12.5f32.to_bits())
-        );
-        assert_eq!(
-            session.state().last_command_units_y_bits,
-            Some((-4.0f32).to_bits())
-        );
-        assert_eq!(session.state().last_command_units_queue, Some(true));
-        assert_eq!(session.state().last_command_units_final_batch, Some(false));
-    }
-
-    #[test]
-    fn set_unit_command_and_stance_packets_emit_observability_events() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let set_unit_command_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setUnitCommand")
-            .unwrap()
-            .packet_id;
-        let set_unit_stance_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setUnitStance")
-            .unwrap()
-            .packet_id;
-        let unit_ids = vec![555, 666];
-
-        let command_event = session
-            .ingest_packet_bytes(
-                &encode_packet(
-                    set_unit_command_packet_id,
-                    &encode_set_unit_command_payload(&unit_ids, Some(12)),
-                    false,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        assert_eq!(
-            command_event,
-            ClientSessionEvent::SetUnitCommand {
-                unit_ids: unit_ids.clone(),
-                command_id: Some(12),
-            }
-        );
-        assert_eq!(session.state().received_set_unit_command_count, 1);
-        assert_eq!(session.state().last_set_unit_command_count, 2);
-        assert_eq!(
-            session.state().last_set_unit_command_first_unit_id,
-            Some(555)
-        );
-        assert_eq!(session.state().last_set_unit_command_id, Some(12));
-
-        let stance_event = session
-            .ingest_packet_bytes(
-                &encode_packet(
-                    set_unit_stance_packet_id,
-                    &encode_set_unit_stance_payload(&unit_ids, Some(7), false),
-                    false,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        assert_eq!(
-            stance_event,
-            ClientSessionEvent::SetUnitStance {
-                unit_ids,
-                stance_id: Some(7),
-                enable: false,
-            }
-        );
-        assert_eq!(session.state().received_set_unit_stance_count, 1);
-        assert_eq!(session.state().last_set_unit_stance_count, 2);
-        assert_eq!(
-            session.state().last_set_unit_stance_first_unit_id,
-            Some(555)
-        );
-        assert_eq!(session.state().last_set_unit_stance_id, Some(7));
-        assert_eq!(session.state().last_set_unit_stance_enable, Some(false));
+        }
     }
 
     #[test]
@@ -35971,6 +38457,8 @@ mod tests {
             .unwrap();
         assert_eq!(hide_hud_text_event, ClientSessionEvent::HideHudText);
         assert_eq!(session.state().received_hide_hud_text_count, 1);
+        assert_eq!(session.state().last_set_hud_text_message, None);
+        assert_eq!(session.state().last_set_hud_text_reliable_message, None);
 
         let announce_event = session
             .ingest_packet_bytes(
@@ -38400,8 +40888,7 @@ mod tests {
     }
 
     #[test]
-    fn tile_config_packet_rejected_unsupported_config_type_preserves_later_pending_local_request()
-    {
+    fn tile_config_packet_rejected_unsupported_config_type_preserves_later_pending_local_request() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let packet_id = manifest
             .remote_packets
@@ -41853,20 +44340,10 @@ mod tests {
                 block_id,
                 &TypeIoObject::Int(initial_plan),
             );
-            assert_eq!(
-                session
-                    .state()
-                    .configured_block_projection
-                    .unit_factory_current_plan_by_build_pos
-                    .get(&build_pos),
-                Some(&(initial_plan as i16))
-            );
-            assert_eq!(
-                session
-                    .state()
-                    .tile_config_projection
-                    .last_configured_block_outcome,
-                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            assert_unit_factory_current_plan(&session, build_pos, initial_plan as i16);
+            assert_last_configured_block_outcome(
+                &session,
+                crate::session_state::ConfiguredBlockOutcome::Applied,
             );
 
             ingest_tile_config_for_block_config_test(
@@ -41875,26 +44352,16 @@ mod tests {
                 build_pos,
                 &TypeIoObject::Int(updated_plan),
             );
-            assert_eq!(
-                session
-                    .state()
-                    .configured_block_projection
-                    .unit_factory_current_plan_by_build_pos
-                    .get(&build_pos),
-                Some(&(updated_plan as i16))
-            );
-            assert_eq!(
-                session
-                    .state()
-                    .tile_config_projection
-                    .last_configured_block_outcome,
-                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            assert_unit_factory_current_plan(&session, build_pos, updated_plan as i16);
+            assert_last_configured_block_outcome(
+                &session,
+                crate::session_state::ConfiguredBlockOutcome::Applied,
             );
         }
     }
 
     #[test]
-    fn unit_factory_config_business_accepts_negative_plan_and_rejects_non_int_payloads() {
+    fn unit_factory_config_business_accepts_negative_plan_and_rejects_unsupported_payloads() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_point2(46, 68);
         let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_GROUND_FACTORY);
@@ -41906,20 +44373,69 @@ mod tests {
             block_id,
             &TypeIoObject::Int(-1),
         );
-        assert_eq!(
-            session
-                .state()
-                .configured_block_projection
-                .unit_factory_current_plan_by_build_pos
-                .get(&build_pos),
-            Some(&-1)
+        assert_unit_factory_current_plan(&session, build_pos, -1);
+        assert_last_configured_block_outcome(
+            &session,
+            crate::session_state::ConfiguredBlockOutcome::Applied,
         );
-        assert_eq!(
-            session
-                .state()
-                .tile_config_projection
-                .last_configured_block_outcome,
-            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Bool(true),
+        );
+        assert_last_configured_block_outcome(
+            &session,
+            crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType,
+        );
+        assert_unit_factory_current_plan(&session, build_pos, -1);
+        assert_unit_factory_runtime_value(&session, build_pos, Some(-1), None);
+    }
+
+    #[test]
+    fn unit_factory_config_business_dispatch_applies_command_and_clear_without_touching_current_plan()
+    {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(50, 72);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_GROUND_FACTORY);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Int(11),
+        );
+        assert_unit_factory_current_plan(&session, build_pos, 11);
+        assert_unit_factory_runtime_value(&session, build_pos, Some(11), None);
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::UnitCommand(7),
+        );
+        assert_unit_factory_current_plan(&session, build_pos, 11);
+        assert_unit_factory_command(&session, build_pos, Some(7));
+        assert_unit_factory_runtime_value(&session, build_pos, Some(11), Some(7));
+        assert_last_configured_block_outcome(
+            &session,
+            crate::session_state::ConfiguredBlockOutcome::Applied,
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::UnitCommand(8),
+        );
+        assert_unit_factory_current_plan(&session, build_pos, 11);
+        assert_unit_factory_command(&session, build_pos, Some(8));
+        assert_unit_factory_runtime_value(&session, build_pos, Some(11), Some(8));
+        assert_last_configured_block_outcome(
+            &session,
+            crate::session_state::ConfiguredBlockOutcome::Applied,
         );
 
         ingest_tile_config_for_block_config_test(
@@ -41928,20 +44444,40 @@ mod tests {
             build_pos,
             &TypeIoObject::Null,
         );
-        assert_eq!(
-            session
-                .state()
-                .tile_config_projection
-                .last_configured_block_outcome,
-            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+        assert_unit_factory_current_plan(&session, build_pos, 11);
+        assert_unit_factory_command(&session, build_pos, None);
+        assert_unit_factory_runtime_value(&session, build_pos, Some(11), None);
+        assert_last_configured_block_outcome(
+            &session,
+            crate::session_state::ConfiguredBlockOutcome::Applied,
         );
-        assert_eq!(
-            session
-                .state()
-                .configured_block_projection
-                .unit_factory_current_plan_by_build_pos
-                .get(&build_pos),
-            Some(&-1)
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::LegacyUnitCommandNull(0xff),
+        );
+        assert_unit_factory_current_plan(&session, build_pos, 11);
+        assert_unit_factory_command(&session, build_pos, None);
+        assert_unit_factory_runtime_value(&session, build_pos, Some(11), None);
+        assert_last_configured_block_outcome(
+            &session,
+            crate::session_state::ConfiguredBlockOutcome::Applied,
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Bool(true),
+        );
+        assert_unit_factory_current_plan(&session, build_pos, 11);
+        assert_unit_factory_command(&session, build_pos, None);
+        assert_unit_factory_runtime_value(&session, build_pos, Some(11), None);
+        assert_last_configured_block_outcome(
+            &session,
+            crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType,
         );
     }
 
@@ -41958,14 +44494,7 @@ mod tests {
             block_id,
             &TypeIoObject::UnitCommand(11),
         );
-        assert_eq!(
-            session
-                .state()
-                .configured_block_projection
-                .reconstructor_command_by_build_pos
-                .get(&build_pos),
-            Some(&Some(11))
-        );
+        assert_reconstructor_command(&session, build_pos, Some(11));
 
         ingest_tile_config_for_block_config_test(
             &mut session,
@@ -41973,20 +44502,10 @@ mod tests {
             build_pos,
             &TypeIoObject::LegacyUnitCommandNull(0xff),
         );
-        assert_eq!(
-            session
-                .state()
-                .configured_block_projection
-                .reconstructor_command_by_build_pos
-                .get(&build_pos),
-            Some(&None)
-        );
-        assert_eq!(
-            session
-                .state()
-                .tile_config_projection
-                .last_configured_block_outcome,
-            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+        assert_reconstructor_command(&session, build_pos, None);
+        assert_last_configured_block_outcome(
+            &session,
+            crate::session_state::ConfiguredBlockOutcome::Applied,
         );
 
         ingest_tile_config_for_block_config_test(
@@ -41995,38 +44514,28 @@ mod tests {
             build_pos,
             &TypeIoObject::Int(7),
         );
-        assert_eq!(
-            session
-                .state()
-                .tile_config_projection
-                .last_configured_block_outcome,
-            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+        assert_last_configured_block_outcome(
+            &session,
+            crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType,
         );
-        assert_eq!(
-            session
-                .state()
-                .configured_block_projection
-                .reconstructor_command_by_build_pos
-                .get(&build_pos),
-            Some(&None)
-        );
+        assert_reconstructor_command(&session, build_pos, None);
     }
 
     #[test]
-    fn unit_factory_config_business_dispatch_applies_current_plan_and_rejects_non_int_payloads() {
+    fn unit_factory_config_business_dispatch_applies_unit_command_family() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
 
-        for (build_pos, block_name, initial_plan, updated_plan) in [
-            (pack_point2(52, 74), BLOCK_NAME_GROUND_FACTORY, 1i16, 2i16),
-            (pack_point2(53, 75), BLOCK_NAME_AIR_FACTORY, 3i16, 4i16),
-            (pack_point2(54, 76), BLOCK_NAME_NAVAL_FACTORY, 5i16, 6i16),
-            (pack_point2(55, 77), BLOCK_NAME_TANK_FABRICATOR, 7i16, 8i16),
-            (pack_point2(56, 78), BLOCK_NAME_SHIP_FABRICATOR, 9i16, 10i16),
+        for (build_pos, block_name, current_plan, command_id) in [
+            (pack_point2(52, 74), BLOCK_NAME_GROUND_FACTORY, 1i16, 2u16),
+            (pack_point2(53, 75), BLOCK_NAME_AIR_FACTORY, 3i16, 4u16),
+            (pack_point2(54, 76), BLOCK_NAME_NAVAL_FACTORY, 5i16, 6u16),
+            (pack_point2(55, 77), BLOCK_NAME_TANK_FABRICATOR, 7i16, 8u16),
+            (pack_point2(56, 78), BLOCK_NAME_SHIP_FABRICATOR, 9i16, 10u16),
             (
                 pack_point2(57, 79),
                 BLOCK_NAME_MECH_FABRICATOR,
                 11i16,
-                12i16,
+                12u16,
             ),
         ] {
             let block_id = loaded_world_block_id_for_name(&session, block_name);
@@ -42036,69 +44545,31 @@ mod tests {
                 &manifest,
                 build_pos,
                 block_id,
-                &TypeIoObject::Int(i32::from(initial_plan)),
+                &TypeIoObject::Int(i32::from(current_plan)),
             );
-            assert_eq!(
-                session
-                    .state()
-                    .configured_block_projection
-                    .unit_factory_current_plan_by_build_pos
-                    .get(&build_pos),
-                Some(&initial_plan)
-            );
-            assert_eq!(
-                session
-                    .state()
-                    .tile_config_projection
-                    .last_configured_block_outcome,
-                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            assert_unit_factory_current_plan(&session, build_pos, current_plan);
+            assert_last_configured_block_outcome(
+                &session,
+                crate::session_state::ConfiguredBlockOutcome::Applied,
             );
 
             ingest_tile_config_for_block_config_test(
                 &mut session,
                 &manifest,
                 build_pos,
-                &TypeIoObject::Int(i32::from(updated_plan)),
+                &TypeIoObject::UnitCommand(command_id),
             );
-            assert_eq!(
-                session
-                    .state()
-                    .configured_block_projection
-                    .unit_factory_current_plan_by_build_pos
-                    .get(&build_pos),
-                Some(&updated_plan)
-            );
-
-            ingest_tile_config_for_block_config_test(
-                &mut session,
-                &manifest,
+            assert_unit_factory_current_plan(&session, build_pos, current_plan);
+            assert_unit_factory_command(&session, build_pos, Some(command_id));
+            assert_unit_factory_runtime_value(
+                &session,
                 build_pos,
-                &TypeIoObject::Int(-1),
+                Some(current_plan),
+                u8::try_from(command_id).ok(),
             );
-            assert_eq!(
-                session
-                    .state()
-                    .configured_block_projection
-                    .unit_factory_current_plan_by_build_pos
-                    .get(&build_pos),
-                Some(&-1)
-            );
-            assert_eq!(
-                session
-                    .state()
-                    .runtime_typed_building_projection()
-                    .building_at(build_pos)
-                    .map(|building| building.value.clone()),
-                Some(
-                    crate::session_state::TypedBuildingRuntimeValue::UnitFactory {
-                        current_plan: Some(-1),
-                        progress_bits: None,
-                        command_pos: None,
-                        command_id: None,
-                        payload_present: None,
-                        pay_rotation_bits: None,
-                    }
-                )
+            assert_last_configured_block_outcome(
+                &session,
+                crate::session_state::ConfiguredBlockOutcome::Applied,
             );
 
             ingest_tile_config_for_block_config_test(
@@ -42107,20 +44578,12 @@ mod tests {
                 build_pos,
                 &TypeIoObject::Null,
             );
-            assert_eq!(
-                session
-                    .state()
-                    .tile_config_projection
-                    .last_configured_block_outcome,
-                Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
-            );
-            assert_eq!(
-                session
-                    .state()
-                    .configured_block_projection
-                    .unit_factory_current_plan_by_build_pos
-                    .get(&build_pos),
-                Some(&-1)
+            assert_unit_factory_command(&session, build_pos, None);
+            assert_unit_factory_current_plan(&session, build_pos, current_plan);
+            assert_unit_factory_runtime_value(&session, build_pos, Some(current_plan), None);
+            assert_last_configured_block_outcome(
+                &session,
+                crate::session_state::ConfiguredBlockOutcome::Applied,
             );
         }
     }
@@ -42534,7 +44997,9 @@ mod tests {
                 Some(&expected_construct_model)
             );
             assert_eq!(
-                session.building_live_state_at(build_pos).and_then(|view| view.runtime),
+                session
+                    .building_live_state_at(build_pos)
+                    .and_then(|view| view.runtime),
                 Some(expected_construct_model.clone())
             );
             assert_eq!(
@@ -42568,7 +45033,9 @@ mod tests {
                 Some(&expected_tile_model)
             );
             assert_eq!(
-                session.building_live_state_at(build_pos).and_then(|view| view.runtime),
+                session
+                    .building_live_state_at(build_pos)
+                    .and_then(|view| view.runtime),
                 Some(expected_tile_model.clone())
             );
             assert_eq!(
@@ -42593,7 +45060,9 @@ mod tests {
                 None
             );
             assert_eq!(session.building_live_state_at(build_pos), None);
-            assert!(!session.building_live_state_projection().contains_key(&build_pos));
+            assert!(!session
+                .building_live_state_projection()
+                .contains_key(&build_pos));
         }
     }
 
@@ -43022,6 +45491,12 @@ mod tests {
             block_id,
             &TypeIoObject::Int(7),
         );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::UnitCommand(13),
+        );
         session
             .state
             .configured_block_projection
@@ -43045,6 +45520,11 @@ mod tests {
             .configured_block_projection
             .unit_factory_runtime_by_build_pos
             .contains_key(&build_pos));
+        assert!(session
+            .state()
+            .configured_block_projection
+            .unit_factory_command_by_build_pos
+            .contains_key(&build_pos));
 
         ingest_deconstruct_finish_for_block_config_test(
             &mut session,
@@ -43061,6 +45541,11 @@ mod tests {
             .state()
             .configured_block_projection
             .unit_factory_runtime_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .unit_factory_command_by_build_pos
             .contains_key(&build_pos));
     }
 
@@ -45794,6 +48279,7 @@ mod tests {
                         shield_bits: 0.0f32.to_bits(),
                         mine_tile_pos: 0,
                         status_count: 0,
+                        statuses: Vec::new(),
                         payload_count: None,
                         building_pos: None,
                         lifetime_bits: None,
@@ -45801,6 +48287,7 @@ mod tests {
                         runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
+                        controller_snapshot: None,
                     },
                 ),
             );
@@ -46529,6 +49016,7 @@ mod tests {
                     shield_bits: 0.0f32.to_bits(),
                     mine_tile_pos: -1,
                     status_count: 0,
+                    statuses: Vec::new(),
                     payload_count: None,
                     building_pos: None,
                     lifetime_bits: None,
@@ -46536,6 +49024,7 @@ mod tests {
                     runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
+                    controller_snapshot: None,
                 },
             ),
         );
@@ -46687,6 +49176,7 @@ mod tests {
                     shield_bits: 0.0f32.to_bits(),
                     mine_tile_pos: 0,
                     status_count: 0,
+                    statuses: Vec::new(),
                     payload_count: None,
                     building_pos: None,
                     lifetime_bits: None,
@@ -46694,6 +49184,7 @@ mod tests {
                     runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
+                    controller_snapshot: None,
                 },
             ),
         );
@@ -48310,8 +50801,8 @@ mod tests {
     }
 
     #[test]
-    fn effect_packet_with_no_data_clears_previous_runtime_binding_states_and_keeps_outcome_counters()
-    {
+    fn effect_packet_with_no_data_clears_previous_runtime_binding_states_and_keeps_outcome_counters(
+    ) {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let effect_packet_with_data_id = manifest
@@ -48353,12 +50844,34 @@ mod tests {
             session.state().last_effect_runtime_source_binding_state,
             Some(crate::session_state::EffectRuntimeBindingState::ParentFollow)
         );
-        assert_eq!(session.state().received_effect_binding_target_follow_count, 1);
-        assert_eq!(session.state().received_effect_binding_target_reject_count, 0);
-        assert_eq!(session.state().received_effect_binding_target_fallback_count, 0);
-        assert_eq!(session.state().received_effect_binding_source_follow_count, 1);
-        assert_eq!(session.state().received_effect_binding_source_reject_count, 0);
-        assert_eq!(session.state().received_effect_binding_source_fallback_count, 0);
+        assert_eq!(
+            session.state().received_effect_binding_target_follow_count,
+            1
+        );
+        assert_eq!(
+            session.state().received_effect_binding_target_reject_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .received_effect_binding_target_fallback_count,
+            0
+        );
+        assert_eq!(
+            session.state().received_effect_binding_source_follow_count,
+            1
+        );
+        assert_eq!(
+            session.state().received_effect_binding_source_reject_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .received_effect_binding_source_fallback_count,
+            0
+        );
 
         let no_data_packet = encode_packet(
             effect_packet_without_data_id,
@@ -48369,13 +50882,38 @@ mod tests {
         session.ingest_packet_bytes(&no_data_packet).unwrap();
 
         assert_eq!(session.state().last_effect_runtime_binding_state, None);
-        assert_eq!(session.state().last_effect_runtime_source_binding_state, None);
-        assert_eq!(session.state().received_effect_binding_target_follow_count, 1);
-        assert_eq!(session.state().received_effect_binding_target_reject_count, 0);
-        assert_eq!(session.state().received_effect_binding_target_fallback_count, 0);
-        assert_eq!(session.state().received_effect_binding_source_follow_count, 1);
-        assert_eq!(session.state().received_effect_binding_source_reject_count, 0);
-        assert_eq!(session.state().received_effect_binding_source_fallback_count, 0);
+        assert_eq!(
+            session.state().last_effect_runtime_source_binding_state,
+            None
+        );
+        assert_eq!(
+            session.state().received_effect_binding_target_follow_count,
+            1
+        );
+        assert_eq!(
+            session.state().received_effect_binding_target_reject_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .received_effect_binding_target_fallback_count,
+            0
+        );
+        assert_eq!(
+            session.state().received_effect_binding_source_follow_count,
+            1
+        );
+        assert_eq!(
+            session.state().received_effect_binding_source_reject_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .received_effect_binding_source_fallback_count,
+            0
+        );
     }
 
     #[test]
@@ -48934,6 +51472,58 @@ mod tests {
                 target_y_bits: 160.0f32.to_bits(),
             })
         );
+    }
+
+    #[test]
+    fn effect_packet_with_point_beam_snapshot_hint_skips_runtime_target_binding() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        session.state.entity_table_projection.by_entity_id.insert(
+            4321,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 96.0f32.to_bits(),
+                y_bits: 104.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+        let mut payload = encode_effect_payload(10, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![
+                TypeIoObject::UnitId(4321),
+                TypeIoObject::Point2 { x: 10, y: 20 },
+            ]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("point_beam")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::PositionTarget {
+                source_x_bits: 32.5f32.to_bits(),
+                source_y_bits: 48.0f32.to_bits(),
+                target_x_bits: 80.0f32.to_bits(),
+                target_y_bits: 160.0f32.to_bits(),
+            })
+        );
+        assert_eq!(session.state().last_effect_runtime_binding_state, None);
+        assert_eq!(session.state().last_effect_runtime_source_binding_state, None);
     }
 
     #[test]
@@ -49607,7 +52197,8 @@ mod tests {
     }
 
     #[test]
-    fn effect_packet_with_source_binding_family_records_parent_follow_for_resolved_unit_payloads() {
+    fn effect_packet_with_source_binding_family_records_parent_follow_only_for_upstream_source_bound_effects(
+    ) {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let packet_id = manifest
             .remote_packets
@@ -49616,36 +52207,42 @@ mod tests {
             .unwrap()
             .packet_id;
 
-        for (effect_id, contract_name, binding_state) in [
+        for (effect_id, contract_name, binding_state, source_binding_state) in [
             (
                 8i16,
                 "position_target",
                 crate::session_state::EffectRuntimeBindingState::ParentFollow,
+                Some(crate::session_state::EffectRuntimeBindingState::ParentFollow),
             ),
             (
                 9,
                 "position_target",
                 crate::session_state::EffectRuntimeBindingState::ParentFollow,
+                Some(crate::session_state::EffectRuntimeBindingState::ParentFollow),
             ),
             (
                 10,
                 "point_beam",
                 crate::session_state::EffectRuntimeBindingState::ParentFollow,
+                None,
             ),
             (
                 178,
                 "position_target",
                 crate::session_state::EffectRuntimeBindingState::ParentFollow,
+                None,
             ),
             (
                 261,
                 "position_target",
                 crate::session_state::EffectRuntimeBindingState::ParentFollow,
+                None,
             ),
             (
                 262,
                 "position_target",
                 crate::session_state::EffectRuntimeBindingState::ParentFollow,
+                None,
             ),
         ] {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -49680,14 +52277,15 @@ mod tests {
             );
             assert_eq!(
                 session.state().last_effect_runtime_source_binding_state,
-                Some(crate::session_state::EffectRuntimeBindingState::ParentFollow),
+                source_binding_state,
                 "effect_id {effect_id}"
             );
         }
     }
 
     #[test]
-    fn effect_packet_with_source_binding_family_records_unresolved_fallback_for_unit_payloads() {
+    fn effect_packet_with_source_binding_family_records_unresolved_fallback_only_for_upstream_source_bound_effects(
+    ) {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let packet_id = manifest
             .remote_packets
@@ -49696,13 +52294,21 @@ mod tests {
             .unwrap()
             .packet_id;
 
-        for (effect_id, contract_name) in [
-            (8i16, "position_target"),
-            (9, "position_target"),
-            (10, "point_beam"),
-            (178, "position_target"),
-            (261, "position_target"),
-            (262, "position_target"),
+        for (effect_id, contract_name, source_binding_state) in [
+            (
+                8i16,
+                "position_target",
+                Some(crate::session_state::EffectRuntimeBindingState::UnresolvedFallback),
+            ),
+            (
+                9,
+                "position_target",
+                Some(crate::session_state::EffectRuntimeBindingState::UnresolvedFallback),
+            ),
+            (10, "point_beam", None),
+            (178, "position_target", None),
+            (261, "position_target", None),
+            (262, "position_target", None),
         ] {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
             let mut payload = encode_effect_payload(effect_id, 32.5, 48.0, 90.0, 0x11223344);
@@ -49723,14 +52329,15 @@ mod tests {
             );
             assert_eq!(
                 session.state().last_effect_runtime_source_binding_state,
-                Some(crate::session_state::EffectRuntimeBindingState::UnresolvedFallback),
+                source_binding_state,
                 "effect_id {effect_id}"
             );
         }
     }
 
     #[test]
-    fn effect_packet_with_source_binding_family_rejects_source_binding_for_building_payloads() {
+    fn effect_packet_with_source_binding_family_rejects_building_payload_source_binding_only_for_upstream_source_bound_effects(
+    ) {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let packet_id = manifest
             .remote_packets
@@ -49739,36 +52346,42 @@ mod tests {
             .unwrap()
             .packet_id;
 
-        for (effect_id, contract_name, binding_state) in [
+        for (effect_id, contract_name, binding_state, source_binding_state) in [
             (
                 8i16,
                 "position_target",
-                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+                Some(crate::session_state::EffectRuntimeBindingState::BindingRejected),
+                Some(crate::session_state::EffectRuntimeBindingState::BindingRejected),
             ),
             (
                 9,
                 "position_target",
-                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+                Some(crate::session_state::EffectRuntimeBindingState::BindingRejected),
+                Some(crate::session_state::EffectRuntimeBindingState::BindingRejected),
             ),
             (
                 10,
                 "point_beam",
-                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+                None,
+                None,
             ),
             (
                 178,
                 "position_target",
-                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+                Some(crate::session_state::EffectRuntimeBindingState::BindingRejected),
+                None,
             ),
             (
                 261,
                 "position_target",
-                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+                Some(crate::session_state::EffectRuntimeBindingState::BindingRejected),
+                None,
             ),
             (
                 262,
                 "position_target",
-                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+                Some(crate::session_state::EffectRuntimeBindingState::BindingRejected),
+                None,
             ),
         ] {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -49785,21 +52398,21 @@ mod tests {
             );
             assert_eq!(
                 session.state().last_effect_runtime_binding_state,
-                Some(binding_state),
+                binding_state,
                 "effect_id {effect_id}"
             );
             assert_eq!(
                 session.state().last_effect_runtime_source_binding_state,
-                Some(crate::session_state::EffectRuntimeBindingState::BindingRejected),
+                source_binding_state,
                 "effect_id {effect_id}"
             );
         }
     }
 
     #[test]
-    fn effect_packet_with_source_binding_outcome_counters_track_reject_and_fallback() {
+    fn effect_packet_with_source_binding_outcome_counters_track_only_upstream_source_bound_effects(
+    ) {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let packet_id = manifest
             .remote_packets
             .iter()
@@ -49807,20 +52420,29 @@ mod tests {
             .unwrap()
             .packet_id;
 
+        let mut source_bound_session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let mut rejected_payload = encode_effect_payload(9, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(
             &mut rejected_payload,
             &TypeIoObject::BuildingPos(pack_point2(7, 11)),
         );
         let rejected_packet = encode_packet(packet_id, &rejected_payload, false).unwrap();
-        session.ingest_packet_bytes(&rejected_packet).unwrap();
+        source_bound_session
+            .ingest_packet_bytes(&rejected_packet)
+            .unwrap();
 
         let mut fallback_payload = encode_effect_payload(9, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(&mut fallback_payload, &TypeIoObject::UnitId(404));
         let fallback_packet = encode_packet(packet_id, &fallback_payload, false).unwrap();
-        session.ingest_packet_bytes(&fallback_packet).unwrap();
+        source_bound_session
+            .ingest_packet_bytes(&fallback_packet)
+            .unwrap();
 
-        session.state.entity_table_projection.by_entity_id.insert(
+        source_bound_session
+            .state
+            .entity_table_projection
+            .by_entity_id
+            .insert(
             4321,
             crate::session_state::EntityProjection {
                 class_id: 12,
@@ -49836,22 +52458,141 @@ mod tests {
         let mut follow_payload = encode_effect_payload(9, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(&mut follow_payload, &TypeIoObject::UnitId(4321));
         let follow_packet = encode_packet(packet_id, &follow_payload, false).unwrap();
-        session.ingest_packet_bytes(&follow_packet).unwrap();
+        source_bound_session.ingest_packet_bytes(&follow_packet).unwrap();
 
         assert_eq!(
-            session.state().last_effect_runtime_binding_state,
+            source_bound_session.state().last_effect_runtime_binding_state,
             Some(crate::session_state::EffectRuntimeBindingState::ParentFollow)
         );
         assert_eq!(
-            session.state().last_effect_runtime_source_binding_state,
+            source_bound_session
+                .state()
+                .last_effect_runtime_source_binding_state,
             Some(crate::session_state::EffectRuntimeBindingState::ParentFollow)
         );
-        assert_eq!(session.state().received_effect_binding_target_follow_count, 1);
-        assert_eq!(session.state().received_effect_binding_target_reject_count, 1);
-        assert_eq!(session.state().received_effect_binding_target_fallback_count, 1);
-        assert_eq!(session.state().received_effect_binding_source_follow_count, 1);
-        assert_eq!(session.state().received_effect_binding_source_reject_count, 1);
-        assert_eq!(session.state().received_effect_binding_source_fallback_count, 1);
+        assert_eq!(
+            source_bound_session
+                .state()
+                .received_effect_binding_target_follow_count,
+            1
+        );
+        assert_eq!(
+            source_bound_session
+                .state()
+                .received_effect_binding_target_reject_count,
+            1
+        );
+        assert_eq!(
+            source_bound_session
+                .state()
+                .received_effect_binding_target_fallback_count,
+            1
+        );
+        assert_eq!(
+            source_bound_session
+                .state()
+                .received_effect_binding_source_follow_count,
+            1
+        );
+        assert_eq!(
+            source_bound_session
+                .state()
+                .received_effect_binding_source_reject_count,
+            1
+        );
+        assert_eq!(
+            source_bound_session
+                .state()
+                .received_effect_binding_source_fallback_count,
+            1
+        );
+
+        let mut target_only_session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let mut rejected_payload = encode_effect_payload(10, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut rejected_payload,
+            &TypeIoObject::BuildingPos(pack_point2(7, 11)),
+        );
+        let rejected_packet = encode_packet(packet_id, &rejected_payload, false).unwrap();
+        target_only_session
+            .ingest_packet_bytes(&rejected_packet)
+            .unwrap();
+
+        let mut fallback_payload = encode_effect_payload(10, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut fallback_payload, &TypeIoObject::UnitId(404));
+        let fallback_packet = encode_packet(packet_id, &fallback_payload, false).unwrap();
+        target_only_session
+            .ingest_packet_bytes(&fallback_packet)
+            .unwrap();
+
+        target_only_session
+            .state
+            .entity_table_projection
+            .by_entity_id
+            .insert(
+                4321,
+                crate::session_state::EntityProjection {
+                    class_id: 12,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 2,
+                    unit_value: 88,
+                    x_bits: 96.0f32.to_bits(),
+                    y_bits: 104.0f32.to_bits(),
+                    last_seen_entity_snapshot_count: 3,
+                },
+            );
+        let mut follow_payload = encode_effect_payload(10, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut follow_payload, &TypeIoObject::UnitId(4321));
+        let follow_packet = encode_packet(packet_id, &follow_payload, false).unwrap();
+        target_only_session.ingest_packet_bytes(&follow_packet).unwrap();
+
+        assert_eq!(
+            target_only_session.state().last_effect_runtime_binding_state,
+            Some(crate::session_state::EffectRuntimeBindingState::ParentFollow)
+        );
+        assert_eq!(
+            target_only_session
+                .state()
+                .last_effect_runtime_source_binding_state,
+            None
+        );
+        assert_eq!(
+            target_only_session
+                .state()
+                .received_effect_binding_target_follow_count,
+            1
+        );
+        assert_eq!(
+            target_only_session
+                .state()
+                .received_effect_binding_target_reject_count,
+            0
+        );
+        assert_eq!(
+            target_only_session
+                .state()
+                .received_effect_binding_target_fallback_count,
+            1
+        );
+        assert_eq!(
+            target_only_session
+                .state()
+                .received_effect_binding_source_follow_count,
+            0
+        );
+        assert_eq!(
+            target_only_session
+                .state()
+                .received_effect_binding_source_reject_count,
+            0
+        );
+        assert_eq!(
+            target_only_session
+                .state()
+                .received_effect_binding_source_fallback_count,
+            0
+        );
     }
 
     #[test]
@@ -50662,7 +53403,14 @@ mod tests {
         session.state.received_entity_snapshot_count = 1;
         session
             .state
-            .apply_entity_snapshot_payload_apply_projection(local_player_id, 12, 1, None, None, None);
+            .apply_entity_snapshot_payload_apply_projection(
+                local_player_id,
+                12,
+                1,
+                None,
+                None,
+                None,
+            );
         session.state.record_picked_unit_payload_lifecycle(
             Some(UnitRefProjection {
                 kind: 2,
@@ -50834,8 +53582,14 @@ mod tests {
         assert_eq!(before.local_player_owned_unit_entity_id, Some(100));
         assert_eq!(before.player_with_owned_unit_count, 1);
         assert_eq!(before.owned_unit_count, 1);
-        assert_eq!(before.owned_unit_entity_id_for_player(local_player_id), Some(100));
-        assert_eq!(before.owner_player_entity_id_for_unit(100), Some(local_player_id));
+        assert_eq!(
+            before.owned_unit_entity_id_for_player(local_player_id),
+            Some(100)
+        );
+        assert_eq!(
+            before.owner_player_entity_id_for_unit(100),
+            Some(local_player_id)
+        );
 
         let packet_id = manifest
             .remote_packets
@@ -50876,7 +53630,14 @@ mod tests {
         session.state.received_entity_snapshot_count = 1;
         session
             .state
-            .apply_entity_snapshot_payload_apply_projection(local_player_id, 12, 1, None, None, None);
+            .apply_entity_snapshot_payload_apply_projection(
+                local_player_id,
+                12,
+                1,
+                None,
+                None,
+                None,
+            );
         session
             .state
             .resource_delta_projection
@@ -52338,45 +55099,34 @@ mod tests {
     #[test]
     fn session_bootstrap_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_connect_confirm_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "connectConfirm")
-            .expect("missing connectConfirm packet")
-            .packet_id;
-        let expected_world_data_begin_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "worldDataBegin")
-            .expect("missing worldDataBegin packet")
-            .packet_id;
+        let expected_connect_confirm_packet_id =
+            expect_remote_packet_id(&manifest, |entry| entry.method == "connectConfirm", "missing connectConfirm packet");
+        let expected_world_data_begin_packet_id =
+            expect_remote_packet_id(&manifest, |entry| entry.method == "worldDataBegin", "missing worldDataBegin packet");
 
-        let mut connect_confirm_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "connectConfirm")
-            .expect("missing connectConfirm packet")
-            .clone();
-        connect_confirm_decoy.packet_id = 250;
-        connect_confirm_decoy.packet_class = "mindustry.gen.ConnectConfirmDecoyCallPacket".into();
+        let mut connect_confirm_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "connectConfirm",
+            "missing connectConfirm packet",
+            250,
+            "mindustry.gen.ConnectConfirmDecoyCallPacket",
+            false,
+        );
         connect_confirm_decoy.params.clear();
 
-        let mut world_data_begin_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "worldDataBegin")
-            .expect("missing worldDataBegin packet")
-            .clone();
-        world_data_begin_decoy.packet_id = 251;
-        world_data_begin_decoy.packet_class = "mindustry.gen.WorldDataBeginDecoyCallPacket".into();
-        world_data_begin_decoy.unreliable = true;
+        let world_data_begin_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "worldDataBegin",
+            "missing worldDataBegin packet",
+            251,
+            "mindustry.gen.WorldDataBeginDecoyCallPacket",
+            true,
+        );
 
-        manifest
-            .remote_packets
-            .splice(0..0, vec![connect_confirm_decoy, world_data_begin_decoy]);
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
+            vec![connect_confirm_decoy, world_data_begin_decoy],
+        );
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(
@@ -52392,45 +55142,39 @@ mod tests {
     #[test]
     fn session_connect_redirect_and_player_spawn_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_connect_redirect_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "connect" && entry.params.len() == 2 && !entry.unreliable)
-            .expect("missing connect redirect packet")
-            .packet_id;
-        let expected_player_spawn_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "playerSpawn" && !entry.unreliable)
-            .expect("missing playerSpawn packet")
-            .packet_id;
+        let expected_connect_redirect_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "connect" && entry.params.len() == 2 && !entry.unreliable,
+            "missing connect redirect packet",
+        );
+        let expected_player_spawn_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "playerSpawn" && !entry.unreliable,
+            "missing playerSpawn packet",
+        );
 
-        let mut connect_redirect_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "connect" && entry.params.len() == 2 && !entry.unreliable)
-            .expect("missing connect redirect packet")
-            .clone();
-        connect_redirect_decoy.packet_id = 243;
-        connect_redirect_decoy.packet_class = "mindustry.gen.ConnectDecoyCallPacket".into();
-        connect_redirect_decoy.unreliable = true;
+        let connect_redirect_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "connect" && entry.params.len() == 2 && !entry.unreliable,
+            "missing connect redirect packet",
+            243,
+            "mindustry.gen.ConnectDecoyCallPacket",
+            true,
+        );
 
-        let mut player_spawn_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "playerSpawn" && !entry.unreliable)
-            .expect("missing playerSpawn packet")
-            .clone();
-        player_spawn_decoy.packet_id = 244;
-        player_spawn_decoy.packet_class = "mindustry.gen.PlayerSpawnDecoyCallPacket".into();
-        player_spawn_decoy.unreliable = true;
+        let player_spawn_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "playerSpawn" && !entry.unreliable,
+            "missing playerSpawn packet",
+            244,
+            "mindustry.gen.PlayerSpawnDecoyCallPacket",
+            true,
+        );
 
-        manifest
-            .remote_packets
-            .splice(0..0, vec![connect_redirect_decoy, player_spawn_decoy]);
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
+            vec![connect_redirect_decoy, player_spawn_decoy],
+        );
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(
@@ -52446,65 +55190,59 @@ mod tests {
     #[test]
     fn session_kick_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_kick_string_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let expected_kick_string_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "kick"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing string kick packet")
-            .packet_id;
-        let expected_kick_reason_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing string kick packet",
+        );
+        let expected_kick_reason_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "kick"
                     && entry.params.len() == 1
                     && entry.params[0].java_type.contains("KickReason")
                     && !entry.unreliable
-            })
-            .expect("missing kick-reason packet")
-            .packet_id;
+            },
+            "missing kick-reason packet",
+        );
 
-        let mut kick_string_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let kick_string_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "kick"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing string kick packet")
-            .clone();
-        kick_string_decoy.packet_id = 248;
-        kick_string_decoy.packet_class = "mindustry.gen.KickDecoyCallPacket".into();
-        kick_string_decoy.unreliable = true;
+            },
+            "missing string kick packet",
+            248,
+            "mindustry.gen.KickDecoyCallPacket",
+            true,
+        );
 
-        let mut kick_reason_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let kick_reason_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "kick"
                     && entry.params.len() == 1
                     && entry.params[0].java_type.contains("KickReason")
                     && !entry.unreliable
-            })
-            .expect("missing kick-reason packet")
-            .clone();
-        kick_reason_decoy.packet_id = 249;
-        kick_reason_decoy.packet_class = "mindustry.gen.KickDecoyCallPacket2".into();
-        kick_reason_decoy.unreliable = true;
+            },
+            "missing kick-reason packet",
+            249,
+            "mindustry.gen.KickDecoyCallPacket2",
+            true,
+        );
 
-        manifest
-            .remote_packets
-            .splice(0..0, vec![kick_string_decoy, kick_reason_decoy]);
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
+            vec![kick_string_decoy, kick_reason_decoy],
+        );
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(
@@ -52520,76 +55258,65 @@ mod tests {
     #[test]
     fn session_send_message_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_send_chat_message_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sendChatMessage" && !entry.unreliable)
-            .expect("missing sendChatMessage packet")
-            .packet_id;
-        let expected_send_message_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let expected_send_chat_message_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "sendChatMessage" && !entry.unreliable,
+            "missing sendChatMessage packet",
+        );
+        let expected_send_message_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "sendMessage" && entry.params.len() == 1 && !entry.unreliable
-            })
-            .expect("missing sendMessage packet")
-            .packet_id;
-        let expected_send_message_with_sender_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing sendMessage packet",
+        );
+        let expected_send_message_with_sender_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "sendMessage" && entry.params.len() == 3 && !entry.unreliable
-            })
-            .expect("missing sendMessage-with-sender packet")
-            .packet_id;
+            },
+            "missing sendMessage-with-sender packet",
+        );
 
-        let mut send_chat_message_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sendChatMessage" && !entry.unreliable)
-            .expect("missing sendChatMessage packet")
-            .clone();
-        send_chat_message_decoy.packet_id = 245;
-        send_chat_message_decoy.packet_class =
-            "mindustry.gen.SendChatMessageDecoyCallPacket".into();
-        send_chat_message_decoy.unreliable = true;
+        let send_chat_message_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "sendChatMessage" && !entry.unreliable,
+            "missing sendChatMessage packet",
+            245,
+            "mindustry.gen.SendChatMessageDecoyCallPacket",
+            true,
+        );
 
-        let mut send_message_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let send_message_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "sendMessage" && entry.params.len() == 1 && !entry.unreliable
-            })
-            .expect("missing sendMessage packet")
-            .clone();
-        send_message_decoy.packet_id = 246;
-        send_message_decoy.packet_class = "mindustry.gen.SendMessageDecoyCallPacket".into();
-        send_message_decoy.unreliable = true;
+            },
+            "missing sendMessage packet",
+            246,
+            "mindustry.gen.SendMessageDecoyCallPacket",
+            true,
+        );
 
-        let mut send_message_with_sender_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let send_message_with_sender_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "sendMessage" && entry.params.len() == 3 && !entry.unreliable
-            })
-            .expect("missing sendMessage-with-sender packet")
-            .clone();
-        send_message_with_sender_decoy.packet_id = 247;
-        send_message_with_sender_decoy.packet_class =
-            "mindustry.gen.SendMessageDecoyCallPacket2".into();
-        send_message_with_sender_decoy.unreliable = true;
+            },
+            "missing sendMessage-with-sender packet",
+            247,
+            "mindustry.gen.SendMessageDecoyCallPacket2",
+            true,
+        );
 
-        manifest.remote_packets.splice(
-            0..0,
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
             vec![
                 send_chat_message_decoy,
                 send_message_decoy,
                 send_message_with_sender_decoy,
             ],
         );
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(
@@ -52609,91 +55336,73 @@ mod tests {
     #[test]
     fn session_info_popup_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_info_popup_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "infoPopup" && entry.params.len() == 7 && entry.unreliable
-            })
-            .expect("missing infoPopup packet")
-            .packet_id;
-        let expected_info_popup_with_id_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "infoPopup" && entry.params.len() == 8 && entry.unreliable
-            })
-            .expect("missing infoPopup-with-id packet")
-            .packet_id;
-        let expected_info_popup_reliable_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let expected_info_popup_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "infoPopup" && entry.params.len() == 7 && entry.unreliable,
+            "missing infoPopup packet",
+        );
+        let expected_info_popup_with_id_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "infoPopup" && entry.params.len() == 8 && entry.unreliable,
+            "missing infoPopup-with-id packet",
+        );
+        let expected_info_popup_reliable_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "infoPopupReliable" && entry.params.len() == 7 && !entry.unreliable
-            })
-            .expect("missing infoPopupReliable packet")
-            .packet_id;
-        let expected_info_popup_reliable_with_id_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing infoPopupReliable packet",
+        );
+        let expected_info_popup_reliable_with_id_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "infoPopupReliable" && entry.params.len() == 8 && !entry.unreliable
-            })
-            .expect("missing infoPopupReliable-with-id packet")
-            .packet_id;
+            },
+            "missing infoPopupReliable-with-id packet",
+        );
 
-        let mut info_popup_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "infoPopup" && entry.params.len() == 7 && entry.unreliable
-            })
-            .expect("missing infoPopup packet")
-            .clone();
-        info_popup_decoy.packet_id = 240;
-        info_popup_decoy.packet_class = "mindustry.gen.InfoPopupDecoyCallPacket".into();
-        info_popup_decoy.unreliable = false;
+        let info_popup_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "infoPopup" && entry.params.len() == 7 && entry.unreliable,
+            "missing infoPopup packet",
+            240,
+            "mindustry.gen.InfoPopupDecoyCallPacket",
+            false,
+        );
 
-        let mut info_popup_with_id_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "infoPopup" && entry.params.len() == 8 && entry.unreliable
-            })
-            .expect("missing infoPopup-with-id packet")
-            .clone();
-        info_popup_with_id_decoy.packet_id = 241;
-        info_popup_with_id_decoy.packet_class = "mindustry.gen.InfoPopupDecoyCallPacket2".into();
-        info_popup_with_id_decoy.unreliable = false;
+        let info_popup_with_id_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "infoPopup" && entry.params.len() == 8 && entry.unreliable,
+            "missing infoPopup-with-id packet",
+            241,
+            "mindustry.gen.InfoPopupDecoyCallPacket2",
+            false,
+        );
 
-        let mut info_popup_reliable_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let info_popup_reliable_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "infoPopupReliable" && entry.params.len() == 7 && !entry.unreliable
-            })
-            .expect("missing infoPopupReliable packet")
-            .clone();
-        info_popup_reliable_decoy.packet_id = 242;
-        info_popup_reliable_decoy.packet_class =
-            "mindustry.gen.InfoPopupReliableDecoyCallPacket".into();
-        info_popup_reliable_decoy.unreliable = true;
+            },
+            "missing infoPopupReliable packet",
+            242,
+            "mindustry.gen.InfoPopupReliableDecoyCallPacket",
+            true,
+        );
 
-        let mut info_popup_reliable_with_id_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let info_popup_reliable_with_id_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "infoPopupReliable" && entry.params.len() == 8 && !entry.unreliable
-            })
-            .expect("missing infoPopupReliable-with-id packet")
-            .clone();
-        info_popup_reliable_with_id_decoy.packet_id = 243;
-        info_popup_reliable_with_id_decoy.packet_class =
-            "mindustry.gen.InfoPopupReliableDecoyCallPacket2".into();
-        info_popup_reliable_with_id_decoy.unreliable = true;
+            },
+            "missing infoPopupReliable-with-id packet",
+            243,
+            "mindustry.gen.InfoPopupReliableDecoyCallPacket2",
+            true,
+        );
 
-        manifest.remote_packets.splice(
-            0..0,
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
             vec![
                 info_popup_decoy,
                 info_popup_with_id_decoy,
@@ -52701,9 +55410,6 @@ mod tests {
                 info_popup_reliable_with_id_decoy,
             ],
         );
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(
@@ -52727,82 +55433,65 @@ mod tests {
     #[test]
     fn session_label_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_label_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "label" && entry.params.len() == 4 && entry.unreliable)
-            .expect("missing label packet")
-            .packet_id;
-        let expected_label_with_id_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "label" && entry.params.len() == 5 && entry.unreliable)
-            .expect("missing label-with-id packet")
-            .packet_id;
-        let expected_label_reliable_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "labelReliable" && entry.params.len() == 4 && !entry.unreliable
-            })
-            .expect("missing labelReliable packet")
-            .packet_id;
-        let expected_label_reliable_with_id_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "labelReliable" && entry.params.len() == 5 && !entry.unreliable
-            })
-            .expect("missing labelReliable-with-id packet")
-            .packet_id;
+        let expected_label_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "label" && entry.params.len() == 4 && entry.unreliable,
+            "missing label packet",
+        );
+        let expected_label_with_id_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "label" && entry.params.len() == 5 && entry.unreliable,
+            "missing label-with-id packet",
+        );
+        let expected_label_reliable_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "labelReliable" && entry.params.len() == 4 && !entry.unreliable,
+            "missing labelReliable packet",
+        );
+        let expected_label_reliable_with_id_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "labelReliable" && entry.params.len() == 5 && !entry.unreliable,
+            "missing labelReliable-with-id packet",
+        );
 
-        let mut label_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "label" && entry.params.len() == 4 && entry.unreliable)
-            .expect("missing label packet")
-            .clone();
-        label_decoy.packet_id = 236;
-        label_decoy.packet_class = "mindustry.gen.LabelDecoyCallPacket".into();
-        label_decoy.unreliable = false;
+        let label_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "label" && entry.params.len() == 4 && entry.unreliable,
+            "missing label packet",
+            236,
+            "mindustry.gen.LabelDecoyCallPacket",
+            false,
+        );
 
-        let mut label_with_id_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "label" && entry.params.len() == 5 && entry.unreliable)
-            .expect("missing label-with-id packet")
-            .clone();
-        label_with_id_decoy.packet_id = 237;
-        label_with_id_decoy.packet_class = "mindustry.gen.LabelDecoyCallPacket2".into();
-        label_with_id_decoy.unreliable = false;
+        let label_with_id_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "label" && entry.params.len() == 5 && entry.unreliable,
+            "missing label-with-id packet",
+            237,
+            "mindustry.gen.LabelDecoyCallPacket2",
+            false,
+        );
 
-        let mut label_reliable_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "labelReliable" && entry.params.len() == 4 && !entry.unreliable
-            })
-            .expect("missing labelReliable packet")
-            .clone();
-        label_reliable_decoy.packet_id = 238;
-        label_reliable_decoy.packet_class = "mindustry.gen.LabelReliableDecoyCallPacket".into();
-        label_reliable_decoy.unreliable = true;
+        let label_reliable_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "labelReliable" && entry.params.len() == 4 && !entry.unreliable,
+            "missing labelReliable packet",
+            238,
+            "mindustry.gen.LabelReliableDecoyCallPacket",
+            true,
+        );
 
-        let mut label_reliable_with_id_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "labelReliable" && entry.params.len() == 5 && !entry.unreliable
-            })
-            .expect("missing labelReliable-with-id packet")
-            .clone();
-        label_reliable_with_id_decoy.packet_id = 239;
-        label_reliable_with_id_decoy.packet_class =
-            "mindustry.gen.LabelReliableDecoyCallPacket2".into();
-        label_reliable_with_id_decoy.unreliable = true;
+        let label_reliable_with_id_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "labelReliable" && entry.params.len() == 5 && !entry.unreliable,
+            "missing labelReliable-with-id packet",
+            239,
+            "mindustry.gen.LabelReliableDecoyCallPacket2",
+            true,
+        );
 
-        manifest.remote_packets.splice(
-            0..0,
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
             vec![
                 label_decoy,
                 label_with_id_decoy,
@@ -52810,9 +55499,6 @@ mod tests {
                 label_reliable_with_id_decoy,
             ],
         );
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(session.label_packet_id, Some(expected_label_packet_id));
@@ -52833,54 +55519,39 @@ mod tests {
     #[test]
     fn session_text_input_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_text_input_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "textInput" && entry.params.len() == 6 && !entry.unreliable
-            })
-            .expect("missing textInput packet")
-            .packet_id;
-        let expected_text_input_allow_empty_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "textInput" && entry.params.len() == 7 && !entry.unreliable
-            })
-            .expect("missing textInput-allow-empty packet")
-            .packet_id;
+        let expected_text_input_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "textInput" && entry.params.len() == 6 && !entry.unreliable,
+            "missing textInput packet",
+        );
+        let expected_text_input_allow_empty_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "textInput" && entry.params.len() == 7 && !entry.unreliable,
+            "missing textInput-allow-empty packet",
+        );
 
-        let mut text_input_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "textInput" && entry.params.len() == 6 && !entry.unreliable
-            })
-            .expect("missing textInput packet")
-            .clone();
-        text_input_decoy.packet_id = 234;
-        text_input_decoy.packet_class = "mindustry.gen.TextInputDecoyCallPacket".into();
-        text_input_decoy.unreliable = true;
+        let text_input_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "textInput" && entry.params.len() == 6 && !entry.unreliable,
+            "missing textInput packet",
+            234,
+            "mindustry.gen.TextInputDecoyCallPacket",
+            true,
+        );
 
-        let mut text_input_allow_empty_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "textInput" && entry.params.len() == 7 && !entry.unreliable
-            })
-            .expect("missing textInput-allow-empty packet")
-            .clone();
-        text_input_allow_empty_decoy.packet_id = 235;
-        text_input_allow_empty_decoy.packet_class =
-            "mindustry.gen.TextInputDecoyCallPacket2".into();
-        text_input_allow_empty_decoy.unreliable = true;
+        let text_input_allow_empty_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "textInput" && entry.params.len() == 7 && !entry.unreliable,
+            "missing textInput-allow-empty packet",
+            235,
+            "mindustry.gen.TextInputDecoyCallPacket2",
+            true,
+        );
 
-        manifest
-            .remote_packets
-            .splice(0..0, vec![text_input_decoy, text_input_allow_empty_decoy]);
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
+            vec![text_input_decoy, text_input_allow_empty_decoy],
+        );
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(
@@ -52896,66 +55567,53 @@ mod tests {
     #[test]
     fn session_effect_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_effect_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "effect" && entry.params.len() == 5 && entry.unreliable)
-            .expect("missing effect packet")
-            .packet_id;
-        let expected_effect_with_data_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "effect" && entry.params.len() == 6 && entry.unreliable)
-            .expect("missing effect-with-data packet")
-            .packet_id;
-        let expected_effect_reliable_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "effectReliable" && entry.params.len() == 5 && !entry.unreliable
-            })
-            .expect("missing effectReliable packet")
-            .packet_id;
+        let expected_effect_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "effect" && entry.params.len() == 5 && entry.unreliable,
+            "missing effect packet",
+        );
+        let expected_effect_with_data_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "effect" && entry.params.len() == 6 && entry.unreliable,
+            "missing effect-with-data packet",
+        );
+        let expected_effect_reliable_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "effectReliable" && entry.params.len() == 5 && !entry.unreliable,
+            "missing effectReliable packet",
+        );
 
-        let mut effect_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "effect" && entry.params.len() == 5 && entry.unreliable)
-            .expect("missing effect packet")
-            .clone();
-        effect_decoy.packet_id = 231;
-        effect_decoy.packet_class = "mindustry.gen.EffectDecoyCallPacket".into();
-        effect_decoy.unreliable = false;
+        let effect_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "effect" && entry.params.len() == 5 && entry.unreliable,
+            "missing effect packet",
+            231,
+            "mindustry.gen.EffectDecoyCallPacket",
+            false,
+        );
 
-        let mut effect_with_data_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "effect" && entry.params.len() == 6 && entry.unreliable)
-            .expect("missing effect-with-data packet")
-            .clone();
-        effect_with_data_decoy.packet_id = 232;
-        effect_with_data_decoy.packet_class = "mindustry.gen.EffectDecoyCallPacket2".into();
-        effect_with_data_decoy.unreliable = false;
+        let effect_with_data_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "effect" && entry.params.len() == 6 && entry.unreliable,
+            "missing effect-with-data packet",
+            232,
+            "mindustry.gen.EffectDecoyCallPacket2",
+            false,
+        );
 
-        let mut effect_reliable_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "effectReliable" && entry.params.len() == 5 && !entry.unreliable
-            })
-            .expect("missing effectReliable packet")
-            .clone();
-        effect_reliable_decoy.packet_id = 233;
-        effect_reliable_decoy.packet_class = "mindustry.gen.EffectReliableDecoyCallPacket".into();
-        effect_reliable_decoy.unreliable = true;
+        let effect_reliable_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "effectReliable" && entry.params.len() == 5 && !entry.unreliable,
+            "missing effectReliable packet",
+            233,
+            "mindustry.gen.EffectReliableDecoyCallPacket",
+            true,
+        );
 
-        manifest.remote_packets.splice(
-            0..0,
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
             vec![effect_decoy, effect_with_data_decoy, effect_reliable_decoy],
         );
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(session.effect_packet_id, Some(expected_effect_packet_id));
@@ -52972,45 +55630,39 @@ mod tests {
     #[test]
     fn session_sound_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_sound_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sound" && entry.params.len() == 4 && entry.unreliable)
-            .expect("missing sound packet")
-            .packet_id;
-        let expected_sound_at_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "soundAt" && entry.params.len() == 5 && entry.unreliable)
-            .expect("missing soundAt packet")
-            .packet_id;
+        let expected_sound_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "sound" && entry.params.len() == 4 && entry.unreliable,
+            "missing sound packet",
+        );
+        let expected_sound_at_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "soundAt" && entry.params.len() == 5 && entry.unreliable,
+            "missing soundAt packet",
+        );
 
-        let mut sound_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sound" && entry.params.len() == 4 && entry.unreliable)
-            .expect("missing sound packet")
-            .clone();
-        sound_decoy.packet_id = 229;
-        sound_decoy.packet_class = "mindustry.gen.SoundDecoyCallPacket".into();
-        sound_decoy.unreliable = false;
+        let sound_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "sound" && entry.params.len() == 4 && entry.unreliable,
+            "missing sound packet",
+            229,
+            "mindustry.gen.SoundDecoyCallPacket",
+            false,
+        );
 
-        let mut sound_at_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "soundAt" && entry.params.len() == 5 && entry.unreliable)
-            .expect("missing soundAt packet")
-            .clone();
-        sound_at_decoy.packet_id = 230;
-        sound_at_decoy.packet_class = "mindustry.gen.SoundAtDecoyCallPacket".into();
-        sound_at_decoy.unreliable = false;
+        let sound_at_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "soundAt" && entry.params.len() == 5 && entry.unreliable,
+            "missing soundAt packet",
+            230,
+            "mindustry.gen.SoundAtDecoyCallPacket",
+            false,
+        );
 
-        manifest
-            .remote_packets
-            .splice(0..0, vec![sound_decoy, sound_at_decoy]);
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
+            vec![sound_decoy, sound_at_decoy],
+        );
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(session.sound_packet_id, Some(expected_sound_packet_id));
@@ -53023,10 +55675,9 @@ mod tests {
     #[test]
     fn session_admin_and_objective_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_admin_request_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let expected_admin_request_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "adminRequest"
                     && entry.params.len() == 4
                     && entry.params[0].java_type == "Player"
@@ -53034,49 +55685,45 @@ mod tests {
                     && entry.params[2].java_type == "mindustry.net.Packets.AdminAction"
                     && entry.params[3].java_type == "java.lang.Object"
                     && !entry.unreliable
-            })
-            .expect("missing adminRequest packet")
-            .packet_id;
-        let expected_request_debug_status_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing adminRequest packet",
+        );
+        let expected_request_debug_status_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "requestDebugStatus"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "Player"
                     && !entry.unreliable
-            })
-            .expect("missing requestDebugStatus packet")
-            .packet_id;
-        let expected_complete_objective_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing requestDebugStatus packet",
+        );
+        let expected_complete_objective_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "completeObjective"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "int"
                     && !entry.unreliable
-            })
-            .expect("missing completeObjective packet")
-            .packet_id;
-        let expected_debug_status_client_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing completeObjective packet",
+        );
+        let expected_debug_status_client_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "debugStatusClient"
                     && entry.params.len() == 3
                     && entry.params[0].java_type == "int"
                     && entry.params[1].java_type == "int"
                     && entry.params[2].java_type == "int"
                     && !entry.unreliable
-            })
-            .expect("missing debugStatusClient packet")
-            .packet_id;
+            },
+            "missing debugStatusClient packet",
+        );
 
-        let mut admin_request_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let admin_request_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "adminRequest"
                     && entry.params.len() == 4
                     && entry.params[0].java_type == "Player"
@@ -53084,65 +55731,59 @@ mod tests {
                     && entry.params[2].java_type == "mindustry.net.Packets.AdminAction"
                     && entry.params[3].java_type == "java.lang.Object"
                     && !entry.unreliable
-            })
-            .expect("missing adminRequest packet")
-            .clone();
-        admin_request_decoy.packet_id = 225;
-        admin_request_decoy.packet_class = "mindustry.gen.AdminRequestDecoyCallPacket".into();
-        admin_request_decoy.unreliable = true;
+            },
+            "missing adminRequest packet",
+            225,
+            "mindustry.gen.AdminRequestDecoyCallPacket",
+            true,
+        );
 
-        let mut request_debug_status_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let request_debug_status_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "requestDebugStatus"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "Player"
                     && !entry.unreliable
-            })
-            .expect("missing requestDebugStatus packet")
-            .clone();
-        request_debug_status_decoy.packet_id = 226;
-        request_debug_status_decoy.packet_class =
-            "mindustry.gen.RequestDebugStatusDecoyCallPacket".into();
-        request_debug_status_decoy.unreliable = true;
+            },
+            "missing requestDebugStatus packet",
+            226,
+            "mindustry.gen.RequestDebugStatusDecoyCallPacket",
+            true,
+        );
 
-        let mut complete_objective_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let complete_objective_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "completeObjective"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "int"
                     && !entry.unreliable
-            })
-            .expect("missing completeObjective packet")
-            .clone();
-        complete_objective_decoy.packet_id = 227;
-        complete_objective_decoy.packet_class =
-            "mindustry.gen.CompleteObjectiveDecoyCallPacket".into();
-        complete_objective_decoy.unreliable = true;
+            },
+            "missing completeObjective packet",
+            227,
+            "mindustry.gen.CompleteObjectiveDecoyCallPacket",
+            true,
+        );
 
-        let mut debug_status_client_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let debug_status_client_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "debugStatusClient"
                     && entry.params.len() == 3
                     && entry.params[0].java_type == "int"
                     && entry.params[1].java_type == "int"
                     && entry.params[2].java_type == "int"
                     && !entry.unreliable
-            })
-            .expect("missing debugStatusClient packet")
-            .clone();
-        debug_status_client_decoy.packet_id = 228;
-        debug_status_client_decoy.packet_class =
-            "mindustry.gen.DebugStatusClientDecoyCallPacket".into();
-        debug_status_client_decoy.unreliable = true;
+            },
+            "missing debugStatusClient packet",
+            228,
+            "mindustry.gen.DebugStatusClientDecoyCallPacket",
+            true,
+        );
 
-        manifest.remote_packets.splice(
-            0..0,
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
             vec![
                 admin_request_decoy,
                 request_debug_status_decoy,
@@ -53150,9 +55791,6 @@ mod tests {
                 debug_status_client_decoy,
             ],
         );
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(
@@ -53176,101 +55814,91 @@ mod tests {
     #[test]
     fn session_game_state_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_game_over_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "gameOver" && !entry.unreliable)
-            .expect("missing gameOver packet")
-            .packet_id;
-        let expected_researched_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "researched" && !entry.unreliable)
-            .expect("missing researched packet")
-            .packet_id;
-        let expected_sector_capture_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sectorCapture" && !entry.unreliable)
-            .expect("missing sectorCapture packet")
-            .packet_id;
-        let expected_set_flag_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let expected_game_over_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "gameOver" && !entry.unreliable,
+            "missing gameOver packet",
+        );
+        let expected_researched_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "researched" && !entry.unreliable,
+            "missing researched packet",
+        );
+        let expected_sector_capture_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "sectorCapture" && !entry.unreliable,
+            "missing sectorCapture packet",
+        );
+        let expected_set_flag_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "setFlag"
                     && entry.params.len() == 2
                     && entry.params[0].java_type == "java.lang.String"
                     && entry.params[1].java_type == "boolean"
                     && !entry.unreliable
-            })
-            .expect("missing setFlag packet")
-            .packet_id;
-        let expected_update_game_over_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "updateGameOver" && !entry.unreliable)
-            .expect("missing updateGameOver packet")
-            .packet_id;
+            },
+            "missing setFlag packet",
+        );
+        let expected_update_game_over_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "updateGameOver" && !entry.unreliable,
+            "missing updateGameOver packet",
+        );
 
-        let mut game_over_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "gameOver" && !entry.unreliable)
-            .expect("missing gameOver packet")
-            .clone();
-        game_over_decoy.packet_id = 220;
-        game_over_decoy.packet_class = "mindustry.gen.GameOverDecoyCallPacket".into();
-        game_over_decoy.unreliable = true;
+        let game_over_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "gameOver" && !entry.unreliable,
+            "missing gameOver packet",
+            220,
+            "mindustry.gen.GameOverDecoyCallPacket",
+            true,
+        );
 
-        let mut researched_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "researched" && !entry.unreliable)
-            .expect("missing researched packet")
-            .clone();
-        researched_decoy.packet_id = 221;
-        researched_decoy.packet_class = "mindustry.gen.ResearchedDecoyCallPacket".into();
-        researched_decoy.unreliable = true;
+        let researched_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "researched" && !entry.unreliable,
+            "missing researched packet",
+            221,
+            "mindustry.gen.ResearchedDecoyCallPacket",
+            true,
+        );
 
-        let mut sector_capture_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sectorCapture" && !entry.unreliable)
-            .expect("missing sectorCapture packet")
-            .clone();
-        sector_capture_decoy.packet_id = 222;
-        sector_capture_decoy.packet_class = "mindustry.gen.SectorCaptureDecoyCallPacket".into();
-        sector_capture_decoy.unreliable = true;
+        let sector_capture_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "sectorCapture" && !entry.unreliable,
+            "missing sectorCapture packet",
+            222,
+            "mindustry.gen.SectorCaptureDecoyCallPacket",
+            true,
+        );
 
-        let mut set_flag_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let set_flag_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "setFlag"
                     && entry.params.len() == 2
                     && entry.params[0].java_type == "java.lang.String"
                     && entry.params[1].java_type == "boolean"
                     && !entry.unreliable
-            })
-            .expect("missing setFlag packet")
-            .clone();
-        set_flag_decoy.packet_id = 223;
-        set_flag_decoy.packet_class = "mindustry.gen.SetFlagDecoyCallPacket".into();
-        set_flag_decoy.unreliable = true;
+            },
+            "missing setFlag packet",
+            223,
+            "mindustry.gen.SetFlagDecoyCallPacket",
+            true,
+        );
 
-        let mut update_game_over_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "updateGameOver" && !entry.unreliable)
-            .expect("missing updateGameOver packet")
-            .clone();
-        update_game_over_decoy.packet_id = 224;
-        update_game_over_decoy.packet_class = "mindustry.gen.UpdateGameOverDecoyCallPacket".into();
-        update_game_over_decoy.unreliable = true;
+        let update_game_over_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "updateGameOver" && !entry.unreliable,
+            "missing updateGameOver packet",
+            224,
+            "mindustry.gen.UpdateGameOverDecoyCallPacket",
+            true,
+        );
 
-        manifest.remote_packets.splice(
-            0..0,
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
             vec![
                 game_over_decoy,
                 researched_decoy,
@@ -53279,9 +55907,6 @@ mod tests {
                 update_game_over_decoy,
             ],
         );
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(
@@ -53306,157 +55931,185 @@ mod tests {
         );
     }
 
+    fn find_remote_packet_entry<'a>(
+        manifest: &'a RemoteManifest,
+        predicate: impl Fn(&RemotePacketEntry) -> bool,
+        missing: &'static str,
+    ) -> &'a RemotePacketEntry {
+        manifest
+            .remote_packets
+            .iter()
+            .find(|entry| predicate(entry))
+            .expect(missing)
+    }
+
+    fn expect_remote_packet_id(
+        manifest: &RemoteManifest,
+        predicate: impl Fn(&RemotePacketEntry) -> bool,
+        missing: &'static str,
+    ) -> u8 {
+        find_remote_packet_entry(manifest, predicate, missing).packet_id
+    }
+
+    fn clone_remote_packet_decoy(
+        manifest: &RemoteManifest,
+        predicate: impl Fn(&RemotePacketEntry) -> bool,
+        missing: &'static str,
+        packet_id: u8,
+        packet_class: &str,
+        unreliable: bool,
+    ) -> RemotePacketEntry {
+        let mut decoy = find_remote_packet_entry(manifest, predicate, missing).clone();
+        decoy.packet_id = packet_id;
+        decoy.packet_class = packet_class.into();
+        decoy.unreliable = unreliable;
+        decoy
+    }
+
+    fn prepend_remote_packets_refresh_remote_index(
+        manifest: &mut RemoteManifest,
+        decoys: Vec<RemotePacketEntry>,
+    ) {
+        manifest.remote_packets.splice(0..0, decoys);
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+    }
+
     #[test]
     fn session_message_utility_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_announce_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let expected_announce_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "announce"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing announce packet")
-            .packet_id;
-        let expected_clear_objectives_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing announce packet",
+        );
+        let expected_clear_objectives_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "clearObjectives" && entry.params.is_empty() && !entry.unreliable
-            })
-            .expect("missing clearObjectives packet")
-            .packet_id;
-        let expected_copy_to_clipboard_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing clearObjectives packet",
+        );
+        let expected_copy_to_clipboard_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "copyToClipboard"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing copyToClipboard packet")
-            .packet_id;
-        let expected_hide_hud_text_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "hideHudText" && entry.params.is_empty() && !entry.unreliable
-            })
-            .expect("missing hideHudText packet")
-            .packet_id;
-        let expected_info_message_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing copyToClipboard packet",
+        );
+        let expected_hide_hud_text_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| entry.method == "hideHudText" && entry.params.is_empty() && !entry.unreliable,
+            "missing hideHudText packet",
+        );
+        let expected_info_message_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "infoMessage"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing infoMessage packet")
-            .packet_id;
-        let expected_open_uri_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing infoMessage packet",
+        );
+        let expected_open_uri_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "openURI"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing openURI packet")
-            .packet_id;
+            },
+            "missing openURI packet",
+        );
 
-        let mut announce_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let announce_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "announce"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing announce packet")
-            .clone();
-        announce_decoy.packet_id = 229;
-        announce_decoy.packet_class = "mindustry.gen.AnnounceDecoyCallPacket".into();
-        announce_decoy.unreliable = true;
+            },
+            "missing announce packet",
+            229,
+            "mindustry.gen.AnnounceDecoyCallPacket",
+            true,
+        );
 
-        let mut clear_objectives_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let clear_objectives_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "clearObjectives" && entry.params.is_empty() && !entry.unreliable
-            })
-            .expect("missing clearObjectives packet")
-            .clone();
-        clear_objectives_decoy.packet_id = 230;
-        clear_objectives_decoy.packet_class = "mindustry.gen.ClearObjectivesDecoyCallPacket".into();
-        clear_objectives_decoy.unreliable = true;
+            },
+            "missing clearObjectives packet",
+            230,
+            "mindustry.gen.ClearObjectivesDecoyCallPacket",
+            true,
+        );
 
-        let mut copy_to_clipboard_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let copy_to_clipboard_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "copyToClipboard"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing copyToClipboard packet")
-            .clone();
-        copy_to_clipboard_decoy.packet_id = 231;
-        copy_to_clipboard_decoy.packet_class =
-            "mindustry.gen.CopyToClipboardDecoyCallPacket".into();
-        copy_to_clipboard_decoy.unreliable = true;
+            },
+            "missing copyToClipboard packet",
+            231,
+            "mindustry.gen.CopyToClipboardDecoyCallPacket",
+            true,
+        );
 
-        let mut hide_hud_text_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "hideHudText" && entry.params.is_empty() && !entry.unreliable
-            })
-            .expect("missing hideHudText packet")
-            .clone();
-        hide_hud_text_decoy.packet_id = 232;
-        hide_hud_text_decoy.packet_class = "mindustry.gen.HideHudTextDecoyCallPacket".into();
-        hide_hud_text_decoy.unreliable = true;
+        let hide_hud_text_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| entry.method == "hideHudText" && entry.params.is_empty() && !entry.unreliable,
+            "missing hideHudText packet",
+            232,
+            "mindustry.gen.HideHudTextDecoyCallPacket",
+            true,
+        );
 
-        let mut info_message_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let info_message_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "infoMessage"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing infoMessage packet")
-            .clone();
-        info_message_decoy.packet_id = 233;
-        info_message_decoy.packet_class = "mindustry.gen.InfoMessageDecoyCallPacket".into();
-        info_message_decoy.unreliable = true;
+            },
+            "missing infoMessage packet",
+            233,
+            "mindustry.gen.InfoMessageDecoyCallPacket",
+            true,
+        );
 
-        let mut open_uri_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let open_uri_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "openURI"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing openURI packet")
-            .clone();
-        open_uri_decoy.packet_id = 234;
-        open_uri_decoy.packet_class = "mindustry.gen.OpenURIDecoyCallPacket".into();
-        open_uri_decoy.unreliable = true;
+            },
+            "missing openURI packet",
+            234,
+            "mindustry.gen.OpenURIDecoyCallPacket",
+            true,
+        );
 
-        manifest.remote_packets.splice(
-            0..0,
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
             vec![
                 announce_decoy,
                 clear_objectives_decoy,
@@ -53466,9 +56119,6 @@ mod tests {
                 open_uri_decoy,
             ],
         );
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(
@@ -53500,145 +56150,133 @@ mod tests {
     #[test]
     fn session_hud_notice_packet_ids_reject_well_known_method_decoys() {
         let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let expected_hide_follow_up_menu_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let expected_hide_follow_up_menu_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "hideFollowUpMenu"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "int"
                     && !entry.unreliable
-            })
-            .expect("missing hideFollowUpMenu packet")
-            .packet_id;
-        let expected_info_toast_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing hideFollowUpMenu packet",
+        );
+        let expected_info_toast_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "infoToast"
                     && entry.params.len() == 2
                     && entry.params[0].java_type == "java.lang.String"
                     && entry.params[1].java_type == "float"
                     && !entry.unreliable
-            })
-            .expect("missing infoToast packet")
-            .packet_id;
-        let expected_set_hud_text_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing infoToast packet",
+        );
+        let expected_set_hud_text_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "setHudText"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && entry.unreliable
-            })
-            .expect("missing setHudText packet")
-            .packet_id;
-        let expected_set_hud_text_reliable_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing setHudText packet",
+        );
+        let expected_set_hud_text_reliable_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "setHudTextReliable"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing setHudTextReliable packet")
-            .packet_id;
-        let expected_warning_toast_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+            },
+            "missing setHudTextReliable packet",
+        );
+        let expected_warning_toast_packet_id = expect_remote_packet_id(
+            &manifest,
+            |entry| {
                 entry.method == "warningToast"
                     && entry.params.len() == 2
                     && entry.params[0].java_type == "int"
                     && entry.params[1].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing warningToast packet")
-            .packet_id;
+            },
+            "missing warningToast packet",
+        );
 
-        let mut hide_follow_up_menu_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let hide_follow_up_menu_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "hideFollowUpMenu"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "int"
                     && !entry.unreliable
-            })
-            .expect("missing hideFollowUpMenu packet")
-            .clone();
-        hide_follow_up_menu_decoy.packet_id = 235;
-        hide_follow_up_menu_decoy.packet_class =
-            "mindustry.gen.HideFollowUpMenuDecoyCallPacket".into();
-        hide_follow_up_menu_decoy.unreliable = true;
+            },
+            "missing hideFollowUpMenu packet",
+            235,
+            "mindustry.gen.HideFollowUpMenuDecoyCallPacket",
+            true,
+        );
 
-        let mut info_toast_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let info_toast_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "infoToast"
                     && entry.params.len() == 2
                     && entry.params[0].java_type == "java.lang.String"
                     && entry.params[1].java_type == "float"
                     && !entry.unreliable
-            })
-            .expect("missing infoToast packet")
-            .clone();
-        info_toast_decoy.packet_id = 236;
-        info_toast_decoy.packet_class = "mindustry.gen.InfoToastDecoyCallPacket".into();
-        info_toast_decoy.unreliable = true;
+            },
+            "missing infoToast packet",
+            236,
+            "mindustry.gen.InfoToastDecoyCallPacket",
+            true,
+        );
 
-        let mut set_hud_text_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let set_hud_text_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "setHudText"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && entry.unreliable
-            })
-            .expect("missing setHudText packet")
-            .clone();
-        set_hud_text_decoy.packet_id = 237;
-        set_hud_text_decoy.packet_class = "mindustry.gen.SetHudTextDecoyCallPacket".into();
-        set_hud_text_decoy.unreliable = false;
+            },
+            "missing setHudText packet",
+            237,
+            "mindustry.gen.SetHudTextDecoyCallPacket",
+            false,
+        );
 
-        let mut set_hud_text_reliable_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let set_hud_text_reliable_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "setHudTextReliable"
                     && entry.params.len() == 1
                     && entry.params[0].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing setHudTextReliable packet")
-            .clone();
-        set_hud_text_reliable_decoy.packet_id = 238;
-        set_hud_text_reliable_decoy.packet_class =
-            "mindustry.gen.SetHudTextReliableDecoyCallPacket".into();
-        set_hud_text_reliable_decoy.unreliable = true;
+            },
+            "missing setHudTextReliable packet",
+            238,
+            "mindustry.gen.SetHudTextReliableDecoyCallPacket",
+            true,
+        );
 
-        let mut warning_toast_decoy = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
+        let warning_toast_decoy = clone_remote_packet_decoy(
+            &manifest,
+            |entry| {
                 entry.method == "warningToast"
                     && entry.params.len() == 2
                     && entry.params[0].java_type == "int"
                     && entry.params[1].java_type == "java.lang.String"
                     && !entry.unreliable
-            })
-            .expect("missing warningToast packet")
-            .clone();
-        warning_toast_decoy.packet_id = 239;
-        warning_toast_decoy.packet_class = "mindustry.gen.WarningToastDecoyCallPacket".into();
-        warning_toast_decoy.unreliable = true;
+            },
+            "missing warningToast packet",
+            239,
+            "mindustry.gen.WarningToastDecoyCallPacket",
+            true,
+        );
 
-        manifest.remote_packets.splice(
-            0..0,
+        prepend_remote_packets_refresh_remote_index(
+            &mut manifest,
             vec![
                 hide_follow_up_menu_decoy,
                 info_toast_decoy,
@@ -53647,9 +56285,6 @@ mod tests {
                 warning_toast_decoy,
             ],
         );
-        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
-            packet.remote_index = remote_index;
-        }
 
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(

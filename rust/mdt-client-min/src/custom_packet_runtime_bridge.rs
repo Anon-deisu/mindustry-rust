@@ -263,12 +263,17 @@ fn parse_surface_reset(line: &str) -> Option<ParsedSurfaceReset<'_>> {
 }
 
 fn parse_decimal_prefix(value: &str) -> Option<(&str, &str)> {
-    let digits = value
-        .as_bytes()
+    let bytes = value.as_bytes();
+    let sign_len = bytes
+        .first()
+        .is_some_and(|byte| matches!(byte, b'+' | b'-'))
+        .then_some(1)
+        .unwrap_or(0);
+    let digits = bytes[sign_len..]
         .iter()
         .take_while(|byte| byte.is_ascii_digit())
         .count();
-    (digits > 0).then_some(value.split_at(digits))
+    (digits > 0).then_some(value.split_at(sign_len + digits))
 }
 
 fn parse_debug_string_prefix(value: &str) -> Option<(String, &str)> {
@@ -433,49 +438,132 @@ fn format_marker(marker: Option<&RuntimeCustomPacketOverlayMarker>) -> String {
 mod tests {
     use super::*;
 
+    const LOGIC_POS_KEY: &str = "logic.pos";
+    const CUSTOM_STATUS_KEY: &str = "custom.status";
+
+    fn bridge_from_specs(specs: Vec<RuntimeCustomPacketSemanticSpec>) -> RuntimeCustomPacketBridge {
+        RuntimeCustomPacketBridge::from_specs(&specs).unwrap()
+    }
+
+    fn spec(
+        key: &str,
+        encoding: RuntimeCustomPacketSemanticEncoding,
+        semantic: RuntimeCustomPacketSemanticKind,
+    ) -> RuntimeCustomPacketSemanticSpec {
+        RuntimeCustomPacketSemanticSpec {
+            key: key.to_string(),
+            encoding,
+            semantic,
+        }
+    }
+
+    fn logic_pos_spec() -> RuntimeCustomPacketSemanticSpec {
+        spec(
+            LOGIC_POS_KEY,
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::WorldPos,
+        )
+    }
+
+    fn custom_status_spec() -> RuntimeCustomPacketSemanticSpec {
+        spec(
+            CUSTOM_STATUS_KEY,
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::HudText,
+        )
+    }
+
+    fn logic_pos_marker(x: f32, y: f32) -> RuntimeCustomPacketOverlayMarker {
+        RuntimeCustomPacketOverlayMarker {
+            key: LOGIC_POS_KEY.to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+            x,
+            y,
+        }
+    }
+
+    fn surface_entry(
+        key: &str,
+        encoding: RuntimeCustomPacketSemanticEncoding,
+        semantic: RuntimeCustomPacketSemanticKind,
+        stable_value: &str,
+        marker: Option<RuntimeCustomPacketOverlayMarker>,
+    ) -> RuntimeCustomPacketSurfaceSummaryEntry {
+        RuntimeCustomPacketSurfaceSummaryEntry {
+            key: key.to_string(),
+            encoding,
+            semantic,
+            stable_value: stable_value.to_string(),
+            marker,
+        }
+    }
+
+    fn logic_pos_entry(
+        stable_value: &str,
+        x: f32,
+        y: f32,
+    ) -> RuntimeCustomPacketSurfaceSummaryEntry {
+        surface_entry(
+            LOGIC_POS_KEY,
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::WorldPos,
+            stable_value,
+            Some(logic_pos_marker(x, y)),
+        )
+    }
+
+    fn custom_status_entry(stable_value: &str) -> RuntimeCustomPacketSurfaceSummaryEntry {
+        surface_entry(
+            CUSTOM_STATUS_KEY,
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::HudText,
+            stable_value,
+            None,
+        )
+    }
+
+    fn logic_pos_update_line(x: i32, y: i32) -> String {
+        format!(
+            "runtime_custom_packet_surface_update: encoding=logic key=\"{LOGIC_POS_KEY}\" semantic=world_pos count=1 transport=reliable x={x} y={y} source=point2"
+        )
+    }
+
+    fn custom_status_update_line(message: &str) -> String {
+        format!(
+            "runtime_custom_packet_surface_update: encoding=text key=\"{CUSTOM_STATUS_KEY}\" semantic=hud_text count=1 message={message:?}"
+        )
+    }
+
+    fn surface_reset_line(reason: &str, cleared_routes: usize) -> String {
+        format!(
+            "runtime_custom_packet_surface_reset: reason={reason:?} cleared_routes={cleared_routes}"
+        )
+    }
+
+    fn observe_surface_activity(
+        bridge: &mut RuntimeCustomPacketBridge,
+        now_ms: u64,
+        lines: Vec<String>,
+        entries: Vec<RuntimeCustomPacketSurfaceSummaryEntry>,
+    ) {
+        bridge.observe_surface_activity(now_ms, &lines, &entries);
+    }
+
     #[test]
     fn bridge_tracks_surface_updates_and_resets() {
-        let specs = vec![
-            RuntimeCustomPacketSemanticSpec {
-                key: "logic.pos".to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-            },
-            RuntimeCustomPacketSemanticSpec {
-                key: "custom.status".to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::Text,
-                semantic: RuntimeCustomPacketSemanticKind::HudText,
-            },
-        ];
-        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
+        let mut bridge = bridge_from_specs(vec![logic_pos_spec(), custom_status_spec()]);
 
-        bridge.observe_surface_activity(
+        observe_surface_activity(
+            &mut bridge,
             42,
-            &[
-                "runtime_custom_packet_surface_update: encoding=logic key=\"logic.pos\" semantic=world_pos count=1 transport=reliable x=7 y=9 source=point2".to_string(),
-                "runtime_custom_packet_surface_update: encoding=text key=\"custom.status\" semantic=hud_text count=1 message=\"wave ready\"".to_string(),
+            vec![
+                logic_pos_update_line(7, 9),
+                custom_status_update_line("wave ready"),
             ],
-            &[
-                RuntimeCustomPacketSurfaceSummaryEntry {
-                    key: "logic.pos".to_string(),
-                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-                    stable_value: "7,9".to_string(),
-                    marker: Some(RuntimeCustomPacketOverlayMarker {
-                        key: "logic.pos".to_string(),
-                        encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-                        semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-                        x: 7.0,
-                        y: 9.0,
-                    }),
-                },
-                RuntimeCustomPacketSurfaceSummaryEntry {
-                    key: "custom.status".to_string(),
-                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
-                    semantic: RuntimeCustomPacketSemanticKind::HudText,
-                    stable_value: "wave ready".to_string(),
-                    marker: None,
-                },
+            vec![
+                logic_pos_entry("7,9", 7.0, 9.0),
+                custom_status_entry("wave ready"),
             ],
         );
         let lines = bridge.drain_lines();
@@ -489,13 +577,11 @@ mod tests {
             )
         );
 
-        bridge.observe_surface_activity(
+        observe_surface_activity(
+            &mut bridge,
             43,
-            &[
-                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=2"
-                    .to_string(),
-            ],
-            &[],
+            vec![surface_reset_line("world_data_begin", 2)],
+            vec![],
         );
         let lines = bridge.drain_lines();
         assert_eq!(
@@ -510,24 +596,12 @@ mod tests {
 
     #[test]
     fn bridge_reconnect_reset_clears_active_values_but_keeps_apply_counts() {
-        let specs = vec![RuntimeCustomPacketSemanticSpec {
-            key: "custom.status".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::HudText,
-        }];
-        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
-        bridge.observe_surface_activity(
+        let mut bridge = bridge_from_specs(vec![custom_status_spec()]);
+        observe_surface_activity(
+            &mut bridge,
             10,
-            &[
-                "runtime_custom_packet_surface_update: encoding=text key=\"custom.status\" semantic=hud_text count=1 message=\"wave ready\"".to_string(),
-            ],
-            &[RuntimeCustomPacketSurfaceSummaryEntry {
-                key: "custom.status".to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::Text,
-                semantic: RuntimeCustomPacketSemanticKind::HudText,
-                stable_value: "wave ready".to_string(),
-                marker: None,
-            }],
+            vec![custom_status_update_line("wave ready")],
+            vec![custom_status_entry("wave ready")],
         );
         let _ = bridge.drain_lines();
 
@@ -541,18 +615,11 @@ mod tests {
         );
         assert_eq!(bridge.business_summary_text(4), None);
 
-        bridge.observe_surface_activity(
+        observe_surface_activity(
+            &mut bridge,
             30,
-            &[
-                "runtime_custom_packet_surface_update: encoding=text key=\"custom.status\" semantic=hud_text count=1 message=\"wave resumed\"".to_string(),
-            ],
-            &[RuntimeCustomPacketSurfaceSummaryEntry {
-                key: "custom.status".to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::Text,
-                semantic: RuntimeCustomPacketSemanticKind::HudText,
-                stable_value: "wave resumed".to_string(),
-                marker: None,
-            }],
+            vec![custom_status_update_line("wave resumed")],
+            vec![custom_status_entry("wave resumed")],
         );
         let lines = bridge.drain_lines();
         assert_eq!(lines.len(), 1);
@@ -565,19 +632,13 @@ mod tests {
 
     #[test]
     fn bridge_reset_counters_stay_isolated_by_path() {
-        let specs = vec![RuntimeCustomPacketSemanticSpec {
-            key: "custom.status".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::HudText,
-        }];
-        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
+        let mut bridge = bridge_from_specs(vec![custom_status_spec()]);
 
-        bridge.observe_surface_activity(
+        observe_surface_activity(
+            &mut bridge,
             10,
-            &[String::from(
-                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1",
-            )],
-            &[],
+            vec![surface_reset_line("world_data_begin", 1)],
+            vec![],
         );
         assert_eq!(
             bridge.summary_lines().last().map(String::as_str),
@@ -590,12 +651,11 @@ mod tests {
             Some("runtime_custom_packet_bridge_state: routes=1 active_routes=0 surface_resets=1 reconnect_resets=1")
         );
 
-        bridge.observe_surface_activity(
+        observe_surface_activity(
+            &mut bridge,
             30,
-            &[String::from(
-                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1",
-            )],
-            &[],
+            vec![surface_reset_line("world_data_begin", 1)],
+            vec![],
         );
         assert_eq!(
             bridge.summary_lines().last().map(String::as_str),
@@ -605,20 +665,9 @@ mod tests {
 
     #[test]
     fn bridge_reports_missing_surface_entry_diagnostic() {
-        let specs = vec![RuntimeCustomPacketSemanticSpec {
-            key: "logic.pos".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-        }];
-        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
+        let mut bridge = bridge_from_specs(vec![logic_pos_spec()]);
 
-        bridge.observe_surface_activity(
-            99,
-            &[String::from(
-                "runtime_custom_packet_surface_update: encoding=logic key=\"logic.pos\" semantic=world_pos count=1 transport=reliable x=7 y=9 source=point2",
-            )],
-            &[],
-        );
+        observe_surface_activity(&mut bridge, 99, vec![logic_pos_update_line(7, 9)], vec![]);
 
         assert_eq!(
             bridge.drain_lines(),
@@ -663,6 +712,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_decimal_prefix_parses_signed_numbers_and_stops_at_suffix() {
+        assert_eq!(parse_decimal_prefix(""), None);
+        assert_eq!(parse_decimal_prefix("+"), None);
+        assert_eq!(parse_decimal_prefix("-"), None);
+        assert_eq!(parse_decimal_prefix("abc"), None);
+        assert_eq!(parse_decimal_prefix("+12rest"), Some(("+12", "rest")));
+        assert_eq!(parse_decimal_prefix("-7suffix"), Some(("-7", "suffix")));
+        assert_eq!(parse_decimal_prefix("123abc"), Some(("123", "abc")));
+        assert_eq!(parse_decimal_prefix("-0tail"), Some(("-0", "tail")));
+    }
+
+    #[test]
     fn parse_surface_update_handles_separator_substrings_inside_quoted_key() {
         assert_eq!(
             parse_surface_update(
@@ -682,31 +743,23 @@ mod tests {
 
     #[test]
     fn parse_surface_reset_rejects_trailing_junk_and_unterminated_quotes() {
-        assert!(
-            parse_surface_reset(
-                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1junk"
-            )
-            .is_none()
-        );
-        assert!(
-            parse_surface_reset(
-                r#"runtime_custom_packet_surface_reset: reason="world_data_begin cleared_routes=1"#
-            )
-            .is_none()
-        );
+        assert!(parse_surface_reset(
+            "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1junk"
+        )
+        .is_none());
+        assert!(parse_surface_reset(
+            r#"runtime_custom_packet_surface_reset: reason="world_data_begin cleared_routes=1"#
+        )
+        .is_none());
 
-        let specs = vec![RuntimeCustomPacketSemanticSpec {
-            key: "custom.status".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::HudText,
-        }];
-        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
-        bridge.observe_surface_activity(
+        let mut bridge = bridge_from_specs(vec![custom_status_spec()]);
+        observe_surface_activity(
+            &mut bridge,
             7,
-            &[String::from(
+            vec![String::from(
                 "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1junk",
             )],
-            &[],
+            vec![],
         );
 
         assert!(bridge.drain_lines().is_empty());
@@ -732,24 +785,14 @@ mod tests {
             .is_none()
         );
 
-        let specs = vec![RuntimeCustomPacketSemanticSpec {
-            key: "custom.status".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::HudText,
-        }];
-        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
-        bridge.observe_surface_activity(
+        let mut bridge = bridge_from_specs(vec![custom_status_spec()]);
+        observe_surface_activity(
+            &mut bridge,
             7,
-            &[String::from(
+            vec![String::from(
                 "runtime_custom_packet_surface_update: encoding=text key=\"custom.status\" semantic=hud_text count=1junk message=\"ok\"",
             )],
-            &[RuntimeCustomPacketSurfaceSummaryEntry {
-                key: "custom.status".to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::Text,
-                semantic: RuntimeCustomPacketSemanticKind::HudText,
-                stable_value: "ok".to_string(),
-                marker: None,
-            }],
+            vec![custom_status_entry("ok")],
         );
 
         assert!(bridge.drain_lines().is_empty());

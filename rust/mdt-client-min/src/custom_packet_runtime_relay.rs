@@ -633,6 +633,66 @@ fn truncate_for_preview(text: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
 
+    fn text_relay_spec() -> RuntimeCustomPacketRelaySpec {
+        RuntimeCustomPacketRelaySpec::Text {
+            inbound_type: "custom.ping".to_string(),
+            outbound_type: "custom.pong".to_string(),
+            transport: ClientPacketTransport::Tcp,
+        }
+    }
+
+    fn binary_relay_spec() -> RuntimeCustomPacketRelaySpec {
+        RuntimeCustomPacketRelaySpec::Binary {
+            inbound_type: "bin.ping".to_string(),
+            outbound_type: "bin.pong".to_string(),
+            transport: ClientPacketTransport::Udp,
+        }
+    }
+
+    fn logic_relay_spec() -> RuntimeCustomPacketRelaySpec {
+        RuntimeCustomPacketRelaySpec::LogicData {
+            inbound_channel: "logic.ping".to_string(),
+            outbound_channel: "logic.pong".to_string(),
+            transport: ClientLogicDataTransport::Reliable,
+        }
+    }
+
+    fn logic_unreliable_relay_spec() -> RuntimeCustomPacketRelaySpec {
+        RuntimeCustomPacketRelaySpec::LogicData {
+            inbound_channel: "logic.ping".to_string(),
+            outbound_channel: "logic.pong".to_string(),
+            transport: ClientLogicDataTransport::Unreliable,
+        }
+    }
+
+    fn seed_text_pending_entries(state: &mut RuntimeCustomPacketRelayState, total_events: usize) {
+        for index in 0..total_events {
+            state.record_text_handler("custom.ping", &format!("wave-{index:03}"));
+        }
+    }
+
+    fn assert_summary_line_contains_all(line: &str, needles: &[&str]) {
+        for needle in needles {
+            assert!(
+                line.contains(needle),
+                "expected summary line to contain {needle:?}, line={line:?}"
+            );
+        }
+    }
+
+    fn assert_summary_has_route(lines: &[String], needles: &[&str]) {
+        assert!(
+            lines.iter()
+                .any(|line| needles.iter().all(|needle| line.contains(needle))),
+            "expected summary lines to contain route {:?}, lines={lines:?}",
+            needles
+        );
+    }
+
+    fn assert_reset_summary_line(line: &str) {
+        assert_summary_line_contains_all(line, &["count=0", "event_total=0", "last=None"]);
+    }
+
     #[test]
     fn build_runtime_custom_packet_relay_specs_parses_and_deduplicates() {
         let specs = build_runtime_custom_packet_relay_specs(
@@ -672,8 +732,8 @@ mod tests {
 
     #[test]
     fn parse_packet_relay_spec_rejects_empty_fields() {
-        let err = parse_packet_relay_spec("--relay-client-packet", "inbound@@tcp", false)
-            .unwrap_err();
+        let err =
+            parse_packet_relay_spec("--relay-client-packet", "inbound@@tcp", false).unwrap_err();
 
         assert_eq!(
             err,
@@ -683,12 +743,9 @@ mod tests {
 
     #[test]
     fn parse_packet_relay_spec_rejects_extra_at_separator() {
-        let err = parse_packet_relay_spec(
-            "--relay-client-packet",
-            "inbound@outbound@tcp@extra",
-            false,
-        )
-        .unwrap_err();
+        let err =
+            parse_packet_relay_spec("--relay-client-packet", "inbound@outbound@tcp@extra", false)
+                .unwrap_err();
 
         assert_eq!(
             err,
@@ -698,18 +755,12 @@ mod tests {
 
     #[test]
     fn parse_packet_relay_spec_rejects_invalid_transport_token() {
-        let packet_err = parse_packet_relay_spec(
-            "--relay-client-packet",
-            "inbound@outbound@serial",
-            false,
-        )
-        .unwrap_err();
-        let logic_err = parse_packet_relay_spec(
-            "--relay-client-logic-data",
-            "inbound@outbound@serial",
-            true,
-        )
-        .unwrap_err();
+        let packet_err =
+            parse_packet_relay_spec("--relay-client-packet", "inbound@outbound@serial", false)
+                .unwrap_err();
+        let logic_err =
+            parse_packet_relay_spec("--relay-client-logic-data", "inbound@outbound@serial", true)
+                .unwrap_err();
 
         assert_eq!(
             packet_err,
@@ -724,21 +775,9 @@ mod tests {
     #[test]
     fn runtime_custom_packet_relay_state_tracks_text_binary_and_logic_actions() {
         let mut state = RuntimeCustomPacketRelayState::default();
-        state.register(&RuntimeCustomPacketRelaySpec::Text {
-            inbound_type: "custom.ping".to_string(),
-            outbound_type: "custom.pong".to_string(),
-            transport: ClientPacketTransport::Tcp,
-        });
-        state.register(&RuntimeCustomPacketRelaySpec::Binary {
-            inbound_type: "bin.ping".to_string(),
-            outbound_type: "bin.pong".to_string(),
-            transport: ClientPacketTransport::Udp,
-        });
-        state.register(&RuntimeCustomPacketRelaySpec::LogicData {
-            inbound_channel: "logic.ping".to_string(),
-            outbound_channel: "logic.pong".to_string(),
-            transport: ClientLogicDataTransport::Unreliable,
-        });
+        state.register(&text_relay_spec());
+        state.register(&binary_relay_spec());
+        state.register(&logic_unreliable_relay_spec());
 
         state.record_text_handler("custom.ping", "wave ready");
         state.record_binary_handler("bin.ping", &[0xAA, 0xBB, 0xCC]);
@@ -794,26 +833,21 @@ mod tests {
 
         let summaries = state.summary_lines();
         assert_eq!(summaries.len(), 3);
-        assert!(summaries[0].contains("encoding=text"));
-        assert!(summaries[0].contains("parity=ok"));
-        assert!(summaries[1].contains("event_unreliable=1"));
-        assert!(summaries[2].contains("transport=unreliable"));
-        assert!(summaries[2].contains("event_reliable=1"));
+        assert_summary_line_contains_all(&summaries[0], &["encoding=text", "parity=ok"]);
+        assert_summary_line_contains_all(&summaries[1], &["event_unreliable=1"]);
+        assert_summary_line_contains_all(
+            &summaries[2],
+            &["transport=unreliable", "event_reliable=1"],
+        );
     }
 
     #[test]
     fn runtime_custom_packet_relays_bounds_pending_entries_growth() {
         let mut state = RuntimeCustomPacketRelayState::default();
-        state.register(&RuntimeCustomPacketRelaySpec::Text {
-            inbound_type: "custom.ping".to_string(),
-            outbound_type: "custom.pong".to_string(),
-            transport: ClientPacketTransport::Tcp,
-        });
+        state.register(&text_relay_spec());
 
         let total_events = MAX_PENDING_ENTRIES + 44;
-        for index in 0..total_events {
-            state.record_text_handler("custom.ping", &format!("wave-{index:03}"));
-        }
+        seed_text_pending_entries(&mut state, total_events);
 
         assert_eq!(state.pending_entries.len(), MAX_PENDING_ENTRIES);
 
@@ -840,11 +874,7 @@ mod tests {
     #[test]
     fn runtime_custom_packet_relays_clear_state_on_world_data_begin() {
         let mut state = RuntimeCustomPacketRelayState::default();
-        state.register(&RuntimeCustomPacketRelaySpec::Text {
-            inbound_type: "custom.ping".to_string(),
-            outbound_type: "custom.pong".to_string(),
-            transport: ClientPacketTransport::Tcp,
-        });
+        state.register(&text_relay_spec());
 
         state.record_text_handler("custom.ping", "wave ready");
         state.observe_events(&[ClientSessionEvent::ServerPacketReliable {
@@ -860,19 +890,13 @@ mod tests {
         assert!(state.pending_entries.is_empty());
         let summary = state.summary_lines();
         assert_eq!(summary.len(), 1);
-        assert!(summary[0].contains("count=0"));
-        assert!(summary[0].contains("event_total=0"));
-        assert!(summary[0].contains("last=None"));
+        assert_reset_summary_line(&summary[0]);
     }
 
     #[test]
     fn runtime_custom_packet_relays_clear_state_on_connect_redirect_request() {
         let mut state = RuntimeCustomPacketRelayState::default();
-        state.register(&RuntimeCustomPacketRelaySpec::Text {
-            inbound_type: "custom.ping".to_string(),
-            outbound_type: "custom.pong".to_string(),
-            transport: ClientPacketTransport::Tcp,
-        });
+        state.register(&text_relay_spec());
 
         state.record_text_handler("custom.ping", "wave ready");
         state.observe_events(&[ClientSessionEvent::ServerPacketReliable {
@@ -891,24 +915,14 @@ mod tests {
         assert!(state.pending_entries.is_empty());
         let summary = state.summary_lines();
         assert_eq!(summary.len(), 1);
-        assert!(summary[0].contains("count=0"));
-        assert!(summary[0].contains("event_total=0"));
-        assert!(summary[0].contains("last=None"));
+        assert_reset_summary_line(&summary[0]);
     }
 
     #[test]
     fn runtime_custom_packet_relays_clear_state_on_world_data_begin_for_binary_and_logic_data() {
         let mut state = RuntimeCustomPacketRelayState::default();
-        state.register(&RuntimeCustomPacketRelaySpec::Binary {
-            inbound_type: "bin.ping".to_string(),
-            outbound_type: "bin.pong".to_string(),
-            transport: ClientPacketTransport::Udp,
-        });
-        state.register(&RuntimeCustomPacketRelaySpec::LogicData {
-            inbound_channel: "logic.ping".to_string(),
-            outbound_channel: "logic.pong".to_string(),
-            transport: ClientLogicDataTransport::Reliable,
-        });
+        state.register(&binary_relay_spec());
+        state.register(&logic_relay_spec());
 
         state.record_binary_handler("bin.ping", &[0xAA, 0xBB, 0xCC]);
         state.record_logic_data_handler("logic.ping", &TypeIoObject::Int(7));
@@ -926,44 +940,28 @@ mod tests {
         assert_eq!(state.pending_entries.len(), 2);
         let summary_before_clear = state.summary_lines();
         assert_eq!(summary_before_clear.len(), 2);
-        assert!(summary_before_clear
-            .iter()
-            .any(|line| line.contains("encoding=binary") && line.contains("count=1")));
-        assert!(summary_before_clear
-            .iter()
-            .any(|line| line.contains("encoding=logic") && line.contains("count=1")));
+        assert_summary_has_route(&summary_before_clear, &["encoding=binary", "count=1"]);
+        assert_summary_has_route(&summary_before_clear, &["encoding=logic", "count=1"]);
 
         state.observe_events(&[ClientSessionEvent::WorldDataBegin]);
 
         assert!(state.pending_entries.is_empty());
         let summary_after_clear = state.summary_lines();
         assert_eq!(summary_after_clear.len(), 2);
-        assert!(summary_after_clear
-            .iter()
-            .any(|line| {
-                line.contains("encoding=binary")
-                    && line.contains("count=0")
-                    && line.contains("event_total=0")
-                    && line.contains("last=None")
-            }));
-        assert!(summary_after_clear
-            .iter()
-            .any(|line| {
-                line.contains("encoding=logic")
-                    && line.contains("count=0")
-                    && line.contains("event_total=0")
-                    && line.contains("last=None")
-            }));
+        assert_summary_has_route(
+            &summary_after_clear,
+            &["encoding=binary", "count=0", "event_total=0", "last=None"],
+        );
+        assert_summary_has_route(
+            &summary_after_clear,
+            &["encoding=logic", "count=0", "event_total=0", "last=None"],
+        );
     }
 
     #[test]
     fn runtime_custom_packet_relays_clear_state_on_world_stream_started() {
         let mut state = RuntimeCustomPacketRelayState::default();
-        state.register(&RuntimeCustomPacketRelaySpec::Text {
-            inbound_type: "custom.ping".to_string(),
-            outbound_type: "custom.pong".to_string(),
-            transport: ClientPacketTransport::Tcp,
-        });
+        state.register(&text_relay_spec());
 
         state.record_text_handler("custom.ping", "wave ready");
         state.observe_events(&[ClientSessionEvent::ServerPacketReliable {
@@ -982,8 +980,6 @@ mod tests {
         assert!(state.pending_entries.is_empty());
         let summary = state.summary_lines();
         assert_eq!(summary.len(), 1);
-        assert!(summary[0].contains("count=0"));
-        assert!(summary[0].contains("event_total=0"));
-        assert!(summary[0].contains("last=None"));
+        assert_reset_summary_line(&summary[0]);
     }
 }

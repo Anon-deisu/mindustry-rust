@@ -6,7 +6,8 @@ use crate::entity_snapshot_families::{
 };
 use crate::rules_objectives_semantics::{ObjectivesProjection, RulesProjection};
 use crate::state_snapshot_semantics::{
-    derive_state_snapshot_core_inventory_transition, StateSnapshotCoreInventoryPrevious,
+    derive_state_snapshot_core_inventory_transition, derive_state_snapshot_head_transition,
+    sample_changed_team_ids, StateSnapshotCoreInventoryPrevious, StateSnapshotHeadPrevious,
 };
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_typeio::TypeIoObject;
@@ -268,6 +269,57 @@ pub struct BlockSnapshotHeadProjection {
     pub efficiency: Option<u8>,
     pub optional_efficiency: Option<u8>,
     pub visible_flags: Option<u64>,
+}
+
+impl AppliedBlockSnapshotEnvelope {
+    pub fn head_projection(&self) -> Option<BlockSnapshotHeadProjection> {
+        self.first_build_pos
+            .zip(self.first_block_id)
+            .map(|(build_pos, block_id)| BlockSnapshotHeadProjection {
+                build_pos,
+                block_id,
+                health_bits: self.first_health_bits,
+                rotation: self.first_rotation,
+                team_id: self.first_team_id,
+                io_version: self.first_io_version,
+                enabled: self.first_enabled,
+                module_bitmask: self.first_module_bitmask,
+                time_scale_bits: self.first_time_scale_bits,
+                time_scale_duration_bits: self.first_time_scale_duration_bits,
+                last_disabler_pos: self.first_last_disabler_pos,
+                legacy_consume_connected: self.first_legacy_consume_connected,
+                efficiency: self.first_efficiency,
+                optional_efficiency: self.first_optional_efficiency,
+                visible_flags: self.first_visible_flags,
+            })
+    }
+}
+
+impl BlockSnapshotHeadProjection {
+    pub fn apply_to_building_table(&self, table: &mut BuildingTableProjection) {
+        table.apply_block_snapshot_head(
+            self.build_pos,
+            self.block_id,
+            None,
+            self.rotation,
+            self.team_id,
+            self.io_version,
+            self.module_bitmask,
+            self.time_scale_bits,
+            self.time_scale_duration_bits,
+            self.last_disabler_pos,
+            self.legacy_consume_connected,
+            None,
+            self.health_bits,
+            self.enabled,
+            self.efficiency,
+            self.optional_efficiency,
+            self.visible_flags,
+            None,
+            None,
+            None,
+        );
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -1218,41 +1270,23 @@ impl ResourceDeltaProjection {
     }
 
     fn set_build_item_exact(&mut self, build_pos: i32, item_id: i16, amount: i32) {
-        if amount == 0 {
-            let mut remove_build = false;
-            if let Some(build_items) = self.building_items_by_build.get_mut(&build_pos) {
-                build_items.remove(&item_id);
-                remove_build = build_items.is_empty();
-            }
-            if remove_build {
-                self.building_items_by_build.remove(&build_pos);
-            }
-            return;
-        }
-
-        self.building_items_by_build
-            .entry(build_pos)
-            .or_default()
-            .insert(item_id, amount);
+        set_build_resource_exact(
+            &mut self.building_items_by_build,
+            build_pos,
+            item_id,
+            amount,
+            amount == 0,
+        );
     }
 
     fn set_build_liquid_exact(&mut self, build_pos: i32, liquid_id: i16, amount_bits: u32) {
-        if liquid_amount_bits_is_zero(amount_bits) {
-            let mut remove_build = false;
-            if let Some(build_liquids) = self.building_liquids_by_build.get_mut(&build_pos) {
-                build_liquids.remove(&liquid_id);
-                remove_build = build_liquids.is_empty();
-            }
-            if remove_build {
-                self.building_liquids_by_build.remove(&build_pos);
-            }
-            return;
-        }
-
-        self.building_liquids_by_build
-            .entry(build_pos)
-            .or_default()
-            .insert(liquid_id, amount_bits);
+        set_build_resource_exact(
+            &mut self.building_liquids_by_build,
+            build_pos,
+            liquid_id,
+            amount_bits,
+            liquid_amount_bits_is_zero(amount_bits),
+        );
     }
 
     fn add_known_build_item(&mut self, build_pos: i32, item_id: i16, amount: i32) -> bool {
@@ -1387,6 +1421,33 @@ impl ResourceDeltaProjection {
 
 fn liquid_amount_bits_is_zero(amount_bits: u32) -> bool {
     f32::from_bits(amount_bits) == 0.0
+}
+
+fn set_build_resource_exact<K, V>(
+    by_build: &mut BTreeMap<i32, BTreeMap<K, V>>,
+    build_pos: i32,
+    resource_id: K,
+    value: V,
+    remove_value: bool,
+) where
+    K: Ord,
+{
+    if remove_value {
+        let mut remove_build = false;
+        if let Some(resources) = by_build.get_mut(&build_pos) {
+            resources.remove(&resource_id);
+            remove_build = resources.is_empty();
+        }
+        if remove_build {
+            by_build.remove(&build_pos);
+        }
+        return;
+    }
+
+    by_build
+        .entry(build_pos)
+        .or_default()
+        .insert(resource_id, value);
 }
 
 fn resource_delta_standard_entity_id(unit: Option<UnitRefProjection>) -> Option<i32> {
@@ -2053,6 +2114,7 @@ pub struct ConfiguredBlockProjection {
     pub payload_mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub payload_mass_driver_runtime_by_build_pos: BTreeMap<i32, PayloadMassDriverRuntimeProjection>,
     pub unit_factory_current_plan_by_build_pos: BTreeMap<i32, i16>,
+    pub unit_factory_command_by_build_pos: BTreeMap<i32, Option<u16>>,
     pub unit_factory_runtime_by_build_pos: BTreeMap<i32, UnitFactoryRuntimeProjection>,
     pub power_node_links_by_build_pos: BTreeMap<i32, BTreeSet<i32>>,
     pub reconstructor_command_by_build_pos: BTreeMap<i32, Option<u16>>,
@@ -2375,6 +2437,11 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, current_plan);
     }
 
+    pub fn apply_unit_factory_command(&mut self, build_pos: i32, command_id: Option<u16>) {
+        self.unit_factory_command_by_build_pos
+            .insert(build_pos, command_id);
+    }
+
     pub fn apply_unit_factory_runtime(
         &mut self,
         build_pos: i32,
@@ -2485,6 +2552,7 @@ impl ConfiguredBlockProjection {
             .remove(&build_pos);
         self.unit_factory_current_plan_by_build_pos
             .remove(&build_pos);
+        self.unit_factory_command_by_build_pos.remove(&build_pos);
         self.unit_factory_runtime_by_build_pos.remove(&build_pos);
         self.power_node_links_by_build_pos.remove(&build_pos);
         self.reconstructor_command_by_build_pos.remove(&build_pos);
@@ -3262,10 +3330,55 @@ impl BuildingTableProjection {
         config_override: Option<TypeIoObject>,
         health_bits_override: Option<u32>,
     ) {
-        let building = self.by_build_pos.get(&build_pos);
+        let building = self.by_build_pos.get(&build_pos).cloned();
+        self.sync_last_mirror_common(
+            build_pos,
+            last_update,
+            building.as_ref(),
+            None,
+            None,
+            config_override,
+            health_bits_override,
+            false,
+        );
+    }
+
+    fn sync_last_mirror_for_removed(
+        &mut self,
+        build_pos: i32,
+        last_update: BuildingProjectionUpdateKind,
+        block_id_override: Option<i16>,
+        block_name_override: Option<String>,
+        previous: Option<&BuildingProjection>,
+    ) {
+        self.sync_last_mirror_common(
+            build_pos,
+            last_update,
+            previous,
+            block_id_override,
+            block_name_override,
+            None,
+            None,
+            true,
+        );
+    }
+
+    fn sync_last_mirror_common(
+        &mut self,
+        build_pos: i32,
+        last_update: BuildingProjectionUpdateKind,
+        building: Option<&BuildingProjection>,
+        block_id_override: Option<i16>,
+        block_name_override: Option<String>,
+        config_override: Option<TypeIoObject>,
+        health_bits_override: Option<u32>,
+        removed: bool,
+    ) {
         self.last_build_pos = Some(build_pos);
-        self.last_block_id = building.and_then(|building| building.block_id);
-        self.last_block_name = building.and_then(|building| building.block_name.clone());
+        self.last_block_id =
+            block_id_override.or_else(|| building.and_then(|building| building.block_id));
+        self.last_block_name = block_name_override
+            .or_else(|| building.and_then(|building| building.block_name.clone()));
         self.last_rotation = building.and_then(|building| building.rotation);
         self.last_team_id = building.and_then(|building| building.team_id);
         self.last_io_version = building.and_then(|building| building.io_version);
@@ -3299,54 +3412,7 @@ impl BuildingTableProjection {
         self.last_build_turret_plan_count =
             building.and_then(|building| building.build_turret_plan_count);
         self.last_update = Some(last_update);
-        self.last_removed = false;
-    }
-
-    fn sync_last_mirror_for_removed(
-        &mut self,
-        build_pos: i32,
-        last_update: BuildingProjectionUpdateKind,
-        block_id_override: Option<i16>,
-        block_name_override: Option<String>,
-        previous: Option<&BuildingProjection>,
-    ) {
-        self.last_build_pos = Some(build_pos);
-        self.last_block_id =
-            block_id_override.or_else(|| previous.and_then(|building| building.block_id));
-        self.last_block_name = block_name_override
-            .or_else(|| previous.and_then(|building| building.block_name.clone()));
-        self.last_rotation = previous.and_then(|building| building.rotation);
-        self.last_team_id = previous.and_then(|building| building.team_id);
-        self.last_io_version = previous.and_then(|building| building.io_version);
-        self.last_module_bitmask = previous.and_then(|building| building.module_bitmask);
-        self.last_time_scale_bits = previous.and_then(|building| building.time_scale_bits);
-        self.last_time_scale_duration_bits =
-            previous.and_then(|building| building.time_scale_duration_bits);
-        self.last_last_disabler_pos = previous.and_then(|building| building.last_disabler_pos);
-        self.last_legacy_consume_connected =
-            previous.and_then(|building| building.legacy_consume_connected);
-        self.last_config = previous.and_then(|building| building.config.clone());
-        self.last_health_bits = previous.and_then(|building| building.health_bits);
-        self.last_enabled = previous.and_then(|building| building.enabled);
-        self.last_efficiency = previous.and_then(|building| building.efficiency);
-        self.last_optional_efficiency = previous.and_then(|building| building.optional_efficiency);
-        self.last_visible_flags = previous.and_then(|building| building.visible_flags);
-        self.last_turret_reload_counter_bits =
-            previous.and_then(|building| building.turret_reload_counter_bits);
-        self.last_turret_rotation_bits =
-            previous.and_then(|building| building.turret_rotation_bits);
-        self.last_item_turret_ammo_count =
-            previous.and_then(|building| building.item_turret_ammo_count);
-        self.last_continuous_turret_last_length_bits =
-            previous.and_then(|building| building.continuous_turret_last_length_bits);
-        self.last_build_turret_rotation_bits =
-            previous.and_then(|building| building.build_turret_rotation_bits);
-        self.last_build_turret_plans_present =
-            previous.and_then(|building| building.build_turret_plans_present);
-        self.last_build_turret_plan_count =
-            previous.and_then(|building| building.build_turret_plan_count);
-        self.last_update = Some(last_update);
-        self.last_removed = true;
+        self.last_removed = removed;
     }
 
     fn recount(&mut self) {
@@ -4587,6 +4653,12 @@ fn typed_runtime_building_model(
         "ground-factory" | "air-factory" | "naval-factory" | "tank-fabricator"
         | "ship-fabricator" | "mech-fabricator" => {
             let runtime = configured.unit_factory_runtime_by_build_pos.get(&build_pos);
+            let command_id = configured
+                .unit_factory_command_by_build_pos
+                .get(&build_pos)
+                .copied()
+                .map(|command_id| command_id.and_then(|value| u8::try_from(value).ok()))
+                .unwrap_or_else(|| runtime.and_then(|projection| projection.command_id));
             (
                 TypedBuildingRuntimeKind::UnitFactory,
                 TypedBuildingRuntimeValue::UnitFactory {
@@ -4596,7 +4668,7 @@ fn typed_runtime_building_model(
                         .copied(),
                     progress_bits: runtime.map(|projection| projection.progress_bits),
                     command_pos: runtime.and_then(|projection| projection.command_pos),
-                    command_id: runtime.and_then(|projection| projection.command_id),
+                    command_id,
                     payload_present: runtime.map(|projection| projection.payload_present),
                     pay_rotation_bits: runtime.map(|projection| projection.pay_rotation_bits),
                 },
@@ -5386,6 +5458,7 @@ pub struct EntityUnitSemanticProjection {
     pub shield_bits: u32,
     pub mine_tile_pos: i32,
     pub status_count: i32,
+    pub statuses: Vec<mdt_world::EntityUnitStatusSnapshot>,
     pub payload_count: Option<i32>,
     pub building_pos: Option<i32>,
     pub lifetime_bits: Option<u32>,
@@ -5393,6 +5466,7 @@ pub struct EntityUnitSemanticProjection {
     pub runtime_sync: Option<EntityUnitRuntimeSyncProjection>,
     pub controller_type: u8,
     pub controller_value: Option<i32>,
+    pub controller_snapshot: Option<mdt_world::EntityUnitControllerSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6928,9 +7002,11 @@ impl SessionState {
         }
     }
 
-    pub fn refresh_runtime_typed_entity_from_tables(&mut self, entity_id: i32) {
-        let model = self
-            .entity_table_projection
+    fn runtime_typed_entity_model_from_tables(
+        &self,
+        entity_id: i32,
+    ) -> Option<TypedRuntimeEntityModel> {
+        self.entity_table_projection
             .by_entity_id
             .get(&entity_id)
             .and_then(|entity| {
@@ -6944,7 +7020,11 @@ impl SessionState {
                     self.player_semantic_projection.by_entity_id.get(&entity_id),
                     &self.resource_delta_projection,
                 )
-            });
+            })
+    }
+
+    pub fn refresh_runtime_typed_entity_from_tables(&mut self, entity_id: i32) {
+        let model = self.runtime_typed_entity_model_from_tables(entity_id);
         match model {
             Some(model) => self
                 .runtime_typed_entity_apply_projection
@@ -6982,17 +7062,8 @@ impl SessionState {
 
     pub fn rebuild_runtime_typed_entity_projection_from_tables(&mut self) {
         let mut projection = TypedRuntimeEntityProjection::default();
-        for (&entity_id, entity) in &self.entity_table_projection.by_entity_id {
-            let model = typed_runtime_entity_model(
-                entity_id,
-                entity,
-                self.entity_semantic_projection.by_entity_id.get(&entity_id),
-                self.entity_snapshot_payload_apply_projection
-                    .by_entity_id
-                    .get(&entity_id),
-                self.player_semantic_projection.by_entity_id.get(&entity_id),
-                &self.resource_delta_projection,
-            );
+        for &entity_id in self.entity_table_projection.by_entity_id.keys() {
+            let model = self.runtime_typed_entity_model_from_tables(entity_id);
             if let Some(model) = model {
                 projection.by_entity_id.insert(entity_id, model);
             }
@@ -7190,26 +7261,18 @@ impl SessionState {
         core_data_parse_failed: bool,
     ) {
         let previous = self.authoritative_state_mirror.as_ref();
-        let previous_wave = previous.map(|mirror| mirror.wave).unwrap_or_default();
-        let previous_net_seconds = previous
-            .map(|mirror| mirror.net_seconds)
-            .unwrap_or_default();
-        let last_wave_advanced = snapshot.wave > previous_wave;
+        let head = derive_state_snapshot_head_transition(
+            previous.map(|mirror| StateSnapshotHeadPrevious {
+                wave: mirror.wave,
+                time_data: mirror.net_seconds,
+                gameplay_state: mirror.gameplay_state,
+            }),
+            snapshot,
+        );
         let wave_advance_count = previous
             .map(|mirror| mirror.wave_advance_count)
             .unwrap_or_default()
-            .saturating_add(u64::from(last_wave_advanced));
-        let last_net_seconds_rollback = snapshot.time_data < previous_net_seconds;
-        let net_seconds_delta_i64 = i64::from(snapshot.time_data) - i64::from(previous_net_seconds);
-        let net_seconds_delta =
-            net_seconds_delta_i64.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
-        let gameplay_state = if snapshot.game_over {
-            GameplayStateProjection::GameOver
-        } else if snapshot.paused {
-            GameplayStateProjection::Paused
-        } else {
-            GameplayStateProjection::Playing
-        };
+            .saturating_add(u64::from(head.last_wave_advanced));
         let core_inventory = derive_state_snapshot_core_inventory_transition(
             previous.map(|previous| StateSnapshotCoreInventoryPrevious {
                 inventory_by_team: &previous.core_inventory_by_team,
@@ -7219,12 +7282,10 @@ impl SessionState {
             }),
             core_data,
         );
-        let core_inventory_changed_team_sample = core_inventory
-            .changed_team_ids
-            .iter()
-            .take(CORE_INVENTORY_CHANGED_TEAM_SAMPLE_LIMIT)
-            .copied()
-            .collect();
+        let core_inventory_changed_team_sample = sample_changed_team_ids(
+            &core_inventory.changed_team_ids,
+            CORE_INVENTORY_CHANGED_TEAM_SAMPLE_LIMIT,
+        );
 
         self.authoritative_state_mirror = Some(AuthoritativeStateMirror {
             wave_time_bits: snapshot.wave_time_bits,
@@ -7236,19 +7297,19 @@ impl SessionState {
             tps: snapshot.tps,
             rand0: snapshot.rand0,
             rand1: snapshot.rand1,
-            gameplay_state,
-            last_wave_advanced,
+            gameplay_state: head.gameplay_state,
+            last_wave_advanced: head.last_wave_advanced,
             wave_advance_count,
             apply_count: previous
                 .map(|mirror| mirror.apply_count)
                 .unwrap_or_default()
                 .saturating_add(1),
-            last_net_seconds_rollback,
-            net_seconds_delta,
+            last_net_seconds_rollback: head.last_net_seconds_rollback,
+            net_seconds_delta: head.net_seconds_delta,
             wave_regress_count: previous
                 .map(|mirror| mirror.wave_regress_count)
                 .unwrap_or_default()
-                .saturating_add(u64::from(snapshot.wave < previous_wave)),
+                .saturating_add(u64::from(head.wave_regressed)),
             core_inventory_team_count: core_inventory.inventory.inventory_by_team.len(),
             core_inventory_item_entry_count: core_inventory.inventory.item_entry_count,
             core_inventory_total_amount: core_inventory.inventory.total_amount,
@@ -7311,17 +7372,11 @@ impl SessionState {
     }
 
     pub fn record_entity_snapshot_tombstone_skip(&mut self, entity_id: i32) {
-        self.entity_snapshot_tombstone_skip_count =
-            self.entity_snapshot_tombstone_skip_count.saturating_add(1);
-        if self.last_entity_snapshot_tombstone_skipped_ids_sample.len()
-            < ENTITY_SNAPSHOT_TOMBSTONE_SKIP_SAMPLE_LIMIT
-            && !self
-                .last_entity_snapshot_tombstone_skipped_ids_sample
-                .contains(&entity_id)
-        {
-            self.last_entity_snapshot_tombstone_skipped_ids_sample
-                .push(entity_id);
-        }
+        Self::record_entity_snapshot_skip(
+            &mut self.entity_snapshot_tombstone_skip_count,
+            &mut self.last_entity_snapshot_tombstone_skipped_ids_sample,
+            entity_id,
+        );
     }
 
     pub fn entity_snapshot_hidden_blocks_upsert(
@@ -7333,16 +7388,23 @@ impl SessionState {
     }
 
     pub fn record_entity_snapshot_hidden_skip(&mut self, entity_id: i32) {
-        self.entity_snapshot_hidden_skip_count =
-            self.entity_snapshot_hidden_skip_count.saturating_add(1);
-        if self.last_entity_snapshot_hidden_skipped_ids_sample.len()
-            < ENTITY_SNAPSHOT_TOMBSTONE_SKIP_SAMPLE_LIMIT
-            && !self
-                .last_entity_snapshot_hidden_skipped_ids_sample
-                .contains(&entity_id)
+        Self::record_entity_snapshot_skip(
+            &mut self.entity_snapshot_hidden_skip_count,
+            &mut self.last_entity_snapshot_hidden_skipped_ids_sample,
+            entity_id,
+        );
+    }
+
+    fn record_entity_snapshot_skip(
+        skip_count: &mut u64,
+        sample_ids: &mut Vec<i32>,
+        entity_id: i32,
+    ) {
+        *skip_count = skip_count.saturating_add(1);
+        if sample_ids.len() < ENTITY_SNAPSHOT_TOMBSTONE_SKIP_SAMPLE_LIMIT
+            && !sample_ids.contains(&entity_id)
         {
-            self.last_entity_snapshot_hidden_skipped_ids_sample
-                .push(entity_id);
+            sample_ids.push(entity_id);
         }
     }
 
@@ -7381,13 +7443,10 @@ impl SessionState {
 
         self.applied_hidden_snapshot_count = self.applied_hidden_snapshot_count.saturating_add(1);
         self.last_hidden_snapshot = Some(applied);
-        self.entity_table_projection
-            .apply_hidden_ids(&trigger_hidden_ids);
-        let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
-        let runtime_transition =
-            self.hidden_snapshot_runtime_transition(&trigger_hidden_ids, local_player_entity_id);
-        let hidden_removed_ids = self
-            .apply_hidden_snapshot_runtime_transition(&runtime_transition, local_player_entity_id);
+        let hidden_removed_ids = self.apply_hidden_snapshot_visibility_and_runtime(
+            trigger_hidden_ids,
+            &typed_runtime_transition,
+        );
         self.hidden_lifecycle_remove_count = self
             .hidden_lifecycle_remove_count
             .saturating_add(hidden_removed_ids.len() as u64);
@@ -7398,7 +7457,6 @@ impl SessionState {
         for entity_id in &removed_ids {
             self.clear_entity_snapshot_tombstone(*entity_id);
         }
-        self.hidden_snapshot_ids = trigger_hidden_ids;
         self.hidden_snapshot_delta_projection = Some(HiddenSnapshotDeltaProjection {
             active_count: trigger_count,
             added_count: added_ids.len(),
@@ -7406,7 +7464,6 @@ impl SessionState {
             added_sample_ids,
             removed_sample_ids,
         });
-        self.apply_hidden_snapshot_typed_runtime_transition(&typed_runtime_transition);
     }
 
     pub fn clear_hidden_snapshot_after_parse_failure(&mut self) {
@@ -7434,15 +7491,27 @@ impl SessionState {
         let typed_runtime_transition = HiddenSnapshotTypedRuntimeTransition {
             refresh_ids: previous_hidden_ids.iter().copied().collect(),
         };
+        let _ = self.apply_hidden_snapshot_visibility_and_runtime(
+            cleared_hidden_ids,
+            &typed_runtime_transition,
+        );
+    }
+
+    fn apply_hidden_snapshot_visibility_and_runtime(
+        &mut self,
+        trigger_hidden_ids: BTreeSet<i32>,
+        typed_runtime_transition: &HiddenSnapshotTypedRuntimeTransition,
+    ) -> Vec<i32> {
         self.entity_table_projection
-            .apply_hidden_ids(&cleared_hidden_ids);
+            .apply_hidden_ids(&trigger_hidden_ids);
         let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
         let runtime_transition =
-            self.hidden_snapshot_runtime_transition(&cleared_hidden_ids, local_player_entity_id);
-        let _ = self
+            self.hidden_snapshot_runtime_transition(&trigger_hidden_ids, local_player_entity_id);
+        let hidden_removed_ids = self
             .apply_hidden_snapshot_runtime_transition(&runtime_transition, local_player_entity_id);
-        self.hidden_snapshot_ids = cleared_hidden_ids;
-        self.apply_hidden_snapshot_typed_runtime_transition(&typed_runtime_transition);
+        self.hidden_snapshot_ids = trigger_hidden_ids;
+        self.apply_hidden_snapshot_typed_runtime_transition(typed_runtime_transition);
+        hidden_removed_ids
     }
 
     fn hidden_snapshot_runtime_transition(
@@ -7531,11 +7600,11 @@ impl SessionState {
         trigger_hidden_ids: &BTreeSet<i32>,
         local_player_entity_id: Option<i32>,
     ) -> BTreeSet<i32> {
-        trigger_hidden_ids
-            .iter()
-            .copied()
-            .filter(|entity_id| Some(*entity_id) != local_player_entity_id)
-            .collect()
+        self.collect_hidden_snapshot_non_local_ids(
+            trigger_hidden_ids,
+            local_player_entity_id,
+            |_| true,
+        )
     }
 
     fn hidden_snapshot_unit_handle_sync_hidden_remove_ids(
@@ -7543,14 +7612,11 @@ impl SessionState {
         trigger_hidden_ids: &BTreeSet<i32>,
         local_player_entity_id: Option<i32>,
     ) -> BTreeSet<i32> {
-        trigger_hidden_ids
-            .iter()
-            .copied()
-            .filter(|entity_id| {
-                Some(*entity_id) != local_player_entity_id
-                    && self.hidden_snapshot_matches_java_unit_handle_sync_hidden(*entity_id)
-            })
-            .collect()
+        self.collect_hidden_snapshot_non_local_ids(
+            trigger_hidden_ids,
+            local_player_entity_id,
+            |entity_id| self.hidden_snapshot_matches_java_unit_handle_sync_hidden(entity_id),
+        )
     }
 
     fn hidden_snapshot_runtime_owned_cleanup_remove_ids(
@@ -7558,20 +7624,32 @@ impl SessionState {
         trigger_hidden_ids: &BTreeSet<i32>,
         local_player_entity_id: Option<i32>,
     ) -> BTreeSet<i32> {
+        self.collect_hidden_snapshot_non_local_ids(
+            trigger_hidden_ids,
+            local_player_entity_id,
+            |entity_id| {
+                resolve_hidden_snapshot_entity_policy(
+                    self.entity_table_projection.by_entity_id.get(&entity_id),
+                    self.entity_semantic_projection
+                        .by_entity_id
+                        .get(&entity_id)
+                        .map(|entry| &entry.projection),
+                )
+                .should_remove_known_runtime_owned()
+            },
+        )
+    }
+
+    fn collect_hidden_snapshot_non_local_ids(
+        &self,
+        trigger_hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+        mut predicate: impl FnMut(i32) -> bool,
+    ) -> BTreeSet<i32> {
         trigger_hidden_ids
             .iter()
             .copied()
-            .filter(|entity_id| {
-                Some(*entity_id) != local_player_entity_id
-                    && resolve_hidden_snapshot_entity_policy(
-                        self.entity_table_projection.by_entity_id.get(entity_id),
-                        self.entity_semantic_projection
-                            .by_entity_id
-                            .get(entity_id)
-                            .map(|entry| &entry.projection),
-                    )
-                    .should_remove_known_runtime_owned()
-            })
+            .filter(|entity_id| Some(*entity_id) != local_player_entity_id && predicate(*entity_id))
             .collect()
     }
 
@@ -8075,6 +8153,8 @@ mod tests {
             revision,
             body_len,
             body_sha256: body_sha256.to_string(),
+            status_count: 0,
+            statuses: Vec::new(),
             nested_unit_payloads,
         }
     }
@@ -8335,6 +8415,95 @@ mod tests {
     }
 
     #[test]
+    fn applied_block_snapshot_envelope_head_projection_maps_first_entry_fields() {
+        let envelope = AppliedBlockSnapshotEnvelope {
+            amount: 2,
+            data_len: 64,
+            first_build_pos: Some(0x0012_0034),
+            first_block_id: Some(300),
+            first_health_bits: Some(0x4000_0000),
+            first_rotation: Some(1),
+            first_team_id: Some(2),
+            first_io_version: Some(3),
+            first_enabled: Some(true),
+            first_module_bitmask: Some(4),
+            first_time_scale_bits: Some(0x3f80_0000),
+            first_time_scale_duration_bits: Some(0x3f00_0000),
+            first_last_disabler_pos: Some(123),
+            first_legacy_consume_connected: Some(false),
+            first_efficiency: Some(0x40),
+            first_optional_efficiency: Some(0x20),
+            first_visible_flags: Some(99),
+        };
+
+        assert_eq!(
+            envelope.head_projection(),
+            Some(BlockSnapshotHeadProjection {
+                build_pos: 0x0012_0034,
+                block_id: 300,
+                health_bits: Some(0x4000_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f80_0000),
+                time_scale_duration_bits: Some(0x3f00_0000),
+                last_disabler_pos: Some(123),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(99),
+            })
+        );
+    }
+
+    #[test]
+    fn block_snapshot_head_projection_apply_to_building_table_uses_head_fields() {
+        let mut table = BuildingTableProjection::default();
+        let head = BlockSnapshotHeadProjection {
+            build_pos: 0x0012_0034,
+            block_id: 300,
+            health_bits: Some(0x4000_0000),
+            rotation: Some(1),
+            team_id: Some(2),
+            io_version: Some(3),
+            enabled: Some(true),
+            module_bitmask: Some(4),
+            time_scale_bits: Some(0x3f80_0000),
+            time_scale_duration_bits: Some(0x3f00_0000),
+            last_disabler_pos: Some(123),
+            legacy_consume_connected: Some(false),
+            efficiency: Some(0x40),
+            optional_efficiency: Some(0x20),
+            visible_flags: Some(99),
+        };
+
+        head.apply_to_building_table(&mut table);
+
+        assert_eq!(table.block_snapshot_head_apply_count, 1);
+        let building = table.by_build_pos.get(&head.build_pos).unwrap();
+        assert_eq!(building.block_id, Some(300));
+        assert_eq!(building.rotation, Some(1));
+        assert_eq!(building.team_id, Some(2));
+        assert_eq!(building.io_version, Some(3));
+        assert_eq!(building.module_bitmask, Some(4));
+        assert_eq!(building.time_scale_bits, Some(0x3f80_0000));
+        assert_eq!(building.time_scale_duration_bits, Some(0x3f00_0000));
+        assert_eq!(building.last_disabler_pos, Some(123));
+        assert_eq!(building.legacy_consume_connected, Some(false));
+        assert_eq!(building.health_bits, Some(0x4000_0000));
+        assert_eq!(building.enabled, Some(true));
+        assert_eq!(building.efficiency, Some(0x40));
+        assert_eq!(building.optional_efficiency, Some(0x20));
+        assert_eq!(building.visible_flags, Some(99));
+        assert_eq!(
+            building.last_update,
+            BuildingProjectionUpdateKind::BlockSnapshotHead
+        );
+    }
+
+    #[test]
     fn block_snapshot_head_stores_build_turret_plan_summary_and_construct_finish_preserves_it() {
         let mut table = BuildingTableProjection::default();
         let build_pos = 0x0012_0034i32;
@@ -8388,6 +8557,64 @@ mod tests {
             building_after_construct.block_name.as_deref(),
             Some("payload-router")
         );
+    }
+
+    #[test]
+    fn deconstruct_finish_syncs_last_mirror_from_removed_building() {
+        let mut table = BuildingTableProjection::default();
+        let build_pos = 0x0012_0034i32;
+        table.apply_block_snapshot_head(
+            build_pos,
+            300,
+            Some("payload-router".to_string()),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            Some(TypeIoObject::Bool(true)),
+            Some(0x4000_0000),
+            Some(true),
+            Some(0x40),
+            Some(0x20),
+            Some(99),
+            Some(0x4260_0000),
+            Some(true),
+            Some(7),
+        );
+
+        table.apply_deconstruct_finish(build_pos, Some(301), Some("removed-router".to_string()));
+
+        assert!(!table.by_build_pos.contains_key(&build_pos));
+        assert_eq!(table.deconstruct_finish_apply_count, 1);
+        assert_eq!(table.last_build_pos, Some(build_pos));
+        assert_eq!(table.last_block_id, Some(301));
+        assert_eq!(table.last_block_name.as_deref(), Some("removed-router"));
+        assert_eq!(table.last_rotation, Some(1));
+        assert_eq!(table.last_team_id, Some(2));
+        assert_eq!(table.last_io_version, Some(3));
+        assert_eq!(table.last_module_bitmask, Some(4));
+        assert_eq!(table.last_time_scale_bits, Some(0x3f80_0000));
+        assert_eq!(table.last_time_scale_duration_bits, Some(0x3f00_0000));
+        assert_eq!(table.last_last_disabler_pos, Some(123));
+        assert_eq!(table.last_legacy_consume_connected, Some(true));
+        assert_eq!(table.last_config, Some(TypeIoObject::Bool(true)));
+        assert_eq!(table.last_health_bits, Some(0x4000_0000));
+        assert_eq!(table.last_enabled, Some(true));
+        assert_eq!(table.last_efficiency, Some(0x40));
+        assert_eq!(table.last_optional_efficiency, Some(0x20));
+        assert_eq!(table.last_visible_flags, Some(99));
+        assert_eq!(table.last_build_turret_rotation_bits, Some(0x4260_0000));
+        assert_eq!(table.last_build_turret_plans_present, Some(true));
+        assert_eq!(table.last_build_turret_plan_count, Some(7));
+        assert_eq!(
+            table.last_update,
+            Some(BuildingProjectionUpdateKind::DeconstructFinish)
+        );
+        assert!(table.last_removed);
     }
 
     #[test]
@@ -8780,6 +9007,75 @@ mod tests {
                 None
             );
         }
+
+        let mut state = SessionState::default();
+        let build_pos = 0x0005_0017i32;
+        seed_building(&mut state, build_pos, 317, "ground-factory");
+        state
+            .configured_block_projection
+            .apply_unit_factory_current_plan(build_pos, 4);
+        state
+            .configured_block_projection
+            .apply_unit_factory_command(build_pos, Some(7));
+        state
+            .configured_block_projection
+            .apply_unit_factory_runtime(
+                build_pos,
+                UnitFactoryRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    command_id: Some(9),
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                },
+            );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(TypedBuildingRuntimeValue::UnitFactory {
+                current_plan: Some(4),
+                progress_bits: Some(0x3f40_0000),
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                command_id: Some(7),
+                payload_present: Some(true),
+                pay_rotation_bits: Some(0x4000_0000),
+            })
+        );
+
+        state
+            .configured_block_projection
+            .clear_building_state(build_pos);
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(TypedBuildingRuntimeValue::UnitFactory {
+                current_plan: None,
+                progress_bits: None,
+                command_pos: None,
+                command_id: None,
+                payload_present: None,
+                pay_rotation_bits: None,
+            })
+        );
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(TypedBuildingRuntimeValue::UnitFactory {
+                current_plan: None,
+                progress_bits: None,
+                command_pos: None,
+                command_id: None,
+                payload_present: None,
+                pay_rotation_bits: None,
+            })
+        );
     }
 
     #[test]
@@ -13331,6 +13627,141 @@ mod tests {
     }
 
     #[test]
+    fn session_state_runtime_typed_building_projection_prefers_unit_factory_command_override() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000ei32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            307,
+            Some("ground-factory".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_unit_factory_current_plan(build_pos, 8);
+        state
+            .configured_block_projection
+            .apply_unit_factory_command(build_pos, Some(7));
+        state
+            .configured_block_projection
+            .apply_unit_factory_runtime(
+                build_pos,
+                UnitFactoryRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    command_id: Some(9),
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                },
+            );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(TypedBuildingRuntimeValue::UnitFactory {
+                current_plan: Some(8),
+                progress_bits: Some(0x3f40_0000),
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                command_id: Some(7),
+                payload_present: Some(true),
+                pay_rotation_bits: Some(0x4000_0000),
+            })
+        );
+
+        state
+            .configured_block_projection
+            .apply_unit_factory_command(build_pos, None);
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(TypedBuildingRuntimeValue::UnitFactory {
+                current_plan: Some(8),
+                progress_bits: Some(0x3f40_0000),
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                command_id: None,
+                payload_present: Some(true),
+                pay_rotation_bits: Some(0x4000_0000),
+            })
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_drops_out_of_range_unit_factory_command_override(
+    ) {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000fi32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            308,
+            Some("ground-factory".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_unit_factory_command(build_pos, Some(u16::from(u8::MAX) + 1));
+        state
+            .configured_block_projection
+            .apply_unit_factory_runtime(
+                build_pos,
+                UnitFactoryRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    command_id: Some(9),
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                },
+            );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(TypedBuildingRuntimeValue::UnitFactory {
+                current_plan: None,
+                progress_bits: Some(0x3f40_0000),
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                command_id: None,
+                payload_present: Some(true),
+                pay_rotation_bits: Some(0x4000_0000),
+            })
+        );
+    }
+
+    #[test]
     fn session_state_runtime_typed_building_projection_supports_build_tower_family() {
         let mut state = SessionState::default();
         let build_pos = 0x0008_000ai32;
@@ -13879,6 +14310,60 @@ mod tests {
     }
 
     #[test]
+    fn resource_delta_projection_set_build_item_exact_removes_empty_build_row() {
+        let mut projection = ResourceDeltaProjection::default();
+        let build_pos = pack_point2(8, 9);
+        projection
+            .building_items_by_build
+            .insert(build_pos, BTreeMap::from([(4, 12)]));
+
+        projection.set_build_item_exact(build_pos, 4, 0);
+
+        assert!(!projection.building_items_by_build.contains_key(&build_pos));
+    }
+
+    #[test]
+    fn resource_delta_projection_set_build_liquid_exact_removes_empty_build_row() {
+        let mut projection = ResourceDeltaProjection::default();
+        let build_pos = pack_point2(8, 9);
+        projection
+            .building_liquids_by_build
+            .insert(build_pos, BTreeMap::from([(4, 1.5f32.to_bits())]));
+
+        projection.set_build_liquid_exact(build_pos, 4, 0.0f32.to_bits());
+
+        assert!(!projection
+            .building_liquids_by_build
+            .contains_key(&build_pos));
+    }
+
+    #[test]
+    fn resource_delta_projection_remove_building_clears_items_and_liquids_with_single_authoritative_update(
+    ) {
+        let mut projection = ResourceDeltaProjection::default();
+        let build_pos = pack_point2(8, 9);
+        projection
+            .building_items_by_build
+            .insert(build_pos, BTreeMap::from([(4, 12)]));
+        projection
+            .building_liquids_by_build
+            .insert(build_pos, BTreeMap::from([(5, 1.5f32.to_bits())]));
+        projection.authoritative_build_update_count = 2;
+
+        projection.remove_building(Some(build_pos));
+
+        assert!(!projection.building_items_by_build.contains_key(&build_pos));
+        assert!(!projection
+            .building_liquids_by_build
+            .contains_key(&build_pos));
+        assert_eq!(projection.authoritative_build_update_count, 3);
+        assert_eq!(projection.last_changed_build_pos, Some(build_pos));
+        assert_eq!(projection.last_changed_entity_id, None);
+        assert_eq!(projection.last_changed_item_id, None);
+        assert_eq!(projection.last_changed_amount, Some(0));
+    }
+
+    #[test]
     fn resource_delta_projection_replace_entity_item_stack_exact_overwrites_and_clears() {
         let mut projection = ResourceDeltaProjection::default();
         projection.entity_item_stack_by_entity_id.insert(
@@ -13974,6 +14459,7 @@ mod tests {
                     shield_bits: 0,
                     mine_tile_pos: 0,
                     status_count: 0,
+                    statuses: Vec::new(),
                     payload_count: None,
                     building_pos: None,
                     lifetime_bits: None,
@@ -13981,6 +14467,7 @@ mod tests {
                     runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
+                    controller_snapshot: None,
                 }),
             },
         );
@@ -13997,6 +14484,7 @@ mod tests {
                     shield_bits: 0,
                     mine_tile_pos: 0,
                     status_count: 0,
+                    statuses: Vec::new(),
                     payload_count: None,
                     building_pos: None,
                     lifetime_bits: None,
@@ -14004,6 +14492,7 @@ mod tests {
                     runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
+                    controller_snapshot: None,
                 }),
             },
         );
@@ -14060,6 +14549,7 @@ mod tests {
                     shield_bits: 0,
                     mine_tile_pos: 0,
                     status_count: 0,
+                    statuses: Vec::new(),
                     payload_count: None,
                     building_pos: None,
                     lifetime_bits: None,
@@ -14067,6 +14557,7 @@ mod tests {
                     runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
+                    controller_snapshot: None,
                 }),
             },
         );
@@ -14137,6 +14628,47 @@ mod tests {
         assert!(!state.hidden_snapshot_ids.contains(&303));
         assert!(!state.entity_snapshot_tombstones.contains_key(&303));
         assert!(!state.entity_snapshot_tombstone_blocks_upsert(303));
+    }
+
+    #[test]
+    fn prune_entity_snapshot_tombstones_respects_inclusive_ttl_boundary() {
+        let mut state = SessionState::default();
+        state.entity_snapshot_tombstones.insert(101, 10);
+        state.entity_snapshot_tombstones.insert(202, 9);
+        state.received_entity_snapshot_count = 11;
+
+        assert!(state.entity_snapshot_tombstone_blocks_upsert(101));
+        assert!(!state.entity_snapshot_tombstone_blocks_upsert(202));
+
+        state.prune_entity_snapshot_tombstones();
+
+        assert_eq!(state.entity_snapshot_tombstones.get(&101), Some(&10));
+        assert!(!state.entity_snapshot_tombstones.contains_key(&202));
+        assert!(state.entity_snapshot_tombstone_blocks_upsert(101));
+        assert!(!state.entity_snapshot_tombstone_blocks_upsert(202));
+    }
+
+    #[test]
+    fn entity_snapshot_skip_samples_dedupe_and_cap_across_tombstone_and_hidden_paths() {
+        let mut state = SessionState::default();
+
+        for entity_id in [10, 10, 11, 12, 13, 14] {
+            state.record_entity_snapshot_tombstone_skip(entity_id);
+        }
+        for entity_id in [20, 20, 21, 22, 23, 24] {
+            state.record_entity_snapshot_hidden_skip(entity_id);
+        }
+
+        assert_eq!(state.entity_snapshot_tombstone_skip_count, 6);
+        assert_eq!(
+            state.last_entity_snapshot_tombstone_skipped_ids_sample,
+            vec![10, 11, 12, 13]
+        );
+        assert_eq!(state.entity_snapshot_hidden_skip_count, 6);
+        assert_eq!(
+            state.last_entity_snapshot_hidden_skipped_ids_sample,
+            vec![20, 21, 22, 23]
+        );
     }
 
     #[test]
@@ -14303,6 +14835,7 @@ mod tests {
                     shield_bits: 0,
                     mine_tile_pos: 0,
                     status_count: 0,
+                    statuses: Vec::new(),
                     payload_count: None,
                     building_pos: None,
                     lifetime_bits: None,
@@ -14310,6 +14843,7 @@ mod tests {
                     runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
+                    controller_snapshot: None,
                 }),
             },
         );
@@ -14841,6 +15375,7 @@ mod tests {
                 shield_bits: 0x4040_0000,
                 mine_tile_pos: 77,
                 status_count: 3,
+                statuses: Vec::new(),
                 payload_count: Some(1),
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
@@ -14848,6 +15383,7 @@ mod tests {
                 runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
+                controller_snapshot: None,
             }),
         );
         state
@@ -14883,6 +15419,7 @@ mod tests {
                     shield_bits: 0x4040_0000,
                     mine_tile_pos: 77,
                     status_count: 3,
+                    statuses: Vec::new(),
                     payload_count: Some(1),
                     building_pos: Some(88),
                     lifetime_bits: Some(0x4080_0000),
@@ -14890,6 +15427,7 @@ mod tests {
                     runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
+                    controller_snapshot: None,
                 },
                 unit_payload: None,
                 carried_item_stack: Some(ResourceUnitItemStack {
@@ -14930,6 +15468,7 @@ mod tests {
                 shield_bits: 0x4040_0000,
                 mine_tile_pos: 77,
                 status_count: 3,
+                statuses: Vec::new(),
                 payload_count: None,
                 building_pos: None,
                 lifetime_bits: None,
@@ -14937,6 +15476,7 @@ mod tests {
                 runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
+                controller_snapshot: None,
             }),
         );
         let nested_unit_payload = test_unit_payload_snapshot(
@@ -15004,6 +15544,7 @@ mod tests {
                     shield_bits: 0x4040_0000,
                     mine_tile_pos: 77,
                     status_count: 3,
+                    statuses: Vec::new(),
                     payload_count: Some(2),
                     building_pos: Some(88),
                     lifetime_bits: None,
@@ -15011,6 +15552,7 @@ mod tests {
                     runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
+                    controller_snapshot: None,
                 },
                 unit_payload: Some(unit_payload.clone()),
                 carried_item_stack: Some(ResourceUnitItemStack {
@@ -15050,6 +15592,7 @@ mod tests {
                 shield_bits: 0x4040_0000,
                 mine_tile_pos: 77,
                 status_count: 3,
+                statuses: Vec::new(),
                 payload_count: None,
                 building_pos: None,
                 lifetime_bits: None,
@@ -15057,6 +15600,7 @@ mod tests {
                 runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
+                controller_snapshot: None,
             }),
         );
         state
@@ -15316,6 +15860,7 @@ mod tests {
                 shield_bits: 0x4040_0000,
                 mine_tile_pos: 77,
                 status_count: 3,
+                statuses: Vec::new(),
                 payload_count: Some(1),
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
@@ -15323,6 +15868,7 @@ mod tests {
                 runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
+                controller_snapshot: None,
             }),
         );
         state.entity_semantic_projection.upsert(
@@ -15456,6 +16002,7 @@ mod tests {
                     shield_bits: 0x4040_0000,
                     mine_tile_pos: 77,
                     status_count: 3,
+                    statuses: Vec::new(),
                     payload_count: Some(1),
                     building_pos: Some(88),
                     lifetime_bits: Some(0x4080_0000),
@@ -15463,6 +16010,7 @@ mod tests {
                     runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
+                    controller_snapshot: None,
                 }),
             );
         }
@@ -15523,6 +16071,7 @@ mod tests {
                 shield_bits: 0x4040_0000,
                 mine_tile_pos: 77,
                 status_count: 3,
+                statuses: Vec::new(),
                 payload_count: Some(1),
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
@@ -15530,6 +16079,7 @@ mod tests {
                 runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
+                controller_snapshot: None,
             }),
         );
 
@@ -15586,6 +16136,7 @@ mod tests {
                 shield_bits: 0x4040_0000,
                 mine_tile_pos: 77,
                 status_count: 3,
+                statuses: Vec::new(),
                 payload_count: Some(1),
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
@@ -15593,6 +16144,7 @@ mod tests {
                 runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
+                controller_snapshot: None,
             }),
         );
 
@@ -15632,9 +16184,7 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn hidden_snapshot_rebuilds_runtime_typed_entity_apply_projection() {
-        let mut state = SessionState::default();
+    fn seed_local_player_101(state: &mut SessionState) {
         state.entity_table_projection.local_player_entity_id = Some(101);
         state.entity_table_projection.by_entity_id.insert(
             101,
@@ -15649,23 +16199,29 @@ mod tests {
                 last_seen_entity_snapshot_count: 1,
             },
         );
+    }
+
+    fn seed_runtime_unit_entity(state: &mut SessionState, entity_id: i32) {
         state.entity_table_projection.by_entity_id.insert(
-            202,
+            entity_id,
             EntityProjection {
                 class_id: 4,
                 hidden: false,
                 is_local_player: false,
                 unit_kind: 2,
-                unit_value: 202,
-                x_bits: 3.0f32.to_bits(),
-                y_bits: 4.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 2,
+                unit_value: entity_id as u32,
+                x_bits: (entity_id as f32).to_bits(),
+                y_bits: (entity_id as f32 + 1.0).to_bits(),
+                last_seen_entity_snapshot_count: entity_id as u64,
             },
         );
+    }
+
+    fn upsert_runtime_unit_semantic(state: &mut SessionState, entity_id: i32) {
         state.entity_semantic_projection.upsert(
-            202,
+            entity_id,
             4,
-            2,
+            entity_id as u64,
             EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
                 team_id: 2,
                 unit_type_id: 55,
@@ -15674,6 +16230,7 @@ mod tests {
                 shield_bits: 0x4040_0000,
                 mine_tile_pos: 0,
                 status_count: 0,
+                statuses: Vec::new(),
                 payload_count: None,
                 building_pos: None,
                 lifetime_bits: None,
@@ -15681,10 +16238,18 @@ mod tests {
                 runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
+                controller_snapshot: None,
             }),
         );
-        state.rebuild_runtime_typed_entity_projection_from_tables();
+    }
 
+    fn seed_runtime_hidden_snapshot_state_101_202(state: &mut SessionState) {
+        seed_local_player_101(state);
+        seed_runtime_unit_entity(state, 202);
+        upsert_runtime_unit_semantic(state, 202);
+    }
+
+    fn apply_hidden_snapshot_202(state: &mut SessionState) {
         state.apply_hidden_snapshot(
             AppliedHiddenSnapshotIds {
                 count: 1,
@@ -15693,86 +16258,62 @@ mod tests {
             },
             BTreeSet::from([202]),
         );
+    }
+
+    fn assert_runtime_typed_projection_counts(
+        projection: &TypedRuntimeEntityProjection,
+        player_count: usize,
+        unit_count: usize,
+        hidden_count: usize,
+    ) {
+        assert_eq!(projection.player_count, player_count);
+        assert_eq!(projection.unit_count, unit_count);
+        assert_eq!(projection.hidden_count, hidden_count);
+    }
+
+    fn assert_runtime_typed_projection_membership(
+        projection: &TypedRuntimeEntityProjection,
+        present: &[i32],
+        absent: &[i32],
+    ) {
+        for &entity_id in present {
+            assert!(projection.by_entity_id.contains_key(&entity_id));
+        }
+        for &entity_id in absent {
+            assert!(!projection.by_entity_id.contains_key(&entity_id));
+        }
+    }
+
+    #[test]
+    fn hidden_snapshot_rebuilds_runtime_typed_entity_apply_projection() {
+        let mut state = SessionState::default();
+        seed_runtime_hidden_snapshot_state_101_202(&mut state);
+        state.rebuild_runtime_typed_entity_projection_from_tables();
+
+        apply_hidden_snapshot_202(&mut state);
 
         let projection = state.runtime_typed_entity_projection();
-        assert_eq!(projection.player_count, 1);
-        assert_eq!(projection.unit_count, 0);
-        assert_eq!(projection.hidden_count, 0);
+        assert_runtime_typed_projection_counts(&projection, 1, 0, 0);
         assert_eq!(projection.local_player_entity_id, Some(101));
-        assert!(projection.by_entity_id.contains_key(&101));
-        assert!(!projection.by_entity_id.contains_key(&202));
+        assert_runtime_typed_projection_membership(&projection, &[101], &[202]);
     }
 
     #[test]
     fn hidden_snapshot_runtime_typed_transition_does_not_reseed_unrelated_table_rows() {
         let mut state = SessionState::default();
-        state.entity_table_projection.local_player_entity_id = Some(101);
-        state.entity_table_projection.by_entity_id.insert(
-            101,
-            EntityProjection {
-                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
-                hidden: false,
-                is_local_player: true,
-                unit_kind: 2,
-                unit_value: 101,
-                x_bits: 1.0f32.to_bits(),
-                y_bits: 2.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
+        seed_local_player_101(&mut state);
         for entity_id in [202, 303] {
-            state.entity_table_projection.by_entity_id.insert(
-                entity_id,
-                EntityProjection {
-                    class_id: 4,
-                    hidden: false,
-                    is_local_player: false,
-                    unit_kind: 2,
-                    unit_value: entity_id as u32,
-                    x_bits: (entity_id as f32).to_bits(),
-                    y_bits: (entity_id as f32 + 1.0).to_bits(),
-                    last_seen_entity_snapshot_count: entity_id as u64,
-                },
-            );
-            state.entity_semantic_projection.upsert(
-                entity_id,
-                4,
-                entity_id as u64,
-                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
-                    team_id: 2,
-                    unit_type_id: 55,
-                    health_bits: 0x3f80_0000,
-                    rotation_bits: 0x4000_0000,
-                    shield_bits: 0x4040_0000,
-                    mine_tile_pos: 0,
-                    status_count: 0,
-                    payload_count: None,
-                    building_pos: None,
-                    lifetime_bits: None,
-                    time_bits: None,
-                    runtime_sync: None,
-                    controller_type: 0,
-                    controller_value: None,
-                }),
-            );
+            seed_runtime_unit_entity(&mut state, entity_id);
+            upsert_runtime_unit_semantic(&mut state, entity_id);
         }
 
         state.refresh_runtime_typed_entity_from_tables(101);
         state.refresh_runtime_typed_entity_from_tables(202);
 
         let before = state.runtime_typed_entity_projection();
-        assert!(before.by_entity_id.contains_key(&101));
-        assert!(before.by_entity_id.contains_key(&202));
-        assert!(!before.by_entity_id.contains_key(&303));
+        assert_runtime_typed_projection_membership(&before, &[101, 202], &[303]);
 
-        state.apply_hidden_snapshot(
-            AppliedHiddenSnapshotIds {
-                count: 1,
-                first_id: Some(202),
-                sample_ids: vec![202],
-            },
-            BTreeSet::from([202]),
-        );
+        apply_hidden_snapshot_202(&mut state);
 
         let projection = state.runtime_typed_entity_projection();
         assert!(state
@@ -15783,65 +16324,14 @@ mod tests {
             .entity_semantic_projection
             .by_entity_id
             .contains_key(&303));
-        assert!(projection.by_entity_id.contains_key(&101));
-        assert!(!projection.by_entity_id.contains_key(&202));
-        assert!(!projection.by_entity_id.contains_key(&303));
-        assert_eq!(projection.player_count, 1);
-        assert_eq!(projection.unit_count, 0);
-        assert_eq!(projection.hidden_count, 0);
+        assert_runtime_typed_projection_membership(&projection, &[101], &[202, 303]);
+        assert_runtime_typed_projection_counts(&projection, 1, 0, 0);
     }
 
     #[test]
     fn repeated_hidden_snapshot_reasserts_runtime_typed_entity_suppression() {
         let mut state = SessionState::default();
-        state.entity_table_projection.local_player_entity_id = Some(101);
-        state.entity_table_projection.by_entity_id.insert(
-            101,
-            EntityProjection {
-                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
-                hidden: false,
-                is_local_player: true,
-                unit_kind: 2,
-                unit_value: 101,
-                x_bits: 1.0f32.to_bits(),
-                y_bits: 2.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 1,
-            },
-        );
-        state.entity_table_projection.by_entity_id.insert(
-            202,
-            EntityProjection {
-                class_id: 4,
-                hidden: false,
-                is_local_player: false,
-                unit_kind: 2,
-                unit_value: 202,
-                x_bits: 3.0f32.to_bits(),
-                y_bits: 4.0f32.to_bits(),
-                last_seen_entity_snapshot_count: 2,
-            },
-        );
-        state.entity_semantic_projection.upsert(
-            202,
-            4,
-            2,
-            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
-                team_id: 2,
-                unit_type_id: 55,
-                health_bits: 0x3f80_0000,
-                rotation_bits: 0x4000_0000,
-                shield_bits: 0x4040_0000,
-                mine_tile_pos: 0,
-                status_count: 0,
-                payload_count: None,
-                building_pos: None,
-                lifetime_bits: None,
-                time_bits: None,
-                runtime_sync: None,
-                controller_type: 0,
-                controller_value: None,
-            }),
-        );
+        seed_runtime_hidden_snapshot_state_101_202(&mut state);
         state.rebuild_runtime_typed_entity_projection_from_tables();
         let stale_model = state
             .runtime_typed_entity_projection()
@@ -15849,35 +16339,23 @@ mod tests {
             .cloned()
             .expect("expected runtime entity before hidden snapshot");
 
-        state.apply_hidden_snapshot(
-            AppliedHiddenSnapshotIds {
-                count: 1,
-                first_id: Some(202),
-                sample_ids: vec![202],
-            },
-            BTreeSet::from([202]),
+        apply_hidden_snapshot_202(&mut state);
+        assert_runtime_typed_projection_membership(
+            &state.runtime_typed_entity_projection(),
+            &[],
+            &[202],
         );
-        assert!(!state
-            .runtime_typed_entity_projection()
-            .by_entity_id
-            .contains_key(&202));
 
         state
             .runtime_typed_entity_apply_projection
             .upsert_runtime_entity(stale_model);
-        assert!(state
-            .runtime_typed_entity_projection()
-            .by_entity_id
-            .contains_key(&202));
-
-        state.apply_hidden_snapshot(
-            AppliedHiddenSnapshotIds {
-                count: 1,
-                first_id: Some(202),
-                sample_ids: vec![202],
-            },
-            BTreeSet::from([202]),
+        assert_runtime_typed_projection_membership(
+            &state.runtime_typed_entity_projection(),
+            &[202],
+            &[],
         );
+
+        apply_hidden_snapshot_202(&mut state);
 
         assert_eq!(
             state.hidden_snapshot_delta_projection,
@@ -15890,7 +16368,6 @@ mod tests {
             })
         );
         let projection = state.runtime_typed_entity_projection();
-        assert!(projection.by_entity_id.contains_key(&101));
-        assert!(!projection.by_entity_id.contains_key(&202));
+        assert_runtime_typed_projection_membership(&projection, &[101], &[202]);
     }
 }

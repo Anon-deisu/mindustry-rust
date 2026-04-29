@@ -297,31 +297,7 @@ impl RuntimeCustomPacketSurfaceState {
     }
 
     fn observe_events(&mut self, events: &[ClientSessionEvent]) {
-        if events
-            .iter()
-            .any(|event| {
-                matches!(
-                    event,
-                    ClientSessionEvent::WorldDataBegin
-                        | ClientSessionEvent::WorldStreamStarted { .. }
-                        | ClientSessionEvent::ConnectRedirectRequested { .. }
-                )
-            })
-        {
-            let reason = if events.iter().any(|event| {
-                matches!(
-                    event,
-                    ClientSessionEvent::ConnectRedirectRequested { .. }
-                )
-            }) {
-                "connect_redirect"
-            } else if events.iter().any(|event| {
-                matches!(event, ClientSessionEvent::WorldStreamStarted { .. })
-            }) {
-                "world_stream_started"
-            } else {
-                "world_data_begin"
-            };
+        if let Some(reason) = ClientSessionEvent::preferred_runtime_transient_reset_reason(events) {
             self.clear_last_values(reason);
         }
         for event in events {
@@ -939,6 +915,10 @@ fn finite_world_pos(x: f64, y: f64) -> Option<(f64, f64)> {
     (x.is_finite() && y.is_finite()).then_some((x, y))
 }
 
+pub fn finite_surface_world_pos(x: f32, y: f32) -> Option<(f32, f32)> {
+    (x.is_finite() && y.is_finite()).then_some((x, y))
+}
+
 fn extract_logic_unit_id(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'static str> {
     let extracted = logic_helpers::extract_logic_unit_id(value).ok_or("no_unit_id_payload")?;
     let (unit_id, source) = (extracted.value, extracted.source);
@@ -996,44 +976,40 @@ fn position_overlay_marker(
     }
 }
 
-fn build_pos_world_pos(build_pos: i32) -> (f32, f32) {
+pub fn parse_surface_build_pos(value: &str) -> Option<i32> {
+    value.trim().parse::<i32>().ok()
+}
+
+pub fn build_pos_world_pos(build_pos: i32) -> (f32, f32) {
     let (tile_x, tile_y) = unpack_point2(build_pos);
     (tile_x as f32 * 8.0, tile_y as f32 * 8.0)
+}
+
+pub fn parse_surface_world_pos(value: &str) -> Option<(f32, f32)> {
+    parse_surface_world_pos_pair(value, ',')
+        .or_else(|| parse_surface_world_pos_pair(value, ':'))
+        .and_then(|(x, y)| finite_surface_world_pos(x, y))
+}
+
+fn parse_surface_world_pos_pair(value: &str, separator: char) -> Option<(f32, f32)> {
+    let (left, right) = value.trim().split_once(separator)?;
+    Some((left.trim().parse().ok()?, right.trim().parse().ok()?))
 }
 
 fn parse_text_world_pos(text: &str) -> Option<(f64, f64, &'static str)> {
     let trimmed = text.trim();
     if trimmed.starts_with('{') {
-        let x = extract_json_number_field(trimmed, "x")?;
-        let y = extract_json_number_field(trimmed, "y")?;
-        return Some((x, y, "json_xy"));
+        return parse_text_world_pos_from_json(trimmed);
     }
-    if let Some((left, right)) = trimmed.split_once(':') {
-        return Some((
-            left.trim().parse().ok()?,
-            right.trim().parse().ok()?,
-            "pair_colon",
-        ));
-    }
-    if let Some((left, right)) = trimmed.split_once(',') {
-        return Some((
-            left.trim().parse().ok()?,
-            right.trim().parse().ok()?,
-            "pair_comma",
-        ));
-    }
-    None
+    parse_text_world_pos_pair(trimmed, ':', "pair_colon")
+        .or_else(|| parse_text_world_pos_pair(trimmed, ',', "pair_comma"))
 }
 
 fn parse_text_i32(text: &str) -> Option<i32> {
     let trimmed = text.trim();
-    trimmed
-        .parse::<i32>()
-        .ok()
-        .or_else(|| extract_json_number_field(trimmed, "value").and_then(f64_to_i32))
-        .or_else(|| extract_json_number_field(trimmed, "id").and_then(f64_to_i32))
-        .or_else(|| extract_json_number_field(trimmed, "buildPos").and_then(f64_to_i32))
-        .or_else(|| extract_json_number_field(trimmed, "unitId").and_then(f64_to_i32))
+    trimmed.parse::<i32>().ok().or_else(|| {
+        extract_json_number_fields(trimmed, &["value", "id", "buildPos", "unitId"], f64_to_i32)
+    })
 }
 
 fn parse_text_u8(text: &str) -> Option<u8> {
@@ -1041,8 +1017,7 @@ fn parse_text_u8(text: &str) -> Option<u8> {
     trimmed
         .parse::<u8>()
         .ok()
-        .or_else(|| extract_json_number_field(trimmed, "value").and_then(f64_to_u8))
-        .or_else(|| extract_json_number_field(trimmed, "team").and_then(f64_to_u8))
+        .or_else(|| extract_json_number_fields(trimmed, &["value", "team"], f64_to_u8))
 }
 
 fn parse_text_bool(text: &str) -> Option<bool> {
@@ -1061,12 +1036,36 @@ fn parse_text_f64(text: &str) -> Option<f64> {
     trimmed
         .parse::<f64>()
         .ok()
-        .or_else(|| extract_json_number_field(trimmed, "value"))
-        .or_else(|| extract_json_number_field(trimmed, "number"))
+        .or_else(|| extract_json_number_fields(trimmed, &["value", "number"], some_f64))
 }
 
 fn extract_json_number_field(text: &str, field: &str) -> Option<f64> {
-    let value = extract_json_field_value(text, field)?;
+    extract_json_field_literal(text, field, parse_json_number_literal)
+}
+
+fn extract_json_number_fields<T>(
+    text: &str,
+    fields: &[&str],
+    convert: fn(f64) -> Option<T>,
+) -> Option<T> {
+    fields
+        .iter()
+        .find_map(|field| extract_json_number_field(text, field).and_then(convert))
+}
+
+fn extract_json_bool_field(text: &str, field: &str) -> Option<bool> {
+    extract_json_field_literal(text, field, parse_json_bool_literal)
+}
+
+fn extract_json_field_literal<T>(
+    text: &str,
+    field: &str,
+    parser: fn(&str) -> Option<T>,
+) -> Option<T> {
+    parser(extract_json_field_value(text, field)?)
+}
+
+fn parse_json_number_literal(value: &str) -> Option<f64> {
     let mut end = 0usize;
     for (idx, ch) in value.char_indices() {
         if idx == 0 && (ch == '-' || ch == '+') {
@@ -1085,8 +1084,7 @@ fn extract_json_number_field(text: &str, field: &str) -> Option<f64> {
     json_literal_terminated(value, end).then(|| value[..end].parse::<f64>().ok())?
 }
 
-fn extract_json_bool_field(text: &str, field: &str) -> Option<bool> {
-    let value = extract_json_field_value(text, field)?;
+fn parse_json_bool_literal(value: &str) -> Option<bool> {
     if value.starts_with("true") && json_literal_terminated(value, "true".len()) {
         return Some(true);
     }
@@ -1155,6 +1153,31 @@ fn json_literal_terminated(value: &str, parsed_len: usize) -> bool {
         .is_none_or(|ch| ch.is_ascii_whitespace() || matches!(ch, ',' | '}' | ']'))
 }
 
+fn parse_text_world_pos_from_json(trimmed: &str) -> Option<(f64, f64, &'static str)> {
+    Some((
+        extract_json_number_field(trimmed, "x")?,
+        extract_json_number_field(trimmed, "y")?,
+        "json_xy",
+    ))
+}
+
+fn parse_text_world_pos_pair(
+    trimmed: &str,
+    separator: char,
+    source: &'static str,
+) -> Option<(f64, f64, &'static str)> {
+    let (left, right) = trimmed.split_once(separator)?;
+    Some((
+        left.trim().parse().ok()?,
+        right.trim().parse().ok()?,
+        source,
+    ))
+}
+
+fn some_f64(value: f64) -> Option<f64> {
+    Some(value)
+}
+
 fn f64_to_i32(value: f64) -> Option<i32> {
     (value.fract() == 0.0 && value >= i32::MIN as f64 && value <= i32::MAX as f64)
         .then_some(value as i32)
@@ -1167,6 +1190,18 @@ fn f64_to_u8(value: f64) -> Option<u8> {
 
 fn format_compact_world_pos(x: f64, y: f64) -> String {
     format!("{},{}", trim_trailing_zeroes(x), trim_trailing_zeroes(y))
+}
+
+pub fn format_coord(value: f32) -> String {
+    let rendered = value.to_string();
+    if rendered.contains('.') {
+        rendered
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    } else {
+        rendered
+    }
 }
 
 fn trim_trailing_zeroes(value: f64) -> String {
@@ -1271,19 +1306,69 @@ mod tests {
     use super::*;
     use mdt_typeio::pack_point2;
 
+    fn register_surface_route(
+        state: &mut RuntimeCustomPacketSurfaceState,
+        key: &str,
+        encoding: RuntimeCustomPacketSemanticEncoding,
+        semantic: RuntimeCustomPacketSemanticKind,
+    ) {
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: key.to_string(),
+            encoding,
+            semantic,
+        });
+    }
+
+    fn seeded_text_build_marker_state() -> RuntimeCustomPacketSurfaceState {
+        let mut state = RuntimeCustomPacketSurfaceState::default();
+        register_surface_route(
+            &mut state,
+            "text.build",
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::BuildPos,
+        );
+        state.record_text_handler("text.build", &pack_point2(4, 6).to_string());
+        state
+    }
+
+    fn assert_build_marker_surface_seeded(state: &RuntimeCustomPacketSurfaceState) {
+        assert_eq!(state.overlay_markers(4).len(), 1);
+        assert!(state.overlay_summary_text(4).is_some());
+        assert_eq!(state.latest_summary_entries(4).len(), 1);
+    }
+
+    fn assert_surface_reset_clears_marker_state(
+        state: &mut RuntimeCustomPacketSurfaceState,
+        events: &[ClientSessionEvent],
+        reason: &str,
+    ) {
+        state.observe_events(events);
+
+        let lines = state.drain_lines();
+        assert!(lines.iter().any(|line| {
+            line.contains("runtime_custom_packet_surface_reset:")
+                && line.contains(&format!("reason={reason:?}"))
+        }));
+        assert!(state.overlay_markers(4).is_empty());
+        assert_eq!(state.overlay_summary_text(4), None);
+        assert!(state.latest_summary_entries(4).is_empty());
+    }
+
     #[test]
     fn runtime_custom_packet_surface_overlay_summary_tracks_latest_updates_and_reset() {
         let mut state = RuntimeCustomPacketSurfaceState::default();
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "custom.status".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::HudText,
-        });
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "logic.pos".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-        });
+        register_surface_route(
+            &mut state,
+            "custom.status",
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::HudText,
+        );
+        register_surface_route(
+            &mut state,
+            "logic.pos",
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::WorldPos,
+        );
 
         state.record_text_handler("custom.status", "wave ready");
         state.record_logic_data_handler(
@@ -1591,21 +1676,24 @@ mod tests {
     #[test]
     fn runtime_custom_packet_surface_overlay_markers_export_world_and_build_positions() {
         let mut state = RuntimeCustomPacketSurfaceState::default();
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "text.world".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-        });
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "text.build".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
-        });
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "logic.build".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
-        });
+        register_surface_route(
+            &mut state,
+            "text.world",
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::WorldPos,
+        );
+        register_surface_route(
+            &mut state,
+            "text.build",
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::BuildPos,
+        );
+        register_surface_route(
+            &mut state,
+            "logic.build",
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::BuildPos,
+        );
 
         state.record_text_handler("text.world", "{\"x\":12.5,\"y\":-4}");
         state.record_text_handler("text.build", &pack_point2(3, 5).to_string());
@@ -1645,92 +1733,58 @@ mod tests {
 
     #[test]
     fn runtime_custom_packet_surface_overlay_markers_reset_on_world_data_begin() {
-        let mut state = RuntimeCustomPacketSurfaceState::default();
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "text.build".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
-        });
-
-        state.record_text_handler("text.build", &pack_point2(4, 6).to_string());
-        assert_eq!(state.overlay_markers(4).len(), 1);
-
-        state.observe_events(&[ClientSessionEvent::WorldDataBegin]);
-
-        assert!(state.overlay_markers(4).is_empty());
+        let mut state = seeded_text_build_marker_state();
+        assert_build_marker_surface_seeded(&state);
+        assert_surface_reset_clears_marker_state(
+            &mut state,
+            &[ClientSessionEvent::WorldDataBegin],
+            "world_data_begin",
+        );
     }
 
     #[test]
     fn runtime_custom_packet_surface_overlay_markers_reset_on_connect_redirect() {
-        let mut state = RuntimeCustomPacketSurfaceState::default();
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "text.build".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
-        });
-
-        state.record_text_handler("text.build", &pack_point2(4, 6).to_string());
-        assert_eq!(state.overlay_markers(4).len(), 1);
-        assert!(state.overlay_summary_text(4).is_some());
-        assert_eq!(state.latest_summary_entries(4).len(), 1);
-
-        state.observe_events(&[ClientSessionEvent::ConnectRedirectRequested {
-            ip: "127.0.0.1".to_string(),
-            port: 6568,
-        }]);
-
-        let lines = state.drain_lines();
-        assert!(lines.iter().any(|line| {
-            line.contains("runtime_custom_packet_surface_reset:")
-                && line.contains("reason=\"connect_redirect\"")
-        }));
-        assert!(state.overlay_markers(4).is_empty());
-        assert_eq!(state.overlay_summary_text(4), None);
-        assert!(state.latest_summary_entries(4).is_empty());
+        let mut state = seeded_text_build_marker_state();
+        assert_build_marker_surface_seeded(&state);
+        assert_surface_reset_clears_marker_state(
+            &mut state,
+            &[ClientSessionEvent::ConnectRedirectRequested {
+                ip: "127.0.0.1".to_string(),
+                port: 6568,
+            }],
+            "connect_redirect",
+        );
     }
 
     #[test]
     fn runtime_custom_packet_surface_overlay_markers_reset_on_world_stream_started() {
-        let mut state = RuntimeCustomPacketSurfaceState::default();
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "text.build".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
-        });
-
-        state.record_text_handler("text.build", &pack_point2(4, 6).to_string());
-        assert_eq!(state.overlay_markers(4).len(), 1);
-        assert!(state.overlay_summary_text(4).is_some());
-        assert_eq!(state.latest_summary_entries(4).len(), 1);
-
-        state.observe_events(&[ClientSessionEvent::WorldStreamStarted {
-            stream_id: 3,
-            total_bytes: 1024,
-        }]);
-
-        let lines = state.drain_lines();
-        assert!(lines.iter().any(|line| {
-            line.contains("runtime_custom_packet_surface_reset:")
-                && line.contains("reason=\"world_stream_started\"")
-        }));
-        assert!(state.overlay_markers(4).is_empty());
-        assert_eq!(state.overlay_summary_text(4), None);
-        assert!(state.latest_summary_entries(4).is_empty());
+        let mut state = seeded_text_build_marker_state();
+        assert_build_marker_surface_seeded(&state);
+        assert_surface_reset_clears_marker_state(
+            &mut state,
+            &[ClientSessionEvent::WorldStreamStarted {
+                stream_id: 3,
+                total_bytes: 1024,
+            }],
+            "world_stream_started",
+        );
     }
 
     #[test]
     fn runtime_custom_packet_surface_latest_summary_entries_export_stable_values_and_markers() {
         let mut state = RuntimeCustomPacketSurfaceState::default();
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "custom.status".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::HudText,
-        });
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "logic.pos".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-        });
+        register_surface_route(
+            &mut state,
+            "custom.status",
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::HudText,
+        );
+        register_surface_route(
+            &mut state,
+            "logic.pos",
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::WorldPos,
+        );
 
         state.record_text_handler("custom.status", "wave ready");
         state.record_logic_data_handler(

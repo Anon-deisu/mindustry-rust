@@ -1,4 +1,6 @@
-use crate::session_state::AppliedStateSnapshotCoreData;
+use crate::session_state::{
+    AppliedStateSnapshot, AppliedStateSnapshotCoreData, GameplayStateProjection,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -24,6 +26,26 @@ pub struct StateSnapshotCoreInventoryTransition {
     pub inventory: StateSnapshotCoreInventorySemantics,
     pub changed_team_ids: BTreeSet<u8>,
     pub synced: bool,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct StateSnapshotHeadPrevious {
+    pub wave: i32,
+    pub time_data: i32,
+    pub gameplay_state: GameplayStateProjection,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct StateSnapshotHeadTransition {
+    pub gameplay_state: GameplayStateProjection,
+    pub gameplay_state_changed: bool,
+    pub last_wave_advanced: bool,
+    pub last_wave_advance_from: Option<i32>,
+    pub last_wave_advance_to: Option<i32>,
+    pub last_net_seconds_rollback: bool,
+    pub net_seconds_delta: i32,
+    pub wave_regressed: bool,
+    pub time_regressed: bool,
 }
 
 impl StateSnapshotCoreInventorySemantics {
@@ -124,137 +146,190 @@ pub fn derive_state_snapshot_core_inventory_transition(
     }
 }
 
+pub const fn derive_gameplay_state_projection(
+    paused: bool,
+    game_over: bool,
+) -> GameplayStateProjection {
+    if game_over {
+        GameplayStateProjection::GameOver
+    } else if paused {
+        GameplayStateProjection::Paused
+    } else {
+        GameplayStateProjection::Playing
+    }
+}
+
+pub fn derive_state_snapshot_head_transition(
+    previous: Option<StateSnapshotHeadPrevious>,
+    snapshot: &AppliedStateSnapshot,
+) -> StateSnapshotHeadTransition {
+    let previous_wave = previous.map(|previous| previous.wave).unwrap_or_default();
+    let previous_time_data = previous
+        .map(|previous| previous.time_data)
+        .unwrap_or_default();
+    let gameplay_state = derive_gameplay_state_projection(snapshot.paused, snapshot.game_over);
+    let last_wave_advanced = snapshot.wave > previous_wave;
+    let last_net_seconds_rollback = snapshot.time_data < previous_time_data;
+    let net_seconds_delta_i64 = i64::from(snapshot.time_data) - i64::from(previous_time_data);
+
+    StateSnapshotHeadTransition {
+        gameplay_state,
+        gameplay_state_changed: previous
+            .map(|previous| previous.gameplay_state != gameplay_state)
+            .unwrap_or(false),
+        last_wave_advanced,
+        last_wave_advance_from: last_wave_advanced.then_some(previous_wave),
+        last_wave_advance_to: last_wave_advanced.then_some(snapshot.wave),
+        last_net_seconds_rollback,
+        net_seconds_delta: net_seconds_delta_i64.clamp(i64::from(i32::MIN), i64::from(i32::MAX))
+            as i32,
+        wave_regressed: snapshot.wave < previous_wave,
+        time_regressed: last_net_seconds_rollback,
+    }
+}
+
+pub fn sample_changed_team_ids(changed_team_ids: &BTreeSet<u8>, limit: usize) -> Vec<u8> {
+    changed_team_ids.iter().take(limit).copied().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        derive_state_snapshot_core_inventory_transition, StateSnapshotCoreInventoryPrevious,
-        StateSnapshotCoreInventorySemantics,
+        derive_gameplay_state_projection, derive_state_snapshot_core_inventory_transition,
+        derive_state_snapshot_head_transition, sample_changed_team_ids,
+        StateSnapshotCoreInventoryPrevious, StateSnapshotCoreInventorySemantics,
+        StateSnapshotHeadPrevious,
     };
     use crate::session_state::{
-        AppliedStateSnapshotCoreData, AppliedStateSnapshotCoreDataItem,
-        AppliedStateSnapshotCoreDataTeam,
+        AppliedStateSnapshot, AppliedStateSnapshotCoreData, AppliedStateSnapshotCoreDataItem,
+        AppliedStateSnapshotCoreDataTeam, GameplayStateProjection,
     };
     use std::collections::{BTreeMap, BTreeSet};
 
+    fn inventory_map(teams: &[(u8, &[(u16, i32)])]) -> BTreeMap<u8, BTreeMap<u16, i32>> {
+        teams
+            .iter()
+            .map(|&(team_id, items)| (team_id, BTreeMap::from_iter(items.iter().copied())))
+            .collect()
+    }
+
+    fn inventory_previous(
+        inventory_by_team: &BTreeMap<u8, BTreeMap<u16, i32>>,
+        item_entry_count: usize,
+        total_amount: i64,
+        nonzero_item_count: usize,
+    ) -> StateSnapshotCoreInventoryPrevious<'_> {
+        StateSnapshotCoreInventoryPrevious {
+            inventory_by_team,
+            item_entry_count,
+            total_amount,
+            nonzero_item_count,
+        }
+    }
+
+    fn core_team(team_id: u8, items: &[(u16, i32)]) -> AppliedStateSnapshotCoreDataTeam {
+        AppliedStateSnapshotCoreDataTeam {
+            team_id,
+            items: items
+                .iter()
+                .map(|&(item_id, amount)| AppliedStateSnapshotCoreDataItem { item_id, amount })
+                .collect(),
+        }
+    }
+
+    fn core_data(teams: Vec<AppliedStateSnapshotCoreDataTeam>) -> AppliedStateSnapshotCoreData {
+        AppliedStateSnapshotCoreData {
+            team_count: u8::try_from(teams.len())
+                .expect("test core_data team count should fit in u8"),
+            teams,
+        }
+    }
+
+    fn assert_inventory_totals(
+        semantics: &StateSnapshotCoreInventorySemantics,
+        item_entry_count: usize,
+        total_amount: i64,
+        nonzero_item_count: usize,
+    ) {
+        assert_eq!(semantics.item_entry_count, item_entry_count);
+        assert_eq!(semantics.total_amount, total_amount);
+        assert_eq!(semantics.nonzero_item_count, nonzero_item_count);
+    }
+
+    fn head_previous(
+        wave: i32,
+        time_data: i32,
+        gameplay_state: GameplayStateProjection,
+    ) -> StateSnapshotHeadPrevious {
+        StateSnapshotHeadPrevious {
+            wave,
+            time_data,
+            gameplay_state,
+        }
+    }
+
+    fn snapshot_head(
+        wave: i32,
+        time_data: i32,
+        paused: bool,
+        game_over: bool,
+    ) -> AppliedStateSnapshot {
+        AppliedStateSnapshot {
+            wave,
+            time_data,
+            paused,
+            game_over,
+            ..AppliedStateSnapshot::default()
+        }
+    }
+
     #[test]
     fn fold_core_inventory_uses_last_write_wins_for_duplicate_teams_and_items() {
-        let semantics =
-            StateSnapshotCoreInventorySemantics::from_core_data(&AppliedStateSnapshotCoreData {
-                team_count: 3,
-                teams: vec![
-                    AppliedStateSnapshotCoreDataTeam {
-                        team_id: 1,
-                        items: vec![
-                            AppliedStateSnapshotCoreDataItem {
-                                item_id: 0,
-                                amount: 10,
-                            },
-                            AppliedStateSnapshotCoreDataItem {
-                                item_id: 0,
-                                amount: 20,
-                            },
-                        ],
-                    },
-                    AppliedStateSnapshotCoreDataTeam {
-                        team_id: 1,
-                        items: vec![AppliedStateSnapshotCoreDataItem {
-                            item_id: 1,
-                            amount: 30,
-                        }],
-                    },
-                    AppliedStateSnapshotCoreDataTeam {
-                        team_id: 2,
-                        items: vec![
-                            AppliedStateSnapshotCoreDataItem {
-                                item_id: 4,
-                                amount: 40,
-                            },
-                            AppliedStateSnapshotCoreDataItem {
-                                item_id: 4,
-                                amount: 0,
-                            },
-                        ],
-                    },
-                ],
-            });
+        let semantics = StateSnapshotCoreInventorySemantics::from_core_data(&core_data(vec![
+            core_team(1, &[(0, 10), (0, 20)]),
+            core_team(1, &[(1, 30)]),
+            core_team(2, &[(4, 40), (4, 0)]),
+        ]));
 
         assert_eq!(semantics.duplicate_team_count, 1);
         assert_eq!(semantics.duplicate_item_count, 2);
         assert_eq!(
             semantics.inventory_by_team,
-            BTreeMap::from([
-                (1u8, BTreeMap::from([(0u16, 20), (1u16, 30)])),
-                (2u8, BTreeMap::from([(4u16, 0)])),
-            ])
+            inventory_map(&[(1u8, &[(0u16, 20), (1u16, 30)]), (2u8, &[(4u16, 0)])])
         );
-        assert_eq!(semantics.item_entry_count, 3);
-        assert_eq!(semantics.total_amount, 50);
-        assert_eq!(semantics.nonzero_item_count, 2);
+        assert_inventory_totals(&semantics, 3, 50, 2);
     }
 
     #[test]
     fn derive_transition_reports_changed_teams_from_folded_inventory() {
+        let previous_inventory = inventory_map(&[(1u8, &[(0u16, 10)]), (2u8, &[(4u16, 40)])]);
         let transition = derive_state_snapshot_core_inventory_transition(
-            Some(StateSnapshotCoreInventoryPrevious {
-                inventory_by_team: &BTreeMap::from([
-                    (1u8, BTreeMap::from([(0u16, 10)])),
-                    (2u8, BTreeMap::from([(4u16, 40)])),
-                ]),
-                item_entry_count: 2,
-                total_amount: 50,
-                nonzero_item_count: 2,
-            }),
-            Some(&AppliedStateSnapshotCoreData {
-                team_count: 3,
-                teams: vec![
-                    AppliedStateSnapshotCoreDataTeam {
-                        team_id: 1,
-                        items: vec![AppliedStateSnapshotCoreDataItem {
-                            item_id: 0,
-                            amount: 11,
-                        }],
-                    },
-                    AppliedStateSnapshotCoreDataTeam {
-                        team_id: 3,
-                        items: vec![AppliedStateSnapshotCoreDataItem {
-                            item_id: 9,
-                            amount: 90,
-                        }],
-                    },
-                ],
-            }),
+            Some(inventory_previous(&previous_inventory, 2, 50, 2)),
+            Some(&core_data(vec![
+                core_team(1, &[(0, 11)]),
+                core_team(3, &[(9, 90)]),
+            ])),
         );
 
         assert!(transition.synced);
         assert_eq!(transition.changed_team_ids, BTreeSet::from([1u8, 2u8, 3u8]));
-        assert_eq!(transition.inventory.item_entry_count, 2);
-        assert_eq!(transition.inventory.total_amount, 101);
-        assert_eq!(transition.inventory.nonzero_item_count, 2);
+        assert_inventory_totals(&transition.inventory, 2, 101, 2);
     }
 
     #[test]
     fn derive_transition_without_core_data_reuses_previous_inventory_without_duplicates() {
-        let previous_inventory = BTreeMap::from([
-            (1u8, BTreeMap::from([(0u16, 10), (2u16, 0)])),
-            (3u8, BTreeMap::from([(4u16, 40)])),
-        ]);
+        let previous_inventory =
+            inventory_map(&[(1u8, &[(0u16, 10), (2u16, 0)]), (3u8, &[(4u16, 40)])]);
 
         let transition = derive_state_snapshot_core_inventory_transition(
-            Some(StateSnapshotCoreInventoryPrevious {
-                inventory_by_team: &previous_inventory,
-                item_entry_count: 3,
-                total_amount: 50,
-                nonzero_item_count: 2,
-            }),
+            Some(inventory_previous(&previous_inventory, 3, 50, 2)),
             None,
         );
 
         assert!(!transition.synced);
         assert!(transition.changed_team_ids.is_empty());
         assert_eq!(transition.inventory.inventory_by_team, previous_inventory);
-        assert_eq!(transition.inventory.item_entry_count, 3);
-        assert_eq!(transition.inventory.total_amount, 50);
-        assert_eq!(transition.inventory.nonzero_item_count, 2);
+        assert_inventory_totals(&transition.inventory, 3, 50, 2);
         assert_eq!(transition.inventory.duplicate_team_count, 0);
         assert_eq!(transition.inventory.duplicate_item_count, 0);
     }
@@ -265,21 +340,81 @@ mod tests {
 
         assert!(!transition.synced);
         assert!(transition.changed_team_ids.is_empty());
-        assert_eq!(transition.inventory, StateSnapshotCoreInventorySemantics::default());
+        assert_eq!(
+            transition.inventory,
+            StateSnapshotCoreInventorySemantics::default()
+        );
     }
 
     #[test]
     fn derive_transition_with_empty_core_data_marks_synced_without_changed_teams() {
-        let transition = derive_state_snapshot_core_inventory_transition(
-            None,
-            Some(&AppliedStateSnapshotCoreData {
-                team_count: 0,
-                teams: Vec::new(),
-            }),
-        );
+        let transition =
+            derive_state_snapshot_core_inventory_transition(None, Some(&core_data(Vec::new())));
 
         assert!(transition.synced);
         assert!(transition.changed_team_ids.is_empty());
-        assert_eq!(transition.inventory, StateSnapshotCoreInventorySemantics::default());
+        assert_eq!(
+            transition.inventory,
+            StateSnapshotCoreInventorySemantics::default()
+        );
+    }
+
+    #[test]
+    fn derive_state_snapshot_head_transition_prioritizes_gameover_over_paused() {
+        for (paused, game_over, expected) in [
+            (true, true, GameplayStateProjection::GameOver),
+            (true, false, GameplayStateProjection::Paused),
+            (false, false, GameplayStateProjection::Playing),
+        ] {
+            assert_eq!(
+                derive_gameplay_state_projection(paused, game_over),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn derive_state_snapshot_head_transition_marks_wave_advance_and_regressions() {
+        let advanced = derive_state_snapshot_head_transition(
+            Some(head_previous(6, 10, GameplayStateProjection::Playing)),
+            &snapshot_head(7, 12, false, false),
+        );
+        assert!(advanced.last_wave_advanced);
+        assert_eq!(advanced.last_wave_advance_from, Some(6));
+        assert_eq!(advanced.last_wave_advance_to, Some(7));
+        assert!(!advanced.wave_regressed);
+        assert!(!advanced.time_regressed);
+
+        let regressed = derive_state_snapshot_head_transition(
+            Some(head_previous(7, 12, GameplayStateProjection::Paused)),
+            &snapshot_head(5, 11, false, false),
+        );
+        assert!(!regressed.last_wave_advanced);
+        assert_eq!(regressed.last_wave_advance_from, None);
+        assert_eq!(regressed.last_wave_advance_to, None);
+        assert!(regressed.wave_regressed);
+        assert!(regressed.time_regressed);
+    }
+
+    #[test]
+    fn derive_state_snapshot_head_transition_clamps_net_seconds_delta_and_marks_time_rollback() {
+        let transition = derive_state_snapshot_head_transition(
+            Some(head_previous(1, i32::MAX, GameplayStateProjection::Paused)),
+            &snapshot_head(0, i32::MIN, false, false),
+        );
+
+        assert_eq!(transition.gameplay_state, GameplayStateProjection::Playing);
+        assert!(transition.gameplay_state_changed);
+        assert!(transition.last_net_seconds_rollback);
+        assert!(transition.time_regressed);
+        assert_eq!(transition.net_seconds_delta, i32::MIN);
+    }
+
+    #[test]
+    fn sample_changed_team_ids_respects_btree_order_and_limit() {
+        assert_eq!(
+            sample_changed_team_ids(&BTreeSet::from([9u8, 1u8, 7u8]), 2),
+            vec![1u8, 7u8]
+        );
     }
 }

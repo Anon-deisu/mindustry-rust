@@ -31,6 +31,27 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Resolve-CargoExecutable {
+    $cargoCommand = Get-Command cargo -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cargoCommand -and -not [string]::IsNullOrWhiteSpace($cargoCommand.Source)) {
+        return $cargoCommand.Source
+    }
+
+    $candidatePaths = @(
+        $env:CARGO,
+        $(if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) { Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe' }),
+        $(if (-not [string]::IsNullOrWhiteSpace($env:HOME)) { Join-Path $env:HOME '.cargo\bin\cargo.exe' })
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    foreach ($candidatePath in $candidatePaths) {
+        if (Test-Path $candidatePath) {
+            return (Resolve-Path $candidatePath).Path
+        }
+    }
+
+    throw 'cargo executable not found. Install Rust or add cargo to PATH.'
+}
+
 function Parse-WorkspacePackageName {
     param(
         [string]$WorkspaceMemberId
@@ -102,6 +123,7 @@ function Invoke-RemoteFreshnessGradleTask {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $rustRoot = Join-Path $repoRoot 'rust'
+$cargoExe = Resolve-CargoExecutable
 
 $workspaceChecks = @(
     @{
@@ -156,7 +178,7 @@ try {
             throw "workspace manifest not found: $manifest"
         }
 
-        $metadataJson = & cargo metadata --format-version 1 --no-deps --manifest-path $manifest 2>&1
+        $metadataJson = & $cargoExe metadata --format-version 1 --no-deps --manifest-path $manifest 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "cargo metadata failed for $($check.name): $metadataJson"
         }
@@ -169,7 +191,7 @@ try {
         Assert-ContainsAll -Actual $workspaceMembers -Expected $check.expectedMembers -Label "$($check.name) workspace_members"
 
         if (-not $MetadataOnly) {
-            & cargo test --workspace --manifest-path $manifest --no-run
+            & $cargoExe test --workspace --manifest-path $manifest --no-run
             if ($LASTEXITCODE -ne 0) {
                 throw "cargo test --no-run failed for $($check.name) ($manifest)"
             }

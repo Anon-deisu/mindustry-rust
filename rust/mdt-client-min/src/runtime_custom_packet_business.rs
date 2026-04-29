@@ -1,10 +1,12 @@
 use crate::custom_packet_runtime::RuntimeCustomPacketSemanticKind;
-use crate::custom_packet_runtime_surface::RuntimeCustomPacketSurfaceSummaryEntry;
+use crate::custom_packet_runtime_surface::{
+    build_pos_world_pos, finite_surface_world_pos, parse_surface_build_pos,
+    parse_surface_world_pos, RuntimeCustomPacketSurfaceSummaryEntry,
+};
 use crate::session_state::SessionState;
 use mdt_input::{
     CommandModePositionTarget, CommandModeState, CommandModeTargetProjection, CommandUnitRef,
 };
-use mdt_typeio::unpack_point2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuntimeCustomPacketBusinessMarkerSource {
@@ -24,15 +26,11 @@ pub fn resolve_runtime_custom_packet_business_marker(
     session_state: &SessionState,
 ) -> Option<RuntimeCustomPacketBusinessMarker> {
     if let Some(marker) = entry.marker.as_ref() {
-        let marker = RuntimeCustomPacketBusinessMarker {
+        return finite_business_marker(RuntimeCustomPacketBusinessMarker {
             source: RuntimeCustomPacketBusinessMarkerSource::Surface,
             x: marker.x,
             y: marker.y,
-        };
-        if !marker.x.is_finite() || !marker.y.is_finite() {
-            return None;
-        }
-        return Some(marker);
+        });
     }
     if entry.semantic != RuntimeCustomPacketSemanticKind::UnitId {
         return None;
@@ -40,15 +38,11 @@ pub fn resolve_runtime_custom_packet_business_marker(
     let unit_id = entry.stable_value.trim().parse::<i32>().ok()?;
     let projection = session_state.runtime_typed_entity_projection();
     let entity = projection.entity_at(unit_id)?;
-    let marker = RuntimeCustomPacketBusinessMarker {
+    finite_business_marker(RuntimeCustomPacketBusinessMarker {
         source: RuntimeCustomPacketBusinessMarkerSource::RuntimeEntity,
         x: f32::from_bits(entity.base().x_bits),
         y: f32::from_bits(entity.base().y_bits),
-    };
-    if !marker.x.is_finite() || !marker.y.is_finite() {
-        return None;
-    }
-    Some(marker)
+    })
 }
 
 pub fn resolve_runtime_custom_packet_command_target(
@@ -59,27 +53,23 @@ pub fn resolve_runtime_custom_packet_command_target(
     let resolved_marker = marker
         .cloned()
         .or_else(|| resolve_runtime_custom_packet_business_marker(entry, session_state));
-    if let Some(marker) = resolved_marker.as_ref() {
-        if !marker.x.is_finite() || !marker.y.is_finite() {
-            return None;
-        }
-    }
-    let marker = resolved_marker.as_ref();
+    let marker = match resolved_marker {
+        Some(marker) => Some(finite_business_marker(marker)?),
+        None => None,
+    };
+    let marker = marker.as_ref();
     match entry.semantic {
         RuntimeCustomPacketSemanticKind::WorldPos => {
             let (x, y) = marker
                 .map(|marker| (marker.x, marker.y))
                 .or_else(|| parse_world_pos(&entry.stable_value))?;
-            if !x.is_finite() || !y.is_finite() {
-                return None;
-            }
             Some(CommandModeTargetProjection {
                 position_target: Some(position_target(x, y)),
                 ..CommandModeTargetProjection::default()
             })
         }
         RuntimeCustomPacketSemanticKind::BuildPos => {
-            let build_pos = entry.stable_value.trim().parse::<i32>().ok()?;
+            let build_pos = parse_surface_build_pos(&entry.stable_value)?;
             let (x, y) = marker
                 .map(|marker| (marker.x, marker.y))
                 .unwrap_or_else(|| build_pos_world_pos(build_pos));
@@ -114,10 +104,12 @@ pub fn apply_runtime_custom_packet_command_target(
     let position_target = target
         .position_target
         .map(|target| (f32::from_bits(target.x_bits), f32::from_bits(target.y_bits)));
-    if let Some((x, y)) = position_target {
-        if !x.is_finite() || !y.is_finite() {
-            return;
-        }
+    if position_target
+        .and_then(|(x, y)| finite_surface_world_pos(x, y))
+        .is_none()
+        && target.position_target.is_some()
+    {
+        return;
     }
     runtime_command_mode.record_command_units(
         &[],
@@ -135,28 +127,14 @@ fn position_target(x: f32, y: f32) -> CommandModePositionTarget {
 }
 
 fn parse_world_pos(value: &str) -> Option<(f32, f32)> {
-    if let Some((x, y)) = value.split_once(',') {
-        let x: f32 = x.trim().parse().ok()?;
-        let y: f32 = y.trim().parse().ok()?;
-        if !x.is_finite() || !y.is_finite() {
-            return None;
-        }
-        return Some((x, y));
-    }
-    if let Some((x, y)) = value.split_once(':') {
-        let x: f32 = x.trim().parse().ok()?;
-        let y: f32 = y.trim().parse().ok()?;
-        if !x.is_finite() || !y.is_finite() {
-            return None;
-        }
-        return Some((x, y));
-    }
-    None
+    parse_surface_world_pos(value)
 }
 
-fn build_pos_world_pos(build_pos: i32) -> (f32, f32) {
-    let (tile_x, tile_y) = unpack_point2(build_pos);
-    (tile_x as f32 * 8.0, tile_y as f32 * 8.0)
+fn finite_business_marker(
+    marker: RuntimeCustomPacketBusinessMarker,
+) -> Option<RuntimeCustomPacketBusinessMarker> {
+    let (x, y) = finite_surface_world_pos(marker.x, marker.y)?;
+    Some(RuntimeCustomPacketBusinessMarker { x, y, ..marker })
 }
 
 #[cfg(test)]
@@ -164,28 +142,91 @@ mod tests {
     use super::*;
     use crate::custom_packet_runtime::RuntimeCustomPacketSemanticEncoding;
     use crate::custom_packet_runtime_surface::RuntimeCustomPacketOverlayMarker;
+    use crate::session_state::{
+        EntityPlayerSemanticProjection, TypedRuntimeEntityBase, TypedRuntimeEntityModel,
+        TypedRuntimePlayerEntity,
+    };
     use mdt_typeio::pack_point2;
+
+    fn summary_entry(
+        key: &str,
+        encoding: RuntimeCustomPacketSemanticEncoding,
+        semantic: RuntimeCustomPacketSemanticKind,
+        stable_value: impl Into<String>,
+    ) -> RuntimeCustomPacketSurfaceSummaryEntry {
+        RuntimeCustomPacketSurfaceSummaryEntry {
+            key: key.to_string(),
+            encoding,
+            semantic,
+            stable_value: stable_value.into(),
+            marker: None,
+        }
+    }
+
+    fn summary_entry_with_marker(
+        key: &str,
+        encoding: RuntimeCustomPacketSemanticEncoding,
+        semantic: RuntimeCustomPacketSemanticKind,
+        stable_value: impl Into<String>,
+        x: f32,
+        y: f32,
+    ) -> RuntimeCustomPacketSurfaceSummaryEntry {
+        RuntimeCustomPacketSurfaceSummaryEntry {
+            key: key.to_string(),
+            encoding,
+            semantic,
+            stable_value: stable_value.into(),
+            marker: Some(RuntimeCustomPacketOverlayMarker {
+                key: key.to_string(),
+                encoding,
+                semantic,
+                x,
+                y,
+            }),
+        }
+    }
+
+    fn session_state_with_player(entity_id: i32, x: f32, y: f32) -> SessionState {
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .by_entity_id
+            .insert(
+                entity_id,
+                TypedRuntimeEntityModel::Player(TypedRuntimePlayerEntity {
+                    base: TypedRuntimeEntityBase {
+                        entity_id,
+                        class_id: 0,
+                        hidden: false,
+                        is_local_player: false,
+                        unit_kind: 0,
+                        unit_value: 0,
+                        x_bits: x.to_bits(),
+                        y_bits: y.to_bits(),
+                        last_seen_entity_snapshot_count: 1,
+                    },
+                    semantic: EntityPlayerSemanticProjection::default(),
+                }),
+            );
+        state
+    }
 
     #[test]
     fn resolve_runtime_custom_packet_command_target_maps_build_pos_into_target_projection() {
         let build_pos = pack_point2(3, 5);
-        let entry = RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "build.select".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
-            stable_value: build_pos.to_string(),
-            marker: None,
-        };
+        let entry = summary_entry(
+            "build.select",
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::BuildPos,
+            build_pos.to_string(),
+        );
 
         assert_eq!(
             resolve_runtime_custom_packet_command_target(&entry, &SessionState::default(), None),
             Some(CommandModeTargetProjection {
                 build_target: Some(build_pos),
                 unit_target: None,
-                position_target: Some(CommandModePositionTarget {
-                    x_bits: 24.0f32.to_bits(),
-                    y_bits: 40.0f32.to_bits(),
-                }),
+                position_target: Some(position_target(24.0, 40.0)),
                 rect_target: None,
             })
         );
@@ -193,13 +234,12 @@ mod tests {
 
     #[test]
     fn resolve_runtime_custom_packet_command_target_rejects_non_finite_world_pos() {
-        let entry = RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "logic.target".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-            stable_value: "NaN,12".to_string(),
-            marker: None,
-        };
+        let entry = summary_entry(
+            "logic.target",
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::WorldPos,
+            "NaN,12",
+        );
 
         assert_eq!(
             resolve_runtime_custom_packet_command_target(&entry, &SessionState::default(), None),
@@ -209,36 +249,13 @@ mod tests {
 
     #[test]
     fn resolve_runtime_custom_packet_command_target_uses_runtime_entity_position_for_unit_routes() {
-        let entry = RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "logic.unit".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::UnitId,
-            stable_value: "77".to_string(),
-            marker: None,
-        };
-        let mut state = SessionState::default();
-        state
-            .runtime_typed_entity_apply_projection
-            .by_entity_id
-            .insert(
-                77,
-                crate::session_state::TypedRuntimeEntityModel::Player(
-                    crate::session_state::TypedRuntimePlayerEntity {
-                        base: crate::session_state::TypedRuntimeEntityBase {
-                            entity_id: 77,
-                            class_id: 0,
-                            hidden: false,
-                            is_local_player: false,
-                            unit_kind: 0,
-                            unit_value: 0,
-                            x_bits: 48.0f32.to_bits(),
-                            y_bits: 120.0f32.to_bits(),
-                            last_seen_entity_snapshot_count: 1,
-                        },
-                        semantic: crate::session_state::EntityPlayerSemanticProjection::default(),
-                    },
-                ),
-            );
+        let entry = summary_entry(
+            "logic.unit",
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::UnitId,
+            "77",
+        );
+        let state = session_state_with_player(77, 48.0, 120.0);
 
         assert_eq!(
             resolve_runtime_custom_packet_business_marker(&entry, &state),
@@ -253,10 +270,7 @@ mod tests {
             Some(CommandModeTargetProjection {
                 build_target: None,
                 unit_target: Some(CommandUnitRef { kind: 2, value: 77 }),
-                position_target: Some(CommandModePositionTarget {
-                    x_bits: 48.0f32.to_bits(),
-                    y_bits: 120.0f32.to_bits(),
-                }),
+                position_target: Some(position_target(48.0, 120.0)),
                 rect_target: None,
             })
         );
@@ -264,36 +278,13 @@ mod tests {
 
     #[test]
     fn resolve_runtime_custom_packet_business_marker_trims_unit_id_whitespace() {
-        let entry = RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "logic.unit".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::UnitId,
-            stable_value: " 77 ".to_string(),
-            marker: None,
-        };
-        let mut state = SessionState::default();
-        state
-            .runtime_typed_entity_apply_projection
-            .by_entity_id
-            .insert(
-                77,
-                crate::session_state::TypedRuntimeEntityModel::Player(
-                    crate::session_state::TypedRuntimePlayerEntity {
-                        base: crate::session_state::TypedRuntimeEntityBase {
-                            entity_id: 77,
-                            class_id: 0,
-                            hidden: false,
-                            is_local_player: false,
-                            unit_kind: 0,
-                            unit_value: 0,
-                            x_bits: 16.0f32.to_bits(),
-                            y_bits: 24.0f32.to_bits(),
-                            last_seen_entity_snapshot_count: 1,
-                        },
-                        semantic: crate::session_state::EntityPlayerSemanticProjection::default(),
-                    },
-                ),
-            );
+        let entry = summary_entry(
+            "logic.unit",
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::UnitId,
+            " 77 ",
+        );
+        let state = session_state_with_player(77, 16.0, 24.0);
 
         assert_eq!(
             resolve_runtime_custom_packet_business_marker(&entry, &state),
@@ -312,10 +303,7 @@ mod tests {
         let target = CommandModeTargetProjection {
             build_target: Some(pack_point2(4, 6)),
             unit_target: Some(CommandUnitRef { kind: 2, value: 77 }),
-            position_target: Some(CommandModePositionTarget {
-                x_bits: 32.0f32.to_bits(),
-                y_bits: 48.0f32.to_bits(),
-            }),
+            position_target: Some(position_target(32.0, 48.0)),
             rect_target: None,
         };
 
@@ -335,29 +323,21 @@ mod tests {
 
     #[test]
     fn resolve_runtime_custom_packet_command_target_prefers_surface_marker_for_world_pos() {
-        let entry = RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "logic.world".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-            stable_value: "7,9".to_string(),
-            marker: Some(RuntimeCustomPacketOverlayMarker {
-                key: "logic.world".to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-                x: 12.5,
-                y: -4.0,
-            }),
-        };
+        let entry = summary_entry_with_marker(
+            "logic.world",
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::WorldPos,
+            "7,9",
+            12.5,
+            -4.0,
+        );
 
         assert_eq!(
             resolve_runtime_custom_packet_command_target(&entry, &SessionState::default(), None),
             Some(CommandModeTargetProjection {
                 build_target: None,
                 unit_target: None,
-                position_target: Some(CommandModePositionTarget {
-                    x_bits: 12.5f32.to_bits(),
-                    y_bits: (-4.0f32).to_bits(),
-                }),
+                position_target: Some(position_target(12.5, -4.0)),
                 rect_target: None,
             })
         );
@@ -365,44 +345,20 @@ mod tests {
 
     #[test]
     fn reject_non_finite_runtime_entity_marker_for_build_and_unit_targets() {
-        let mut state = SessionState::default();
-        state
-            .runtime_typed_entity_apply_projection
-            .by_entity_id
-            .insert(
-                77,
-                crate::session_state::TypedRuntimeEntityModel::Player(
-                    crate::session_state::TypedRuntimePlayerEntity {
-                        base: crate::session_state::TypedRuntimeEntityBase {
-                            entity_id: 77,
-                            class_id: 0,
-                            hidden: false,
-                            is_local_player: false,
-                            unit_kind: 0,
-                            unit_value: 0,
-                            x_bits: f32::NAN.to_bits(),
-                            y_bits: f32::INFINITY.to_bits(),
-                            last_seen_entity_snapshot_count: 1,
-                        },
-                        semantic: crate::session_state::EntityPlayerSemanticProjection::default(),
-                    },
-                ),
-            );
+        let state = session_state_with_player(77, f32::NAN, f32::INFINITY);
 
-        let unit_entry = RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "logic.unit".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::UnitId,
-            stable_value: "77".to_string(),
-            marker: None,
-        };
-        let build_entry = RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "build.select".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
-            stable_value: pack_point2(3, 5).to_string(),
-            marker: None,
-        };
+        let unit_entry = summary_entry(
+            "logic.unit",
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::UnitId,
+            "77",
+        );
+        let build_entry = summary_entry(
+            "build.select",
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::BuildPos,
+            pack_point2(3, 5).to_string(),
+        );
         let marker = RuntimeCustomPacketBusinessMarker {
             source: RuntimeCustomPacketBusinessMarkerSource::RuntimeEntity,
             x: f32::NAN,
@@ -425,32 +381,22 @@ mod tests {
 
     #[test]
     fn reject_non_finite_surface_marker_for_world_and_unit_targets() {
-        let world_entry = RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "logic.world".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-            stable_value: "7,9".to_string(),
-            marker: Some(RuntimeCustomPacketOverlayMarker {
-                key: "logic.world".to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-                x: f32::NAN,
-                y: 9.0,
-            }),
-        };
-        let unit_entry = RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "logic.unit".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::UnitId,
-            stable_value: "77".to_string(),
-            marker: Some(RuntimeCustomPacketOverlayMarker {
-                key: "logic.unit".to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-                semantic: RuntimeCustomPacketSemanticKind::UnitId,
-                x: 4.0,
-                y: f32::INFINITY,
-            }),
-        };
+        let world_entry = summary_entry_with_marker(
+            "logic.world",
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::WorldPos,
+            "7,9",
+            f32::NAN,
+            9.0,
+        );
+        let unit_entry = summary_entry_with_marker(
+            "logic.unit",
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::UnitId,
+            "77",
+            4.0,
+            f32::INFINITY,
+        );
 
         assert_eq!(
             resolve_runtime_custom_packet_business_marker(&world_entry, &SessionState::default()),
@@ -461,19 +407,24 @@ mod tests {
             None
         );
         assert_eq!(
-            resolve_runtime_custom_packet_command_target(&world_entry, &SessionState::default(), None),
+            resolve_runtime_custom_packet_command_target(
+                &world_entry,
+                &SessionState::default(),
+                None
+            ),
             Some(CommandModeTargetProjection {
                 build_target: None,
                 unit_target: None,
-                position_target: Some(CommandModePositionTarget {
-                    x_bits: 7.0f32.to_bits(),
-                    y_bits: 9.0f32.to_bits(),
-                }),
+                position_target: Some(position_target(7.0, 9.0)),
                 rect_target: None,
             })
         );
         assert_eq!(
-            resolve_runtime_custom_packet_command_target(&unit_entry, &SessionState::default(), None),
+            resolve_runtime_custom_packet_command_target(
+                &unit_entry,
+                &SessionState::default(),
+                None
+            ),
             Some(CommandModeTargetProjection {
                 build_target: None,
                 unit_target: Some(CommandUnitRef { kind: 2, value: 77 }),

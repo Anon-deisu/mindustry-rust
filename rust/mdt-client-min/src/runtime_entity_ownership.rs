@@ -232,6 +232,7 @@ mod tests {
                 shield_bits: 0,
                 mine_tile_pos: 0,
                 status_count: 0,
+                statuses: Vec::new(),
                 payload_count: None,
                 building_pos: None,
                 lifetime_bits: None,
@@ -239,7 +240,9 @@ mod tests {
                 runtime_sync: None,
                 controller_type,
                 controller_value,
+                controller_snapshot: None,
             },
+            unit_payload: None,
             carried_item_stack: None,
         })
     }

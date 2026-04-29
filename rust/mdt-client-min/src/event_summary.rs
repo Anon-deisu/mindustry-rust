@@ -1212,9 +1212,7 @@ fn format_unit_despawned_summary(
     unit: Option<UnitRefProjection>,
     removed_entity_projection: bool,
 ) -> String {
-    format!(
-        "unit_despawned: unit={unit:?} removed_entity_projection={removed_entity_projection}"
-    )
+    format!("unit_despawned: unit={unit:?} removed_entity_projection={removed_entity_projection}")
 }
 
 fn format_unit_entered_payload_summary(
@@ -1415,9 +1413,26 @@ mod tests {
     };
     use mdt_remote::HighFrequencyRemoteMethod;
 
+    fn summarize(events: &[ClientSessionEvent]) -> Vec<String> {
+        summarize_client_packet_events(events)
+    }
+
+    fn unit_ref(value: i32) -> Option<UnitRefProjection> {
+        Some(UnitRefProjection { kind: 2, value })
+    }
+
+    fn assert_contains_all(line: &str, expected_fragments: &[&str]) {
+        for fragment in expected_fragments {
+            assert!(
+                line.contains(fragment),
+                "expected {line:?} to contain {fragment:?}"
+            );
+        }
+    }
+
     #[test]
     fn summarize_client_packet_events_includes_remote_observability_slice() {
-        let lines = summarize_client_packet_events(&[
+        let lines = summarize(&[
             ClientSessionEvent::TransferItemEffect {
                 projection: crate::session_state::TransferItemEffectProjection {
                     item_id: Some(6),
@@ -1446,33 +1461,42 @@ mod tests {
         ]);
 
         assert_eq!(lines.len(), 3);
-        assert!(lines[0].contains("transfer_item_effect:"));
-        assert!(lines[0].contains("item_id=Some(6)"));
-        assert!(lines[0].contains("x_bits=0x41940000"));
-        assert!(lines[0].contains("y_bits=0xc0e80000"));
-        assert!(lines[0].contains("to_entity_id=Some(1234)"));
-        assert!(lines[1].contains("destroy_payload:"));
-        assert!(lines[1].contains("build_pos=Some(917513)"));
-        assert!(lines[2].contains("create_bullet:"));
-        assert!(lines[2].contains("bullet_type_id=Some(17)"));
-        assert!(lines[2].contains("team_id=4"));
-        assert!(lines[2].contains("x_bits=0x42020000"));
-        assert!(lines[2].contains("y_bits=0x42400000"));
-        assert!(lines[2].contains("angle_bits=0x42b40000"));
-        assert!(lines[2].contains("damage_bits=0x41380000"));
-        assert!(lines[2].contains("velocity_scl_bits=0x3fa00000"));
-        assert!(lines[2].contains("lifetime_scl_bits=0x3f400000"));
+        assert_contains_all(
+            &lines[0],
+            &[
+                "transfer_item_effect:",
+                "item_id=Some(6)",
+                "x_bits=0x41940000",
+                "y_bits=0xc0e80000",
+                "to_entity_id=Some(1234)",
+            ],
+        );
+        assert_contains_all(&lines[1], &["destroy_payload:", "build_pos=Some(917513)"]);
+        assert_contains_all(
+            &lines[2],
+            &[
+                "create_bullet:",
+                "bullet_type_id=Some(17)",
+                "team_id=4",
+                "x_bits=0x42020000",
+                "y_bits=0x42400000",
+                "angle_bits=0x42b40000",
+                "damage_bits=0x41380000",
+                "velocity_scl_bits=0x3fa00000",
+                "lifetime_scl_bits=0x3f400000",
+            ],
+        );
     }
 
     #[test]
     fn summarize_client_packet_events_includes_resource_and_payload_events() {
-        let lines = summarize_client_packet_events(&[
+        let lines = summarize(&[
             ClientSessionEvent::TakeItems {
                 projection: TakeItemsProjection {
                     build_pos: Some(0x0007_000b),
                     item_id: Some(9),
                     amount: 13,
-                    to: Some(UnitRefProjection { kind: 2, value: 77 }),
+                    to: unit_ref(77),
                 },
             },
             ClientSessionEvent::TransferItemToUnit {
@@ -1485,26 +1509,26 @@ mod tests {
             },
             ClientSessionEvent::PayloadDropped {
                 projection: PayloadDroppedProjection {
-                    unit: Some(UnitRefProjection { kind: 2, value: 101 }),
+                    unit: unit_ref(101),
                     x_bits: 18.5f32.to_bits(),
                     y_bits: (-7.25f32).to_bits(),
                 },
             },
             ClientSessionEvent::PickedBuildPayload {
                 projection: PickedBuildPayloadProjection {
-                    unit: Some(UnitRefProjection { kind: 2, value: 101 }),
+                    unit: unit_ref(101),
                     build_pos: Some(0x0004_0004),
                     on_ground: false,
                 },
             },
             ClientSessionEvent::PickedUnitPayload {
                 projection: PickedUnitPayloadProjection {
-                    unit: Some(UnitRefProjection { kind: 2, value: 101 }),
-                    target: Some(UnitRefProjection { kind: 2, value: 202 }),
+                    unit: unit_ref(101),
+                    target: unit_ref(202),
                 },
             },
             ClientSessionEvent::UnitDespawned {
-                unit: Some(UnitRefProjection { kind: 2, value: 99 }),
+                unit: unit_ref(99),
                 removed_entity_projection: true,
             },
         ]);
@@ -1524,7 +1548,7 @@ mod tests {
 
     #[test]
     fn summarize_client_packet_events_includes_world_stream_lifecycle() {
-        let lines = summarize_client_packet_events(&[
+        let lines = summarize(&[
             ClientSessionEvent::WorldStreamStarted {
                 stream_id: 7,
                 total_bytes: 2048,
@@ -1556,7 +1580,7 @@ mod tests {
 
     #[test]
     fn summarize_client_packet_events_includes_snapshot_plan_and_payload_edges() {
-        let lines = summarize_client_packet_events(&[
+        let lines = summarize(&[
             ClientSessionEvent::ClientPlanSnapshot {
                 group_id: 3,
                 plans: Some(vec![]),
@@ -1575,7 +1599,7 @@ mod tests {
             ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot),
             ClientSessionEvent::TransferItemTo {
                 projection: TransferItemToProjection {
-                    unit: Some(UnitRefProjection { kind: 2, value: 44 }),
+                    unit: unit_ref(44),
                     item_id: Some(8),
                     amount: 12,
                     x_bits: 1.0f32.to_bits(),
@@ -1585,7 +1609,7 @@ mod tests {
             },
             ClientSessionEvent::UnitEnteredPayload {
                 projection: UnitEnteredPayloadProjection {
-                    unit: Some(UnitRefProjection { kind: 2, value: 88 }),
+                    unit: unit_ref(88),
                     build_pos: Some(0x0003_0004),
                 },
                 removed_entity_projection: false,
@@ -1608,7 +1632,7 @@ mod tests {
 
     #[test]
     fn summarize_client_packet_events_includes_build_and_effect_events() {
-        let lines = summarize_client_packet_events(&[
+        let lines = summarize(&[
             ClientSessionEvent::EffectRequested {
                 effect_id: Some(14),
                 x: 32.5,
@@ -1694,6 +1718,34 @@ mod tests {
                 "deconstruct_finish: tile_pos=196612 block_id=Some(258) builder_kind=2 builder_value=84 removed_local_plan=false".to_string(),
                 "build_health_update: pair_count=2 first_build_pos=Some(123) first_health_bits=Some(0x3fa00000)".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn summarize_client_packet_events_formats_text_packet_preview_regression() {
+        let lines = summarize(&[ClientSessionEvent::ClientPacketReliable {
+            packet_type: "mod-channel".to_string(),
+            contents: "line1\nline2".to_string(),
+        }]);
+
+        assert_eq!(lines.len(), 1);
+        assert_contains_all(
+            &lines[0],
+            &[
+                "client_packet:",
+                "transport=reliable",
+                "type=\"mod-channel\"",
+                "len=11",
+                r#"preview="line1\\nline2""#,
+            ],
+        );
+    }
+
+    #[test]
+    fn format_binary_packet_summary_handles_empty_payload_without_hex_prefix() {
+        assert_eq!(
+            format_binary_packet_summary("server_binary_packet", "reliable", "payload", &[]),
+            "server_binary_packet: transport=reliable type=\"payload\" len=0 hex_prefix="
         );
     }
 }

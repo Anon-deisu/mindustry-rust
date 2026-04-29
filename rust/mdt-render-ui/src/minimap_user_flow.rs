@@ -1,6 +1,16 @@
 use crate::panel_model::{build_minimap_panel, PresenterViewWindow};
 use crate::{HudModel, RenderModel};
 
+fn pair_label<T, U>(value: Option<(T, U)>) -> String
+where
+    T: std::fmt::Display,
+    U: std::fmt::Display,
+{
+    value
+        .map(|(left, right)| format!("{left}:{right}"))
+        .unwrap_or_else(|| "none".to_string())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MinimapUserFocusState {
     Inside,
@@ -120,16 +130,11 @@ impl MinimapUserFlowPanelModel {
     }
 
     fn focus_tile_label(&self) -> String {
-        self.focus_tile
-            .map(|(x, y)| format!("{x}:{y}"))
-            .unwrap_or_else(|| "none".to_string())
+        pair_label(self.focus_tile)
     }
 
     fn focus_offset_label(&self) -> String {
-        match (self.focus_offset_x, self.focus_offset_y) {
-            (Some(x), Some(y)) => format!("{x}:{y}"),
-            _ => "none".to_string(),
-        }
+        pair_label(self.focus_offset_x.zip(self.focus_offset_y))
     }
 
     fn clamp_label(&self) -> String {
@@ -290,8 +295,8 @@ fn pan_vertical_direction(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_minimap_user_flow_panel, MinimapPanAxisDirection, MinimapUserFocusState,
-        MinimapUserTargetKind,
+        build_minimap_user_flow_panel, MinimapPanAxisDirection, MinimapUserFlowPanelModel,
+        MinimapUserFocusState, MinimapUserTargetKind,
     };
     use crate::hud_model::{HudMinimapSummary, HudSummary, HudViewWindowSummary};
     use crate::panel_model::PresenterViewWindow;
@@ -347,17 +352,8 @@ mod tests {
             ..HudModel::default()
         };
 
-        let panel = build_minimap_user_flow_panel(
-            &scene,
-            &hud,
-            PresenterViewWindow {
-                origin_x: 0,
-                origin_y: 0,
-                width: 4,
-                height: 4,
-            },
-        )
-        .expect("minimap user flow");
+        let panel = build_minimap_user_flow_panel(&scene, &hud, presenter_window(0, 0, 4, 4))
+            .expect("minimap user flow");
 
         assert_eq!(panel.next_action, "pan");
         assert_eq!(panel.focus_state, MinimapUserFocusState::Outside);
@@ -414,92 +410,34 @@ mod tests {
                 },
             },
         };
+        let full_window = presenter_window(0, 0, 8, 8);
 
-        let locate = build_minimap_user_flow_panel(
-            &base_scene,
-            &HudModel {
-                summary: Some(summary.clone()),
-                ..HudModel::default()
-            },
-            PresenterViewWindow {
-                origin_x: 0,
-                origin_y: 0,
-                width: 8,
-                height: 8,
-            },
-        )
-        .expect("locate panel");
+        let locate = build_panel(&base_scene, summary.clone(), full_window, "locate panel");
         assert_eq!(locate.next_action, "locate");
         assert_eq!(locate.focus_state, MinimapUserFocusState::Missing);
-        assert!(locate.window_clamped_left);
-        assert!(locate.window_clamped_top);
-        assert!(locate.window_clamped_right);
-        assert!(locate.window_clamped_bottom);
+        assert_window_clamped_all(&locate);
         assert_eq!(locate.focus_offset_x, None);
         assert_eq!(locate.focus_offset_y, None);
 
-        let survey = build_minimap_user_flow_panel(
+        let survey = build_panel(
             &base_scene,
-            &HudModel {
-                summary: Some(HudSummary {
+            with_focus_tile(
+                HudSummary {
                     visible_tile_count: 0,
                     hidden_tile_count: 0,
-                    minimap: HudMinimapSummary {
-                        focus_tile: Some((1, 1)),
-                        ..summary.minimap
-                    },
                     ..summary.clone()
-                }),
-                ..HudModel::default()
-            },
-            PresenterViewWindow {
-                origin_x: 0,
-                origin_y: 0,
-                width: 8,
-                height: 8,
-            },
-        )
-        .expect("survey panel");
+                },
+                Some((1, 1)),
+            ),
+            full_window,
+            "survey panel",
+        );
         assert_eq!(survey.next_action, "survey");
         assert_eq!(survey.visibility_label(), "unseen");
-        assert_eq!(
-            survey.summary_label(),
-            format!(
-                "next={} focus={} vis={} cover={} pan={} target={}",
-                survey.next_action,
-                survey.focus_state.label(),
-                survey.visibility_label(),
-                survey.coverage_label(),
-                survey.pan_label(),
-                survey.target_kind.label(),
-            )
-        );
-        assert_eq!(
-            survey.detail_label(),
-            format!(
-                "next={} focus={} vis={} cover={} pan={} target={} tile={} offset={} clamp={} overlay-targets={} visible={} visible-map={} unknown={} window={}",
-                survey.next_action,
-                survey.focus_state.label(),
-                survey.visibility_label(),
-                survey.coverage_label(),
-                survey.pan_label(),
-                survey.target_kind.label(),
-                survey.focus_tile_label(),
-                survey.focus_offset_label(),
-                survey.clamp_label(),
-                survey.overlay_target_count,
-                survey.visible_tile_count,
-                survey.visible_map_percent,
-                survey.unknown_tile_percent,
-                survey.window_coverage_percent,
-            )
-        );
-        assert!(survey.window_clamped_left);
-        assert!(survey.window_clamped_top);
-        assert!(survey.window_clamped_right);
-        assert!(survey.window_clamped_bottom);
+        assert_labels_match(&survey);
+        assert_window_clamped_all(&survey);
 
-        let survey_plan_priority = build_minimap_user_flow_panel(
+        let survey_plan_priority = build_panel(
             &RenderModel {
                 objects: vec![
                     RenderObject {
@@ -517,32 +455,26 @@ mod tests {
                 ],
                 ..base_scene.clone()
             },
-            &HudModel {
-                summary: Some(HudSummary {
+            with_focus_tile(
+                HudSummary {
                     visible_tile_count: 0,
                     hidden_tile_count: 16,
                     plan_count: 1,
-                    minimap: HudMinimapSummary {
-                        focus_tile: Some((1, 1)),
-                        ..summary.minimap
-                    },
                     ..summary.clone()
-                }),
-                ..HudModel::default()
-            },
-            PresenterViewWindow {
-                origin_x: 0,
-                origin_y: 0,
-                width: 8,
-                height: 8,
-            },
-        )
-        .expect("survey plan priority panel");
-        assert_eq!(survey_plan_priority.target_kind, MinimapUserTargetKind::Plan);
+                },
+                Some((1, 1)),
+            ),
+            full_window,
+            "survey plan priority panel",
+        );
+        assert_eq!(
+            survey_plan_priority.target_kind,
+            MinimapUserTargetKind::Plan
+        );
         assert_eq!(survey_plan_priority.visibility_label(), "hidden");
         assert_eq!(survey_plan_priority.next_action, "survey");
 
-        let survey_marker_priority = build_minimap_user_flow_panel(
+        let survey_marker_priority = build_panel(
             &RenderModel {
                 objects: vec![
                     RenderObject {
@@ -560,27 +492,18 @@ mod tests {
                 ],
                 ..base_scene.clone()
             },
-            &HudModel {
-                summary: Some(HudSummary {
+            with_focus_tile(
+                HudSummary {
                     visible_tile_count: 0,
                     hidden_tile_count: 0,
                     marker_count: 1,
-                    minimap: HudMinimapSummary {
-                        focus_tile: Some((1, 1)),
-                        ..summary.minimap
-                    },
                     ..summary.clone()
-                }),
-                ..HudModel::default()
-            },
-            PresenterViewWindow {
-                origin_x: 0,
-                origin_y: 0,
-                width: 8,
-                height: 8,
-            },
-        )
-        .expect("survey marker priority panel");
+                },
+                Some((1, 1)),
+            ),
+            full_window,
+            "survey marker priority panel",
+        );
         assert_eq!(
             survey_marker_priority.target_kind,
             MinimapUserTargetKind::Marker
@@ -588,47 +511,27 @@ mod tests {
         assert_eq!(survey_marker_priority.visibility_label(), "unseen");
         assert_eq!(survey_marker_priority.next_action, "survey");
 
-        let hidden = build_minimap_user_flow_panel(
+        let hidden = build_panel(
             &base_scene,
-            &HudModel {
-                summary: Some(HudSummary {
+            with_focus_tile(
+                HudSummary {
                     visible_tile_count: 0,
                     hidden_tile_count: 24,
-                    minimap: HudMinimapSummary {
-                        focus_tile: Some((1, 1)),
-                        ..summary.minimap
-                    },
                     ..summary.clone()
-                }),
-                ..HudModel::default()
-            },
-            PresenterViewWindow {
-                origin_x: 0,
-                origin_y: 0,
-                width: 8,
-                height: 8,
-            },
-        )
-        .expect("hidden panel");
-        assert_eq!(hidden.visibility_label(), "hidden");
-        assert_eq!(
-            hidden.summary_label(),
-            format!(
-                "next={} focus={} vis={} cover={} pan={} target={}",
-                hidden.next_action,
-                hidden.focus_state.label(),
-                hidden.visibility_label(),
-                hidden.coverage_label(),
-                hidden.pan_label(),
-                hidden.target_kind.label(),
-            )
+                },
+                Some((1, 1)),
+            ),
+            full_window,
+            "hidden panel",
         );
+        assert_eq!(hidden.visibility_label(), "hidden");
+        assert_summary_label_matches(&hidden);
         assert!(
             hidden.detail_label().contains("vis=hidden"),
             "detail label should surface hidden visibility"
         );
 
-        let inspect = build_minimap_user_flow_panel(
+        let inspect = build_panel(
             &RenderModel {
                 objects: vec![
                     RenderObject {
@@ -646,90 +549,25 @@ mod tests {
                 ],
                 ..base_scene.clone()
             },
-            &HudModel {
-                summary: Some(HudSummary {
-                    minimap: HudMinimapSummary {
-                        focus_tile: Some((1, 1)),
-                        ..summary.minimap
-                    },
-                    ..summary.clone()
-                }),
-                ..HudModel::default()
-            },
-            PresenterViewWindow {
-                origin_x: 0,
-                origin_y: 0,
-                width: 8,
-                height: 8,
-            },
-        )
-        .expect("inspect panel");
+            with_focus_tile(summary.clone(), Some((1, 1))),
+            full_window,
+            "inspect panel",
+        );
         assert_eq!(inspect.next_action, "inspect");
         assert_eq!(inspect.target_kind, MinimapUserTargetKind::Marker);
-        assert!(inspect.window_clamped_left);
-        assert!(inspect.window_clamped_top);
-        assert!(inspect.window_clamped_right);
-        assert!(inspect.window_clamped_bottom);
+        assert_window_clamped_all(&inspect);
 
-        let hold = build_minimap_user_flow_panel(
+        let hold = build_panel(
             &base_scene,
-            &HudModel {
-                summary: Some(HudSummary {
-                    minimap: HudMinimapSummary {
-                        focus_tile: Some((1, 1)),
-                        ..summary.minimap
-                    },
-                    ..summary
-                }),
-                ..HudModel::default()
-            },
-            PresenterViewWindow {
-                origin_x: 0,
-                origin_y: 0,
-                width: 8,
-                height: 8,
-            },
-        )
-        .expect("hold panel");
+            with_focus_tile(summary, Some((1, 1))),
+            full_window,
+            "hold panel",
+        );
         assert_eq!(hold.next_action, "hold");
         assert_eq!(hold.target_kind, MinimapUserTargetKind::Player);
         assert_eq!(hold.coverage_label(), "full");
-        assert_eq!(
-            hold.summary_label(),
-            format!(
-                "next={} focus={} vis={} cover={} pan={} target={}",
-                hold.next_action,
-                hold.focus_state.label(),
-                hold.visibility_label(),
-                hold.coverage_label(),
-                hold.pan_label(),
-                hold.target_kind.label(),
-            )
-        );
-        assert_eq!(
-            hold.detail_label(),
-            format!(
-                "next={} focus={} vis={} cover={} pan={} target={} tile={} offset={} clamp={} overlay-targets={} visible={} visible-map={} unknown={} window={}",
-                hold.next_action,
-                hold.focus_state.label(),
-                hold.visibility_label(),
-                hold.coverage_label(),
-                hold.pan_label(),
-                hold.target_kind.label(),
-                hold.focus_tile_label(),
-                hold.focus_offset_label(),
-                hold.clamp_label(),
-                hold.overlay_target_count,
-                hold.visible_tile_count,
-                hold.visible_map_percent,
-                hold.unknown_tile_percent,
-                hold.window_coverage_percent,
-            )
-        );
-        assert!(hold.window_clamped_left);
-        assert!(hold.window_clamped_top);
-        assert!(hold.window_clamped_right);
-        assert!(hold.window_clamped_bottom);
+        assert_labels_match(&hold);
+        assert_window_clamped_all(&hold);
     }
 
     #[test]
@@ -775,17 +613,8 @@ mod tests {
             ..HudModel::default()
         };
 
-        let top_left = build_minimap_user_flow_panel(
-            &scene,
-            &hud,
-            PresenterViewWindow {
-                origin_x: 0,
-                origin_y: 0,
-                width: 4,
-                height: 4,
-            },
-        )
-        .expect("top-left panel");
+        let top_left = build_minimap_user_flow_panel(&scene, &hud, presenter_window(0, 0, 4, 4))
+            .expect("top-left panel");
         assert!(top_left.window_clamped_left);
         assert!(top_left.window_clamped_top);
         assert!(!top_left.window_clamped_right);
@@ -795,20 +624,12 @@ mod tests {
 
         let mut bottom_right_summary = build_top_left_summary();
         bottom_right_summary.minimap.focus_tile = Some((15, 11));
-        let bottom_right = build_minimap_user_flow_panel(
+        let bottom_right = build_panel(
             &scene,
-            &HudModel {
-                summary: Some(bottom_right_summary),
-                ..HudModel::default()
-            },
-            PresenterViewWindow {
-                origin_x: 12,
-                origin_y: 8,
-                width: 4,
-                height: 4,
-            },
-        )
-        .expect("bottom-right panel");
+            bottom_right_summary,
+            presenter_window(12, 8, 4, 4),
+            "bottom-right panel",
+        );
         assert!(!bottom_right.window_clamped_left);
         assert!(!bottom_right.window_clamped_top);
         assert!(bottom_right.window_clamped_right);
@@ -860,22 +681,20 @@ mod tests {
             ..HudModel::default()
         };
 
-        let panel = build_minimap_user_flow_panel(
-            &scene,
-            &hud,
-            PresenterViewWindow {
-                origin_x: 0,
-                origin_y: 0,
-                width: 8,
-                height: 8,
-            },
-        )
-        .expect("rounded-zero visibility panel");
+        let panel = build_minimap_user_flow_panel(&scene, &hud, presenter_window(0, 0, 8, 8))
+            .expect("rounded-zero visibility panel");
 
         assert_eq!(panel.visible_tile_count, 1);
         assert_eq!(panel.visible_map_percent, 0);
         assert_eq!(panel.visibility_label(), "mixed");
         assert_eq!(panel.next_action, "hold");
+    }
+
+    #[test]
+    fn pair_label_formats_none_and_pair_values() {
+        assert_eq!(super::pair_label::<usize, usize>(None), "none");
+        assert_eq!(super::pair_label(Some((3, 7))), "3:7");
+        assert_eq!(super::pair_label(Some(("left", "right"))), "left:right");
     }
 
     fn build_top_left_summary() -> HudSummary {
@@ -901,5 +720,91 @@ mod tests {
                 },
             },
         }
+    }
+
+    fn presenter_window(
+        origin_x: usize,
+        origin_y: usize,
+        width: usize,
+        height: usize,
+    ) -> PresenterViewWindow {
+        PresenterViewWindow {
+            origin_x,
+            origin_y,
+            width,
+            height,
+        }
+    }
+
+    fn with_focus_tile(mut summary: HudSummary, focus_tile: Option<(usize, usize)>) -> HudSummary {
+        summary.minimap.focus_tile = focus_tile;
+        summary
+    }
+
+    fn build_panel(
+        scene: &RenderModel,
+        summary: HudSummary,
+        window: PresenterViewWindow,
+        label: &str,
+    ) -> MinimapUserFlowPanelModel {
+        build_minimap_user_flow_panel(
+            scene,
+            &HudModel {
+                summary: Some(summary),
+                ..HudModel::default()
+            },
+            window,
+        )
+        .expect(label)
+    }
+
+    fn assert_window_clamped_all(panel: &MinimapUserFlowPanelModel) {
+        assert!(panel.window_clamped_left);
+        assert!(panel.window_clamped_top);
+        assert!(panel.window_clamped_right);
+        assert!(panel.window_clamped_bottom);
+    }
+
+    fn assert_summary_label_matches(panel: &MinimapUserFlowPanelModel) {
+        assert_eq!(
+            panel.summary_label(),
+            format!(
+                "next={} focus={} vis={} cover={} pan={} target={}",
+                panel.next_action,
+                panel.focus_state.label(),
+                panel.visibility_label(),
+                panel.coverage_label(),
+                panel.pan_label(),
+                panel.target_kind.label(),
+            )
+        );
+    }
+
+    fn assert_detail_label_matches(panel: &MinimapUserFlowPanelModel) {
+        assert_eq!(
+            panel.detail_label(),
+            format!(
+                "next={} focus={} vis={} cover={} pan={} target={} tile={} offset={} clamp={} overlay-targets={} visible={} visible-map={} unknown={} window={}",
+                panel.next_action,
+                panel.focus_state.label(),
+                panel.visibility_label(),
+                panel.coverage_label(),
+                panel.pan_label(),
+                panel.target_kind.label(),
+                panel.focus_tile_label(),
+                panel.focus_offset_label(),
+                panel.clamp_label(),
+                panel.overlay_target_count,
+                panel.visible_tile_count,
+                panel.visible_map_percent,
+                panel.unknown_tile_percent,
+                panel.window_coverage_percent,
+            )
+        );
+    }
+
+    fn assert_labels_match(panel: &MinimapUserFlowPanelModel) {
+        assert_summary_label_matches(panel);
+        assert_detail_label_matches(panel);
     }
 }

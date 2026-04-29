@@ -564,8 +564,8 @@ impl InboundRemotePacketRegistry {
 mod tests {
     use super::{
         CombinedPacketRegistries, CustomChannelPacketRegistry, InboundRemoteDispatchSpec,
-        InboundRemoteFamily, InboundRemotePacketRegistry, RemotePacketClassification,
-        WellKnownRemotePacketIds,
+        InboundRemoteFamily, InboundRemotePacketRegistry, InboundSnapshotPacketRegistry,
+        RemotePacketClassification, WellKnownRemotePacketIds,
     };
     use mdt_remote::{
         read_remote_manifest, BasePacketEntry, CompressionFlagSpec,
@@ -582,10 +582,137 @@ mod tests {
             .join("../../fixtures/remote/remote-manifest-v1.json")
     }
 
+    struct RealManifestRegistryFixture {
+        manifest: RemoteManifest,
+        high_frequency_typed: HighFrequencyRemoteRegistry,
+        custom_channel_typed: CustomChannelRemoteRegistry,
+        inbound_remote_typed: InboundRemoteRegistry,
+        well_known_typed: WellKnownRemoteRegistry,
+        inbound_snapshot_wrapper: InboundSnapshotPacketRegistry,
+        custom_channel_wrapper: CustomChannelPacketRegistry,
+        inbound_remote_wrapper: InboundRemotePacketRegistry,
+        well_known_wrapper: WellKnownRemotePacketIds,
+        combined: CombinedPacketRegistries,
+    }
+
+    fn real_manifest_fixture() -> RemoteManifest {
+        read_remote_manifest(real_manifest_path()).unwrap()
+    }
+
+    fn real_manifest_registries() -> RealManifestRegistryFixture {
+        let manifest = real_manifest_fixture();
+        let high_frequency_typed = HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
+        let custom_channel_typed = CustomChannelRemoteRegistry::from_manifest(&manifest).unwrap();
+        let inbound_remote_typed = InboundRemoteRegistry::from_manifest(&manifest).unwrap();
+        let well_known_typed = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+        let inbound_snapshot_wrapper =
+            InboundSnapshotPacketRegistry::from_remote_manifest(&manifest).unwrap();
+        let custom_channel_wrapper =
+            CustomChannelPacketRegistry::from_remote_manifest(&manifest).unwrap();
+        let inbound_remote_wrapper =
+            InboundRemotePacketRegistry::from_remote_manifest(&manifest).unwrap();
+        let well_known_wrapper = WellKnownRemotePacketIds::from_remote_manifest(&manifest).unwrap();
+        let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
+
+        RealManifestRegistryFixture {
+            manifest,
+            high_frequency_typed,
+            custom_channel_typed,
+            inbound_remote_typed,
+            well_known_typed,
+            inbound_snapshot_wrapper,
+            custom_channel_wrapper,
+            inbound_remote_wrapper,
+            well_known_wrapper,
+            combined,
+        }
+    }
+
+    fn assert_custom_channel_wrapper_matches_typed_registry(
+        wrapper: &CustomChannelPacketRegistry,
+        typed: &CustomChannelRemoteRegistry,
+    ) {
+        assert_eq!(
+            wrapper.len(),
+            typed.resolved_dispatch_specs().len(),
+            "custom-channel registry length mismatch"
+        );
+        for family in CustomChannelRemoteFamily::ordered() {
+            assert_eq!(
+                wrapper.packet_id(family),
+                typed.packet_id(family),
+                "custom-channel packet id mismatch for {}",
+                family.method_name()
+            );
+        }
+        for packet_id in 0..=u8::MAX {
+            assert_eq!(
+                wrapper.dispatch_spec(packet_id),
+                typed.dispatch_spec(packet_id),
+                "custom-channel dispatch spec mismatch for packet_id={packet_id}"
+            );
+        }
+    }
+
+    fn assert_inbound_remote_wrapper_matches_typed_registry(
+        wrapper: &InboundRemotePacketRegistry,
+        typed: &InboundRemoteRegistry,
+    ) {
+        assert_eq!(
+            wrapper.len(),
+            typed.resolved_dispatch_specs().len(),
+            "inbound-remote registry length mismatch"
+        );
+        for family in InboundRemoteFamily::ordered() {
+            assert_eq!(
+                wrapper.packet_id(family),
+                typed.packet_id(family),
+                "inbound-remote packet id mismatch for {}",
+                family.method_name()
+            );
+        }
+        for packet_id in 0..=u8::MAX {
+            assert_eq!(
+                wrapper.dispatch_spec(packet_id),
+                typed.dispatch_spec(packet_id),
+                "inbound-remote dispatch spec mismatch for packet_id={packet_id}"
+            );
+        }
+    }
+
+    fn assert_well_known_wrapper_matches_typed_registry(
+        wrapper: &WellKnownRemotePacketIds,
+        typed: &WellKnownRemoteRegistry,
+    ) {
+        for method in WellKnownRemoteMethod::ordered() {
+            assert_eq!(
+                wrapper.packet_id(method),
+                typed.packet_id(method),
+                "typed well-known packet id mismatch for {}",
+                method.method_name()
+            );
+        }
+        assert_eq!(wrapper.resolved_packet_ids(), typed.resolved_packet_ids());
+
+        let typed_fixed_table = typed.packet_id_fixed_table();
+        for packet_id in 0..=u8::MAX {
+            assert_eq!(
+                wrapper.method(packet_id),
+                typed_fixed_table.get(packet_id),
+                "typed well-known classification mismatch for packet_id={packet_id}"
+            );
+            assert_eq!(
+                wrapper.contains_packet_id(packet_id),
+                typed_fixed_table.contains_packet_id(packet_id),
+                "typed well-known containment mismatch for packet_id={packet_id}"
+            );
+        }
+    }
+
     #[test]
     fn builds_inbound_remote_family_registry_from_real_manifest() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let registry = InboundRemotePacketRegistry::from_remote_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
+        let registry = &fixture.inbound_remote_wrapper;
 
         assert_eq!(registry.len(), 6);
         assert_eq!(
@@ -608,10 +735,10 @@ mod tests {
 
     #[test]
     fn builds_custom_channel_remote_family_registry_from_real_manifest() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let registry = CustomChannelPacketRegistry::from_remote_manifest(&manifest).unwrap();
-        let client_snapshot_packet_id = HighFrequencyRemoteRegistry::from_manifest(&manifest)
-            .unwrap()
+        let fixture = real_manifest_registries();
+        let registry = &fixture.custom_channel_wrapper;
+        let client_snapshot_packet_id = fixture
+            .high_frequency_typed
             .packet_id(HighFrequencyRemoteMethod::ClientSnapshot)
             .unwrap();
 
@@ -661,11 +788,10 @@ mod tests {
 
     #[test]
     fn combined_packet_registries_classify_packet_ids_into_business_routes() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let registries = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
-        let high_frequency_registry =
-            HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
-        let well_known_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
+        let registries = &fixture.combined;
+        let high_frequency_registry = &fixture.high_frequency_typed;
+        let well_known_registry = &fixture.well_known_typed;
 
         let state_snapshot_packet_id = high_frequency_registry
             .packet_id(HighFrequencyRemoteMethod::StateSnapshot)
@@ -747,9 +873,11 @@ mod tests {
 
     #[test]
     fn custom_channel_remote_family_registry_matches_remote_typed_dispatch_specs() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let registry = CustomChannelPacketRegistry::from_remote_manifest(&manifest).unwrap();
-        let remote_registry = CustomChannelRemoteRegistry::from_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
+        let registry = &fixture.custom_channel_wrapper;
+        let remote_registry = &fixture.custom_channel_typed;
+
+        assert_custom_channel_wrapper_matches_typed_registry(registry, remote_registry);
 
         let packet_id = remote_registry
             .packet_id(CustomChannelRemoteFamily::ServerBinaryPacketReliable)
@@ -813,9 +941,11 @@ mod tests {
 
     #[test]
     fn inbound_remote_family_registry_matches_remote_typed_registry() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let registry = InboundRemotePacketRegistry::from_remote_manifest(&manifest).unwrap();
-        let remote_registry = InboundRemoteRegistry::from_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
+        let registry = &fixture.inbound_remote_wrapper;
+        let remote_registry = &fixture.inbound_remote_typed;
+
+        assert_inbound_remote_wrapper_matches_typed_registry(registry, remote_registry);
 
         let packet_id = remote_registry
             .packet_id(InboundRemoteFamily::ServerPacketReliable)
@@ -836,10 +966,9 @@ mod tests {
 
     #[test]
     fn inbound_snapshot_registry_reuses_high_frequency_typed_registry_packet_ids() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let registry =
-            super::InboundSnapshotPacketRegistry::from_remote_manifest(&manifest).unwrap();
-        let remote_registry = HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
+        let registry = &fixture.inbound_snapshot_wrapper;
+        let remote_registry = &fixture.high_frequency_typed;
         let state_packet_id = remote_registry
             .packet_id(HighFrequencyRemoteMethod::StateSnapshot)
             .unwrap();
@@ -881,20 +1010,17 @@ mod tests {
 
     #[test]
     fn standalone_inbound_snapshot_registry_matches_combined_view() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let standalone =
-            super::InboundSnapshotPacketRegistry::from_remote_manifest(&manifest).unwrap();
-        let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
 
-        assert_eq!(standalone, combined.inbound_snapshot);
+        assert_eq!(fixture.inbound_snapshot_wrapper, fixture.combined.inbound_snapshot);
     }
 
     #[test]
     fn combined_packet_registries_build_all_registry_views_from_one_lookup() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
-        let remote_registry = HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
-        let well_known_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
+        let combined = &fixture.combined;
+        let remote_registry = &fixture.high_frequency_typed;
+        let well_known_registry = &fixture.well_known_typed;
 
         assert_eq!(
             combined.client_snapshot_packet_id,
@@ -978,8 +1104,8 @@ mod tests {
 
     #[test]
     fn combined_packet_registries_classify_packet_ids_by_priority_over_overlapping_registries() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
+        let combined = fixture.combined;
 
         let inbound_logic_data_packet_id = combined
             .inbound_remote
@@ -1024,40 +1150,37 @@ mod tests {
     fn generated_remote_registry_constants_match_manifest_and_combined_views() {
         use crate::generated::remote_high_frequency_gen::CLIENT_SNAPSHOT_PACKET_ID;
         use crate::generated::remote_registry_gen::{
-            ADMIN_REQUEST_CALL_PACKET_ID, ANNOUNCE_CALL_PACKET_ID, CLIENT_SNAPSHOT_CALL_PACKET_ID,
-            CLEAR_OBJECTIVES_CALL_PACKET_ID,
-            COMPLETE_OBJECTIVE_CALL_PACKET_ID, CONNECT_CALL_PACKET_ID,
-            CONNECT_CONFIRM_CALL_PACKET_ID, COPY_TO_CLIPBOARD_CALL_PACKET_ID,
-            KICK_CALL_PACKET2_ID, KICK_CALL_PACKET_ID,
-            DEBUG_STATUS_CLIENT_CALL_PACKET_ID, GAME_OVER_CALL_PACKET_ID, PING_CALL_PACKET_ID,
-            PLAYER_SPAWN_CALL_PACKET_ID, REMOTE_PACKET_SPECS, REQUEST_DEBUG_STATUS_CALL_PACKET_ID,
+            ADMIN_REQUEST_CALL_PACKET_ID, ANNOUNCE_CALL_PACKET_ID, CLEAR_ITEMS_CALL_PACKET_ID,
+            CLEAR_LIQUIDS_CALL_PACKET_ID, CLEAR_OBJECTIVES_CALL_PACKET_ID,
+            CLIENT_SNAPSHOT_CALL_PACKET_ID, COMPLETE_OBJECTIVE_CALL_PACKET_ID,
+            CONNECT_CALL_PACKET_ID, CONNECT_CONFIRM_CALL_PACKET_ID,
+            COPY_TO_CLIPBOARD_CALL_PACKET_ID, DEBUG_STATUS_CLIENT_CALL_PACKET_ID,
+            DROP_ITEM_CALL_PACKET_ID, EFFECT_CALL_PACKET2_ID, EFFECT_CALL_PACKET_ID,
+            EFFECT_RELIABLE_CALL_PACKET_ID, GAME_OVER_CALL_PACKET_ID,
+            HIDE_FOLLOW_UP_MENU_CALL_PACKET_ID, HIDE_HUD_TEXT_CALL_PACKET_ID,
+            INFO_MESSAGE_CALL_PACKET_ID, INFO_POPUP_CALL_PACKET2_ID, INFO_POPUP_CALL_PACKET_ID,
+            INFO_POPUP_RELIABLE_CALL_PACKET2_ID, INFO_POPUP_RELIABLE_CALL_PACKET_ID,
+            INFO_TOAST_CALL_PACKET_ID, KICK_CALL_PACKET2_ID, KICK_CALL_PACKET_ID,
+            LABEL_CALL_PACKET2_ID, LABEL_CALL_PACKET_ID, LABEL_RELIABLE_CALL_PACKET2_ID,
+            LABEL_RELIABLE_CALL_PACKET_ID, OPEN_URICALL_PACKET_ID, PING_CALL_PACKET_ID,
+            PLAYER_SPAWN_CALL_PACKET_ID, REMOTE_PACKET_SPECS, REQUEST_BUILD_PAYLOAD_CALL_PACKET_ID,
+            REQUEST_DEBUG_STATUS_CALL_PACKET_ID, REQUEST_DROP_PAYLOAD_CALL_PACKET_ID,
+            REQUEST_ITEM_CALL_PACKET_ID, REQUEST_UNIT_PAYLOAD_CALL_PACKET_ID,
             RESEARCHED_CALL_PACKET_ID, SECTOR_CAPTURE_CALL_PACKET_ID,
             SEND_CHAT_MESSAGE_CALL_PACKET_ID, SEND_MESSAGE_CALL_PACKET2_ID,
-            SEND_MESSAGE_CALL_PACKET_ID, TILE_CONFIG_CALL_PACKET_ID,
-            UPDATE_GAME_OVER_CALL_PACKET_ID, WORLD_DATA_BEGIN_CALL_PACKET_ID,
-            HIDE_FOLLOW_UP_MENU_CALL_PACKET_ID, INFO_TOAST_CALL_PACKET_ID,
-            SET_HUD_TEXT_CALL_PACKET_ID, SET_HUD_TEXT_RELIABLE_CALL_PACKET_ID,
-            WARNING_TOAST_CALL_PACKET_ID,
-            CLEAR_ITEMS_CALL_PACKET_ID, CLEAR_LIQUIDS_CALL_PACKET_ID,
-            SET_ITEM_CALL_PACKET_ID, SET_ITEMS_CALL_PACKET_ID,
-            REQUEST_ITEM_CALL_PACKET_ID, REQUEST_BUILD_PAYLOAD_CALL_PACKET_ID,
-            REQUEST_DROP_PAYLOAD_CALL_PACKET_ID, REQUEST_UNIT_PAYLOAD_CALL_PACKET_ID,
-            DROP_ITEM_CALL_PACKET_ID, TRANSFER_INVENTORY_CALL_PACKET_ID,
-            TRANSFER_ITEM_EFFECT_CALL_PACKET_ID, TRANSFER_ITEM_TO_CALL_PACKET_ID,
-            TRANSFER_ITEM_TO_UNIT_CALL_PACKET_ID,
-            HIDE_HUD_TEXT_CALL_PACKET_ID, INFO_MESSAGE_CALL_PACKET_ID, OPEN_URICALL_PACKET_ID,
-            INFO_POPUP_CALL_PACKET_ID,
-            INFO_POPUP_CALL_PACKET2_ID, INFO_POPUP_RELIABLE_CALL_PACKET_ID,
-            INFO_POPUP_RELIABLE_CALL_PACKET2_ID, LABEL_CALL_PACKET_ID,
-            LABEL_CALL_PACKET2_ID, LABEL_RELIABLE_CALL_PACKET_ID,
-            LABEL_RELIABLE_CALL_PACKET2_ID, SET_FLAG_CALL_PACKET_ID, TEXT_INPUT_CALL_PACKET_ID,
-            TEXT_INPUT_CALL_PACKET2_ID, EFFECT_CALL_PACKET_ID,
-            EFFECT_CALL_PACKET2_ID, EFFECT_RELIABLE_CALL_PACKET_ID, SOUND_CALL_PACKET_ID,
-            SOUND_AT_CALL_PACKET_ID,
+            SEND_MESSAGE_CALL_PACKET_ID, SET_FLAG_CALL_PACKET_ID, SET_HUD_TEXT_CALL_PACKET_ID,
+            SET_HUD_TEXT_RELIABLE_CALL_PACKET_ID, SET_ITEMS_CALL_PACKET_ID,
+            SET_ITEM_CALL_PACKET_ID, SOUND_AT_CALL_PACKET_ID, SOUND_CALL_PACKET_ID,
+            TEXT_INPUT_CALL_PACKET2_ID, TEXT_INPUT_CALL_PACKET_ID, TILE_CONFIG_CALL_PACKET_ID,
+            TRANSFER_INVENTORY_CALL_PACKET_ID, TRANSFER_ITEM_EFFECT_CALL_PACKET_ID,
+            TRANSFER_ITEM_TO_CALL_PACKET_ID, TRANSFER_ITEM_TO_UNIT_CALL_PACKET_ID,
+            UPDATE_GAME_OVER_CALL_PACKET_ID, WARNING_TOAST_CALL_PACKET_ID,
+            WORLD_DATA_BEGIN_CALL_PACKET_ID,
         };
 
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
+        let manifest = fixture.manifest;
+        let combined = fixture.combined;
 
         let has_generated_spec = |packet_id, method| {
             REMOTE_PACKET_SPECS
@@ -1088,7 +1211,10 @@ mod tests {
         ));
         assert!(has_generated_spec(GAME_OVER_CALL_PACKET_ID, "gameOver"));
         assert!(has_generated_spec(RESEARCHED_CALL_PACKET_ID, "researched"));
-        assert!(has_generated_spec(SECTOR_CAPTURE_CALL_PACKET_ID, "sectorCapture"));
+        assert!(has_generated_spec(
+            SECTOR_CAPTURE_CALL_PACKET_ID,
+            "sectorCapture"
+        ));
         assert!(has_generated_spec(SET_FLAG_CALL_PACKET_ID, "setFlag"));
         assert!(has_generated_spec(
             UPDATE_GAME_OVER_CALL_PACKET_ID,
@@ -1103,25 +1229,43 @@ mod tests {
             COPY_TO_CLIPBOARD_CALL_PACKET_ID,
             "copyToClipboard"
         ));
-        assert!(has_generated_spec(HIDE_HUD_TEXT_CALL_PACKET_ID, "hideHudText"));
-        assert!(has_generated_spec(INFO_MESSAGE_CALL_PACKET_ID, "infoMessage"));
+        assert!(has_generated_spec(
+            HIDE_HUD_TEXT_CALL_PACKET_ID,
+            "hideHudText"
+        ));
+        assert!(has_generated_spec(
+            INFO_MESSAGE_CALL_PACKET_ID,
+            "infoMessage"
+        ));
         assert!(has_generated_spec(OPEN_URICALL_PACKET_ID, "openURI"));
         assert!(has_generated_spec(
             HIDE_FOLLOW_UP_MENU_CALL_PACKET_ID,
             "hideFollowUpMenu"
         ));
         assert!(has_generated_spec(INFO_TOAST_CALL_PACKET_ID, "infoToast"));
-        assert!(has_generated_spec(SET_HUD_TEXT_CALL_PACKET_ID, "setHudText"));
+        assert!(has_generated_spec(
+            SET_HUD_TEXT_CALL_PACKET_ID,
+            "setHudText"
+        ));
         assert!(has_generated_spec(
             SET_HUD_TEXT_RELIABLE_CALL_PACKET_ID,
             "setHudTextReliable"
         ));
-        assert!(has_generated_spec(WARNING_TOAST_CALL_PACKET_ID, "warningToast"));
+        assert!(has_generated_spec(
+            WARNING_TOAST_CALL_PACKET_ID,
+            "warningToast"
+        ));
         assert!(has_generated_spec(CLEAR_ITEMS_CALL_PACKET_ID, "clearItems"));
-        assert!(has_generated_spec(CLEAR_LIQUIDS_CALL_PACKET_ID, "clearLiquids"));
+        assert!(has_generated_spec(
+            CLEAR_LIQUIDS_CALL_PACKET_ID,
+            "clearLiquids"
+        ));
         assert!(has_generated_spec(SET_ITEM_CALL_PACKET_ID, "setItem"));
         assert!(has_generated_spec(SET_ITEMS_CALL_PACKET_ID, "setItems"));
-        assert!(has_generated_spec(REQUEST_ITEM_CALL_PACKET_ID, "requestItem"));
+        assert!(has_generated_spec(
+            REQUEST_ITEM_CALL_PACKET_ID,
+            "requestItem"
+        ));
         assert!(has_generated_spec(
             REQUEST_BUILD_PAYLOAD_CALL_PACKET_ID,
             "requestBuildPayload"
@@ -1143,7 +1287,10 @@ mod tests {
             TRANSFER_ITEM_EFFECT_CALL_PACKET_ID,
             "transferItemEffect"
         ));
-        assert!(has_generated_spec(TRANSFER_ITEM_TO_CALL_PACKET_ID, "transferItemTo"));
+        assert!(has_generated_spec(
+            TRANSFER_ITEM_TO_CALL_PACKET_ID,
+            "transferItemTo"
+        ));
         assert!(has_generated_spec(
             TRANSFER_ITEM_TO_UNIT_CALL_PACKET_ID,
             "transferItemToUnit"
@@ -1206,7 +1353,9 @@ mod tests {
             Some(SEND_MESSAGE_CALL_PACKET_ID)
         );
         assert_eq!(
-            combined.well_known_remote.send_message_with_sender_packet_id,
+            combined
+                .well_known_remote
+                .send_message_with_sender_packet_id,
             Some(SEND_MESSAGE_CALL_PACKET2_ID)
         );
         assert_eq!(
@@ -1222,7 +1371,9 @@ mod tests {
             Some(INFO_POPUP_RELIABLE_CALL_PACKET_ID)
         );
         assert_eq!(
-            combined.well_known_remote.info_popup_reliable_with_id_packet_id,
+            combined
+                .well_known_remote
+                .info_popup_reliable_with_id_packet_id,
             Some(INFO_POPUP_RELIABLE_CALL_PACKET2_ID)
         );
         assert_eq!(
@@ -1513,309 +1664,18 @@ mod tests {
 
     #[test]
     fn well_known_remote_packet_ids_match_typed_registry() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let well_known = WellKnownRemotePacketIds::from_remote_manifest(&manifest).unwrap();
-        let typed_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
 
-        let expected = [
-            (WellKnownRemoteMethod::Ping, well_known.ping_packet_id),
-            (
-                WellKnownRemoteMethod::ClientPlanSnapshot,
-                well_known.client_plan_snapshot_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::ClientPlanSnapshotReceived,
-                well_known.client_plan_snapshot_received_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::PingResponse,
-                well_known.ping_response_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::PingLocation,
-                well_known.ping_location_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::AdminRequest,
-                well_known.admin_request_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::RequestDebugStatus,
-                well_known.request_debug_status_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::DebugStatusClient,
-                well_known.debug_status_client_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::DebugStatusClientUnreliable,
-                well_known.debug_status_client_unreliable_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::TraceInfo,
-                well_known.trace_info_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::ConnectRedirect,
-                well_known.connect_redirect_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::ConnectConfirm,
-                well_known.connect_confirm_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::PlayerSpawn,
-                well_known.player_spawn_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::KickString,
-                well_known.kick_string_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::KickReason,
-                well_known.kick_reason_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SendChatMessage,
-                well_known.send_chat_message_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SendMessage,
-                well_known.send_message_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SendMessageWithSender,
-                well_known.send_message_with_sender_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::InfoPopup,
-                well_known.info_popup_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::InfoPopupWithId,
-                well_known.info_popup_with_id_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::InfoPopupReliable,
-                well_known.info_popup_reliable_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::InfoPopupReliableWithId,
-                well_known.info_popup_reliable_with_id_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::Label,
-                well_known.label_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::LabelWithId,
-                well_known.label_with_id_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::LabelReliable,
-                well_known.label_reliable_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::LabelReliableWithId,
-                well_known.label_reliable_with_id_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::TextInput,
-                well_known.text_input_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::TextInputAllowEmpty,
-                well_known.text_input_allow_empty_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::Effect,
-                well_known.effect_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::EffectWithData,
-                well_known.effect_with_data_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::EffectReliable,
-                well_known.effect_reliable_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::Sound,
-                well_known.sound_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SoundAt,
-                well_known.sound_at_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SetRules,
-                well_known.set_rules_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SetObjectives,
-                well_known.set_objectives_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SetRule,
-                well_known.set_rule_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::CompleteObjective,
-                well_known.complete_objective_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::GameOver,
-                well_known.game_over_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::Researched,
-                well_known.researched_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SectorCapture,
-                well_known.sector_capture_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SetFlag,
-                well_known.set_flag_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::UpdateGameOver,
-                well_known.update_game_over_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::Announce,
-                well_known.announce_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::ClearObjectives,
-                well_known.clear_objectives_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::CopyToClipboard,
-                well_known.copy_to_clipboard_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::HideHudText,
-                well_known.hide_hud_text_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::InfoMessage,
-                well_known.info_message_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::OpenUri,
-                well_known.open_uri_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::HideFollowUpMenu,
-                well_known.hide_follow_up_menu_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::InfoToast,
-                well_known.info_toast_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SetHudText,
-                well_known.set_hud_text_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SetHudTextReliable,
-                well_known.set_hud_text_reliable_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::WarningToast,
-                well_known.warning_toast_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::ClearItems,
-                well_known.clear_items_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::ClearLiquids,
-                well_known.clear_liquids_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SetItem,
-                well_known.set_item_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::SetItems,
-                well_known.set_items_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::RequestItem,
-                well_known.request_item_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::RequestBuildPayload,
-                well_known.request_build_payload_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::RequestDropPayload,
-                well_known.request_drop_payload_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::RequestUnitPayload,
-                well_known.request_unit_payload_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::DropItem,
-                well_known.drop_item_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::TransferInventory,
-                well_known.transfer_inventory_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::TransferItemEffect,
-                well_known.transfer_item_effect_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::TransferItemTo,
-                well_known.transfer_item_to_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::TransferItemToUnit,
-                well_known.transfer_item_to_unit_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::WorldDataBegin,
-                well_known.world_data_begin_packet_id,
-            ),
-        ];
-
-        for (method, packet_id) in expected {
-            assert_eq!(
-                packet_id,
-                typed_registry.packet_id(method),
-                "typed well-known packet id mismatch for {}",
-                method.method_name()
-            );
-        }
-        assert_eq!(
-            well_known.resolved_packet_ids(),
-            typed_registry.resolved_packet_ids()
+        assert_well_known_wrapper_matches_typed_registry(
+            &fixture.well_known_wrapper,
+            &fixture.well_known_typed,
         );
-        let typed_fixed_table = typed_registry.packet_id_fixed_table();
-        for packet_id in 0..=u8::MAX {
-            assert_eq!(
-                well_known.method(packet_id),
-                typed_fixed_table.get(packet_id),
-                "typed well-known classification mismatch for packet_id={packet_id}"
-            );
-            assert_eq!(
-                well_known.contains_packet_id(packet_id),
-                typed_fixed_table.contains_packet_id(packet_id),
-                "typed well-known containment mismatch for packet_id={packet_id}"
-            );
-        }
     }
 
     #[test]
     fn well_known_remote_packet_ids_match_typed_registry_roundtrip() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let typed_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
+        let typed_registry = fixture.well_known_typed;
         let well_known = WellKnownRemotePacketIds::from_typed_registry(typed_registry.clone());
 
         super::well_known_registry_glue::assert_typed_registry_roundtrip(
@@ -1826,11 +1686,9 @@ mod tests {
 
     #[test]
     fn standalone_well_known_remote_packet_ids_match_combined_view() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let standalone = WellKnownRemotePacketIds::from_remote_manifest(&manifest).unwrap();
-        let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
+        let fixture = real_manifest_registries();
 
-        assert_eq!(standalone, combined.well_known_remote);
+        assert_eq!(fixture.well_known_wrapper, fixture.combined.well_known_remote);
     }
 
     fn custom_channel_remote_family_manifest_with_decoys() -> RemoteManifest {

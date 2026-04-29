@@ -171,8 +171,8 @@ impl PlanCollectionSummary {
             let family = plan.point_config_family();
             point_config_family_counts[family as usize] =
                 point_config_family_counts[family as usize].saturating_add(1);
-            point_config_point_count = point_config_point_count
-                .saturating_add(plan.point_config_point_count());
+            point_config_point_count =
+                point_config_point_count.saturating_add(plan.point_config_point_count());
 
             let (x, y) = plan.tile();
             bounds = Some(match bounds {
@@ -206,7 +206,8 @@ impl PlanCollectionSummary {
     }
 
     pub fn bounds_label(&self) -> String {
-        self.bounds.map_or_else(|| "none".to_string(), PlanBounds::label)
+        self.bounds
+            .map_or_else(|| "none".to_string(), PlanBounds::label)
     }
 
     pub fn rotation_label(&self) -> String {
@@ -412,46 +413,123 @@ fn world_to_tile(world: f32) -> i32 {
 mod tests {
     use super::*;
 
+    fn point(x: i32, y: i32) -> PlanPoint {
+        PlanPoint { x, y }
+    }
+
+    fn point_config_point(x: i32, y: i32) -> PlanPointConfig {
+        PlanPointConfig::Point(point(x, y))
+    }
+
+    fn point_config_points(points: &[(i32, i32)]) -> PlanPointConfig {
+        PlanPointConfig::Points(points.iter().map(|&(x, y)| point(x, y)).collect())
+    }
+
+    fn test_plan(x: i32, y: i32, rotation: i32) -> PlanEditorPlan {
+        PlanEditorPlan {
+            x,
+            y,
+            rotation,
+            breaking: false,
+            block: PlanBlockMeta::default(),
+            point_config: PlanPointConfig::None,
+        }
+    }
+
+    fn test_plan_with_block(
+        x: i32,
+        y: i32,
+        rotation: i32,
+        block: PlanBlockMeta,
+        point_config: PlanPointConfig,
+    ) -> PlanEditorPlan {
+        PlanEditorPlan {
+            block,
+            point_config,
+            ..test_plan(x, y, rotation)
+        }
+    }
+
+    fn breaking_plan_with_block(
+        x: i32,
+        y: i32,
+        rotation: i32,
+        block: PlanBlockMeta,
+        point_config: PlanPointConfig,
+    ) -> PlanEditorPlan {
+        PlanEditorPlan {
+            breaking: true,
+            block,
+            point_config,
+            ..test_plan(x, y, rotation)
+        }
+    }
+
+    fn assert_plan_state(
+        plan: &PlanEditorPlan,
+        x: i32,
+        y: i32,
+        rotation: i32,
+        point_config: PlanPointConfig,
+    ) {
+        assert_eq!(plan.x, x);
+        assert_eq!(plan.y, y);
+        assert_eq!(plan.rotation, rotation);
+        assert_eq!(plan.point_config, point_config);
+    }
+
+    fn assert_summary_counts(
+        summary: &PlanCollectionSummary,
+        plan_count: usize,
+        breaking_count: usize,
+        bounds: Option<PlanBounds>,
+        rotation_counts: [usize; 4],
+        point_config_family_counts: [usize; 3],
+        point_config_point_count: usize,
+    ) {
+        assert_eq!(summary.plan_count, plan_count);
+        assert_eq!(summary.breaking_count, breaking_count);
+        assert_eq!(summary.bounds, bounds);
+        assert_eq!(summary.rotation_counts, rotation_counts);
+        assert_eq!(
+            summary.point_config_family_counts,
+            point_config_family_counts
+        );
+        assert_eq!(summary.point_config_point_count, point_config_point_count);
+    }
+
+    fn assert_summary_labels(
+        summary: &PlanCollectionSummary,
+        bounds_label: &str,
+        rotation_label: &str,
+        point_config_label: &str,
+        summary_label: &str,
+    ) {
+        assert_eq!(summary.bounds_label(), bounds_label);
+        assert_eq!(summary.rotation_label(), rotation_label);
+        assert_eq!(summary.point_config_label(), point_config_label);
+        assert_eq!(summary.summary_label(), summary_label);
+    }
+
     #[test]
     fn rotate_plans_clockwise_matches_java_behavior_and_skips_breaking() {
         let mut plans = vec![
-            PlanEditorPlan {
-                x: 3,
-                y: 2,
-                rotation: 1,
-                breaking: false,
-                block: PlanBlockMeta::with_size(2),
-                point_config: PlanPointConfig::Point(PlanPoint { x: 1, y: 0 }),
-            },
-            PlanEditorPlan {
-                x: 9,
-                y: 8,
-                rotation: 3,
-                breaking: true,
-                block: PlanBlockMeta::with_size(2),
-                point_config: PlanPointConfig::Point(PlanPoint { x: 7, y: -2 }),
-            },
+            test_plan_with_block(
+                3,
+                2,
+                1,
+                PlanBlockMeta::with_size(2),
+                point_config_point(1, 0),
+            ),
+            breaking_plan_with_block(9, 8, 3, PlanBlockMeta::with_size(2), point_config_point(7, -2)),
         ];
 
         rotate_plans(&mut plans, (1, 1), 1);
 
-        assert_eq!(plans[0].x, -1);
-        assert_eq!(plans[0].y, 3);
-        assert_eq!(plans[0].rotation, 2);
-        assert_eq!(
-            plans[0].point_config,
-            PlanPointConfig::Point(PlanPoint { x: 1, y: 1 })
-        );
+        assert_plan_state(&plans[0], -1, 3, 2, point_config_point(1, 1));
         assert_eq!(
             plans[1],
-            PlanEditorPlan {
-                x: 9,
-                y: 8,
-                rotation: 3,
-                breaking: true,
-                block: PlanBlockMeta::with_size(2),
-                point_config: PlanPointConfig::Point(PlanPoint { x: 7, y: -2 }),
-            }
+            breaking_plan_with_block(9, 8, 3, PlanBlockMeta::with_size(2), point_config_point(7, -2))
         );
     }
 
@@ -460,14 +538,7 @@ mod tests {
         let mut block = PlanBlockMeta::with_size(1);
         block.rotate = false;
         block.lock_rotation = true;
-        let mut plans = vec![PlanEditorPlan {
-            x: 2,
-            y: 0,
-            rotation: 3,
-            breaking: false,
-            block,
-            point_config: PlanPointConfig::None,
-        }];
+        let mut plans = vec![test_plan_with_block(2, 0, 3, block, PlanPointConfig::None)];
 
         rotate_plans(&mut plans, (0, 0), -1);
 
@@ -478,151 +549,191 @@ mod tests {
 
     #[test]
     fn rotate_plans_supports_multi_step_direction_consistently() {
-        let mut plans = vec![PlanEditorPlan {
-            x: 2,
-            y: 1,
-            rotation: 1,
-            breaking: false,
-            block: PlanBlockMeta::with_size(1),
-            point_config: PlanPointConfig::Point(PlanPoint { x: 1, y: 0 }),
-        }];
+        let mut plans = vec![test_plan_with_block(
+            2,
+            1,
+            1,
+            PlanBlockMeta::with_size(1),
+            point_config_point(1, 0),
+        )];
 
         rotate_plans(&mut plans, (0, 0), 2);
 
-        assert_eq!(plans[0].x, -2);
-        assert_eq!(plans[0].y, -1);
-        assert_eq!(plans[0].rotation, 3);
-        assert_eq!(
-            plans[0].point_config,
-            PlanPointConfig::Point(PlanPoint { x: -1, y: 0 })
-        );
+        assert_plan_state(&plans[0], -2, -1, 3, point_config_point(-1, 0));
     }
 
     #[test]
     fn flip_plans_x_axis_matches_java_even_size_rules() {
-        let mut plans = vec![PlanEditorPlan {
-            x: 2,
-            y: 5,
-            rotation: 0,
-            breaking: false,
-            block: PlanBlockMeta::with_size(2),
-            point_config: PlanPointConfig::Point(PlanPoint { x: 2, y: 1 }),
-        }];
+        let mut plans = vec![test_plan_with_block(
+            2,
+            5,
+            0,
+            PlanBlockMeta::with_size(2),
+            point_config_point(2, 1),
+        )];
 
         flip_plans(&mut plans, (1, 3), true);
 
-        assert_eq!(plans[0].x, -1);
-        assert_eq!(plans[0].y, 5);
-        assert_eq!(plans[0].rotation, 2);
-        assert_eq!(
-            plans[0].point_config,
-            PlanPointConfig::Point(PlanPoint { x: -1, y: 1 })
-        );
+        assert_plan_state(&plans[0], -1, 5, 2, point_config_point(-1, 1));
     }
 
     #[test]
     fn flip_plans_y_axis_respects_invert_flip_and_point_arrays() {
         let mut block = PlanBlockMeta::with_size(1);
         block.invert_flip = true;
-        let mut plans = vec![PlanEditorPlan {
-            x: 3,
-            y: 4,
-            rotation: 1,
-            breaking: false,
+        let mut plans = vec![test_plan_with_block(
+            3,
+            4,
+            1,
             block,
-            point_config: PlanPointConfig::Points(vec![
-                PlanPoint { x: 1, y: 2 },
-                PlanPoint { x: -3, y: 0 },
-            ]),
-        }];
+            point_config_points(&[(1, 2), (-3, 0)]),
+        )];
 
         flip_plans(&mut plans, (0, 2), false);
 
-        assert_eq!(plans[0].x, 3);
-        assert_eq!(plans[0].y, 0);
-        assert_eq!(plans[0].rotation, 1);
-        assert_eq!(
-            plans[0].point_config,
-            PlanPointConfig::Points(vec![PlanPoint { x: 1, y: -2 }, PlanPoint { x: -3, y: 0 },])
-        );
+        assert_plan_state(&plans[0], 3, 0, 1, point_config_points(&[(1, -2), (-3, 0)]));
     }
 
     #[test]
     fn plan_collection_summary_tracks_bounds_rotations_and_config_families() {
         let plans = vec![
-            PlanEditorPlan {
-                x: 3,
-                y: 2,
-                rotation: 1,
-                breaking: false,
-                block: PlanBlockMeta::with_size(2),
-                point_config: PlanPointConfig::Point(PlanPoint { x: 1, y: 0 }),
-            },
-            PlanEditorPlan {
-                x: -1,
-                y: 5,
-                rotation: 3,
-                breaking: true,
-                block: PlanBlockMeta::with_size(1),
-                point_config: PlanPointConfig::None,
-            },
-            PlanEditorPlan {
-                x: 7,
-                y: -4,
-                rotation: 0,
-                breaking: false,
-                block: PlanBlockMeta::with_size(3),
-                point_config: PlanPointConfig::Points(vec![
-                    PlanPoint { x: 2, y: 2 },
-                    PlanPoint { x: -1, y: 4 },
-                ]),
-            },
+            test_plan_with_block(
+                3,
+                2,
+                1,
+                PlanBlockMeta::with_size(2),
+                point_config_point(1, 0),
+            ),
+            PlanEditorPlan { breaking: true, ..test_plan(-1, 5, 3) },
+            test_plan_with_block(
+                7,
+                -4,
+                0,
+                PlanBlockMeta::with_size(3),
+                point_config_points(&[(2, 2), (-1, 4)]),
+            ),
         ];
 
         let summary = PlanCollectionSummary::from_plans(&plans);
 
-        assert_eq!(summary.plan_count, 3);
-        assert_eq!(summary.breaking_count, 1);
-        assert_eq!(
-            summary.bounds,
-            Some(PlanBounds {
-                min_x: -1,
-                min_y: -4,
-                max_x: 7,
-                max_y: 5,
-            })
+        let bounds = Some(PlanBounds {
+            min_x: -1,
+            min_y: -4,
+            max_x: 7,
+            max_y: 5,
+        });
+
+        assert_summary_counts(
+            &summary,
+            3,
+            1,
+            bounds,
+            [1, 1, 0, 1],
+            [1, 1, 1],
+            3,
         );
-        assert_eq!(summary.bounds_label(), "-1:-4..7:5");
-        assert_eq!(summary.rotation_counts, [1, 1, 0, 1]);
-        assert_eq!(summary.rotation_label(), "r0=1 r1=1 r2=0 r3=1");
-        assert_eq!(summary.point_config_family_counts, [1, 1, 1]);
-        assert_eq!(summary.point_config_label(), "none=1 point=1 points=1 total=3");
-        assert_eq!(
-            summary.summary_label(),
-            "plans=3 breaking=1 bounds=-1:-4..7:5 rot=r0=1 r1=1 r2=0 r3=1 cfg=none=1 point=1 points=1 total=3"
+        assert_summary_labels(
+            &summary,
+            "-1:-4..7:5",
+            "r0=1 r1=1 r2=0 r3=1",
+            "none=1 point=1 points=1 total=3",
+            "plans=3 breaking=1 bounds=-1:-4..7:5 rot=r0=1 r1=1 r2=0 r3=1 cfg=none=1 point=1 points=1 total=3",
         );
         assert!(summary.has_bounds());
     }
 
     #[test]
+    fn plan_collection_summary_from_empty_plans_returns_empty_defaults() {
+        let plans: Vec<PlanEditorPlan> = vec![];
+
+        let summary = PlanCollectionSummary::from_plans(&plans);
+
+        assert_summary_counts(&summary, 0, 0, None, [0, 0, 0, 0], [0, 0, 0], 0);
+        assert_summary_labels(
+            &summary,
+            "none",
+            "r0=0 r1=0 r2=0 r3=0",
+            "none=0 point=0 points=0 total=0",
+            "plans=0 breaking=0 bounds=none rot=r0=0 r1=0 r2=0 r3=0 cfg=none=0 point=0 points=0 total=0",
+        );
+        assert!(!summary.has_bounds());
+    }
+
+    #[test]
+    fn plan_point_config_map_points_covers_none_point_and_points_variants() {
+        let mut none = PlanPointConfig::None;
+        let mut none_calls = 0;
+        none.map_points(|_| {
+            none_calls += 1;
+        });
+        assert_eq!(none, PlanPointConfig::None);
+        assert_eq!(none_calls, 0);
+
+        let mut point = point_config_point(1, -2);
+        point.map_points(|value| {
+            value.x += 3;
+            value.y -= 4;
+        });
+        assert_eq!(point, point_config_point(4, -6));
+
+        let mut points = point_config_points(&[(0, 1), (-3, 5)]);
+        points.map_points(|value| {
+            value.x = -value.x;
+            value.y += 2;
+        });
+        assert_eq!(points, point_config_points(&[(0, 3), (3, 7)]));
+    }
+
+    #[test]
+    fn plan_bounds_helpers_report_width_height_and_label() {
+        let bounds = PlanBounds {
+            min_x: -2,
+            min_y: 3,
+            max_x: 4,
+            max_y: 9,
+        };
+
+        assert_eq!(bounds.width(), 7);
+        assert_eq!(bounds.height(), 7);
+        assert_eq!(bounds.label(), "-2:3..4:9");
+    }
+
+    #[test]
+    fn plan_point_config_family_and_labels_match_variants() {
+        let cases = [
+            (PlanPointConfig::None, PlanPointConfigFamily::None, "none"),
+            (point_config_point(2, 1), PlanPointConfigFamily::Point, "point"),
+            (
+                point_config_points(&[(-1, 0)]),
+                PlanPointConfigFamily::Points,
+                "points",
+            ),
+        ];
+
+        for (config, family, label) in cases {
+            assert_eq!(config.family(), family);
+            assert_eq!(config.family().label(), label);
+            assert_eq!(family.label(), label);
+        }
+    }
+
+    #[test]
     fn plan_collection_summary_reflects_rotate_and_flip_output_shape() {
         let mut plans = vec![
-            PlanEditorPlan {
-                x: 2,
-                y: 1,
-                rotation: 0,
-                breaking: false,
-                block: PlanBlockMeta::with_size(2),
-                point_config: PlanPointConfig::Point(PlanPoint { x: 1, y: 0 }),
-            },
-            PlanEditorPlan {
-                x: -2,
-                y: 4,
-                rotation: 3,
-                breaking: false,
-                block: PlanBlockMeta::with_size(1),
-                point_config: PlanPointConfig::Points(vec![PlanPoint { x: 0, y: 1 }]),
-            },
+            test_plan_with_block(
+                2,
+                1,
+                0,
+                PlanBlockMeta::with_size(2),
+                point_config_point(1, 0),
+            ),
+            test_plan_with_block(
+                -2,
+                4,
+                3,
+                PlanBlockMeta::with_size(1),
+                point_config_points(&[(0, 1)]),
+            ),
         ];
 
         rotate_plans(&mut plans, (0, 0), 1);
@@ -630,26 +741,81 @@ mod tests {
 
         let summary = PlanCollectionSummary::from_plans(&plans);
 
-        assert_eq!(summary.plan_count, 2);
-        assert_eq!(summary.breaking_count, 0);
-        assert_eq!(
-            summary.bounds,
+        assert_summary_counts(
+            &summary,
+            2,
+            0,
             Some(PlanBounds {
                 min_x: 1,
                 min_y: -2,
                 max_x: 4,
                 max_y: 2,
-            })
+            }),
+            [0, 1, 1, 0],
+            [0, 1, 1],
+            2,
         );
-        assert_eq!(summary.rotation_counts, [0, 1, 1, 0]);
-        assert_eq!(summary.point_config_family_counts, [0, 1, 1]);
-        assert_eq!(summary.point_config_point_count, 2);
+    }
+
+    #[test]
+    fn flip_plans_skips_breaking_plans() {
+        let mut plans = vec![
+            test_plan_with_block(
+                2,
+                5,
+                0,
+                PlanBlockMeta::with_size(2),
+                point_config_point(2, 1),
+            ),
+            breaking_plan_with_block(9, 8, 3, PlanBlockMeta::with_size(2), point_config_point(7, -2)),
+        ];
+
+        flip_plans(&mut plans, (1, 3), true);
+
+        assert_plan_state(&plans[0], -1, 5, 2, point_config_point(-1, 1));
+        assert_eq!(
+            plans[1],
+            breaking_plan_with_block(9, 8, 3, PlanBlockMeta::with_size(2), point_config_point(7, -2))
+        );
+    }
+
+    #[test]
+    fn plan_collection_summary_normalizes_negative_and_wrapped_rotations() {
+        let plans = vec![
+            test_plan(0, 0, -1),
+            test_plan(1, 0, 4),
+            test_plan_with_block(
+                2,
+                0,
+                9,
+                PlanBlockMeta::default(),
+                point_config_points(&[(0, 0), (1, 1)]),
+            ),
+        ];
+
+        let summary = PlanCollectionSummary::from_plans(&plans);
+
+        assert_summary_counts(
+            &summary,
+            3,
+            0,
+            Some(PlanBounds {
+                min_x: 0,
+                min_y: 0,
+                max_x: 2,
+                max_y: 0,
+            }),
+            [1, 1, 0, 1],
+            [2, 0, 1],
+            2,
+        );
     }
 
     #[test]
     fn world_to_tile_matches_java_rounding_for_negative_half_tile() {
-        assert_eq!(world_to_tile(4.0), 1);
-        assert_eq!(world_to_tile(-4.0), 0);
+        for (world, tile) in [(4.0, 1), (-4.0, 0)] {
+            assert_eq!(world_to_tile(world), tile);
+        }
     }
 
     #[test]
@@ -664,9 +830,11 @@ mod tests {
 
     #[test]
     fn plan_block_meta_rejects_non_positive_sizes() {
-        assert!(std::panic::catch_unwind(|| PlanBlockMeta::with_size(0)).is_err());
-        assert!(std::panic::catch_unwind(|| PlanBlockMeta::with_size(-1)).is_err());
-        assert!(std::panic::catch_unwind(|| block_offset(0)).is_err());
-        assert!(std::panic::catch_unwind(|| block_offset(-2)).is_err());
+        for size in [0, -1] {
+            assert!(std::panic::catch_unwind(|| PlanBlockMeta::with_size(size)).is_err());
+        }
+        for size in [0, -2] {
+            assert!(std::panic::catch_unwind(|| block_offset(size)).is_err());
+        }
     }
 }

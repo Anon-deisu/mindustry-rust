@@ -194,8 +194,8 @@ mod tests {
         decode_framework_message, decode_packet, encode_framework_message, encode_packet,
         FrameworkMessage,
     };
-    use mdt_remote::read_remote_manifest;
-    use std::net::UdpSocket;
+    use mdt_remote::{read_remote_manifest, RemoteManifest};
+    use std::net::{SocketAddr, UdpSocket};
     use std::path::PathBuf;
 
     fn decode_hex_text(text: &str) -> Vec<u8> {
@@ -235,24 +235,34 @@ mod tests {
             .join("../../fixtures/remote/remote-manifest-v1.json")
     }
 
-    #[test]
-    fn world_stream_ready_over_udp_surfaces_pending_tcp_connect_confirm() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let timing = ClientSessionTiming {
+    fn session_timing(connect_timeout_ms: u64, timeout_ms: u64) -> ClientSessionTiming {
+        ClientSessionTiming {
             keepalive_interval_ms: 60_000,
             client_snapshot_interval_ms: 60_000,
-            connect_timeout_ms: 120_000,
-            timeout_ms: 120_000,
-        };
-        let mut session =
-            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
-        let connect = session
-            .prepare_connect_packet(&sample_connect_payload())
-            .unwrap();
-        let compressed_world_stream = sample_world_stream_bytes();
-        let (begin_packet, chunk_packets) =
-            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+            connect_timeout_ms,
+            timeout_ms,
+        }
+    }
 
+    struct SessionFixture {
+        manifest: RemoteManifest,
+        session: ClientSession,
+    }
+
+    fn session_fixture(timing: ClientSessionTiming) -> SessionFixture {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        SessionFixture { manifest, session }
+    }
+
+    struct UdpDriverFixture {
+        server: UdpSocket,
+        driver: UdpSessionDriver,
+        client_addr: SocketAddr,
+    }
+
+    fn udp_driver_fixture() -> UdpDriverFixture {
         let server = UdpSocket::bind("127.0.0.1:0").unwrap();
         server.set_nonblocking(true).unwrap();
         let server_addr = server.local_addr().unwrap();
@@ -260,6 +270,76 @@ mod tests {
         let client = UdpSocket::bind("127.0.0.1:0").unwrap();
         let driver = UdpSessionDriver::new(client, server_addr).unwrap();
         let client_addr = driver.local_addr().unwrap();
+
+        UdpDriverFixture {
+            server,
+            driver,
+            client_addr,
+        }
+    }
+
+    struct WorldStreamPacketFixture {
+        begin_packet: Vec<u8>,
+        chunk_packets: Vec<Vec<u8>>,
+    }
+
+    fn world_stream_packet_fixture() -> WorldStreamPacketFixture {
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        WorldStreamPacketFixture {
+            begin_packet,
+            chunk_packets,
+        }
+    }
+
+    fn assert_framework_report(
+        report: &UdpTickReport,
+        inbound_framework_messages: usize,
+        outbound_framework_messages: usize,
+    ) {
+        assert_eq!(
+            report.inbound_framework_messages,
+            inbound_framework_messages
+        );
+        assert_eq!(
+            report.outbound_framework_messages,
+            outbound_framework_messages
+        );
+        assert_eq!(report.inbound_packets, 0);
+    }
+
+    fn assert_ping_reply(server: &UdpSocket, client_addr: SocketAddr, expected_id: i32) {
+        let mut recv = [0u8; 1024];
+        let (len, from) = server.recv_from(&mut recv).unwrap();
+        assert_eq!(from, client_addr);
+        assert_eq!(
+            decode_framework_message(&recv[..len]).unwrap(),
+            FrameworkMessage::Ping {
+                id: expected_id,
+                is_reply: true,
+            }
+        );
+    }
+
+    #[test]
+    fn world_stream_ready_over_udp_surfaces_pending_tcp_connect_confirm() {
+        let SessionFixture {
+            manifest: _,
+            mut session,
+        } = session_fixture(session_timing(120_000, 120_000));
+        let connect = session
+            .prepare_connect_packet(&sample_connect_payload())
+            .unwrap();
+        let WorldStreamPacketFixture {
+            begin_packet,
+            chunk_packets,
+        } = world_stream_packet_fixture();
+        let UdpDriverFixture {
+            server,
+            driver,
+            client_addr,
+        } = udp_driver_fixture();
 
         driver.send_connect(&connect).unwrap();
         let mut recv = [0u8; 4096];
@@ -286,15 +366,10 @@ mod tests {
 
     #[test]
     fn world_stream_ready_over_udp_replays_loading_events() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let timing = ClientSessionTiming {
-            keepalive_interval_ms: 60_000,
-            client_snapshot_interval_ms: 60_000,
-            connect_timeout_ms: 120_000,
-            timeout_ms: 120_000,
-        };
-        let mut session =
-            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let SessionFixture {
+            manifest,
+            mut session,
+        } = session_fixture(session_timing(120_000, 120_000));
         let packet_id = manifest
             .remote_packets
             .iter()
@@ -307,17 +382,15 @@ mod tests {
             false,
         )
         .unwrap();
-        let compressed_world_stream = sample_world_stream_bytes();
-        let (begin_packet, chunk_packets) =
-            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
-
-        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
-        server.set_nonblocking(true).unwrap();
-        let server_addr = server.local_addr().unwrap();
-
-        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let driver = UdpSessionDriver::new(client, server_addr).unwrap();
-        let client_addr = driver.local_addr().unwrap();
+        let WorldStreamPacketFixture {
+            begin_packet,
+            chunk_packets,
+        } = world_stream_packet_fixture();
+        let UdpDriverFixture {
+            server,
+            driver,
+            client_addr,
+        } = udp_driver_fixture();
 
         server.send_to(&begin_packet, client_addr).unwrap();
         server.send_to(&queued_message, client_addr).unwrap();
@@ -338,27 +411,20 @@ mod tests {
 
     #[test]
     fn processes_inbound_before_timeout_check() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let timing = ClientSessionTiming {
-            keepalive_interval_ms: 60_000,
-            client_snapshot_interval_ms: 60_000,
-            connect_timeout_ms: 1_000,
-            timeout_ms: 1_000,
-        };
-        let mut session =
-            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
-        let compressed_world_stream = sample_world_stream_bytes();
-        let (begin_packet, _) =
-            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        let SessionFixture {
+            manifest: _,
+            mut session,
+        } = session_fixture(session_timing(1_000, 1_000));
+        let WorldStreamPacketFixture { begin_packet, .. } = world_stream_packet_fixture();
 
         session.set_clock_ms(0);
         session.ingest_packet_bytes(&begin_packet).unwrap();
 
-        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let server_addr = server.local_addr().unwrap();
-        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let driver = UdpSessionDriver::new(client, server_addr).unwrap();
-        let client_addr = driver.local_addr().unwrap();
+        let UdpDriverFixture {
+            server,
+            driver,
+            client_addr,
+        } = udp_driver_fixture();
 
         server.send_to(&begin_packet, client_addr).unwrap();
         let report = driver.tick(&mut session, 1_201, 32).unwrap();
@@ -371,18 +437,14 @@ mod tests {
 
     #[test]
     fn surfaces_timeout_kind_on_udp_timeout() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let timing = ClientSessionTiming {
-            keepalive_interval_ms: 60_000,
-            client_snapshot_interval_ms: 60_000,
-            connect_timeout_ms: 1_200,
-            timeout_ms: 1_200,
-        };
-        let mut session =
-            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
-        let compressed_world_stream = sample_world_stream_bytes();
-        let (begin_packet, chunk_packets) =
-            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        let SessionFixture {
+            manifest: _,
+            mut session,
+        } = session_fixture(session_timing(1_200, 1_200));
+        let WorldStreamPacketFixture {
+            begin_packet,
+            chunk_packets,
+        } = world_stream_packet_fixture();
 
         session.ingest_packet_bytes(&begin_packet).unwrap();
         for chunk in chunk_packets {
@@ -393,10 +455,7 @@ mod tests {
         assert!(session.state().connect_confirm_sent);
         assert!(!session.state().connect_confirm_flushed);
 
-        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let server_addr = server.local_addr().unwrap();
-        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let driver = UdpSessionDriver::new(client, server_addr).unwrap();
+        let UdpDriverFixture { driver, .. } = udp_driver_fixture();
 
         let report = driver.tick(&mut session, 2_400, 32).unwrap();
 
@@ -410,29 +469,19 @@ mod tests {
 
     #[test]
     fn handles_udp_framework_register_and_ping() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let timing = ClientSessionTiming {
-            keepalive_interval_ms: 60_000,
-            client_snapshot_interval_ms: 60_000,
-            connect_timeout_ms: 120_000,
-            timeout_ms: 120_000,
-        };
-        let mut session =
-            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
-
-        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
-        server.set_nonblocking(true).unwrap();
-        let server_addr = server.local_addr().unwrap();
-
-        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let driver = UdpSessionDriver::new(client, server_addr).unwrap();
-        let client_addr = driver.local_addr().unwrap();
+        let SessionFixture {
+            manifest: _,
+            mut session,
+        } = session_fixture(session_timing(120_000, 120_000));
+        let UdpDriverFixture {
+            server,
+            driver,
+            client_addr,
+        } = udp_driver_fixture();
 
         server
             .send_to(
-                &encode_framework_message(&FrameworkMessage::RegisterUdp {
-                    connection_id: 77,
-                }),
+                &encode_framework_message(&FrameworkMessage::RegisterUdp { connection_id: 77 }),
                 client_addr,
             )
             .unwrap();
@@ -447,41 +496,21 @@ mod tests {
             .unwrap();
 
         let report = driver.tick(&mut session, 1, 32).unwrap();
-        assert_eq!(report.inbound_framework_messages, 2);
-        assert_eq!(report.outbound_framework_messages, 1);
-        assert_eq!(report.inbound_packets, 0);
-
-        let mut recv = [0u8; 1024];
-        let (len, from) = server.recv_from(&mut recv).unwrap();
-        assert_eq!(from, client_addr);
-        assert_eq!(
-            decode_framework_message(&recv[..len]).unwrap(),
-            FrameworkMessage::Ping {
-                id: 123,
-                is_reply: true,
-            }
-        );
+        assert_framework_report(&report, 2, 1);
+        assert_ping_reply(&server, client_addr, 123);
     }
 
     #[test]
     fn ignores_udp_framework_ping_reply_without_echoing() {
-        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
-        let timing = ClientSessionTiming {
-            keepalive_interval_ms: 60_000,
-            client_snapshot_interval_ms: 60_000,
-            connect_timeout_ms: 120_000,
-            timeout_ms: 120_000,
-        };
-        let mut session =
-            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
-
-        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
-        server.set_nonblocking(true).unwrap();
-        let server_addr = server.local_addr().unwrap();
-
-        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let driver = UdpSessionDriver::new(client, server_addr).unwrap();
-        let client_addr = driver.local_addr().unwrap();
+        let SessionFixture {
+            manifest: _,
+            mut session,
+        } = session_fixture(session_timing(120_000, 120_000));
+        let UdpDriverFixture {
+            server,
+            driver,
+            client_addr,
+        } = udp_driver_fixture();
 
         server
             .send_to(
@@ -494,9 +523,7 @@ mod tests {
             .unwrap();
 
         let report = driver.tick(&mut session, 1, 32).unwrap();
-        assert_eq!(report.inbound_framework_messages, 1);
-        assert_eq!(report.outbound_framework_messages, 0);
-        assert_eq!(report.inbound_packets, 0);
+        assert_framework_report(&report, 1, 0);
 
         let mut recv = [0u8; 1024];
         assert_eq!(

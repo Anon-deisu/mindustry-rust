@@ -467,6 +467,23 @@ impl CommandModeState {
         });
     }
 
+    pub fn record_command_target(
+        &mut self,
+        build_target: Option<i32>,
+        unit_target: Option<CommandUnitRef>,
+        pos_target: Option<(f32, f32)>,
+    ) {
+        self.active = true;
+        self.clear_recent_target_state();
+        self.command_rect = None;
+        self.last_target = Some(CommandModeTargetProjection {
+            build_target,
+            unit_target,
+            position_target: pos_target.and_then(command_mode_position_target),
+            rect_target: None,
+        });
+    }
+
     pub fn record_set_unit_command(&mut self, unit_ids: &[i32], command_id: Option<u8>) {
         self.active = true;
         self.selected_units = dedupe_i32(unit_ids);
@@ -571,68 +588,64 @@ mod tests {
         CommandUnitRef { kind, value }
     }
 
+    fn position_target(x: f32, y: f32) -> CommandModePositionTarget {
+        command_mode_position_target((x, y)).expect("test position target should be finite")
+    }
+
+    fn rect_target(x0: i32, y0: i32, x1: i32, y1: i32) -> CommandModeRectProjection {
+        CommandModeRectProjection { x0, y0, x1, y1 }
+    }
+
+    fn target_projection(
+        build_target: Option<i32>,
+        unit_target: Option<CommandUnitRef>,
+        position: Option<(f32, f32)>,
+        rect_target: Option<CommandModeRectProjection>,
+    ) -> CommandModeTargetProjection {
+        CommandModeTargetProjection {
+            build_target,
+            unit_target,
+            position_target: position.map(|(x, y)| position_target(x, y)),
+            rect_target,
+        }
+    }
+
     #[test]
     fn target_projection_is_empty_only_without_any_target() {
         assert!(CommandModeTargetProjection::default().is_empty());
-        assert_eq!(CommandModeTargetProjection::default().summary_label(), "none");
-        assert_eq!(CommandModeTargetProjection::default().detail_label(), "none");
-        assert!(!CommandModeTargetProjection {
-            build_target: Some(7),
-            ..CommandModeTargetProjection::default()
-        }
-        .is_empty());
-        assert!(!CommandModeTargetProjection {
-            unit_target: Some(unit(1, 9)),
-            ..CommandModeTargetProjection::default()
-        }
-        .is_empty());
-        assert!(!CommandModeTargetProjection {
-            position_target: Some(CommandModePositionTarget {
-                x_bits: 1.0f32.to_bits(),
-                y_bits: 2.0f32.to_bits(),
-            }),
-            ..CommandModeTargetProjection::default()
-        }
-        .is_empty());
-        assert!(!CommandModeTargetProjection {
-            rect_target: Some(CommandModeRectProjection {
-                x0: 1,
-                y0: 2,
-                x1: 3,
-                y1: 4,
-            }),
-            ..CommandModeTargetProjection::default()
-        }
-        .is_empty());
+        assert_eq!(
+            CommandModeTargetProjection::default().summary_label(),
+            "none"
+        );
+        assert_eq!(
+            CommandModeTargetProjection::default().detail_label(),
+            "none"
+        );
+        assert!(!target_projection(Some(7), None, None, None).is_empty());
+        assert!(!target_projection(None, Some(unit(1, 9)), None, None).is_empty());
+        assert!(!target_projection(None, None, Some((1.0, 2.0)), None).is_empty());
+        assert!(!target_projection(None, None, None, Some(rect_target(1, 2, 3, 4))).is_empty());
     }
 
     #[test]
     fn target_projection_summary_label_reports_empty_mixed_and_full_targets() {
-        assert_eq!(CommandModeTargetProjection::default().summary_label(), "none");
+        assert_eq!(
+            CommandModeTargetProjection::default().summary_label(),
+            "none"
+        );
 
-        let mixed = CommandModeTargetProjection {
-            build_target: Some(7),
-            unit_target: Some(unit(1, 9)),
-            position_target: Some(CommandModePositionTarget {
-                x_bits: 1.0f32.to_bits(),
-                y_bits: 2.5f32.to_bits(),
-            }),
-            rect_target: None,
-        };
+        let mixed = target_projection(Some(7), Some(unit(1, 9)), Some((1.0, 2.5)), None);
         assert_eq!(mixed.summary_label(), "build+unit+position");
         assert!(mixed.detail_label().contains("build=7"));
         assert!(mixed.detail_label().contains("unit=1:9"));
         assert!(mixed.detail_label().contains("position=1,2.5"));
 
-        let full = CommandModeTargetProjection {
-            rect_target: Some(CommandModeRectProjection {
-                x0: -1,
-                y0: 2,
-                x1: 3,
-                y1: 4,
-            }),
-            ..mixed
-        };
+        let full = target_projection(
+            mixed.build_target,
+            mixed.unit_target,
+            Some((1.0, 2.5)),
+            Some(rect_target(-1, 2, 3, 4)),
+        );
         assert_eq!(full.summary_label(), "build+unit+position+rect");
         assert!(full.detail_label().contains("rect=-1,2,3:4"));
     }
@@ -667,18 +680,18 @@ mod tests {
         state.record_set_unit_stance(&[11, 22, 11], None, true);
 
         let summary = state.projection().summary();
-        assert_eq!(summary.active, true);
+        assert!(summary.active);
         assert_eq!(summary.selected_unit_count, 2);
         assert_eq!(summary.command_building_count, 0);
         assert_eq!(summary.control_group_count, 1);
-        assert_eq!(summary.has_command_rect, false);
+        assert!(!summary.has_command_rect);
         assert_eq!(
             summary.recent_control_group_operation,
             Some(CommandModeRecentControlGroupOperation::Bind)
         );
-        assert_eq!(summary.has_recent_target, true);
-        assert_eq!(summary.has_recent_command_selection, true);
-        assert_eq!(summary.has_recent_stance_selection, true);
+        assert!(summary.has_recent_target);
+        assert!(summary.has_recent_command_selection);
+        assert!(summary.has_recent_stance_selection);
         assert_eq!(summary.summary_label(), "target+command+stance");
         assert_eq!(summary.recent_selection_label(), "target+command+stance");
         assert_eq!(summary.recent_control_group_label(), "group-bind");
@@ -688,12 +701,7 @@ mod tests {
     fn command_mode_state_projection_tracks_selection_and_recent_command_state() {
         let mut state = CommandModeState::default();
         state.bind_control_group(2, &[9, 9, 7]);
-        state.set_command_rect(Some(CommandModeRectProjection {
-            x0: 1,
-            y0: 2,
-            x1: 3,
-            y1: 4,
-        }));
+        state.set_command_rect(Some(rect_target(1, 2, 3, 4)));
         state.record_command_units(&[11, 22, 11], Some(7), Some(unit(2, 33)), Some((1.0, 2.0)));
         state.record_set_unit_command(&[11, 22, 11], Some(5));
         state.record_set_unit_stance(&[11, 22, 11], None, true);
@@ -709,18 +717,13 @@ mod tests {
                     index: 2,
                     unit_ids: vec![9, 7],
                 }],
-                last_control_group_operation: Some(
-                    CommandModeRecentControlGroupOperation::Bind,
-                ),
-                last_target: Some(CommandModeTargetProjection {
-                    build_target: Some(7),
-                    unit_target: Some(unit(2, 33)),
-                    position_target: Some(CommandModePositionTarget {
-                        x_bits: 1.0f32.to_bits(),
-                        y_bits: 2.0f32.to_bits(),
-                    }),
-                    rect_target: None,
-                }),
+                last_control_group_operation: Some(CommandModeRecentControlGroupOperation::Bind,),
+                last_target: Some(target_projection(
+                    Some(7),
+                    Some(unit(2, 33)),
+                    Some((1.0, 2.0)),
+                    None,
+                )),
                 last_command_selection: Some(CommandModeCommandSelection {
                     command_id: Some(5),
                 }),
@@ -740,10 +743,7 @@ mod tests {
         assert_eq!(state.projection().command_buildings, vec![3, 4]);
         assert_eq!(
             state.projection().last_target,
-            Some(CommandModeTargetProjection {
-                position_target: None,
-                ..CommandModeTargetProjection::default()
-            })
+            Some(target_projection(None, None, None, None))
         );
 
         state.record_command_units(
@@ -755,12 +755,7 @@ mod tests {
         assert_eq!(state.projection().selected_units, vec![8, 9]);
         assert_eq!(
             state.projection().last_target,
-            Some(CommandModeTargetProjection {
-                build_target: Some(1),
-                unit_target: Some(unit(7, 12)),
-                position_target: None,
-                rect_target: None,
-            })
+            Some(target_projection(Some(1), Some(unit(7, 12)), None, None))
         );
     }
 
@@ -768,7 +763,11 @@ mod tests {
     fn building_selection_helpers_accept_none_and_control_groups_survive_clear() {
         let mut state = CommandModeState::default();
         state.bind_control_group(1, &[44, 55]);
-        state.select_unit_target(Some(unit(2, 11)), &[11, 22], CommandModeSelectionOp::Replace);
+        state.select_unit_target(
+            Some(unit(2, 11)),
+            &[11, 22],
+            CommandModeSelectionOp::Replace,
+        );
         assert_eq!(state.projection().selected_units, vec![11, 22]);
 
         state.record_building_control_select(Some(90));
@@ -776,12 +775,7 @@ mod tests {
         assert_eq!(state.projection().command_buildings, vec![90]);
         assert_eq!(
             state.projection().last_target,
-            Some(CommandModeTargetProjection {
-                build_target: Some(90),
-                unit_target: None,
-                position_target: None,
-                rect_target: None,
-            })
+            Some(target_projection(Some(90), None, None, None))
         );
 
         state.record_unit_building_control_select(Some(unit(2, 44)), &[44], Some(90));
@@ -792,12 +786,7 @@ mod tests {
         assert!(state.projection().command_buildings.is_empty());
         assert_eq!(
             state.projection().last_target,
-            Some(CommandModeTargetProjection {
-                build_target: None,
-                unit_target: None,
-                position_target: None,
-                rect_target: None,
-            })
+            Some(target_projection(None, None, None, None))
         );
 
         assert!(state.recall_control_group(1));
@@ -820,12 +809,7 @@ mod tests {
         let mut state = CommandModeState::default();
         state.bind_control_group(2, &[77, 88]);
         state.record_building_control_select(Some(90));
-        state.set_command_rect(Some(CommandModeRectProjection {
-            x0: -2,
-            y0: 3,
-            x1: 4,
-            y1: 9,
-        }));
+        state.set_command_rect(Some(rect_target(-2, 3, 4, 9)));
         state.record_set_unit_command(&[11], Some(5));
         state.record_set_unit_stance(&[11], Some(7), true);
 
@@ -835,7 +819,10 @@ mod tests {
         assert!(state.projection().command_buildings.is_empty());
         assert_eq!(state.projection().command_rect, None);
         assert_eq!(state.projection().last_target, None);
-        assert_eq!(state.projection().last_control_group_operation, Some(CommandModeRecentControlGroupOperation::Recall));
+        assert_eq!(
+            state.projection().last_control_group_operation,
+            Some(CommandModeRecentControlGroupOperation::Recall)
+        );
         assert_eq!(state.projection().last_command_selection, None);
         assert_eq!(state.projection().last_stance_selection, None);
     }
@@ -843,7 +830,11 @@ mod tests {
     #[test]
     fn command_entries_clear_stale_opposite_selection_state() {
         let mut state = CommandModeState::default();
-        state.select_unit_target(Some(unit(2, 11)), &[11, 22], CommandModeSelectionOp::Replace);
+        state.select_unit_target(
+            Some(unit(2, 11)),
+            &[11, 22],
+            CommandModeSelectionOp::Replace,
+        );
         state.record_set_unit_command(&[11, 22], Some(5));
         state.record_set_unit_stance(&[11, 22], Some(7), true);
         state.record_command_building(&[90, 91, 90], (3.0, 4.0));
@@ -854,13 +845,7 @@ mod tests {
         assert_eq!(state.projection().last_stance_selection, None);
         assert_eq!(
             state.projection().last_target,
-            Some(CommandModeTargetProjection {
-                position_target: Some(CommandModePositionTarget {
-                    x_bits: 3.0f32.to_bits(),
-                    y_bits: 4.0f32.to_bits(),
-                }),
-                ..CommandModeTargetProjection::default()
-            })
+            Some(target_projection(None, None, Some((3.0, 4.0)), None))
         );
 
         state.record_set_unit_command(&[7, 8], Some(9));
@@ -873,16 +858,36 @@ mod tests {
         assert_eq!(state.projection().last_stance_selection, None);
         assert_eq!(
             state.projection().last_target,
-            Some(CommandModeTargetProjection {
-                build_target: Some(12),
-                unit_target: Some(unit(1, 44)),
-                position_target: Some(CommandModePositionTarget {
-                    x_bits: 5.0f32.to_bits(),
-                    y_bits: 6.0f32.to_bits(),
-                }),
-                rect_target: None,
-            })
+            Some(target_projection(
+                Some(12),
+                Some(unit(1, 44)),
+                Some((5.0, 6.0)),
+                None,
+            ))
         );
+    }
+
+    #[test]
+    fn record_command_target_preserves_existing_selection_state() {
+        let mut state = CommandModeState::default();
+        state.record_building_control_select(Some(404));
+        state.record_set_unit_command(&[77, 88, 77], Some(7));
+
+        state.record_command_target(Some(808), Some(unit(2, 909)), Some((1.5, -2.25)));
+
+        assert_eq!(state.projection().selected_units, vec![77, 88]);
+        assert_eq!(state.projection().command_buildings, vec![404]);
+        assert_eq!(
+            state.projection().last_target,
+            Some(target_projection(
+                Some(808),
+                Some(unit(2, 909)),
+                Some((1.5, -2.25)),
+                None,
+            ))
+        );
+        assert_eq!(state.projection().last_command_selection, None);
+        assert_eq!(state.projection().last_stance_selection, None);
     }
 
     #[test]
@@ -977,12 +982,7 @@ mod tests {
         );
 
         state.select_units_rect(
-            CommandModeRectProjection {
-                x0: 8,
-                y0: 9,
-                x1: 3,
-                y1: 4,
-            },
+            rect_target(8, 9, 3, 4),
             &[22, 33, 44],
             CommandModeSelectionOp::Add,
         );
@@ -990,24 +990,11 @@ mod tests {
         assert_eq!(state.projection().selected_units, vec![11, 22, 33, 44]);
         assert_eq!(
             state.projection().command_rect,
-            Some(CommandModeRectProjection {
-                x0: 3,
-                y0: 4,
-                x1: 8,
-                y1: 9,
-            })
+            Some(rect_target(3, 4, 8, 9))
         );
         assert_eq!(
             state.projection().last_target,
-            Some(CommandModeTargetProjection {
-                rect_target: Some(CommandModeRectProjection {
-                    x0: 3,
-                    y0: 4,
-                    x1: 8,
-                    y1: 9,
-                }),
-                ..CommandModeTargetProjection::default()
-            })
+            Some(target_projection(None, None, None, Some(rect_target(3, 4, 8, 9))))
         );
     }
 
@@ -1028,10 +1015,7 @@ mod tests {
         assert_eq!(state.projection().command_rect, None);
         assert_eq!(
             state.projection().last_target,
-            Some(CommandModeTargetProjection {
-                unit_target: Some(unit(2, 30)),
-                ..CommandModeTargetProjection::default()
-            })
+            Some(target_projection(None, Some(unit(2, 30)), None, None))
         );
         assert_eq!(state.projection().last_command_selection, None);
         assert_eq!(state.projection().last_stance_selection, None);

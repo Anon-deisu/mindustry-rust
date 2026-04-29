@@ -80,14 +80,14 @@
 - 当前缺口：
   - contract table 仍是窄覆盖，只有少数 `effect_id` 被映射
   - 证据：`rust/mdt-client-min/src/effect_runtime.rs:120`
-  - source-follow 只对 `8/9/178/261/262` 开启
-  - 证据：`rust/mdt-client-min/src/effect_runtime.rs:922`
+  - source-follow / source parentize 口径只应记 `8/9`；`10` 是 snapshot beam，`178/261/262` 是显式 `no-follow`，不要把它们计入 source-follow 覆盖
+  - 证据：`rust/mdt-client-min/src/effect_runtime.rs:922`（现实现入口）；审计结论按上游原版语义解读
   - instance seed 仍是对 overlay 字段做 hash，不是稳定 Java effect instance id 语义
   - 证据：`rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs:675`
 - 最小切法：
   - 三选一，不要混做大杂烩
   - 扩一批高信号 `effect_id -> contract`
-  - 扩 `position_target` 更广的 source-follow
+  - 仅在与上游一致、确需 parentize 的 `position_target` family 上扩 source-follow，不把 `10/178/261/262` 算进去
   - 补 binding/fallback outcome observability 和 seed parity
 - 完成判定：
   - 新增 family 有明确 executor

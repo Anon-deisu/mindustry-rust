@@ -1512,7 +1512,7 @@ mod tests {
     fn basic_codec_readers_round_trip_expected_payloads() {
         let mut bytes = Vec::new();
         write_bool(&mut bytes, true);
-        assert_eq!(read_bool(&bytes).unwrap(), true);
+        assert!(read_bool(&bytes).unwrap());
 
         bytes.clear();
         write_byte(&mut bytes, 7);

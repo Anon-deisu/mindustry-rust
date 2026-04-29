@@ -79,9 +79,7 @@ pub fn valid_place_against_local_plans_with_reason(
     ignore_plan_index: Option<usize>,
 ) -> Result<(), PlacementRejectReason> {
     if request.size <= 0 {
-        return Err(PlacementRejectReason::RequestSizeNonPositive {
-            size: request.size,
-        });
+        return Err(PlacementRejectReason::RequestSizeNonPositive { size: request.size });
     }
     let request_bounds = placement_bounds(request.x, request.y, request.size);
 
@@ -102,13 +100,9 @@ pub fn valid_place_against_local_plans_with_reason(
                 continue;
             }
             return if plan_bounds == request_bounds {
-                Err(PlacementRejectReason::ExactOverlapRequiresReplacement {
-                    plan_index: index,
-                })
+                Err(PlacementRejectReason::ExactOverlapRequiresReplacement { plan_index: index })
             } else {
-                Err(PlacementRejectReason::PlanOverlapsRequest {
-                    plan_index: index,
-                })
+                Err(PlacementRejectReason::PlanOverlapsRequest { plan_index: index })
             };
         }
     }
@@ -179,237 +173,166 @@ mod tests {
         RepairDerelictObservation,
     };
 
+    fn request(x: i32, y: i32, size: i32) -> PlacementRequest {
+        PlacementRequest { x, y, size }
+    }
+
+    fn local_plan(
+        x: i32,
+        y: i32,
+        size: i32,
+        breaking: bool,
+        candidate_can_replace_plan: bool,
+    ) -> LocalPlanPlacement {
+        LocalPlanPlacement {
+            x,
+            y,
+            size,
+            breaking,
+            candidate_can_replace_plan,
+        }
+    }
+
+    fn build_observation(
+        block_unlocked: bool,
+        team_is_derelict: bool,
+        tile_x: i32,
+        tile_y: i32,
+        rotation: i32,
+        block: &'static str,
+        config: Option<i32>,
+    ) -> RepairDerelictBuildObservation<&'static str, Option<i32>> {
+        RepairDerelictBuildObservation {
+            block_unlocked,
+            team_is_derelict,
+            tile_x,
+            tile_y,
+            rotation,
+            block,
+            config,
+        }
+    }
+
+    fn observation(
+        player_dead: bool,
+        rules_editor: bool,
+        player_team_is_derelict: bool,
+        selected_build: Option<RepairDerelictBuildObservation<&'static str, Option<i32>>>,
+    ) -> RepairDerelictObservation<&'static str, Option<i32>> {
+        RepairDerelictObservation {
+            player_dead,
+            rules_editor,
+            player_team_is_derelict,
+            selected_build,
+        }
+    }
+
+    fn assert_valid(
+        request: PlacementRequest,
+        local_plans: &[LocalPlanPlacement],
+        ignore_plan_index: Option<usize>,
+    ) {
+        assert!(valid_place_against_local_plans(
+            request,
+            local_plans,
+            ignore_plan_index
+        ));
+    }
+
+    fn assert_invalid(
+        request: PlacementRequest,
+        local_plans: &[LocalPlanPlacement],
+        ignore_plan_index: Option<usize>,
+        expected_reason: PlacementRejectReason,
+    ) {
+        assert_eq!(
+            valid_place_against_local_plans_with_reason(request, local_plans, ignore_plan_index),
+            Err(expected_reason)
+        );
+        assert!(!valid_place_against_local_plans(
+            request,
+            local_plans,
+            ignore_plan_index
+        ));
+    }
+
     #[test]
     fn valid_place_against_local_plans_ignores_breaking_plans() {
-        assert!(valid_place_against_local_plans(
-            PlacementRequest {
-                x: 10,
-                y: 10,
-                size: 1,
-            },
-            &[LocalPlanPlacement {
-                x: 10,
-                y: 10,
-                size: 1,
-                breaking: true,
-                candidate_can_replace_plan: false,
-            }],
-            None,
-        ));
+        assert_valid(request(10, 10, 1), &[local_plan(10, 10, 1, true, false)], None);
     }
 
     #[test]
     fn valid_place_against_local_plans_rejects_overlapping_non_breaking_plan() {
-        assert_eq!(
-            valid_place_against_local_plans_with_reason(
-                PlacementRequest {
-                    x: 5,
-                    y: 5,
-                    size: 2
-                },
-                &[LocalPlanPlacement {
-                    x: 6,
-                    y: 5,
-                    size: 2,
-                    breaking: false,
-                    candidate_can_replace_plan: true,
-                }],
-                None,
-            ),
-            Err(PlacementRejectReason::PlanOverlapsRequest { plan_index: 0 })
-        );
-        assert!(!valid_place_against_local_plans(
-            PlacementRequest {
-                x: 5,
-                y: 5,
-                size: 2
-            },
-            &[LocalPlanPlacement {
-                x: 6,
-                y: 5,
-                size: 2,
-                breaking: false,
-                candidate_can_replace_plan: true,
-            }],
+        assert_invalid(
+            request(5, 5, 2),
+            &[local_plan(6, 5, 2, false, true)],
             None,
-        ));
+            PlacementRejectReason::PlanOverlapsRequest { plan_index: 0 },
+        );
     }
 
     #[test]
     fn valid_place_against_local_plans_allows_exact_replace_when_candidate_can_replace() {
-        assert!(valid_place_against_local_plans(
-            PlacementRequest {
-                x: 7,
-                y: 9,
-                size: 2
-            },
-            &[LocalPlanPlacement {
-                x: 7,
-                y: 9,
-                size: 2,
-                breaking: false,
-                candidate_can_replace_plan: true,
-            }],
-            None,
-        ));
+        assert_valid(request(7, 9, 2), &[local_plan(7, 9, 2, false, true)], None);
     }
 
     #[test]
     fn valid_place_against_local_plans_rejects_exact_overlap_when_replace_is_not_allowed() {
-        assert_eq!(
-            valid_place_against_local_plans_with_reason(
-                PlacementRequest {
-                    x: 7,
-                    y: 9,
-                    size: 2
-                },
-                &[LocalPlanPlacement {
-                    x: 7,
-                    y: 9,
-                    size: 2,
-                    breaking: false,
-                    candidate_can_replace_plan: false,
-                }],
-                None,
-            ),
-            Err(PlacementRejectReason::ExactOverlapRequiresReplacement {
-                plan_index: 0
-            })
-        );
-        assert!(!valid_place_against_local_plans(
-            PlacementRequest {
-                x: 7,
-                y: 9,
-                size: 2
-            },
-            &[LocalPlanPlacement {
-                x: 7,
-                y: 9,
-                size: 2,
-                breaking: false,
-                candidate_can_replace_plan: false,
-            }],
+        assert_invalid(
+            request(7, 9, 2),
+            &[local_plan(7, 9, 2, false, false)],
             None,
-        ));
+            PlacementRejectReason::ExactOverlapRequiresReplacement { plan_index: 0 },
+        );
     }
 
     #[test]
     fn valid_place_against_local_plans_skips_ignored_plan_index() {
-        assert!(valid_place_against_local_plans(
-            PlacementRequest {
-                x: 3,
-                y: 4,
-                size: 1
-            },
+        assert_valid(
+            request(3, 4, 1),
             &[
-                LocalPlanPlacement {
-                    x: 3,
-                    y: 4,
-                    size: 1,
-                    breaking: false,
-                    candidate_can_replace_plan: false,
-                },
-                LocalPlanPlacement {
-                    x: 9,
-                    y: 9,
-                    size: 1,
-                    breaking: false,
-                    candidate_can_replace_plan: false,
-                },
+                local_plan(3, 4, 1, false, false),
+                local_plan(9, 9, 1, false, false),
             ],
             Some(0),
-        ));
+        );
     }
 
     #[test]
     fn valid_place_against_local_plans_rejects_non_positive_sizes() {
-        assert_eq!(
-            valid_place_against_local_plans_with_reason(
-                PlacementRequest {
-                    x: 3,
-                    y: 4,
-                    size: 0,
-                },
-                &[LocalPlanPlacement {
-                    x: 3,
-                    y: 4,
-                    size: 1,
-                    breaking: false,
-                    candidate_can_replace_plan: false,
-                }],
-                None,
-            ),
-            Err(PlacementRejectReason::RequestSizeNonPositive { size: 0 })
-        );
-        assert!(!valid_place_against_local_plans(
-            PlacementRequest {
-                x: 3,
-                y: 4,
-                size: 0,
-            },
-            &[LocalPlanPlacement {
-                x: 3,
-                y: 4,
-                size: 1,
-                breaking: false,
-                candidate_can_replace_plan: false,
-            }],
+        assert_invalid(
+            request(3, 4, 0),
+            &[local_plan(3, 4, 1, false, false)],
             None,
-        ));
-        assert_eq!(
-            valid_place_against_local_plans_with_reason(
-                PlacementRequest {
-                    x: 3,
-                    y: 4,
-                    size: 1,
-                },
-                &[LocalPlanPlacement {
-                    x: 3,
-                    y: 4,
-                    size: 0,
-                    breaking: false,
-                    candidate_can_replace_plan: false,
-                }],
-                None,
-            ),
-            Err(PlacementRejectReason::PlanSizeNonPositive {
+            PlacementRejectReason::RequestSizeNonPositive { size: 0 },
+        );
+        assert_invalid(
+            request(3, 4, 1),
+            &[local_plan(3, 4, 0, false, false)],
+            None,
+            PlacementRejectReason::PlanSizeNonPositive {
                 plan_index: 0,
-                size: 0
-            })
-        );
-        assert!(!valid_place_against_local_plans(
-            PlacementRequest {
-                x: 3,
-                y: 4,
-                size: 1,
-            },
-            &[LocalPlanPlacement {
-                x: 3,
-                y: 4,
                 size: 0,
-                breaking: false,
-                candidate_can_replace_plan: false,
-            }],
-            None,
-        ));
+            },
+        );
     }
 
     #[test]
     fn repair_derelict_candidate_returns_build_plan_candidate_when_gate_passes() {
-        let observation = RepairDerelictObservation {
-            player_dead: false,
-            rules_editor: false,
-            player_team_is_derelict: false,
-            selected_build: Some(RepairDerelictBuildObservation {
-                block_unlocked: true,
-                team_is_derelict: true,
-                tile_x: 11,
-                tile_y: 12,
-                rotation: 3,
-                block: "scrap-wall-large",
-                config: Some(42),
-            }),
-        };
+        let observation = observation(
+            false,
+            false,
+            false,
+            Some(build_observation(
+                true,
+                true,
+                11,
+                12,
+                3,
+                "scrap-wall-large",
+                Some(42),
+            )),
+        );
 
         assert_eq!(
             repair_derelict_candidate(&observation),
@@ -425,34 +348,18 @@ mod tests {
 
     #[test]
     fn repair_derelict_candidate_rejects_non_derelict_or_locked_builds() {
-        let locked = RepairDerelictObservation {
-            player_dead: false,
-            rules_editor: false,
-            player_team_is_derelict: false,
-            selected_build: Some(RepairDerelictBuildObservation {
-                block_unlocked: false,
-                team_is_derelict: true,
-                tile_x: 1,
-                tile_y: 2,
-                rotation: 0,
-                block: "router",
-                config: None::<i32>,
-            }),
-        };
-        let wrong_team = RepairDerelictObservation {
-            player_dead: false,
-            rules_editor: false,
-            player_team_is_derelict: false,
-            selected_build: Some(RepairDerelictBuildObservation {
-                block_unlocked: true,
-                team_is_derelict: false,
-                tile_x: 1,
-                tile_y: 2,
-                rotation: 0,
-                block: "router",
-                config: None::<i32>,
-            }),
-        };
+        let locked = observation(
+            false,
+            false,
+            false,
+            Some(build_observation(false, true, 1, 2, 0, "router", None)),
+        );
+        let wrong_team = observation(
+            false,
+            false,
+            false,
+            Some(build_observation(true, false, 1, 2, 0, "router", None)),
+        );
 
         assert_eq!(repair_derelict_candidate(&locked), None);
         assert_eq!(repair_derelict_candidate(&wrong_team), None);
@@ -460,34 +367,10 @@ mod tests {
 
     #[test]
     fn repair_derelict_candidate_rejects_player_and_mode_gates() {
-        let selected_build = Some(RepairDerelictBuildObservation {
-            block_unlocked: true,
-            team_is_derelict: true,
-            tile_x: 4,
-            tile_y: 6,
-            rotation: 1,
-            block: "duo",
-            config: None::<i32>,
-        });
-
-        let player_dead = RepairDerelictObservation {
-            player_dead: true,
-            rules_editor: false,
-            player_team_is_derelict: false,
-            selected_build: selected_build.clone(),
-        };
-        let editor_mode = RepairDerelictObservation {
-            player_dead: false,
-            rules_editor: true,
-            player_team_is_derelict: false,
-            selected_build: selected_build.clone(),
-        };
-        let derelict_player = RepairDerelictObservation {
-            player_dead: false,
-            rules_editor: false,
-            player_team_is_derelict: true,
-            selected_build,
-        };
+        let selected_build = Some(build_observation(true, true, 4, 6, 1, "duo", None));
+        let player_dead = observation(true, false, false, selected_build.clone());
+        let editor_mode = observation(false, true, false, selected_build.clone());
+        let derelict_player = observation(false, false, true, selected_build);
 
         assert_eq!(repair_derelict_candidate(&player_dead), None);
         assert_eq!(repair_derelict_candidate(&editor_mode), None);
@@ -496,12 +379,7 @@ mod tests {
 
     #[test]
     fn repair_derelict_candidate_requires_selected_build() {
-        let observation = RepairDerelictObservation::<&'static str, Option<i32>> {
-            player_dead: false,
-            rules_editor: false,
-            player_team_is_derelict: false,
-            selected_build: None,
-        };
+        let observation = observation(false, false, false, None);
 
         assert_eq!(repair_derelict_candidate(&observation), None);
     }

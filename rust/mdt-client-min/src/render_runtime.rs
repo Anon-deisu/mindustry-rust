@@ -30,12 +30,13 @@ use crate::session_state::{
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
-    RuntimeBootstrapObservability, RuntimeChatObservability,
-    RuntimeCoreBindingKindObservability, RuntimeCoreBindingObservability,
-    RuntimeKickObservability, RuntimeLoadingObservability, RuntimeMarkerObservability,
-    RuntimeReconnectObservability, RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
-    RuntimeResourceDeltaObservability, RuntimeSessionObservability, RuntimeSessionResetKind,
-    RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+    RuntimeBootstrapObservability, RuntimeChatObservability, RuntimeCoreBindingKindObservability,
+    RuntimeCoreBindingObservability, RuntimeKickObservability, RuntimeLoadingObservability,
+    RuntimeMarkerObservability, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
+    RuntimeReconnectReasonKind, RuntimeResourceDeltaObservability, RuntimeSessionObservability,
+    RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+    RuntimeUnitControllerAttackTargetObservability, RuntimeUnitControllerCommandQueueObservability,
+    RuntimeUnitControllerObservability, RuntimeWorldReloadObservability,
 };
 use mdt_render_ui::{
     BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
@@ -44,7 +45,8 @@ use mdt_render_ui::{
     RenderObject, RuntimeAdminObservability, RuntimeCommandUnitRefObservability,
     RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
     RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
-    RuntimeLiveSummaryObservability, RuntimeMenuObservability, RuntimeRulesObservability,
+    RuntimeLiveSummaryObservability, RuntimeMenuObservability,
+    RuntimePayloadSubtreeStatusObservability, RuntimeRulesObservability,
     RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
     RuntimeWorldLabelObservability, RuntimeWorldPositionObservability,
 };
@@ -82,8 +84,12 @@ struct RuntimeLocalOwnedUnitObservability {
     payload_count: Option<i32>,
     payload: Option<RuntimeLocalOwnedUnitPayloadObservability>,
     carried_item_stack: Option<ResourceUnitItemStack>,
+    status_detail_label: Option<String>,
+    payload_status: Option<RuntimePayloadSubtreeStatusObservability>,
     controller_type: u8,
     controller_value: Option<i32>,
+    controller_detail_label: Option<String>,
+    controller_v2: Option<RuntimeUnitControllerObservability>,
     runtime_sync: Option<crate::session_state::EntityUnitRuntimeSyncProjection>,
 }
 
@@ -612,9 +618,7 @@ pub fn observe_runtime_world_events(
 ) {
     for event in events {
         match event {
-            ClientSessionEvent::WorldDataBegin
-            | ClientSessionEvent::WorldStreamStarted { .. }
-            | ClientSessionEvent::ConnectRedirectRequested { .. } => runtime_world_overlay.clear(),
+            event if event.resets_runtime_transients() => runtime_world_overlay.clear(),
             ClientSessionEvent::Kicked {
                 reason_text,
                 reason_ordinal,
@@ -2231,7 +2235,9 @@ fn runtime_local_entity_label(session_state: &SessionState) -> String {
             .unwrap_or_else(|| "none".to_string());
         label.push_str(&format!(
             "@am0x{:08x}:el0x{:08x}:fg0x{:016x}:br{}",
-            runtime_sync.ammo_bits, runtime_sync.elevation_bits, runtime_sync.flag_bits,
+            runtime_sync.ammo_bits,
+            runtime_sync.elevation_bits,
+            runtime_sync.flag_bits,
             base_rotation,
         ));
     }
@@ -2241,6 +2247,15 @@ fn runtime_local_entity_label(session_state: &SessionState) -> String {
         owned_unit.controller_type,
         runtime_optional_display_label(owned_unit.controller_value),
     ));
+    if let Some(detail) = owned_unit.status_detail_label.as_deref() {
+        label.push_str(&format!(":sd{detail}"));
+    }
+    if let Some(status) = owned_unit.payload_status.as_ref() {
+        label.push_str(&format!(":psd{}", status.detail_label()));
+    }
+    if let Some(detail) = owned_unit.controller_detail_label.as_deref() {
+        label.push_str(&format!(":cd{detail}"));
+    }
     match owned_unit.payload.as_ref() {
         Some(payload) => {
             label.push_str(&format!(
@@ -2279,6 +2294,10 @@ fn runtime_local_owned_unit_observability_from_projection(
     let TypedRuntimeEntityModel::Unit(unit) = projection.entity_at(owned_unit_entity_id)? else {
         return None;
     };
+    let payload_status = unit
+        .unit_payload
+        .as_ref()
+        .and_then(runtime_unit_payload_status_observability);
     Some(RuntimeLocalOwnedUnitObservability {
         entity_id: owned_unit_entity_id,
         payload_count: unit.semantic.payload_count,
@@ -2287,8 +2306,25 @@ fn runtime_local_owned_unit_observability_from_projection(
             .as_ref()
             .map(runtime_local_owned_unit_payload_observability),
         carried_item_stack: unit.carried_item_stack.clone(),
+        status_detail_label: runtime_unit_status_detail_label(&unit.semantic.statuses),
+        payload_status,
         controller_type: unit.semantic.controller_type,
         controller_value: unit.semantic.controller_value,
+        controller_detail_label: unit
+            .semantic
+            .controller_snapshot
+            .as_ref()
+            .map(runtime_unit_controller_detail_label),
+        controller_v2: unit
+            .semantic
+            .controller_snapshot
+            .as_ref()
+            .map(runtime_unit_controller_observability_from_snapshot)
+            .map(|mut controller| {
+                controller.controller_type = Some(unit.semantic.controller_type);
+                controller.controller_value = unit.semantic.controller_value;
+                controller
+            }),
         runtime_sync: unit.semantic.runtime_sync.clone(),
     })
 }
@@ -2312,6 +2348,203 @@ fn runtime_unit_payload_descendant_count(payload: &mdt_world::UnitPayloadSnapsho
             .iter()
             .map(runtime_unit_payload_descendant_count)
             .sum::<usize>()
+}
+
+fn runtime_unit_controller_detail_label(
+    controller: &mdt_world::EntityUnitControllerSnapshot,
+) -> String {
+    let mut parts = Vec::new();
+    if let (Some(x_bits), Some(y_bits)) =
+        (controller.target_pos_x_bits, controller.target_pos_y_bits)
+    {
+        parts.push(format!(
+            "tp={}:{}",
+            f32::from_bits(x_bits),
+            f32::from_bits(y_bits)
+        ));
+    }
+    if let (Some(kind_raw), Some(value)) = (
+        controller.attack_target_kind_raw,
+        controller.attack_target_value,
+    ) {
+        let kind = match kind_raw {
+            0 => "u".to_string(),
+            1 => "b".to_string(),
+            _ => kind_raw.to_string(),
+        };
+        parts.push(format!("atk={kind}/{value}"));
+    }
+    if let Some(command_id_raw) = controller.command_id_raw {
+        parts.push(format!("cmd={command_id_raw}"));
+    }
+    if let Some(queue) = controller.command_queue.as_ref() {
+        parts.push(format!(
+            "q={}/{}/{}/{}/{}",
+            queue.total_count,
+            queue.building_count,
+            queue.unit_count,
+            queue.position_count,
+            queue.ignored_count,
+        ));
+    }
+    if let Some(stance_id_raw) = controller.stance_id_raw {
+        parts.push(format!("st={stance_id_raw}"));
+    }
+    if let Some(stance_count) = controller.stance_count {
+        parts.push(format!("sts={stance_count}"));
+    }
+    parts.join(":")
+}
+
+fn runtime_unit_controller_observability_from_snapshot(
+    controller: &mdt_world::EntityUnitControllerSnapshot,
+) -> RuntimeUnitControllerObservability {
+    RuntimeUnitControllerObservability {
+        controller_type: None,
+        controller_value: None,
+        target_position_tile: runtime_unit_controller_target_position_tile(controller),
+        attack_target: runtime_unit_controller_attack_target_observability(controller),
+        command_id: controller.command_id_raw,
+        command_queue: controller
+            .command_queue
+            .as_ref()
+            .map(runtime_unit_controller_command_queue_observability),
+        stance_id: controller.stance_id_raw,
+        status_count: controller.stance_count.map(usize::from),
+    }
+}
+
+fn runtime_unit_controller_target_position_tile(
+    controller: &mdt_world::EntityUnitControllerSnapshot,
+) -> Option<(i32, i32)> {
+    let (Some(x_bits), Some(y_bits)) = (controller.target_pos_x_bits, controller.target_pos_y_bits)
+    else {
+        return None;
+    };
+    let x = f32::from_bits(x_bits);
+    let y = f32::from_bits(y_bits);
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    Some((x as i32, y as i32))
+}
+
+fn runtime_unit_controller_attack_target_observability(
+    controller: &mdt_world::EntityUnitControllerSnapshot,
+) -> Option<RuntimeUnitControllerAttackTargetObservability> {
+    let kind = controller
+        .attack_target_kind_raw
+        .map(|kind_raw| match kind_raw {
+            0 => "u".to_string(),
+            1 => "b".to_string(),
+            _ => kind_raw.to_string(),
+        });
+    let value = controller.attack_target_value;
+    if kind.is_none() && value.is_none() {
+        return None;
+    }
+    Some(RuntimeUnitControllerAttackTargetObservability { kind, value })
+}
+
+fn runtime_unit_controller_command_queue_observability(
+    queue: &mdt_world::EntityUnitControllerCommandQueueSummary,
+) -> RuntimeUnitControllerCommandQueueObservability {
+    RuntimeUnitControllerCommandQueueObservability {
+        total_count: usize::from(queue.total_count),
+        building_count: usize::from(queue.building_count),
+        unit_count: usize::from(queue.unit_count),
+        position_count: usize::from(queue.position_count),
+        ignored_count: usize::from(queue.ignored_count),
+    }
+}
+
+fn runtime_unit_status_dynamic_field_count(
+    dynamic: &mdt_world::EntityUnitStatusDynamicSnapshot,
+) -> usize {
+    usize::from(dynamic.damage_multiplier_bits.is_some())
+        + usize::from(dynamic.health_multiplier_bits.is_some())
+        + usize::from(dynamic.speed_multiplier_bits.is_some())
+        + usize::from(dynamic.reload_multiplier_bits.is_some())
+        + usize::from(dynamic.build_speed_multiplier_bits.is_some())
+        + usize::from(dynamic.drag_multiplier_bits.is_some())
+        + usize::from(dynamic.armor_override_bits.is_some())
+}
+
+fn runtime_unit_status_detail_label(
+    statuses: &[mdt_world::EntityUnitStatusSnapshot],
+) -> Option<String> {
+    let first = statuses.first()?;
+    let dynamic_count = statuses
+        .iter()
+        .filter(|status| status.dynamic.is_some())
+        .count();
+    let mut label = format!(
+        "c={}:d={dynamic_count}:f={}",
+        statuses.len(),
+        first.status_id
+    );
+    if let Some(name) = first.resolved_name.as_deref() {
+        label.push('/');
+        label.push_str(name);
+    }
+    label.push('@');
+    label.push_str(&f32::from_bits(first.time_bits).to_string());
+    if let Some(dynamic) = first.dynamic.as_ref() {
+        label.push_str(&format!(
+            ":fd={}",
+            runtime_unit_status_dynamic_field_count(dynamic)
+        ));
+    }
+    Some(label)
+}
+
+#[derive(Default)]
+struct RuntimePayloadStatusAggregate<'a> {
+    total_count: usize,
+    dynamic_count: usize,
+    payload_with_status_count: usize,
+    first_status: Option<&'a mdt_world::EntityUnitStatusSnapshot>,
+}
+
+fn accumulate_runtime_payload_status_aggregate<'a>(
+    payload: &'a mdt_world::UnitPayloadSnapshot,
+    aggregate: &mut RuntimePayloadStatusAggregate<'a>,
+) {
+    if !payload.statuses.is_empty() {
+        aggregate.total_count += payload.statuses.len();
+        aggregate.dynamic_count += payload
+            .statuses
+            .iter()
+            .filter(|status| status.dynamic.is_some())
+            .count();
+        aggregate.payload_with_status_count += 1;
+        if aggregate.first_status.is_none() {
+            aggregate.first_status = payload.statuses.first();
+        }
+    }
+    for nested_payload in &payload.nested_unit_payloads {
+        accumulate_runtime_payload_status_aggregate(nested_payload, aggregate);
+    }
+}
+
+fn runtime_unit_payload_status_observability(
+    payload: &mdt_world::UnitPayloadSnapshot,
+) -> Option<RuntimePayloadSubtreeStatusObservability> {
+    let mut aggregate = RuntimePayloadStatusAggregate::default();
+    accumulate_runtime_payload_status_aggregate(payload, &mut aggregate);
+    let first = aggregate.first_status?;
+    Some(RuntimePayloadSubtreeStatusObservability {
+        total_count: aggregate.total_count,
+        dynamic_count: aggregate.dynamic_count,
+        payload_with_status_count: aggregate.payload_with_status_count,
+        first_status_id: Some(first.status_id),
+        first_status_name: first.resolved_name.clone(),
+        first_status_time_bits: Some(first.time_bits),
+        first_status_dynamic_field_count: first
+            .dynamic
+            .as_ref()
+            .map(runtime_unit_status_dynamic_field_count),
+    })
 }
 
 fn runtime_entity_gate_label(session_state: &SessionState) -> String {
@@ -2748,7 +2981,7 @@ fn runtime_ui_observability(
         world_labels: runtime_world_label_observability(session_state),
         markers: runtime_marker_observability(session_state),
         session: runtime_session_observability(session_state, world_overlay),
-        live: runtime_live_summary_observability(session_state, world_overlay),
+        live: runtime_live_summary_observability(snapshot_input, session_state, world_overlay),
     }
 }
 
@@ -2960,7 +3193,9 @@ fn runtime_session_observability(
     world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeSessionObservability {
     RuntimeSessionObservability {
-        bootstrap: runtime_bootstrap_observability(session_state.world_bootstrap_projection.as_ref()),
+        bootstrap: runtime_bootstrap_observability(
+            session_state.world_bootstrap_projection.as_ref(),
+        ),
         core_binding: RuntimeCoreBindingObservability {
             kind: session_state
                 .core_inventory_runtime_binding_kind
@@ -3184,12 +3419,17 @@ fn runtime_reconnect_reason_kind_observability(
 }
 
 fn runtime_live_summary_observability(
+    snapshot_input: &ClientSnapshotInputState,
     session_state: &SessionState,
     world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeLiveSummaryObservability {
     RuntimeLiveSummaryObservability {
         entity: runtime_live_entity_summary_observability(session_state),
-        effect: runtime_live_effect_summary_observability(session_state, world_overlay),
+        effect: runtime_live_effect_summary_observability(
+            snapshot_input,
+            session_state,
+            world_overlay,
+        ),
     }
 }
 
@@ -3198,7 +3438,8 @@ fn runtime_live_entity_summary_observability(
 ) -> RuntimeLiveEntitySummaryObservability {
     let typed_projection = session_state.runtime_typed_entity_projection();
     let local_entity = typed_projection.local_player().map(|player| &player.base);
-    let local_owned_unit = runtime_local_owned_unit_observability_from_projection(&typed_projection);
+    let local_owned_unit =
+        runtime_local_owned_unit_observability_from_projection(&typed_projection);
     let local_owned_payload = local_owned_unit
         .as_ref()
         .and_then(|owned_unit| owned_unit.payload.as_ref());
@@ -3211,6 +3452,10 @@ fn runtime_live_entity_summary_observability(
         hidden_count: session_state.entity_table_projection.hidden_count,
         player_count: typed_projection.player_count,
         unit_count: typed_projection.unit_count,
+        player_with_owned_unit_count: typed_projection.player_with_owned_unit_count,
+        owned_unit_count: typed_projection.owned_unit_count,
+        ownership_conflict_count: typed_projection.ownership_conflict_count,
+        ownership_conflict_unit_sample: typed_projection.ownership_conflict_unit_sample.clone(),
         last_entity_id: typed_projection.last_entity_id,
         last_player_entity_id: typed_projection.last_player_entity_id,
         last_unit_entity_id: typed_projection.last_unit_entity_id,
@@ -3224,7 +3469,9 @@ fn runtime_live_entity_summary_observability(
             x_bits: entity.x_bits,
             y_bits: entity.y_bits,
         }),
-        local_owned_unit_entity_id: local_owned_unit.as_ref().map(|owned_unit| owned_unit.entity_id),
+        local_owned_unit_entity_id: local_owned_unit
+            .as_ref()
+            .map(|owned_unit| owned_unit.entity_id),
         local_owned_unit_payload_count: local_owned_unit
             .as_ref()
             .and_then(|owned_unit| owned_unit.payload_count),
@@ -3243,15 +3490,36 @@ fn runtime_live_entity_summary_observability(
         local_owned_controller_value: local_owned_unit
             .as_ref()
             .and_then(|owned_unit| owned_unit.controller_value),
+        local_owned_controller_detail: local_owned_unit
+            .as_ref()
+            .and_then(|owned_unit| owned_unit.controller_detail_label.clone()),
+        local_owned_controller_v2: local_owned_unit
+            .as_ref()
+            .and_then(|owned_unit| owned_unit.controller_v2.clone()),
+        local_owned_unit_payload_status: local_owned_unit
+            .as_ref()
+            .and_then(|owned_unit| owned_unit.payload_status.clone()),
+        local_owned_unit_status_detail: local_owned_unit
+            .as_ref()
+            .and_then(|owned_unit| owned_unit.status_detail_label.clone()),
     }
 }
 
 fn runtime_live_effect_summary_observability(
+    snapshot_input: &ClientSnapshotInputState,
     session_state: &SessionState,
     world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeLiveEffectSummaryObservability {
     let (last_position_source, last_position_hint) =
         runtime_live_effect_position_hint_observability(session_state);
+    let (
+        session_target_binding_state,
+        session_source_binding_state,
+        overlay_target_binding_state,
+        overlay_source_binding_state,
+        _display_target_binding_state,
+        _display_source_binding_state,
+    ) = runtime_effect_binding_states(snapshot_input, session_state, world_overlay);
     let active_overlay = world_overlay.effect_overlays.last();
     RuntimeLiveEffectSummaryObservability {
         effect_count: session_state.received_effect_count,
@@ -3276,6 +3544,24 @@ fn runtime_live_effect_summary_observability(
         .filter(|label| label != "none"),
         last_position_hint,
         last_position_source,
+        session_target_binding_state: session_target_binding_state
+            .map(EffectRuntimeBindingState::as_str)
+            .map(str::to_string),
+        session_source_binding_state: session_source_binding_state
+            .map(EffectRuntimeBindingState::as_str)
+            .map(str::to_string),
+        overlay_target_binding_state: overlay_target_binding_state
+            .map(EffectRuntimeBindingState::as_str)
+            .map(str::to_string),
+        overlay_source_binding_state: overlay_source_binding_state
+            .map(EffectRuntimeBindingState::as_str)
+            .map(str::to_string),
+        target_follow_count: session_state.received_effect_binding_target_follow_count,
+        target_reject_count: session_state.received_effect_binding_target_reject_count,
+        target_fallback_count: session_state.received_effect_binding_target_fallback_count,
+        source_follow_count: session_state.received_effect_binding_source_follow_count,
+        source_reject_count: session_state.received_effect_binding_source_reject_count,
+        source_fallback_count: session_state.received_effect_binding_source_fallback_count,
     }
 }
 
@@ -6753,6 +7039,7 @@ mod tests {
                         shield_bits: 0,
                         mine_tile_pos: 0,
                         status_count: 0,
+                        statuses: Vec::new(),
                         payload_count: None,
                         building_pos: None,
                         lifetime_bits: None,
@@ -6760,6 +7047,7 @@ mod tests {
                         runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
+                        controller_snapshot: None,
                     },
                     unit_payload: None,
                     carried_item_stack: None,
@@ -6804,6 +7092,7 @@ mod tests {
                         shield_bits: 0,
                         mine_tile_pos: 0,
                         status_count: 0,
+                        statuses: Vec::new(),
                         payload_count: None,
                         building_pos: None,
                         lifetime_bits: None,
@@ -6811,6 +7100,7 @@ mod tests {
                         runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
+                        controller_snapshot: None,
                     },
                     unit_payload: None,
                     carried_item_stack: None,
@@ -11035,7 +11325,8 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_renders_point_beam_executor_line_from_followed_parent_unit_source() {
+    fn render_runtime_adapter_keeps_point_beam_source_and_snapshot_target_static_when_parent_like_payload_moves(
+    ) {
         let mut adapter = RenderRuntimeAdapter::default();
         let input = ClientSnapshotInputState::default();
         let mut state = SessionState::default();
@@ -11130,40 +11421,40 @@ mod tests {
             updated_marker.id,
             format!(
                 "marker:runtime-effect:normal:10:0x{:08x}:0x{:08x}:1",
-                96.0f32.to_bits(),
-                184.0f32.to_bits()
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
             )
         );
-        assert_eq!(updated_marker.x, 96.0);
-        assert_eq!(updated_marker.y, 184.0);
+        assert_eq!(updated_marker.x, 80.0);
+        assert_eq!(updated_marker.y, 160.0);
 
         let updated_line = first_runtime_effect_line(&second_scene);
         assert_eq!(
             updated_line.id,
             format!(
                 "marker:line:runtime-effect-point-beam:normal:10:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}",
-                28.0f32.to_bits(),
-                44.0f32.to_bits(),
-                96.0f32.to_bits(),
-                184.0f32.to_bits()
+                12.0f32.to_bits(),
+                20.0f32.to_bits(),
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
             )
         );
-        assert_eq!(updated_line.x, 28.0);
-        assert_eq!(updated_line.y, 44.0);
+        assert_eq!(updated_line.x, 12.0);
+        assert_eq!(updated_line.y, 20.0);
 
         let updated_line_end = first_runtime_effect_line_end(&second_scene);
         assert_eq!(
             updated_line_end.id,
             format!(
                 "marker:line:runtime-effect-point-beam:normal:10:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}:line-end",
-                28.0f32.to_bits(),
-                44.0f32.to_bits(),
-                96.0f32.to_bits(),
-                184.0f32.to_bits()
+                12.0f32.to_bits(),
+                20.0f32.to_bits(),
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
             )
         );
-        assert_eq!(updated_line_end.x, 96.0);
-        assert_eq!(updated_line_end.y, 184.0);
+        assert_eq!(updated_line_end.x, 80.0);
+        assert_eq!(updated_line_end.y, 160.0);
     }
 
     #[test]
@@ -11287,7 +11578,7 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_moves_regen_suppress_seek_geometry_with_parent_unit_source_follow() {
+    fn render_runtime_adapter_keeps_regen_suppress_seek_source_static_while_target_moves() {
         let mut adapter = RenderRuntimeAdapter::default();
         let input = ClientSnapshotInputState::default();
         let mut state = SessionState::default();
@@ -11350,13 +11641,12 @@ mod tests {
 
         assert!(second_marker.x > first_marker.x);
         assert!(second_marker.y > first_marker.y);
-        assert_eq!(first_points.len(), second_points.len());
         assert!(first_points
             .iter()
             .any(|point| { (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01 }));
         assert!(second_points
             .iter()
-            .any(|point| { (point.0 - 28.0).abs() < 0.01 && (point.1 - 44.0).abs() < 0.01 }));
+            .any(|point| { (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01 }));
     }
 
     #[test]
@@ -11399,7 +11689,7 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_moves_chain_lightning_geometry_with_parent_unit_source_follow() {
+    fn render_runtime_adapter_keeps_chain_lightning_source_static_while_target_moves() {
         let mut adapter = RenderRuntimeAdapter::default();
         let input = ClientSnapshotInputState::default();
         let mut state = SessionState::default();
@@ -11457,13 +11747,18 @@ mod tests {
             .map(|object| (object.x, object.y))
             .collect::<Vec<_>>();
 
-        assert_eq!(first_points.len(), second_points.len());
         assert!(first_points
             .iter()
             .any(|point| { (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01 }));
         assert!(second_points
             .iter()
-            .any(|point| { (point.0 - 28.0).abs() < 0.01 && (point.1 - 44.0).abs() < 0.01 }));
+            .any(|point| { (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01 }));
+        assert!(first_points
+            .iter()
+            .any(|point| { (point.0 - 80.0).abs() < 0.01 && (point.1 - 160.0).abs() < 0.01 }));
+        assert!(second_points
+            .iter()
+            .any(|point| { (point.0 - 96.0).abs() < 0.01 && (point.1 - 184.0).abs() < 0.01 }));
     }
 
     #[test]
@@ -11506,7 +11801,7 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_moves_chain_emp_geometry_with_parent_unit_source_follow() {
+    fn render_runtime_adapter_keeps_chain_emp_source_static_while_target_moves() {
         let mut adapter = RenderRuntimeAdapter::default();
         let input = ClientSnapshotInputState::default();
         let mut state = SessionState::default();
@@ -11564,13 +11859,18 @@ mod tests {
             .map(|object| (object.x, object.y))
             .collect::<Vec<_>>();
 
-        assert_eq!(first_points.len(), second_points.len());
         assert!(first_points
             .iter()
             .any(|point| { (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01 }));
         assert!(second_points
             .iter()
-            .any(|point| { (point.0 - 28.0).abs() < 0.01 && (point.1 - 44.0).abs() < 0.01 }));
+            .any(|point| { (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01 }));
+        assert!(first_points
+            .iter()
+            .any(|point| { (point.0 - 80.0).abs() < 0.01 && (point.1 - 160.0).abs() < 0.01 }));
+        assert!(second_points
+            .iter()
+            .any(|point| { (point.0 - 96.0).abs() < 0.01 && (point.1 - 184.0).abs() < 0.01 }));
     }
 
     #[test]
@@ -12543,6 +12843,7 @@ mod tests {
                         shield_bits: 0,
                         mine_tile_pos: 0,
                         status_count: 0,
+                        statuses: Vec::new(),
                         payload_count: None,
                         building_pos: None,
                         lifetime_bits: None,
@@ -12550,6 +12851,7 @@ mod tests {
                         runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
+                        controller_snapshot: None,
                     },
                 ),
             },
@@ -12652,6 +12954,7 @@ mod tests {
                         shield_bits: 0,
                         mine_tile_pos: 0,
                         status_count: 0,
+                        statuses: Vec::new(),
                         payload_count: None,
                         building_pos: None,
                         lifetime_bits: None,
@@ -12659,6 +12962,7 @@ mod tests {
                         runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
+                        controller_snapshot: None,
                     },
                 ),
             },
@@ -13204,8 +13508,7 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_reports_effect_binding_detail_counts_after_mixed_outcomes_in_hud()
-    {
+    fn render_runtime_adapter_reports_effect_binding_detail_counts_after_mixed_outcomes_in_hud() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         ingest_sample_world(&mut session);
@@ -13235,7 +13538,10 @@ mod tests {
         let fallback_event = session.ingest_packet_bytes(&fallback_packet).unwrap();
 
         let mut follow_payload = encode_effect_payload(9, 32.5, 48.0, 90.0, 0x11223344);
-        write_typeio_object(&mut follow_payload, &TypeIoObject::UnitId(local_player_entity_id));
+        write_typeio_object(
+            &mut follow_payload,
+            &TypeIoObject::UnitId(local_player_entity_id),
+        );
         let follow_packet = encode_packet(packet_id, &follow_payload, false).unwrap();
         let follow_event = session.ingest_packet_bytes(&follow_packet).unwrap();
 
@@ -13520,53 +13826,102 @@ mod tests {
         );
     }
 
+    fn runtime_render_fixture() -> (
+        RenderRuntimeAdapter,
+        RenderModel,
+        HudModel,
+        ClientSnapshotInputState,
+        SessionState,
+    ) {
+        (
+            RenderRuntimeAdapter::default(),
+            RenderModel::default(),
+            HudModel::default(),
+            ClientSnapshotInputState::default(),
+            SessionState::default(),
+        )
+    }
+
+    fn assert_status_contains_all(status_text: &str, expected_parts: &[&str]) {
+        for expected in expected_parts {
+            assert!(
+                status_text.contains(expected),
+                "missing status fragment `{expected}` in `{status_text}`"
+            );
+        }
+    }
+
+    fn sample_state_snapshot_core_data_fixture(
+        teams: &[(u8, &[(u16, i32)])],
+    ) -> crate::session_state::AppliedStateSnapshotCoreData {
+        crate::session_state::AppliedStateSnapshotCoreData {
+            team_count: u8::try_from(teams.len()).unwrap(),
+            teams: teams
+                .iter()
+                .map(
+                    |&(team_id, items)| crate::session_state::AppliedStateSnapshotCoreDataTeam {
+                        team_id,
+                        items: items
+                            .iter()
+                            .map(|&(item_id, amount)| {
+                                crate::session_state::AppliedStateSnapshotCoreDataItem {
+                                    item_id,
+                                    amount,
+                                }
+                            })
+                            .collect(),
+                    },
+                )
+                .collect(),
+        }
+    }
+
+    fn sample_state_snapshot_mirror_fixture() -> crate::session_state::AuthoritativeStateMirror {
+        crate::session_state::AuthoritativeStateMirror {
+            wave_time_bits: 0,
+            wave: 11,
+            enemies: 6,
+            paused: false,
+            game_over: true,
+            net_seconds: 120,
+            tps: 24,
+            rand0: 30,
+            rand1: 40,
+            gameplay_state: crate::session_state::GameplayStateProjection::GameOver,
+            last_wave_advanced: true,
+            wave_advance_count: 5,
+            apply_count: 5,
+            last_net_seconds_rollback: false,
+            net_seconds_delta: 12,
+            wave_regress_count: 1,
+            core_inventory_team_count: 3,
+            core_inventory_item_entry_count: 5,
+            core_inventory_total_amount: 77,
+            core_inventory_nonzero_item_count: 5,
+            core_inventory_changed_team_count: 2,
+            core_inventory_changed_team_sample: vec![2, 7],
+            core_inventory_by_team: BTreeMap::from([
+                (2, BTreeMap::from([(0u16, 11), (1u16, 12)])),
+                (7, BTreeMap::from([(2u16, 13)])),
+                (9, BTreeMap::from([(3u16, 20), (4u16, 21)])),
+            ]),
+            last_core_sync_ok: true,
+            core_parse_fail_count: 0,
+        }
+    }
+
     #[test]
     fn render_runtime_adapter_reports_snapshot_observability_in_hud() {
-        let mut adapter = RenderRuntimeAdapter::default();
-        let mut scene = RenderModel::default();
-        let mut hud = HudModel::default();
-        let input = ClientSnapshotInputState::default();
-        let mut state = SessionState::default();
+        let (mut adapter, mut scene, mut hud, input, mut state) = runtime_render_fixture();
         state.last_state_snapshot = Some(crate::session_state::AppliedStateSnapshot {
             wave: 7,
             enemies: 3,
             tps: 60,
             ..Default::default()
         });
-        state.last_state_snapshot_core_data =
-            Some(crate::session_state::AppliedStateSnapshotCoreData {
-                team_count: 1,
-                teams: vec![crate::session_state::AppliedStateSnapshotCoreDataTeam {
-                    team_id: 1,
-                    items: vec![
-                        crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 0,
-                            amount: 321,
-                        },
-                        crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 1,
-                            amount: 45,
-                        },
-                    ],
-                }],
-            });
-        state.last_good_state_snapshot_core_data =
-            Some(crate::session_state::AppliedStateSnapshotCoreData {
-                team_count: 1,
-                teams: vec![crate::session_state::AppliedStateSnapshotCoreDataTeam {
-                    team_id: 1,
-                    items: vec![
-                        crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 0,
-                            amount: 321,
-                        },
-                        crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 1,
-                            amount: 45,
-                        },
-                    ],
-                }],
-            });
+        let core_data = sample_state_snapshot_core_data_fixture(&[(1, &[(0, 321), (1, 45)])]);
+        state.last_state_snapshot_core_data = Some(core_data.clone());
+        state.last_good_state_snapshot_core_data = Some(core_data);
         state.state_snapshot_business_projection =
             Some(crate::session_state::StateSnapshotBusinessProjection {
                 wave_time_bits: 123.5f32.to_bits(),
@@ -14213,19 +14568,53 @@ mod tests {
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
-        assert!(hud.status_text.contains("runtime_snap_last=blockSnapshot"));
-        assert!(hud.status_text.contains("runtime_snap_events=2"));
+        assert_status_contains_all(
+            &hud.status_text,
+            &[
+                "runtime_snap_last=blockSnapshot",
+                "runtime_snap_events=2",
+                "runtime_snap_client=0",
+                "runtime_snap_state=1",
+                "runtime_snap_entity=0",
+                "runtime_snap_block=1",
+                "runtime_snap_hidden=0",
+                "runtime_wave=7",
+                "runtime_enemies=3",
+                "runtime_tps=60",
+                "runtime_core_teams=1",
+                "runtime_core_items=2",
+                "runtime_block_fail=2",
+                "runtime_hidden=3@100,101,202",
+                "runtime_hidden_fail=1",
+                "runtime_effects=11",
+                "runtime_effect_data_kind=Point2",
+                "bootstrap_rules=01234567",
+                "bootstrap_tags=00112233",
+                "bootstrap_locales=fedcba98",
+                "bootstrap_teams=2",
+                "bootstrap_markers=4",
+                "bootstrap_chunks=1",
+                "bootstrap_patches=3",
+                "bootstrap_plans=5",
+                "bootstrap_fog_teams=1",
+                "runtime_tilecfg_events=0",
+                "runtime_tilecfg_parse_fail=0",
+                "runtime_tilecfg_noapply=0",
+                "runtime_tilecfg_rollback=0",
+                "runtime_take_items=1",
+                "runtime_transfer_item=2",
+                "runtime_transfer_item_unit=3",
+                "runtime_payload_drop=4",
+                "runtime_destroy_payload=5",
+                "runtime_payload_pick_build=6",
+                "runtime_payload_pick_unit=7",
+                "runtime_unit_entered_payload=8",
+                "runtime_unit_despawn=9",
+            ],
+        );
         assert!(hud
             .status_text
             .contains("runtime_snap_apply=w7:splay:gt2:adv1@6->7:app4:nd9:rb0:tr1:wr0:cpf0:fb0"));
-        assert!(hud.status_text.contains("runtime_snap_client=0"));
-        assert!(hud.status_text.contains("runtime_snap_state=1"));
-        assert!(hud.status_text.contains("runtime_snap_entity=0"));
-        assert!(hud.status_text.contains("runtime_snap_block=1"));
-        assert!(hud.status_text.contains("runtime_snap_hidden=0"));
-        assert!(hud.status_text.contains("runtime_wave=7"));
-        assert!(hud.status_text.contains("runtime_enemies=3"));
-        assert!(hud.status_text.contains("runtime_tps=60"));
         assert!(hud
             .status_text
             .contains("runtime_state_apply=w7:e3:t60:c1/2:adv1:core1:splay:nd60:tr0:wreg0:ca1:cas1:wt0x42f70000:r0111111111:r1222222222"),
@@ -14264,8 +14653,6 @@ mod tests {
         assert_eq!(head.rotation, Some(1));
         assert_eq!(head.stage, BuildQueueHeadStage::InFlight);
         assert!(build_ui.inspector_entries.is_empty());
-        assert!(hud.status_text.contains("runtime_core_teams=1"));
-        assert!(hud.status_text.contains("runtime_core_items=2"));
         assert!(hud
             .status_text
             .contains("runtime_buildings=1:b1:c1:config@100:99#301:rm0:on1:e128:oe64"));
@@ -14276,20 +14663,15 @@ mod tests {
         assert!(hud
             .status_text
             .contains("runtime_block=1x39@100:99#301:r0:t1:v3:on1:e0:oe0:m9:ts0x3fc00000:tsd0x40200000:ld7:8:lcc1"));
-        assert!(hud.status_text.contains("runtime_block_fail=2"));
-        assert!(hud.status_text.contains("runtime_hidden=3@100,101,202"));
         assert!(hud
             .status_text
             .contains("runtime_hidden_delta=+1@303|-2@100,202"));
-        assert!(hud.status_text.contains("runtime_hidden_fail=1"));
         assert!(hud
             .status_text
             .contains("runtime_entity_gate=ts5@100,202+3:a2"));
         assert!(hud
             .status_text
             .contains("runtime_entity_sync=lt6:tp404:ok0:amb1@2:miss7:fail64:amt12:len345"));
-        assert!(hud.status_text.contains("runtime_effects=11"));
-        assert!(hud.status_text.contains("runtime_effect_data_kind=Point2"));
         assert!(hud
             .status_text
             .contains("runtime_effect_contract=position_target/unit_parent"));
@@ -14307,37 +14689,15 @@ mod tests {
             .status_text
             .contains("runtime_effect_binding=follow/reject"));
         assert!(hud.status_text.contains("runtime_effect_data_fail=2@trail"));
-        assert!(hud.status_text.contains("bootstrap_rules=01234567"));
-        assert!(hud.status_text.contains("bootstrap_tags=00112233"));
-        assert!(hud.status_text.contains("bootstrap_locales=fedcba98"));
-        assert!(hud.status_text.contains("bootstrap_teams=2"));
-        assert!(hud.status_text.contains("bootstrap_markers=4"));
-        assert!(hud.status_text.contains("bootstrap_chunks=1"));
-        assert!(hud.status_text.contains("bootstrap_patches=3"));
-        assert!(hud.status_text.contains("bootstrap_plans=5"));
-        assert!(hud.status_text.contains("bootstrap_fog_teams=1"));
         assert!(hud.status_text.contains(
             "runtime_bootstrap=rules=01234567:tags=00112233:locales=fedcba98:teams=2:markers=4:chunks=1:patches=3:plans=5:fog=1"
         ));
-        assert!(hud.status_text.contains("runtime_tilecfg_events=0"));
-        assert!(hud.status_text.contains("runtime_tilecfg_parse_fail=0"));
-        assert!(hud.status_text.contains("runtime_tilecfg_noapply=0"));
-        assert!(hud.status_text.contains("runtime_tilecfg_rollback=0"));
         assert!(hud
             .status_text
             .contains("runtime_tilecfg_pending_mismatch=0"));
         assert!(hud
             .status_text
             .contains("runtime_build_health_update=bhu82:4@27:28#0x3f200000"));
-        assert!(hud.status_text.contains("runtime_take_items=1"));
-        assert!(hud.status_text.contains("runtime_transfer_item=2"));
-        assert!(hud.status_text.contains("runtime_transfer_item_unit=3"));
-        assert!(hud.status_text.contains("runtime_payload_drop=4"));
-        assert!(hud.status_text.contains("runtime_destroy_payload=5"));
-        assert!(hud.status_text.contains("runtime_payload_pick_build=6"));
-        assert!(hud.status_text.contains("runtime_payload_pick_unit=7"));
-        assert!(hud.status_text.contains("runtime_unit_entered_payload=8"));
-        assert!(hud.status_text.contains("runtime_unit_despawn=9"));
         assert!(hud.status_text.contains(&format!(
             "runtime_unit_lifecycle=bd66@{}:ud67@701:ux68@702:uy69@2:703:us70@1:{}:uc71@2:704",
             pack_runtime_point2(3, 12),
@@ -14663,18 +15023,32 @@ mod tests {
         );
         assert_eq!(runtime_ui.live.entity.local_owned_unit_entity_id, None);
         assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_count, None);
-        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_class_id, None);
-        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_revision, None);
-        assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_body_len, None);
+        assert_eq!(
+            runtime_ui.live.entity.local_owned_unit_payload_class_id,
+            None
+        );
+        assert_eq!(
+            runtime_ui.live.entity.local_owned_unit_payload_revision,
+            None
+        );
+        assert_eq!(
+            runtime_ui.live.entity.local_owned_unit_payload_body_len,
+            None
+        );
         assert_eq!(runtime_ui.live.entity.local_owned_unit_payload_sha256, None);
         assert_eq!(
-            runtime_ui.live.entity.local_owned_unit_payload_nested_descendant_count,
+            runtime_ui
+                .live
+                .entity
+                .local_owned_unit_payload_nested_descendant_count,
             None
         );
         assert_eq!(runtime_ui.live.entity.local_owned_carried_item_id, None);
         assert_eq!(runtime_ui.live.entity.local_owned_carried_item_amount, None);
         assert_eq!(runtime_ui.live.entity.local_owned_controller_type, None);
         assert_eq!(runtime_ui.live.entity.local_owned_controller_value, None);
+        assert_eq!(runtime_ui.live.entity.local_owned_controller_detail, None);
+        assert_eq!(runtime_ui.live.entity.local_owned_controller_v2, None);
         assert_eq!(runtime_ui.live.effect.effect_count, 11);
         assert_eq!(runtime_ui.live.effect.spawn_effect_count, 73);
         assert_eq!(runtime_ui.live.effect.last_effect_id, Some(8));
@@ -14706,6 +15080,22 @@ mod tests {
                 y_bits: 32.0f32.to_bits(),
             })
         );
+        assert_eq!(
+            runtime_ui.live.effect.session_target_binding_state.as_deref(),
+            Some("follow")
+        );
+        assert_eq!(
+            runtime_ui.live.effect.session_source_binding_state.as_deref(),
+            Some("reject")
+        );
+        assert_eq!(runtime_ui.live.effect.overlay_target_binding_state, None);
+        assert_eq!(runtime_ui.live.effect.overlay_source_binding_state, None);
+        assert_eq!(runtime_ui.live.effect.target_follow_count, 0);
+        assert_eq!(runtime_ui.live.effect.target_reject_count, 0);
+        assert_eq!(runtime_ui.live.effect.target_fallback_count, 0);
+        assert_eq!(runtime_ui.live.effect.source_follow_count, 0);
+        assert_eq!(runtime_ui.live.effect.source_reject_count, 0);
+        assert_eq!(runtime_ui.live.effect.source_fallback_count, 0);
         assert!(hud
             .status_text
             .contains("runtime_world_label=lbl19:lblr20:rml21:act2:last904:f3:fs1094713344:z1082130432:dur0x3fa00000:pos40.0:60.0:txtworld_label"));
@@ -14864,7 +15254,11 @@ mod tests {
             polyline_points: Vec::new(),
         });
 
-        let observability = runtime_live_effect_summary_observability(&state, &world_overlay);
+        let observability = runtime_live_effect_summary_observability(
+            &ClientSnapshotInputState::default(),
+            &state,
+            &world_overlay,
+        );
 
         assert_eq!(observability.active_overlay_count, 1);
         assert_eq!(observability.active_effect_id, Some(13));
@@ -14897,75 +15291,119 @@ mod tests {
                 y_bits: 36.0f32.to_bits(),
             })
         );
+        assert_eq!(observability.binding_source_label(), "none");
+        assert_eq!(observability.display_target_binding_state(), None);
+        assert_eq!(observability.display_source_binding_state(), None);
+    }
+
+    #[test]
+    fn runtime_live_effect_observability_surfaces_session_and_overlay_binding_states() {
+        let mut state = SessionState::default();
+        state.last_effect_runtime_binding_state = Some(EffectRuntimeBindingState::BindingRejected);
+        state.last_effect_runtime_source_binding_state =
+            Some(EffectRuntimeBindingState::ParentFollow);
+        state.received_effect_binding_target_follow_count = 1;
+        state.received_effect_binding_target_reject_count = 2;
+        state.received_effect_binding_target_fallback_count = 3;
+        state.received_effect_binding_source_follow_count = 4;
+        state.received_effect_binding_source_reject_count = 5;
+        state.received_effect_binding_source_fallback_count = 6;
+
+        let mut world_overlay = RuntimeWorldOverlay::default();
+        world_overlay.effect_overlays.push(RuntimeEffectOverlay {
+            effect_id: Some(13),
+            source_x_bits: 10.0f32.to_bits(),
+            source_y_bits: 12.0f32.to_bits(),
+            source_binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 10.0f32.to_bits(),
+                spawn_y_bits: 12.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+                preserve_spawn_offset: false,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            x_bits: 14.0f32.to_bits(),
+            y_bits: 16.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0xffffffff,
+            reliable: false,
+            has_data: false,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("lightning"),
+            binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 14.0f32.to_bits(),
+                spawn_y_bits: 16.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+                preserve_spawn_offset: false,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            content_ref: None,
+            polyline_points: Vec::new(),
+        });
+
+        let observability = runtime_live_effect_summary_observability(
+            &ClientSnapshotInputState::default(),
+            &state,
+            &world_overlay,
+        );
+
+        assert_eq!(
+            observability.session_target_binding_state.as_deref(),
+            Some("reject")
+        );
+        assert_eq!(
+            observability.session_source_binding_state.as_deref(),
+            Some("follow")
+        );
+        assert_eq!(
+            observability.overlay_target_binding_state.as_deref(),
+            Some("fallback")
+        );
+        assert_eq!(
+            observability.overlay_source_binding_state.as_deref(),
+            Some("fallback")
+        );
+        assert_eq!(observability.binding_source_label(), "session");
+        assert_eq!(observability.display_target_binding_state(), Some("reject"));
+        assert_eq!(observability.display_source_binding_state(), Some("follow"));
+        assert_eq!(observability.target_binding_counts_label(), "1/2/3");
+        assert_eq!(observability.source_binding_counts_label(), "4/5/6");
     }
 
     #[test]
     fn render_runtime_adapter_prefers_authoritative_state_mirror_in_hud() {
-        let mut adapter = RenderRuntimeAdapter::default();
-        let mut scene = RenderModel::default();
-        let mut hud = HudModel::default();
-        let input = ClientSnapshotInputState::default();
-        let mut state = SessionState::default();
+        let (mut adapter, mut scene, mut hud, input, mut state) = runtime_render_fixture();
         state.last_state_snapshot = Some(crate::session_state::AppliedStateSnapshot {
             wave: 5,
             enemies: 1,
             tps: 120,
             ..Default::default()
         });
-        state.last_state_snapshot_core_data =
-            Some(crate::session_state::AppliedStateSnapshotCoreData {
-                team_count: 3,
-                teams: vec![
-                    crate::session_state::AppliedStateSnapshotCoreDataTeam {
-                        team_id: 1,
-                        items: vec![crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 0,
-                            amount: 7,
-                        }],
-                    },
-                    crate::session_state::AppliedStateSnapshotCoreDataTeam {
-                        team_id: 9,
-                        items: vec![crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 2,
-                            amount: 8,
-                        }],
-                    },
-                    crate::session_state::AppliedStateSnapshotCoreDataTeam {
-                        team_id: 11,
-                        items: vec![crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 4,
-                            amount: 9,
-                        }],
-                    },
-                ],
-            });
+        state.last_state_snapshot_core_data = Some(sample_state_snapshot_core_data_fixture(&[
+            (1, &[(0, 7)]),
+            (9, &[(2, 8)]),
+            (11, &[(4, 9)]),
+        ]));
         state.last_good_state_snapshot_core_data =
-            Some(crate::session_state::AppliedStateSnapshotCoreData {
-                team_count: 3,
-                teams: vec![
-                    crate::session_state::AppliedStateSnapshotCoreDataTeam {
-                        team_id: 1,
-                        items: vec![crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 0,
-                            amount: 7,
-                        }],
-                    },
-                    crate::session_state::AppliedStateSnapshotCoreDataTeam {
-                        team_id: 9,
-                        items: vec![crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 2,
-                            amount: 8,
-                        }],
-                    },
-                    crate::session_state::AppliedStateSnapshotCoreDataTeam {
-                        team_id: 10,
-                        items: vec![crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 3,
-                            amount: 9,
-                        }],
-                    },
-                ],
-            });
+            Some(sample_state_snapshot_core_data_fixture(&[
+                (1, &[(0, 7)]),
+                (9, &[(2, 8)]),
+                (10, &[(3, 9)]),
+            ]));
         state.state_snapshot_business_projection =
             Some(crate::session_state::StateSnapshotBusinessProjection {
                 wave_time_bits: 0,
@@ -15001,37 +15439,7 @@ mod tests {
                     BTreeMap::from([(0u16, 10), (1u16, 10)]),
                 )]),
             });
-        state.authoritative_state_mirror = Some(crate::session_state::AuthoritativeStateMirror {
-            wave_time_bits: 0,
-            wave: 11,
-            enemies: 6,
-            paused: false,
-            game_over: true,
-            net_seconds: 120,
-            tps: 24,
-            rand0: 30,
-            rand1: 40,
-            gameplay_state: crate::session_state::GameplayStateProjection::GameOver,
-            last_wave_advanced: true,
-            wave_advance_count: 5,
-            apply_count: 5,
-            last_net_seconds_rollback: false,
-            net_seconds_delta: 12,
-            wave_regress_count: 1,
-            core_inventory_team_count: 3,
-            core_inventory_item_entry_count: 5,
-            core_inventory_total_amount: 77,
-            core_inventory_nonzero_item_count: 5,
-            core_inventory_changed_team_count: 2,
-            core_inventory_changed_team_sample: vec![2, 7],
-            core_inventory_by_team: BTreeMap::from([
-                (2, BTreeMap::from([(0u16, 11), (1u16, 12)])),
-                (7, BTreeMap::from([(2u16, 13)])),
-                (9, BTreeMap::from([(3u16, 20), (4u16, 21)])),
-            ]),
-            last_core_sync_ok: true,
-            core_parse_fail_count: 0,
-        });
+        state.authoritative_state_mirror = Some(sample_state_snapshot_mirror_fixture());
         state.state_snapshot_authority_projection =
             Some(crate::session_state::StateSnapshotAuthorityProjection {
                 wave_time_bits: 0,
@@ -15066,26 +15474,27 @@ mod tests {
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
-        assert!(hud.status_text.contains("runtime_wave=11"));
-        assert!(hud.status_text.contains("runtime_enemies=6"));
-        assert!(hud.status_text.contains("runtime_tps=24"));
+        assert_status_contains_all(
+            &hud.status_text,
+            &[
+                "runtime_wave=11",
+                "runtime_enemies=6",
+                "runtime_tps=24",
+                "runtime_core_teams=3",
+                "runtime_core_items=5",
+            ],
+        );
         assert!(hud.status_text.contains(
             "runtime_state_apply=w11:e6:t24:c3/5:adv1:core1:sgameover:nd12:tr0:wreg1:ca2:cas2,7:wt0x00000000:r030:r140"
         ),
         "{}",
         hud.status_text
         );
-        assert!(hud.status_text.contains("runtime_core_teams=3"));
-        assert!(hud.status_text.contains("runtime_core_items=5"));
     }
 
     #[test]
     fn render_runtime_adapter_falls_back_to_last_good_state_snapshot_core_data() {
-        let mut adapter = RenderRuntimeAdapter::default();
-        let mut scene = RenderModel::default();
-        let mut hud = HudModel::default();
-        let input = ClientSnapshotInputState::default();
-        let mut state = SessionState::default();
+        let (mut adapter, mut scene, mut hud, input, mut state) = runtime_render_fixture();
         state.last_state_snapshot = Some(crate::session_state::AppliedStateSnapshot {
             wave: 4,
             enemies: 2,
@@ -15094,37 +15503,18 @@ mod tests {
         });
         state.last_state_snapshot_core_data = None;
         state.last_good_state_snapshot_core_data =
-            Some(crate::session_state::AppliedStateSnapshotCoreData {
-                team_count: 2,
-                teams: vec![
-                    crate::session_state::AppliedStateSnapshotCoreDataTeam {
-                        team_id: 1,
-                        items: vec![
-                            crate::session_state::AppliedStateSnapshotCoreDataItem {
-                                item_id: 0,
-                                amount: 3,
-                            },
-                            crate::session_state::AppliedStateSnapshotCoreDataItem {
-                                item_id: 1,
-                                amount: 4,
-                            },
-                        ],
-                    },
-                    crate::session_state::AppliedStateSnapshotCoreDataTeam {
-                        team_id: 4,
-                        items: vec![crate::session_state::AppliedStateSnapshotCoreDataItem {
-                            item_id: 6,
-                            amount: 9,
-                        }],
-                    },
-                ],
-            });
+            Some(sample_state_snapshot_core_data_fixture(&[
+                (1, &[(0, 3), (1, 4)]),
+                (4, &[(6, 9)]),
+            ]));
         state.failed_state_snapshot_core_data_parse_count = 1;
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
-        assert!(hud.status_text.contains("runtime_core_teams=2"));
-        assert!(hud.status_text.contains("runtime_core_items=3"));
+        assert_status_contains_all(
+            &hud.status_text,
+            &["runtime_core_teams=2", "runtime_core_items=3"],
+        );
     }
 
     #[test]
@@ -15200,6 +15590,13 @@ mod tests {
             body_len: 2,
             body_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                 .to_string(),
+            status_count: 1,
+            statuses: vec![mdt_world::EntityUnitStatusSnapshot {
+                status_id: 15,
+                time_bits: 2.0f32.to_bits(),
+                resolved_name: Some("boss".to_string()),
+                dynamic: None,
+            }],
             nested_unit_payloads: Vec::new(),
         };
         let nested_payload = mdt_world::UnitPayloadSnapshot {
@@ -15208,6 +15605,21 @@ mod tests {
             body_len: 4,
             body_sha256: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
                 .to_string(),
+            status_count: 1,
+            statuses: vec![mdt_world::EntityUnitStatusSnapshot {
+                status_id: 13,
+                time_bits: 4.5f32.to_bits(),
+                resolved_name: Some("dynamic".to_string()),
+                dynamic: Some(mdt_world::EntityUnitStatusDynamicSnapshot {
+                    damage_multiplier_bits: Some(1.5f32.to_bits()),
+                    health_multiplier_bits: None,
+                    speed_multiplier_bits: None,
+                    reload_multiplier_bits: None,
+                    build_speed_multiplier_bits: None,
+                    drag_multiplier_bits: None,
+                    armor_override_bits: Some(6.0f32.to_bits()),
+                }),
+            }],
             nested_unit_payloads: vec![grandchild_payload.clone()],
         };
         let unit_payload = mdt_world::UnitPayloadSnapshot {
@@ -15216,6 +15628,8 @@ mod tests {
             body_len: 12,
             body_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                 .to_string(),
+            status_count: 0,
+            statuses: Vec::new(),
             nested_unit_payloads: vec![nested_payload.clone()],
         };
         state.entity_semantic_projection.upsert(
@@ -15230,7 +15644,29 @@ mod tests {
                     rotation_bits: 0,
                     shield_bits: 0,
                     mine_tile_pos: 0,
-                    status_count: 0,
+                    status_count: 2,
+                    statuses: vec![
+                        mdt_world::EntityUnitStatusSnapshot {
+                            status_id: 7,
+                            time_bits: 5.5f32.to_bits(),
+                            resolved_name: Some("overdrive".to_string()),
+                            dynamic: Some(mdt_world::EntityUnitStatusDynamicSnapshot {
+                                damage_multiplier_bits: Some(1.25f32.to_bits()),
+                                health_multiplier_bits: None,
+                                speed_multiplier_bits: Some(2.0f32.to_bits()),
+                                reload_multiplier_bits: None,
+                                build_speed_multiplier_bits: None,
+                                drag_multiplier_bits: None,
+                                armor_override_bits: None,
+                            }),
+                        },
+                        mdt_world::EntityUnitStatusSnapshot {
+                            status_id: 11,
+                            time_bits: 3.0f32.to_bits(),
+                            resolved_name: Some("boss".to_string()),
+                            dynamic: None,
+                        },
+                    ],
                     payload_count: Some(2),
                     building_pos: None,
                     lifetime_bits: None,
@@ -15243,6 +15679,22 @@ mod tests {
                     }),
                     controller_type: 0,
                     controller_value: Some(101),
+                    controller_snapshot: Some(mdt_world::EntityUnitControllerSnapshot {
+                        target_pos_x_bits: Some(12.0f32.to_bits()),
+                        target_pos_y_bits: Some(24.0f32.to_bits()),
+                        attack_target_kind_raw: Some(1),
+                        attack_target_value: Some(789),
+                        command_id_raw: Some(4),
+                        command_queue: Some(mdt_world::EntityUnitControllerCommandQueueSummary {
+                            total_count: 2,
+                            building_count: 1,
+                            unit_count: 0,
+                            position_count: 0,
+                            ignored_count: 1,
+                        }),
+                        stance_id_raw: None,
+                        stance_count: Some(3),
+                    }),
                 },
             ),
         );
@@ -15273,8 +15725,59 @@ mod tests {
         );
         assert_eq!(observability.controller_type, 0);
         assert_eq!(observability.controller_value, Some(101));
-        assert_eq!(observability.runtime_sync.as_ref().map(|sync| sync.ammo_bits), Some(0x3f80_0000));
-        let payload = observability.payload.as_ref().expect("missing payload observability");
+        assert_eq!(
+            observability.controller_detail_label.as_deref(),
+            Some("tp=12:24:atk=b/789:cmd=4:q=2/1/0/0/1:sts=3")
+        );
+        assert_eq!(
+            observability.controller_v2,
+            Some(RuntimeUnitControllerObservability {
+                controller_type: Some(0),
+                controller_value: Some(101),
+                target_position_tile: Some((12, 24)),
+                attack_target: Some(RuntimeUnitControllerAttackTargetObservability {
+                    kind: Some("b".to_string()),
+                    value: Some(789),
+                }),
+                command_id: Some(4),
+                command_queue: Some(RuntimeUnitControllerCommandQueueObservability {
+                    total_count: 2,
+                    building_count: 1,
+                    unit_count: 0,
+                    position_count: 0,
+                    ignored_count: 1,
+                }),
+                stance_id: None,
+                status_count: Some(3),
+            })
+        );
+        assert_eq!(
+            observability.status_detail_label.as_deref(),
+            Some("c=2:d=1:f=7/overdrive@5.5:fd=2")
+        );
+        assert_eq!(
+            observability.payload_status.as_ref(),
+            Some(&RuntimePayloadSubtreeStatusObservability {
+                total_count: 2,
+                dynamic_count: 1,
+                payload_with_status_count: 2,
+                first_status_id: Some(13),
+                first_status_name: Some("dynamic".to_string()),
+                first_status_time_bits: Some(4.5f32.to_bits()),
+                first_status_dynamic_field_count: Some(2),
+            })
+        );
+        assert_eq!(
+            observability
+                .runtime_sync
+                .as_ref()
+                .map(|sync| sync.ammo_bits),
+            Some(0x3f80_0000)
+        );
+        let payload = observability
+            .payload
+            .as_ref()
+            .expect("missing payload observability");
         assert_eq!(payload.class_id, 5);
         assert_eq!(payload.revision, 7);
         assert_eq!(payload.body_len, 12);
@@ -15285,6 +15788,10 @@ mod tests {
         assert_eq!(payload.nested_descendant_count, 2);
 
         let summary = runtime_live_entity_summary_observability(&state);
+        assert_eq!(summary.player_with_owned_unit_count, 1);
+        assert_eq!(summary.owned_unit_count, 1);
+        assert_eq!(summary.ownership_conflict_count, 0);
+        assert_eq!(summary.ownership_conflict_unit_sample, Vec::<i32>::new());
         assert_eq!(summary.local_owned_unit_entity_id, Some(202));
         assert_eq!(summary.local_owned_unit_payload_count, Some(2));
         assert_eq!(summary.local_owned_unit_payload_class_id, Some(5));
@@ -15302,10 +15809,181 @@ mod tests {
         assert_eq!(summary.local_owned_carried_item_amount, Some(4));
         assert_eq!(summary.local_owned_controller_type, Some(0));
         assert_eq!(summary.local_owned_controller_value, Some(101));
+        assert_eq!(
+            summary.local_owned_controller_detail.as_deref(),
+            Some("tp=12:24:atk=b/789:cmd=4:q=2/1/0/0/1:sts=3")
+        );
+        assert_eq!(
+            summary.local_owned_controller_v2,
+            Some(RuntimeUnitControllerObservability {
+                controller_type: Some(0),
+                controller_value: Some(101),
+                target_position_tile: Some((12, 24)),
+                attack_target: Some(RuntimeUnitControllerAttackTargetObservability {
+                    kind: Some("b".to_string()),
+                    value: Some(789),
+                }),
+                command_id: Some(4),
+                command_queue: Some(RuntimeUnitControllerCommandQueueObservability {
+                    total_count: 2,
+                    building_count: 1,
+                    unit_count: 0,
+                    position_count: 0,
+                    ignored_count: 1,
+                }),
+                stance_id: None,
+                status_count: Some(3),
+            })
+        );
+        assert_eq!(
+            summary.local_owned_unit_payload_status.as_ref(),
+            Some(&RuntimePayloadSubtreeStatusObservability {
+                total_count: 2,
+                dynamic_count: 1,
+                payload_with_status_count: 2,
+                first_status_id: Some(13),
+                first_status_name: Some("dynamic".to_string()),
+                first_status_time_bits: Some(4.5f32.to_bits()),
+                first_status_dynamic_field_count: Some(2),
+            })
+        );
+        assert_eq!(
+            summary.local_owned_unit_status_detail.as_deref(),
+            Some("c=2:d=1:f=7/overdrive@5.5:fd=2")
+        );
 
         assert_eq!(
             runtime_local_entity_label(&state),
-            "101:c12:u2:202:h0:ou202@am0x3f800000:el0x40000000:fg0x000000000000002a:br0x40400000:pc2:ct0:cv101:up5@r7:l12:s0123456789ab:nd2:stk6:4"
+            "101:c12:u2:202:h0:ou202@am0x3f800000:el0x40000000:fg0x000000000000002a:br0x40400000:pc2:ct0:cv101:sdc=2:d=1:f=7/overdrive@5.5:fd=2:psdc=2:d=1:n=2:f=13/dynamic@4.5:fd=2:cdtp=12:24:atk=b/789:cmd=4:q=2/1/0/0/1:sts=3:up5@r7:l12:s0123456789ab:nd2:stk6:4"
+        );
+    }
+
+    #[test]
+    fn runtime_unit_controller_observability_from_snapshot_maps_structured_fields() {
+        let controller = runtime_unit_controller_observability_from_snapshot(
+            &mdt_world::EntityUnitControllerSnapshot {
+                target_pos_x_bits: Some(12.0f32.to_bits()),
+                target_pos_y_bits: Some(24.0f32.to_bits()),
+                attack_target_kind_raw: Some(1),
+                attack_target_value: Some(789),
+                command_id_raw: Some(4),
+                command_queue: Some(mdt_world::EntityUnitControllerCommandQueueSummary {
+                    total_count: 2,
+                    building_count: 1,
+                    unit_count: 0,
+                    position_count: 0,
+                    ignored_count: 1,
+                }),
+                stance_id_raw: Some(9),
+                stance_count: Some(3),
+            },
+        );
+
+        assert_eq!(
+            controller,
+            RuntimeUnitControllerObservability {
+                controller_type: None,
+                controller_value: None,
+                target_position_tile: Some((12, 24)),
+                attack_target: Some(RuntimeUnitControllerAttackTargetObservability {
+                    kind: Some("b".to_string()),
+                    value: Some(789),
+                }),
+                command_id: Some(4),
+                command_queue: Some(RuntimeUnitControllerCommandQueueObservability {
+                    total_count: 2,
+                    building_count: 1,
+                    unit_count: 0,
+                    position_count: 0,
+                    ignored_count: 1,
+                }),
+                stance_id: Some(9),
+                status_count: Some(3),
+            }
+        );
+        assert_eq!(
+            controller.detail_label(),
+            "tp=12:24:atk=b/789:cmd=4:q=2/1/0/0/1:st=9:sts=3"
+        );
+    }
+
+    #[test]
+    fn runtime_live_entity_summary_preserves_controller_v2_stance_id_and_detail_label() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            crate::session_state::EntityProjection {
+                class_id: crate::session_state::EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            crate::session_state::EntityProjection {
+                class_id: 4,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            4,
+            4,
+            crate::session_state::EntitySemanticProjection::Unit(
+                crate::session_state::EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 55,
+                    health_bits: 0,
+                    rotation_bits: 0,
+                    shield_bits: 0,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    statuses: Vec::new(),
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: None,
+                    controller_type: 0,
+                    controller_value: Some(101),
+                    controller_snapshot: Some(mdt_world::EntityUnitControllerSnapshot {
+                        target_pos_x_bits: None,
+                        target_pos_y_bits: None,
+                        attack_target_kind_raw: None,
+                        attack_target_value: None,
+                        command_id_raw: Some(4),
+                        command_queue: None,
+                        stance_id_raw: Some(9),
+                        stance_count: Some(3),
+                    }),
+                },
+            ),
+        );
+        state.refresh_runtime_typed_entity_from_tables(101);
+        state.refresh_runtime_typed_entity_from_tables(202);
+
+        let summary = runtime_live_entity_summary_observability(&state);
+        let controller = summary
+            .local_owned_controller_v2
+            .as_ref()
+            .expect("missing local owned controller v2");
+        assert_eq!(controller.stance_id, Some(9));
+        assert_eq!(controller.detail_label(), "cmd=4:st=9:sts=3");
+        assert_eq!(
+            summary.local_owned_controller_detail.as_deref(),
+            Some("cmd=4:st=9:sts=3")
         );
     }
 
@@ -15317,14 +15995,17 @@ mod tests {
             body_len: 8,
             body_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 .to_string(),
+            status_count: 0,
+            statuses: Vec::new(),
             nested_unit_payloads: vec![
                 mdt_world::UnitPayloadSnapshot {
                     class_id: 2,
                     revision: 1,
                     body_len: 4,
-                    body_sha256:
-                        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-                            .to_string(),
+                    body_sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                        .to_string(),
+                    status_count: 0,
+                    statuses: Vec::new(),
                     nested_unit_payloads: vec![mdt_world::UnitPayloadSnapshot {
                         class_id: 3,
                         revision: 2,
@@ -15332,6 +16013,8 @@ mod tests {
                         body_sha256:
                             "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
                                 .to_string(),
+                        status_count: 0,
+                        statuses: Vec::new(),
                         nested_unit_payloads: Vec::new(),
                     }],
                 },
@@ -15339,9 +16022,10 @@ mod tests {
                     class_id: 4,
                     revision: 3,
                     body_len: 6,
-                    body_sha256:
-                        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-                            .to_string(),
+                    body_sha256: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                        .to_string(),
+                    status_count: 0,
+                    statuses: Vec::new(),
                     nested_unit_payloads: Vec::new(),
                 },
             ],

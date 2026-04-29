@@ -338,7 +338,29 @@ fn finite_logic_world_pos(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mdt_typeio::pack_point2;
+
+    fn nested_payload(value: TypeIoObject) -> TypeIoObject {
+        TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![]), value])
+    }
+
+    fn branched_nested_payload(deeper: TypeIoObject, shallower: TypeIoObject) -> TypeIoObject {
+        TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![deeper])]),
+            shallower,
+        ])
+    }
+
+    fn assert_logic_extraction<T>(
+        actual: Option<LogicValueExtraction<T>>,
+        expected_value: T,
+        expected_source: &'static str,
+    ) where
+        T: std::fmt::Debug + PartialEq,
+    {
+        let actual = actual.expect("expected extracted logic value");
+        assert_eq!(actual.value, expected_value);
+        assert_eq!(actual.source, expected_source);
+    }
 
     #[test]
     fn logic_extractors_match_direct_and_nested_payloads() {
@@ -347,94 +369,73 @@ mod tests {
             Some("alpha".to_string())
         );
         assert_eq!(
-            extract_logic_string(&TypeIoObject::ObjectArray(vec![
-                TypeIoObject::Bool(false),
-                TypeIoObject::String(Some("beta".to_string())),
-            ])),
+            extract_logic_string(&nested_payload(TypeIoObject::String(Some("beta".to_string())))),
             Some("beta".to_string())
         );
 
-        let world_pos = extract_logic_world_pos(&TypeIoObject::ObjectArray(vec![
-            TypeIoObject::Bool(false),
-            TypeIoObject::Vec2 { x: 7.0, y: 9.0 },
-        ]))
-        .expect("expected nested world pos");
-        assert_eq!(world_pos.value, (7.0, 9.0));
-        assert_eq!(world_pos.source, "vec2_nested");
-
-        let build_pos = extract_logic_build_pos(&TypeIoObject::ObjectArray(vec![
-            TypeIoObject::Bool(false),
-            TypeIoObject::Long(301),
-        ]))
-        .expect("expected nested build pos");
-        assert_eq!(build_pos.value, 301);
-        assert_eq!(build_pos.source, "long_nested");
-
-        let unit_id = extract_logic_unit_id(&TypeIoObject::UnitId(17))
-            .expect("expected direct unit id");
-        assert_eq!(unit_id.value, 17);
-        assert_eq!(unit_id.source, "unit_id");
-
-        let team = extract_logic_team(&TypeIoObject::ObjectArray(vec![
-            TypeIoObject::Bool(false),
-            TypeIoObject::Long(5),
-        ]))
-        .expect("expected nested team");
-        assert_eq!(team.value, 5);
-        assert_eq!(team.source, "long_nested");
-
-        let flag = extract_logic_bool(&TypeIoObject::ObjectArray(vec![
-            TypeIoObject::Bool(true),
-        ]))
-        .expect("expected nested bool");
-        assert!(flag.value);
-        assert_eq!(flag.source, "bool_nested");
-
-        assert_eq!(logic_number_value(&TypeIoObject::Double(12.5)), Some("12.5".to_string()));
-        assert_eq!(
-            extract_logic_number(&TypeIoObject::ObjectArray(vec![
-                TypeIoObject::Bool(false),
-                TypeIoObject::Float(12.5),
-            ])),
-            Some("12.5".to_string())
+        assert_logic_extraction(
+            extract_logic_world_pos(&nested_payload(TypeIoObject::Vec2 { x: 7.0, y: 9.0 })),
+            (7.0, 9.0),
+            "vec2_nested",
         );
 
-        let _ = pack_point2(7, 9);
+        assert_logic_extraction(
+            extract_logic_build_pos(&nested_payload(TypeIoObject::Long(301))),
+            301,
+            "long_nested",
+        );
+
+        assert_logic_extraction(extract_logic_unit_id(&TypeIoObject::UnitId(17)), 17, "unit_id");
+
+        assert_logic_extraction(
+            extract_logic_team(&nested_payload(TypeIoObject::Long(5))),
+            5,
+            "long_nested",
+        );
+
+        assert_logic_extraction(
+            extract_logic_bool(&nested_payload(TypeIoObject::Bool(true))),
+            true,
+            "bool_nested",
+        );
+
+        assert_eq!(
+            logic_number_value(&TypeIoObject::Double(12.5)),
+            Some("12.5".to_string())
+        );
+        assert_eq!(
+            extract_logic_number(&nested_payload(TypeIoObject::Float(12.5))),
+            Some("12.5".to_string())
+        );
     }
 
     #[test]
     fn logic_extractors_prefer_shallower_nested_matches_over_deeper_branch_matches() {
-        let value = TypeIoObject::ObjectArray(vec![
-            TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![TypeIoObject::Vec2 {
+        let value = branched_nested_payload(
+            TypeIoObject::Vec2 {
                 x: 1.0,
                 y: 2.0,
-            }])]),
+            },
             TypeIoObject::Vec2 { x: 3.0, y: 4.0 },
-        ]);
+        );
 
-        let world_pos = extract_logic_world_pos(&value).expect("expected shallow world pos");
-        assert_eq!(world_pos.value, (3.0, 4.0));
-        assert_eq!(world_pos.source, "vec2_nested");
+        assert_logic_extraction(extract_logic_world_pos(&value), (3.0, 4.0), "vec2_nested");
 
-        let number = TypeIoObject::ObjectArray(vec![
-            TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![TypeIoObject::Float(
-                1.0,
-            )])]),
-            TypeIoObject::Float(2.0),
-        ]);
+        let number =
+            branched_nested_payload(TypeIoObject::Float(1.0), TypeIoObject::Float(2.0));
 
         assert_eq!(extract_logic_number(&number), Some("2".to_string()));
     }
 
     #[test]
     fn logic_number_value_rejects_non_finite_float_payloads() {
-        assert_eq!(logic_number_value(&TypeIoObject::Float(f32::INFINITY)), None);
+        assert_eq!(
+            logic_number_value(&TypeIoObject::Float(f32::INFINITY)),
+            None
+        );
         assert_eq!(logic_number_value(&TypeIoObject::Double(f64::NAN)), None);
         assert_eq!(
-            extract_logic_number(&TypeIoObject::ObjectArray(vec![
-                TypeIoObject::Bool(false),
-                TypeIoObject::Float(f32::INFINITY),
-            ])),
+            extract_logic_number(&nested_payload(TypeIoObject::Float(f32::INFINITY))),
             None
         );
     }
@@ -460,10 +461,9 @@ mod tests {
             x: f32::NAN,
             y: 9.0,
         }));
-        assert!(has_logic_world_pos_payload(&TypeIoObject::ObjectArray(vec![
-            TypeIoObject::Bool(false),
-            TypeIoObject::Vec2Array(vec![(7.0, f32::INFINITY)]),
-        ])));
+        assert!(has_logic_world_pos_payload(&nested_payload(TypeIoObject::Vec2Array(
+            vec![(7.0, f32::INFINITY)],
+        ))));
         assert!(!has_logic_world_pos_payload(&TypeIoObject::Bool(false)));
     }
 }

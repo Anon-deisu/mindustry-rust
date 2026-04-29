@@ -713,12 +713,16 @@ const CLEAR_ITEMS_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opa
 const CLEAR_LIQUIDS_PARAM_JAVA_TYPES: [&str; 1] = ["Building"];
 const CLEAR_LIQUIDS_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const SET_ITEM_PARAM_JAVA_TYPES: [&str; 3] = ["Building", "mindustry.type.Item", "int"];
-const SET_ITEM_WIRE_PARAM_KINDS: [RemoteParamKind; 3] =
-    [RemoteParamKind::Opaque, RemoteParamKind::Opaque, RemoteParamKind::Int];
+const SET_ITEM_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Int,
+];
 const SET_ITEMS_PARAM_JAVA_TYPES: [&str; 2] = ["Building", "mindustry.type.ItemStack[]"];
 const SET_ITEMS_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
-const REQUEST_ITEM_PARAM_JAVA_TYPES: [&str; 4] = ["Player", "Building", "mindustry.type.Item", "int"];
+const REQUEST_ITEM_PARAM_JAVA_TYPES: [&str; 4] =
+    ["Player", "Building", "mindustry.type.Item", "int"];
 const REQUEST_ITEM_WIRE_PARAM_KINDS: [RemoteParamKind; 4] = [
     RemoteParamKind::Opaque,
     RemoteParamKind::Opaque,
@@ -729,8 +733,11 @@ const REQUEST_BUILD_PAYLOAD_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "Building"]
 const REQUEST_BUILD_PAYLOAD_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
 const REQUEST_DROP_PAYLOAD_PARAM_JAVA_TYPES: [&str; 3] = ["Player", "float", "float"];
-const REQUEST_DROP_PAYLOAD_WIRE_PARAM_KINDS: [RemoteParamKind; 3] =
-    [RemoteParamKind::Opaque, RemoteParamKind::Float, RemoteParamKind::Float];
+const REQUEST_DROP_PAYLOAD_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+];
 const REQUEST_UNIT_PAYLOAD_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "Unit"];
 const REQUEST_UNIT_PAYLOAD_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
@@ -747,8 +754,14 @@ const TRANSFER_ITEM_EFFECT_WIRE_PARAM_KINDS: [RemoteParamKind; 4] = [
     RemoteParamKind::Float,
     RemoteParamKind::Opaque,
 ];
-const TRANSFER_ITEM_TO_PARAM_JAVA_TYPES: [&str; 6] =
-    ["Unit", "mindustry.type.Item", "int", "float", "float", "Building"];
+const TRANSFER_ITEM_TO_PARAM_JAVA_TYPES: [&str; 6] = [
+    "Unit",
+    "mindustry.type.Item",
+    "int",
+    "float",
+    "float",
+    "Building",
+];
 const TRANSFER_ITEM_TO_WIRE_PARAM_KINDS: [RemoteParamKind; 6] = [
     RemoteParamKind::Opaque,
     RemoteParamKind::Opaque,
@@ -962,8 +975,7 @@ impl WellKnownRemoteMethod {
             | Self::ClientPlanSnapshot
             | Self::AdminRequest
             | Self::RequestDebugStatus
-            | Self::DropItem
-            => RemoteFlow::ClientToServer,
+            | Self::DropItem => RemoteFlow::ClientToServer,
             Self::PingLocation
             | Self::RequestItem
             | Self::RequestBuildPayload
@@ -2417,12 +2429,42 @@ fn remote_called_from_str(called: &str) -> Result<(), RemoteManifestError> {
 }
 
 fn remote_variants_from_str(variants: &str) -> Result<(), RemoteManifestError> {
-    match variants {
-        "all" | "one" | "both" => Ok(()),
-        _ => Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+    let trimmed = variants.trim();
+    if trimmed.is_empty() {
+        return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
             "unsupported remote variants: {variants}"
-        ))),
+        )));
     }
+
+    let mut seen = HashSet::new();
+    let mut token_count = 0usize;
+    for token in trimmed.split_whitespace() {
+        token_count += 1;
+        match token {
+            "all" | "one" | "both" => {
+                seen.insert(token);
+            }
+            _ => {
+                return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                    "unsupported remote variants: {token}"
+                )));
+            }
+        }
+    }
+
+    if seen.len() != 1 {
+        return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+            "unsupported remote variants: {variants}"
+        )));
+    }
+    if token_count > 1 {
+        return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+            "duplicate remote variants token: {}",
+            seen.into_iter().next().unwrap()
+        )));
+    }
+
+    Ok(())
 }
 
 fn validate_remote_generator_info(
@@ -2719,6 +2761,10 @@ impl HighFrequencyRemoteRegistry {
         self.by_packet_id.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.by_packet_id.is_empty()
+    }
+
     pub fn resolved_packet_ids(
         &self,
     ) -> [(u8, HighFrequencyRemoteMethod); HIGH_FREQUENCY_REMOTE_METHOD_COUNT] {
@@ -2768,6 +2814,10 @@ impl CustomChannelRemoteRegistry {
 
     pub fn len(&self) -> usize {
         self.by_packet_id.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_packet_id.is_empty()
     }
 
     pub fn resolved_dispatch_specs(
@@ -2823,6 +2873,10 @@ impl InboundRemoteRegistry {
         self.by_packet_id.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.by_packet_id.is_empty()
+    }
+
     pub fn resolved_dispatch_specs(
         &self,
     ) -> [(u8, InboundRemoteDispatchSpec); INBOUND_REMOTE_FAMILY_COUNT] {
@@ -2860,6 +2914,12 @@ impl WellKnownRemoteRegistry {
             .iter()
             .filter(|(_, packet_id)| packet_id.is_some())
             .count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_method
+            .iter()
+            .all(|(_, packet_id)| packet_id.is_none())
     }
 
     pub fn resolved_packet_ids(
@@ -3975,6 +4035,31 @@ mod tests {
     }
 
     #[test]
+    fn remote_variants_from_str_rejects_duplicates_and_unknown_tokens() {
+        assert!(remote_variants_from_str("  all  ").is_ok());
+
+        let duplicate_error = remote_variants_from_str("all all").unwrap_err();
+        assert!(matches!(
+            duplicate_error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(
+            duplicate_error.to_string(),
+            "duplicate remote variants token: all"
+        );
+
+        let unknown_error = remote_variants_from_str("all unknown").unwrap_err();
+        assert!(matches!(
+            unknown_error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(
+            unknown_error.to_string(),
+            "unsupported remote variants: unknown"
+        );
+    }
+
+    #[test]
     fn validate_remote_manifest_rejects_duplicate_param_names() {
         let mut manifest = parse_remote_manifest(SAMPLE_MANIFEST).unwrap();
         manifest.remote_packets[0].params[1].name = "player".into();
@@ -4808,42 +4893,70 @@ mod tests {
         );
         assert_eq!(
             bundle.well_known.packet_id(WellKnownRemoteMethod::GameOver),
-            baseline.well_known.packet_id(WellKnownRemoteMethod::GameOver)
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::GameOver)
         );
         assert_eq!(
             bundle.well_known.packet_id(WellKnownRemoteMethod::SetFlag),
-            baseline.well_known.packet_id(WellKnownRemoteMethod::SetFlag)
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::SetFlag)
         );
         assert_eq!(
             bundle.well_known.packet_id(WellKnownRemoteMethod::Announce),
-            baseline.well_known.packet_id(WellKnownRemoteMethod::Announce)
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::Announce)
         );
         assert_eq!(
             bundle.well_known.packet_id(WellKnownRemoteMethod::OpenUri),
-            baseline.well_known.packet_id(WellKnownRemoteMethod::OpenUri)
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::OpenUri)
         );
         assert_eq!(
-            bundle.well_known.packet_id(WellKnownRemoteMethod::SetHudText),
-            baseline.well_known.packet_id(WellKnownRemoteMethod::SetHudText)
+            bundle
+                .well_known
+                .packet_id(WellKnownRemoteMethod::SetHudText),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::SetHudText)
         );
         assert_eq!(
-            bundle.well_known.packet_id(WellKnownRemoteMethod::WarningToast),
-            baseline.well_known.packet_id(WellKnownRemoteMethod::WarningToast)
+            bundle
+                .well_known
+                .packet_id(WellKnownRemoteMethod::WarningToast),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::WarningToast)
         );
         assert_eq!(
-            bundle.well_known.packet_id(WellKnownRemoteMethod::ClearItems),
-            baseline.well_known.packet_id(WellKnownRemoteMethod::ClearItems)
+            bundle
+                .well_known
+                .packet_id(WellKnownRemoteMethod::ClearItems),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::ClearItems)
         );
         assert_eq!(
             bundle.well_known.packet_id(WellKnownRemoteMethod::SetItems),
-            baseline.well_known.packet_id(WellKnownRemoteMethod::SetItems)
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::SetItems)
         );
         assert_eq!(
-            bundle.well_known.packet_id(WellKnownRemoteMethod::RequestItem),
-            baseline.well_known.packet_id(WellKnownRemoteMethod::RequestItem)
+            bundle
+                .well_known
+                .packet_id(WellKnownRemoteMethod::RequestItem),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::RequestItem)
         );
         assert_eq!(
-            bundle.well_known.packet_id(WellKnownRemoteMethod::TransferInventory),
+            bundle
+                .well_known
+                .packet_id(WellKnownRemoteMethod::TransferInventory),
             baseline
                 .well_known
                 .packet_id(WellKnownRemoteMethod::TransferInventory)
@@ -4969,7 +5082,10 @@ mod tests {
         let fixed_table = registry.packet_id_fixed_table();
 
         assert_eq!(fixed_table.get(5), Some(WellKnownRemoteMethod::Ping));
-        assert_eq!(fixed_table.get(69), Some(WellKnownRemoteMethod::AdminRequest));
+        assert_eq!(
+            fixed_table.get(69),
+            Some(WellKnownRemoteMethod::AdminRequest)
+        );
         assert_eq!(
             fixed_table.get(71),
             Some(WellKnownRemoteMethod::RequestDebugStatus)
@@ -4984,31 +5100,64 @@ mod tests {
         );
         assert_eq!(fixed_table.get(77), Some(WellKnownRemoteMethod::GameOver));
         assert_eq!(fixed_table.get(79), Some(WellKnownRemoteMethod::Researched));
-        assert_eq!(fixed_table.get(81), Some(WellKnownRemoteMethod::SectorCapture));
+        assert_eq!(
+            fixed_table.get(81),
+            Some(WellKnownRemoteMethod::SectorCapture)
+        );
         assert_eq!(fixed_table.get(83), Some(WellKnownRemoteMethod::SetFlag));
-        assert_eq!(fixed_table.get(85), Some(WellKnownRemoteMethod::UpdateGameOver));
+        assert_eq!(
+            fixed_table.get(85),
+            Some(WellKnownRemoteMethod::UpdateGameOver)
+        );
         assert_eq!(fixed_table.get(87), Some(WellKnownRemoteMethod::Announce));
-        assert_eq!(fixed_table.get(89), Some(WellKnownRemoteMethod::ClearObjectives));
-        assert_eq!(fixed_table.get(91), Some(WellKnownRemoteMethod::CopyToClipboard));
-        assert_eq!(fixed_table.get(93), Some(WellKnownRemoteMethod::HideHudText));
-        assert_eq!(fixed_table.get(95), Some(WellKnownRemoteMethod::InfoMessage));
+        assert_eq!(
+            fixed_table.get(89),
+            Some(WellKnownRemoteMethod::ClearObjectives)
+        );
+        assert_eq!(
+            fixed_table.get(91),
+            Some(WellKnownRemoteMethod::CopyToClipboard)
+        );
+        assert_eq!(
+            fixed_table.get(93),
+            Some(WellKnownRemoteMethod::HideHudText)
+        );
+        assert_eq!(
+            fixed_table.get(95),
+            Some(WellKnownRemoteMethod::InfoMessage)
+        );
         assert_eq!(fixed_table.get(97), Some(WellKnownRemoteMethod::OpenUri));
         assert_eq!(
             fixed_table.get(99),
             Some(WellKnownRemoteMethod::HideFollowUpMenu)
         );
         assert_eq!(fixed_table.get(101), Some(WellKnownRemoteMethod::InfoToast));
-        assert_eq!(fixed_table.get(103), Some(WellKnownRemoteMethod::SetHudText));
+        assert_eq!(
+            fixed_table.get(103),
+            Some(WellKnownRemoteMethod::SetHudText)
+        );
         assert_eq!(
             fixed_table.get(105),
             Some(WellKnownRemoteMethod::SetHudTextReliable)
         );
-        assert_eq!(fixed_table.get(107), Some(WellKnownRemoteMethod::WarningToast));
-        assert_eq!(fixed_table.get(109), Some(WellKnownRemoteMethod::ClearItems));
-        assert_eq!(fixed_table.get(111), Some(WellKnownRemoteMethod::ClearLiquids));
+        assert_eq!(
+            fixed_table.get(107),
+            Some(WellKnownRemoteMethod::WarningToast)
+        );
+        assert_eq!(
+            fixed_table.get(109),
+            Some(WellKnownRemoteMethod::ClearItems)
+        );
+        assert_eq!(
+            fixed_table.get(111),
+            Some(WellKnownRemoteMethod::ClearLiquids)
+        );
         assert_eq!(fixed_table.get(113), Some(WellKnownRemoteMethod::SetItem));
         assert_eq!(fixed_table.get(115), Some(WellKnownRemoteMethod::SetItems));
-        assert_eq!(fixed_table.get(117), Some(WellKnownRemoteMethod::RequestItem));
+        assert_eq!(
+            fixed_table.get(117),
+            Some(WellKnownRemoteMethod::RequestItem)
+        );
         assert_eq!(
             fixed_table.get(119),
             Some(WellKnownRemoteMethod::RequestBuildPayload)
@@ -5042,20 +5191,41 @@ mod tests {
             fixed_table.get(17),
             Some(WellKnownRemoteMethod::SetObjectives)
         );
-        assert_eq!(fixed_table.get(35), Some(WellKnownRemoteMethod::ConnectRedirect));
-        assert_eq!(fixed_table.get(21), Some(WellKnownRemoteMethod::ConnectConfirm));
-        assert_eq!(fixed_table.get(37), Some(WellKnownRemoteMethod::PlayerSpawn));
-        assert_eq!(fixed_table.get(23), Some(WellKnownRemoteMethod::WorldDataBegin));
+        assert_eq!(
+            fixed_table.get(35),
+            Some(WellKnownRemoteMethod::ConnectRedirect)
+        );
+        assert_eq!(
+            fixed_table.get(21),
+            Some(WellKnownRemoteMethod::ConnectConfirm)
+        );
+        assert_eq!(
+            fixed_table.get(37),
+            Some(WellKnownRemoteMethod::PlayerSpawn)
+        );
+        assert_eq!(
+            fixed_table.get(23),
+            Some(WellKnownRemoteMethod::WorldDataBegin)
+        );
         assert_eq!(fixed_table.get(25), Some(WellKnownRemoteMethod::KickString));
         assert_eq!(fixed_table.get(27), Some(WellKnownRemoteMethod::KickReason));
-        assert_eq!(fixed_table.get(29), Some(WellKnownRemoteMethod::SendChatMessage));
-        assert_eq!(fixed_table.get(31), Some(WellKnownRemoteMethod::SendMessage));
+        assert_eq!(
+            fixed_table.get(29),
+            Some(WellKnownRemoteMethod::SendChatMessage)
+        );
+        assert_eq!(
+            fixed_table.get(31),
+            Some(WellKnownRemoteMethod::SendMessage)
+        );
         assert_eq!(
             fixed_table.get(33),
             Some(WellKnownRemoteMethod::SendMessageWithSender)
         );
         assert_eq!(fixed_table.get(39), Some(WellKnownRemoteMethod::InfoPopup));
-        assert_eq!(fixed_table.get(41), Some(WellKnownRemoteMethod::InfoPopupWithId));
+        assert_eq!(
+            fixed_table.get(41),
+            Some(WellKnownRemoteMethod::InfoPopupWithId)
+        );
         assert_eq!(
             fixed_table.get(43),
             Some(WellKnownRemoteMethod::InfoPopupReliable)
@@ -5065,8 +5235,14 @@ mod tests {
             Some(WellKnownRemoteMethod::InfoPopupReliableWithId)
         );
         assert_eq!(fixed_table.get(47), Some(WellKnownRemoteMethod::Label));
-        assert_eq!(fixed_table.get(49), Some(WellKnownRemoteMethod::LabelWithId));
-        assert_eq!(fixed_table.get(51), Some(WellKnownRemoteMethod::LabelReliable));
+        assert_eq!(
+            fixed_table.get(49),
+            Some(WellKnownRemoteMethod::LabelWithId)
+        );
+        assert_eq!(
+            fixed_table.get(51),
+            Some(WellKnownRemoteMethod::LabelReliable)
+        );
         assert_eq!(
             fixed_table.get(53),
             Some(WellKnownRemoteMethod::LabelReliableWithId)
@@ -5077,8 +5253,14 @@ mod tests {
             Some(WellKnownRemoteMethod::TextInputAllowEmpty)
         );
         assert_eq!(fixed_table.get(59), Some(WellKnownRemoteMethod::Effect));
-        assert_eq!(fixed_table.get(61), Some(WellKnownRemoteMethod::EffectWithData));
-        assert_eq!(fixed_table.get(63), Some(WellKnownRemoteMethod::EffectReliable));
+        assert_eq!(
+            fixed_table.get(61),
+            Some(WellKnownRemoteMethod::EffectWithData)
+        );
+        assert_eq!(
+            fixed_table.get(63),
+            Some(WellKnownRemoteMethod::EffectReliable)
+        );
         assert_eq!(fixed_table.get(65), Some(WellKnownRemoteMethod::Sound));
         assert_eq!(fixed_table.get(67), Some(WellKnownRemoteMethod::SoundAt));
         assert_eq!(fixed_table.get(18), None);
@@ -8156,6 +8338,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn test_remote_packet(
         remote_index: usize,
         packet_id: u8,

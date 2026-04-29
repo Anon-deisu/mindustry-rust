@@ -209,8 +209,7 @@ mod tests {
 
     #[test]
     fn activation_surface_partitions_loadable_and_skipped_entities() {
-        let observation = test_observation();
-        let surface = observation.activation_surface();
+        let surface = test_activation_surface();
 
         assert!(surface.world_shell_ready);
         assert!(surface.entity_ids_unique);
@@ -220,7 +219,7 @@ mod tests {
             vec!["mod-unit".to_string()]
         );
         assert_eq!(surface.valid_building_reference_count(), 1);
-        assert!(!surface.can_seed_runtime_apply());
+        assert_runtime_apply_blocked(&surface);
 
         assert_eq!(surface.loadable_entities.len(), 2);
         assert_eq!(surface.skipped_entities.len(), 1);
@@ -277,79 +276,109 @@ mod tests {
 
     #[test]
     fn activation_surface_reports_duplicate_entity_ids_and_invalid_building_reference() {
-        let mut observation = test_observation();
-        observation.world_entity_chunks[1].entity_id = 42;
-        observation.entity_summary.duplicate_entity_ids = vec![42];
-        observation.map.world.tiles[0].building_center_index = None;
-
-        let surface = observation.activation_surface();
+        let surface = mutated_test_activation_surface(
+            make_duplicate_entity_id_and_invalid_building_reference,
+        );
 
         assert!(!surface.entity_ids_unique);
         assert_eq!(surface.duplicate_entity_ids, vec![42]);
         assert_eq!(surface.valid_building_reference_count(), 0);
         assert!(!surface.building_candidates[0].center_reference_valid);
-        assert!(!surface.can_seed_runtime_apply());
+        assert_runtime_apply_blocked(&surface);
     }
 
     #[test]
     fn activation_surface_rejects_duplicate_entity_remap_keys() {
-        let mut custom_id_observation = test_observation();
-        custom_id_observation.entity_remap_summary.duplicate_custom_ids = vec![99];
-
-        let custom_id_surface = custom_id_observation.activation_surface();
+        let custom_id_surface = mutated_test_activation_surface(|observation| {
+            observation.entity_remap_summary.duplicate_custom_ids = vec![99];
+        });
         assert_eq!(custom_id_surface.duplicate_custom_ids, vec![99]);
-        assert!(custom_id_surface.duplicate_names.is_empty());
-        assert!(!custom_id_surface.can_seed_runtime_apply());
+        assert_no_duplicate_entity_remap_names(&custom_id_surface);
+        assert_runtime_apply_blocked(&custom_id_surface);
 
-        let mut name_observation = test_observation();
-        name_observation.entity_remap_summary.duplicate_names = vec![
-            "mod-duplicate".to_string(),
-        ];
-
-        let name_surface = name_observation.activation_surface();
-        assert!(name_surface.duplicate_custom_ids.is_empty());
+        let name_surface = mutated_test_activation_surface(|observation| {
+            observation.entity_remap_summary.duplicate_names = vec!["mod-duplicate".to_string()];
+        });
+        assert_no_duplicate_entity_remap_ids(&name_surface);
         assert_eq!(
             name_surface.duplicate_names,
             vec!["mod-duplicate".to_string()]
         );
-        assert!(!name_surface.can_seed_runtime_apply());
+        assert_runtime_apply_blocked(&name_surface);
     }
 
     #[test]
     fn activation_surface_rejects_unresolved_effective_names() {
-        let mut observation = test_observation();
-        observation.entity_remap_summary.unresolved_effective_names = vec!["mod-unit".to_string()];
-        observation.world_entity_chunks[1].class_id = 4;
-        observation.world_entity_chunks[1].custom_name = None;
-
-        let surface = observation.activation_surface();
+        let surface = mutated_test_activation_surface(make_unresolved_effective_name_only);
 
         assert_eq!(
             surface.unresolved_effective_names,
             vec!["mod-unit".to_string()]
         );
         assert!(surface.skipped_entities.is_empty());
-        assert!(!surface.can_seed_runtime_apply());
+        assert_runtime_apply_blocked(&surface);
     }
 
     #[test]
     fn activation_surface_rejects_world_shell_contract_failures() {
-        let mut observation = test_observation();
-        if let MarkerModel::Point(marker) = &mut observation.markers[0].marker {
-            marker.x_bits = 99.0f32.to_bits();
-            marker.y_bits = 99.0f32.to_bits();
-        }
-        observation.entity_remap_summary.unresolved_effective_names.clear();
-        observation
-            .world_entity_chunks
-            .retain(|chunk| !chunk.would_post_load_skip());
-
-        let surface = observation.activation_surface();
+        let surface = mutated_test_activation_surface(make_world_shell_contract_failure);
 
         assert!(!surface.world_shell_ready);
         assert!(surface.unresolved_effective_names.is_empty());
         assert!(surface.skipped_entities.is_empty());
+        assert_runtime_apply_blocked(&surface);
+    }
+
+    fn test_activation_surface() -> SavePostLoadActivationSurface {
+        mutated_test_activation_surface(|_| {})
+    }
+
+    fn mutated_test_activation_surface(
+        mutate: impl FnOnce(&mut SavePostLoadWorldObservation),
+    ) -> SavePostLoadActivationSurface {
+        let mut observation = test_observation();
+        mutate(&mut observation);
+        observation.activation_surface()
+    }
+
+    fn assert_runtime_apply_blocked(surface: &SavePostLoadActivationSurface) {
         assert!(!surface.can_seed_runtime_apply());
+    }
+
+    fn assert_no_duplicate_entity_remap_ids(surface: &SavePostLoadActivationSurface) {
+        assert!(surface.duplicate_custom_ids.is_empty());
+    }
+
+    fn assert_no_duplicate_entity_remap_names(surface: &SavePostLoadActivationSurface) {
+        assert!(surface.duplicate_names.is_empty());
+    }
+
+    fn make_duplicate_entity_id_and_invalid_building_reference(
+        observation: &mut SavePostLoadWorldObservation,
+    ) {
+        observation.world_entity_chunks[1].entity_id = 42;
+        observation.entity_summary.duplicate_entity_ids = vec![42];
+        observation.map.world.tiles[0].building_center_index = None;
+    }
+
+    fn make_unresolved_effective_name_only(observation: &mut SavePostLoadWorldObservation) {
+        observation.entity_remap_summary.unresolved_effective_names = vec!["mod-unit".to_string()];
+        observation.world_entity_chunks[1].class_id = 4;
+        observation.world_entity_chunks[1].custom_name = None;
+    }
+
+    fn make_world_shell_contract_failure(observation: &mut SavePostLoadWorldObservation) {
+        if let MarkerModel::Point(marker) = &mut observation.markers[0].marker {
+            marker.x_bits = 99.0f32.to_bits();
+            marker.y_bits = 99.0f32.to_bits();
+        }
+        observation
+            .entity_remap_summary
+            .unresolved_effective_names
+            .clear();
+        observation
+            .world_entity_chunks
+            .retain(|chunk| !chunk.would_post_load_skip());
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {

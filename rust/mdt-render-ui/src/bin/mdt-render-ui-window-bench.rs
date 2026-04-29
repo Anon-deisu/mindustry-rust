@@ -1,4 +1,5 @@
 use mdt_render_ui::{
+    bin_support::{next_arg_value, parse_finite_f32, parse_view_dimensions},
     project_scene_models_with_view_window, read_world_stream_bytes, BackendSignal, WindowBackend,
     WindowFrame, WindowPresenter,
 };
@@ -103,37 +104,32 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
     while let Some(arg) = pending.next() {
         match arg.as_str() {
             "--locale" => {
-                locale = pending.next().ok_or("missing value for --locale")?;
+                locale = next_arg_value(&mut pending, "--locale")?;
             }
             "--frames" => {
-                frames = pending
-                    .next()
-                    .ok_or("missing value for --frames")?
-                    .parse::<u64>()
-                    .map_err(|err| err.to_string())?;
+                frames = parse_u64(&next_arg_value(&mut pending, "--frames")?)?;
             }
             "--max-view-tiles" => {
                 max_view_tiles =
-                    parse_dimensions(&pending.next().ok_or("missing value for --max-view-tiles")?)?;
+                    parse_view_dimensions(&next_arg_value(&mut pending, "--max-view-tiles")?)?;
             }
             "--player-x" => {
                 player_x = Some(parse_finite_f32(
                     "--player-x",
-                    &pending.next().ok_or("missing value for --player-x")?,
+                    &next_arg_value(&mut pending, "--player-x")?,
                 )?);
             }
             "--player-y" => {
                 player_y = Some(parse_finite_f32(
                     "--player-y",
-                    &pending.next().ok_or("missing value for --player-y")?,
+                    &next_arg_value(&mut pending, "--player-y")?,
                 )?);
             }
             "--world-stream-hex" => {
-                world_stream_hex = Some(PathBuf::from(
-                    pending
-                        .next()
-                        .ok_or("missing value for --world-stream-hex")?,
-                ));
+                world_stream_hex = Some(PathBuf::from(next_arg_value(
+                    &mut pending,
+                    "--world-stream-hex",
+                )?));
             }
             "--animate-player" => {
                 animate_player = true;
@@ -168,35 +164,8 @@ fn animated_player_position(origin: (f32, f32), frame_id: u64) -> (f32, f32) {
     (origin.0 + t.sin() * 16.0, origin.1 + t.cos() * 12.0)
 }
 
-fn parse_dimensions(value: &str) -> Result<(usize, usize), String> {
-    let parts = value.split(':').collect::<Vec<_>>();
-    if parts.len() != 2 {
-        return Err("invalid --max-view-tiles, expected <width:height>".to_string());
-    }
-    Ok((
-        parse_positive_usize("--max-view-tiles width", parts[0])?,
-        parse_positive_usize("--max-view-tiles height", parts[1])?,
-    ))
-}
-
-fn parse_positive_usize(flag: &str, value: &str) -> Result<usize, String> {
-    let parsed = value
-        .parse::<usize>()
-        .map_err(|err| format!("invalid {flag}: {err}"))?;
-    if parsed == 0 {
-        return Err(format!("invalid {flag}: must be greater than 0"));
-    }
-    Ok(parsed)
-}
-
-fn parse_finite_f32(flag: &str, value: &str) -> Result<f32, String> {
-    let parsed = value
-        .parse::<f32>()
-        .map_err(|err| format!("invalid {flag}: {err}"))?;
-    if !parsed.is_finite() {
-        return Err(format!("invalid {flag}: must be finite"));
-    }
-    Ok(parsed)
+fn parse_u64(value: &str) -> Result<u64, String> {
+    value.parse::<u64>().map_err(|err| err.to_string())
 }
 
 #[cfg(test)]
@@ -204,30 +173,43 @@ mod tests {
     use super::{parse_args, Args};
     use std::path::PathBuf;
 
+    fn argv<'a>(parts: &'a [&'a str]) -> impl Iterator<Item = String> + 'a {
+        parts.iter().map(|part| (*part).to_string())
+    }
+
+    fn assert_parse_ok(parts: &[&str], expected: Args) {
+        let args = parse_args(argv(parts)).expect("expected parse success");
+        assert_eq!(args, expected);
+    }
+
+    fn assert_parse_err_contains(parts: &[&str], expected: &str) {
+        let err = parse_args(argv(parts)).expect_err("expected parse failure");
+        assert!(err.contains(expected), "expected `{err}` to contain `{expected}`");
+    }
+
+    fn assert_parse_help(parts: &[&str]) {
+        let err = parse_args(argv(parts)).expect_err("expected help usage output");
+        assert!(err.starts_with("Usage: mdt-render-ui-window-bench"));
+    }
+
     #[test]
     fn parse_args_accepts_bench_options() {
-        let args = parse_args(
-            vec![
-                "--locale".to_string(),
-                "fr".to_string(),
-                "--frames".to_string(),
-                "480".to_string(),
-                "--max-view-tiles".to_string(),
-                "48:24".to_string(),
-                "--player-x".to_string(),
-                "32".to_string(),
-                "--player-y".to_string(),
-                "48".to_string(),
-                "--world-stream-hex".to_string(),
-                "sample.hex".to_string(),
-                "--animate-player".to_string(),
-            ]
-            .into_iter(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            args,
+        assert_parse_ok(
+            &[
+                "--locale",
+                "fr",
+                "--frames",
+                "480",
+                "--max-view-tiles",
+                "48:24",
+                "--player-x",
+                "32",
+                "--player-y",
+                "48",
+                "--world-stream-hex",
+                "sample.hex",
+                "--animate-player",
+            ],
             Args {
                 locale: "fr".to_string(),
                 frames: 480,
@@ -235,54 +217,30 @@ mod tests {
                 player_position: Some((32.0, 48.0)),
                 world_stream_hex: Some(PathBuf::from("sample.hex")),
                 animate_player: true,
-            }
+            },
         );
     }
 
     #[test]
     fn parse_args_help_is_not_an_error() {
-        let err = parse_args(vec!["--help".to_string()].into_iter()).unwrap_err();
-        assert!(err.starts_with("Usage: mdt-render-ui-window-bench"));
+        assert_parse_help(&["--help"]);
     }
 
     #[test]
     fn parse_args_rejects_nonfinite_player_coords_and_zero_sizes() {
-        let err = parse_args(
-            vec![
-                "--player-x".to_string(),
-                "NaN".to_string(),
-                "--player-y".to_string(),
-                "12".to_string(),
-            ]
-            .into_iter(),
-        )
-        .unwrap_err();
-        assert!(err.contains("invalid --player-x: must be finite"));
+        assert_parse_err_contains(
+            &["--player-x", "NaN", "--player-y", "12"],
+            "invalid --player-x: must be finite",
+        );
 
-        let err = parse_args(
-            vec![
-                "--max-view-tiles".to_string(),
-                "0:24".to_string(),
-                "--player-x".to_string(),
-                "1".to_string(),
-                "--player-y".to_string(),
-                "2".to_string(),
-            ]
-            .into_iter(),
-        )
-        .unwrap_err();
-        assert!(err.contains("invalid --max-view-tiles width: must be greater than 0"));
+        assert_parse_err_contains(
+            &["--max-view-tiles", "0:24", "--player-x", "1", "--player-y", "2"],
+            "invalid --max-view-tiles width: must be greater than 0",
+        );
 
-        let err = parse_args(
-            vec![
-                "--player-x".to_string(),
-                "inf".to_string(),
-                "--player-y".to_string(),
-                "12".to_string(),
-            ]
-            .into_iter(),
-        )
-        .unwrap_err();
-        assert!(err.contains("invalid --player-x: must be finite"));
+        assert_parse_err_contains(
+            &["--player-x", "inf", "--player-y", "12"],
+            "invalid --player-x: must be finite",
+        );
     }
 }

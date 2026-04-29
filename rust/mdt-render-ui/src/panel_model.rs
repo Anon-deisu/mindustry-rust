@@ -1,13 +1,15 @@
 use crate::{
     hud_model::{
         runtime_menu_prompt_active, runtime_text_input_prompt_active,
-        RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind, RuntimeSessionResetKind,
-        RuntimeSessionTimeoutKind,
+        RuntimePayloadSubtreeStatusObservability, RuntimeReconnectPhaseObservability,
+        RuntimeReconnectReasonKind, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+        RuntimeUnitControllerObservability,
     },
     render_model::{RenderObjectSemanticFamily, RenderSemanticDetailCount},
     BuildConfigAuthoritySourceObservability, BuildConfigOutcomeObservability, BuildQueueHeadStage,
     HudModel, RenderModel,
 };
+use std::fmt::Display;
 
 const MINIMAP_TILE_SIZE: f32 = 8.0;
 
@@ -397,6 +399,74 @@ pub struct RuntimeUiNoticePanelModel {
     pub text_input_last_allow_empty: Option<bool>,
 }
 
+impl RuntimeUiNoticePanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.hud_set_count == 0
+            && self.hud_set_reliable_count == 0
+            && self.hud_hide_count == 0
+            && self.hud_last_message.is_none()
+            && self.hud_last_reliable_message.is_none()
+            && self.announce_count == 0
+            && self.last_announce_message.is_none()
+            && self.info_message_count == 0
+            && self.last_info_message.is_none()
+            && self.toast_info_count == 0
+            && self.toast_warning_count == 0
+            && self.toast_last_info_message.is_none()
+            && self.toast_last_warning_text.is_none()
+            && self.info_popup_count == 0
+            && self.info_popup_reliable_count == 0
+            && self.last_info_popup_reliable.is_none()
+            && self.last_info_popup_id.is_none()
+            && self.last_info_popup_message.is_none()
+            && self.last_info_popup_duration_bits.is_none()
+            && self.last_info_popup_align.is_none()
+            && self.last_info_popup_top.is_none()
+            && self.last_info_popup_left.is_none()
+            && self.last_info_popup_bottom.is_none()
+            && self.last_info_popup_right.is_none()
+            && self.clipboard_count == 0
+            && self.last_clipboard_text.is_none()
+            && self.open_uri_count == 0
+            && self.last_open_uri.is_none()
+            && self.text_input_open_count == 0
+            && self.text_input_last_id.is_none()
+            && self.text_input_last_title.is_none()
+            && self.text_input_last_message.is_none()
+            && self.text_input_last_default_text.is_none()
+            && self.text_input_last_length.is_none()
+            && self.text_input_last_numeric.is_none()
+            && self.text_input_last_allow_empty.is_none()
+    }
+}
+
+fn runtime_text_input_state_is_empty(
+    text_input_open_count: u64,
+    text_input_last_id: Option<i32>,
+    text_input_last_title: Option<&str>,
+    text_input_last_message: Option<&str>,
+    text_input_last_default_text: Option<&str>,
+    text_input_last_length: Option<i32>,
+    text_input_last_numeric: Option<bool>,
+    text_input_last_allow_empty: Option<bool>,
+) -> bool {
+    text_input_open_count == 0
+        && text_input_last_id.is_none()
+        && text_input_last_title.is_none()
+        && text_input_last_message.is_none()
+        && text_input_last_default_text.is_none()
+        && text_input_last_length.is_none()
+        && text_input_last_numeric.is_none()
+        && text_input_last_allow_empty.is_none()
+}
+
+fn runtime_outstanding_follow_up_count(
+    follow_up_menu_open_count: u64,
+    hide_follow_up_menu_count: u64,
+) -> u64 {
+    follow_up_menu_open_count.saturating_sub(hide_follow_up_menu_count)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeMenuPanelModel {
     pub menu_open_count: u64,
@@ -438,18 +508,23 @@ impl RuntimeMenuPanelModel {
             && self.last_follow_up_menu_open_option_rows == 0
             && self.last_follow_up_menu_open_first_row_len == 0
             && self.last_hide_follow_up_menu_id.is_none()
-            && self.text_input_open_count == 0
-            && self.text_input_last_id.is_none()
-            && self.text_input_last_title.is_none()
-            && self.text_input_last_default_text.is_none()
-            && self.text_input_last_length.is_none()
-            && self.text_input_last_numeric.is_none()
-            && self.text_input_last_allow_empty.is_none()
+            && runtime_text_input_state_is_empty(
+                self.text_input_open_count,
+                self.text_input_last_id,
+                self.text_input_last_title.as_deref(),
+                None,
+                self.text_input_last_default_text.as_deref(),
+                self.text_input_last_length,
+                self.text_input_last_numeric,
+                self.text_input_last_allow_empty,
+            )
     }
 
     pub fn outstanding_follow_up_count(&self) -> u64 {
-        self.follow_up_menu_open_count
-            .saturating_sub(self.hide_follow_up_menu_count)
+        runtime_outstanding_follow_up_count(
+            self.follow_up_menu_open_count,
+            self.hide_follow_up_menu_count,
+        )
     }
 
     pub fn default_text_len(&self) -> usize {
@@ -583,22 +658,26 @@ impl RuntimeDialogPanelModel {
             && self.menu_open_count == 0
             && self.follow_up_menu_open_count == 0
             && self.hide_follow_up_menu_count == 0
-            && self.text_input_open_count == 0
-            && self.text_input_last_id.is_none()
-            && self.text_input_last_title.is_none()
-            && self.text_input_last_message.is_none()
-            && self.text_input_last_default_text.is_none()
-            && self.text_input_last_length.is_none()
-            && self.text_input_last_numeric.is_none()
-            && self.text_input_last_allow_empty.is_none()
+            && runtime_text_input_state_is_empty(
+                self.text_input_open_count,
+                self.text_input_last_id,
+                self.text_input_last_title.as_deref(),
+                self.text_input_last_message.as_deref(),
+                self.text_input_last_default_text.as_deref(),
+                self.text_input_last_length,
+                self.text_input_last_numeric,
+                self.text_input_last_allow_empty,
+            )
             && self.notice_kind.is_none()
             && self.notice_text.is_none()
             && self.notice_count == 0
     }
 
     pub fn outstanding_follow_up_count(&self) -> u64 {
-        self.follow_up_menu_open_count
-            .saturating_sub(self.hide_follow_up_menu_count)
+        runtime_outstanding_follow_up_count(
+            self.follow_up_menu_open_count,
+            self.hide_follow_up_menu_count,
+        )
     }
 
     pub fn prompt_message_len(&self) -> usize {
@@ -641,14 +720,16 @@ impl RuntimePromptPanelModel {
             && self.menu_open_count == 0
             && self.follow_up_menu_open_count == 0
             && self.hide_follow_up_menu_count == 0
-            && self.text_input_open_count == 0
-            && self.text_input_last_id.is_none()
-            && self.text_input_last_title.is_none()
-            && self.text_input_last_message.is_none()
-            && self.text_input_last_default_text.is_none()
-            && self.text_input_last_length.is_none()
-            && self.text_input_last_numeric.is_none()
-            && self.text_input_last_allow_empty.is_none()
+            && runtime_text_input_state_is_empty(
+                self.text_input_open_count,
+                self.text_input_last_id,
+                self.text_input_last_title.as_deref(),
+                self.text_input_last_message.as_deref(),
+                self.text_input_last_default_text.as_deref(),
+                self.text_input_last_length,
+                self.text_input_last_numeric,
+                self.text_input_last_allow_empty,
+            )
     }
 
     pub fn is_active(&self) -> bool {
@@ -664,26 +745,26 @@ impl RuntimePromptPanelModel {
     }
 
     pub fn outstanding_follow_up_count(&self) -> u64 {
-        self.follow_up_menu_open_count
-            .saturating_sub(self.hide_follow_up_menu_count)
+        runtime_outstanding_follow_up_count(
+            self.follow_up_menu_open_count,
+            self.hide_follow_up_menu_count,
+        )
     }
 
     pub fn layer_labels(&self) -> Vec<&'static str> {
-        let mut labels = Vec::new();
-        if self.text_input_active() {
-            labels.push("input");
-        }
-        if self.outstanding_follow_up_count() > 0 {
-            labels.push("follow-up");
-        }
-        if self.menu_active() {
-            labels.push("menu");
-        }
-        labels
+        prompt_layer_labels_from_state(
+            self.text_input_active(),
+            self.outstanding_follow_up_count(),
+            self.menu_active(),
+        )
     }
 
     pub fn depth(&self) -> usize {
-        self.layer_labels().len()
+        prompt_layer_depth_from_state(
+            self.text_input_active(),
+            self.outstanding_follow_up_count(),
+            self.menu_active(),
+        )
     }
 
     pub fn prompt_message_len(&self) -> usize {
@@ -693,6 +774,70 @@ impl RuntimePromptPanelModel {
     pub fn default_text_len(&self) -> usize {
         text_char_count(self.text_input_last_default_text.as_deref())
     }
+}
+
+fn prompt_layer_labels_from_state(
+    text_input_active: bool,
+    outstanding_follow_up_count: u64,
+    menu_active: bool,
+) -> Vec<&'static str> {
+    let mut labels = Vec::new();
+    if text_input_active {
+        labels.push("input");
+    }
+    if outstanding_follow_up_count > 0 {
+        labels.push("follow-up");
+    }
+    if menu_active {
+        labels.push("menu");
+    }
+    labels
+}
+
+fn prompt_layer_depth_from_state(
+    text_input_active: bool,
+    outstanding_follow_up_count: u64,
+    menu_active: bool,
+) -> usize {
+    prompt_layer_labels_from_state(text_input_active, outstanding_follow_up_count, menu_active)
+        .len()
+}
+
+fn notice_layer_labels_from_state(
+    hud_active: bool,
+    reliable_hud_active: bool,
+    toast_info_active: bool,
+    toast_warning_active: bool,
+) -> Vec<&'static str> {
+    let mut labels = Vec::new();
+    if hud_active {
+        labels.push("hud");
+    }
+    if reliable_hud_active {
+        labels.push("reliable");
+    }
+    if toast_info_active {
+        labels.push("info");
+    }
+    if toast_warning_active {
+        labels.push("warn");
+    }
+    labels
+}
+
+fn notice_layer_depth_from_state(
+    hud_active: bool,
+    reliable_hud_active: bool,
+    toast_info_active: bool,
+    toast_warning_active: bool,
+) -> usize {
+    notice_layer_labels_from_state(
+        hud_active,
+        reliable_hud_active,
+        toast_info_active,
+        toast_warning_active,
+    )
+    .len()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -723,24 +868,21 @@ impl RuntimeNoticeStatePanelModel {
     }
 
     pub fn layer_labels(&self) -> Vec<&'static str> {
-        let mut labels = Vec::new();
-        if self.hud_active {
-            labels.push("hud");
-        }
-        if self.reliable_hud_active {
-            labels.push("reliable");
-        }
-        if self.toast_info_active {
-            labels.push("info");
-        }
-        if self.toast_warning_active {
-            labels.push("warn");
-        }
-        labels
+        notice_layer_labels_from_state(
+            self.hud_active,
+            self.reliable_hud_active,
+            self.toast_info_active,
+            self.toast_warning_active,
+        )
     }
 
     pub fn depth(&self) -> usize {
-        self.layer_labels().len()
+        notice_layer_depth_from_state(
+            self.hud_active,
+            self.reliable_hud_active,
+            self.toast_info_active,
+            self.toast_warning_active,
+        )
     }
 
     pub fn text_len(&self) -> usize {
@@ -754,6 +896,66 @@ pub enum RuntimeUiStackForegroundKind {
     FollowUpMenu,
     TextInput,
     Chat,
+}
+
+impl RuntimeUiStackForegroundKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Menu => "menu",
+            Self::FollowUpMenu => "follow-up",
+            Self::TextInput => "input",
+            Self::Chat => "chat",
+        }
+    }
+}
+
+fn runtime_ui_stack_foreground_label(
+    foreground_kind: Option<RuntimeUiStackForegroundKind>,
+) -> &'static str {
+    foreground_kind
+        .map(RuntimeUiStackForegroundKind::label)
+        .unwrap_or("none")
+}
+
+fn runtime_ui_stack_chat_depth(chat_active: bool) -> usize {
+    usize::from(chat_active)
+}
+
+fn runtime_ui_stack_active_group_count(
+    prompt_depth: usize,
+    notice_depth: usize,
+    chat_active: bool,
+) -> usize {
+    usize::from(prompt_depth > 0)
+        + usize::from(notice_depth > 0)
+        + runtime_ui_stack_chat_depth(chat_active)
+}
+
+fn runtime_ui_stack_total_depth(
+    prompt_depth: usize,
+    notice_depth: usize,
+    chat_active: bool,
+) -> usize {
+    prompt_depth + notice_depth + runtime_ui_stack_chat_depth(chat_active)
+}
+
+fn runtime_ui_stack_foreground_kind(
+    text_input_active: bool,
+    outstanding_follow_up_count: u64,
+    menu_active: bool,
+    chat_active: bool,
+) -> Option<RuntimeUiStackForegroundKind> {
+    if text_input_active {
+        Some(RuntimeUiStackForegroundKind::TextInput)
+    } else if outstanding_follow_up_count > 0 {
+        Some(RuntimeUiStackForegroundKind::FollowUpMenu)
+    } else if menu_active {
+        Some(RuntimeUiStackForegroundKind::Menu)
+    } else if chat_active {
+        Some(RuntimeUiStackForegroundKind::Chat)
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -770,13 +972,7 @@ impl RuntimeDialogStackPanelModel {
     }
 
     pub fn foreground_label(&self) -> &'static str {
-        match self.foreground_kind {
-            Some(RuntimeUiStackForegroundKind::Menu) => "menu",
-            Some(RuntimeUiStackForegroundKind::FollowUpMenu) => "follow-up",
-            Some(RuntimeUiStackForegroundKind::TextInput) => "input",
-            Some(RuntimeUiStackForegroundKind::Chat) => "chat",
-            None => "none",
-        }
+        runtime_ui_stack_foreground_label(self.foreground_kind)
     }
 
     pub fn prompt_depth(&self) -> usize {
@@ -787,18 +983,21 @@ impl RuntimeDialogStackPanelModel {
         self.notice.depth()
     }
 
+    #[cfg(test)]
     pub fn chat_depth(&self) -> usize {
-        usize::from(!self.chat.is_empty())
+        runtime_ui_stack_chat_depth(!self.chat.is_empty())
     }
 
     pub fn active_group_count(&self) -> usize {
-        usize::from(self.prompt_depth() > 0)
-            + usize::from(self.notice_depth() > 0)
-            + self.chat_depth()
+        let prompt_depth = self.prompt_depth();
+        let notice_depth = self.notice_depth();
+        runtime_ui_stack_active_group_count(prompt_depth, notice_depth, !self.chat.is_empty())
     }
 
     pub fn total_depth(&self) -> usize {
-        self.prompt_depth() + self.notice_depth() + self.chat_depth()
+        let prompt_depth = self.prompt_depth();
+        let notice_depth = self.notice_depth();
+        runtime_ui_stack_total_depth(prompt_depth, notice_depth, !self.chat.is_empty())
     }
 }
 
@@ -841,66 +1040,57 @@ impl RuntimeUiStackPanelModel {
     }
 
     pub fn foreground_label(&self) -> &'static str {
-        match self.foreground_kind {
-            Some(RuntimeUiStackForegroundKind::Menu) => "menu",
-            Some(RuntimeUiStackForegroundKind::FollowUpMenu) => "follow-up",
-            Some(RuntimeUiStackForegroundKind::TextInput) => "input",
-            Some(RuntimeUiStackForegroundKind::Chat) => "chat",
-            None => "none",
-        }
+        runtime_ui_stack_foreground_label(self.foreground_kind)
     }
 
     pub fn prompt_layer_labels(&self) -> Vec<&'static str> {
-        let mut labels = Vec::new();
-        if self.text_input_active {
-            labels.push("input");
-        }
-        if self.outstanding_follow_up_count > 0 {
-            labels.push("follow-up");
-        }
-        if self.menu_active {
-            labels.push("menu");
-        }
-        labels
+        prompt_layer_labels_from_state(
+            self.text_input_active,
+            self.outstanding_follow_up_count,
+            self.menu_active,
+        )
     }
 
     pub fn notice_layer_labels(&self) -> Vec<&'static str> {
-        let mut labels = Vec::new();
-        if self.hud_notice_active {
-            labels.push("hud");
-        }
-        if self.reliable_hud_notice_active {
-            labels.push("reliable");
-        }
-        if self.toast_info_active {
-            labels.push("info");
-        }
-        if self.toast_warning_active {
-            labels.push("warn");
-        }
-        labels
+        notice_layer_labels_from_state(
+            self.hud_notice_active,
+            self.reliable_hud_notice_active,
+            self.toast_info_active,
+            self.toast_warning_active,
+        )
     }
 
     pub fn prompt_depth(&self) -> usize {
-        self.prompt_layer_labels().len()
+        prompt_layer_depth_from_state(
+            self.text_input_active,
+            self.outstanding_follow_up_count,
+            self.menu_active,
+        )
     }
 
     pub fn notice_depth(&self) -> usize {
-        self.notice_layer_labels().len()
+        notice_layer_depth_from_state(
+            self.hud_notice_active,
+            self.reliable_hud_notice_active,
+            self.toast_info_active,
+            self.toast_warning_active,
+        )
     }
 
     pub fn chat_depth(&self) -> usize {
-        usize::from(self.chat_active)
+        runtime_ui_stack_chat_depth(self.chat_active)
     }
 
     pub fn total_depth(&self) -> usize {
-        self.prompt_depth() + self.notice_depth() + self.chat_depth()
+        let prompt_depth = self.prompt_depth();
+        let notice_depth = self.notice_depth();
+        runtime_ui_stack_total_depth(prompt_depth, notice_depth, self.chat_active)
     }
 
     pub fn active_group_count(&self) -> usize {
-        usize::from(self.prompt_depth() > 0)
-            + usize::from(self.notice_depth() > 0)
-            + usize::from(self.chat_active)
+        let prompt_depth = self.prompt_depth();
+        let notice_depth = self.notice_depth();
+        runtime_ui_stack_active_group_count(prompt_depth, notice_depth, self.chat_active)
     }
 }
 
@@ -1008,6 +1198,19 @@ pub struct RuntimeWorldLabelPanelModel {
 }
 
 impl RuntimeWorldLabelPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.label_count == 0
+            && self.reliable_label_count == 0
+            && self.remove_label_count == 0
+            && self.active_count == 0
+            && self.last_entity_id.is_none()
+            && self.last_text.is_none()
+            && self.last_flags.is_none()
+            && self.last_font_size_bits.is_none()
+            && self.last_z_bits.is_none()
+            && self.last_position.is_none()
+    }
+
     pub fn inactive_count(&self) -> usize {
         self.inactive_count
     }
@@ -1399,6 +1602,10 @@ pub struct RuntimeLiveEntityPanelModel {
     pub hidden_count: usize,
     pub player_count: usize,
     pub unit_count: usize,
+    pub player_with_owned_unit_count: usize,
+    pub owned_unit_count: usize,
+    pub ownership_conflict_count: usize,
+    pub ownership_conflict_unit_sample: Vec<i32>,
     pub last_entity_id: Option<i32>,
     pub last_player_entity_id: Option<i32>,
     pub last_unit_entity_id: Option<i32>,
@@ -1415,13 +1622,39 @@ pub struct RuntimeLiveEntityPanelModel {
     pub local_owned_unit_payload_body_len: Option<usize>,
     pub local_owned_unit_payload_sha256: Option<String>,
     pub local_owned_unit_payload_nested_descendant_count: Option<usize>,
+    pub local_owned_unit_payload_status: Option<RuntimePayloadSubtreeStatusObservability>,
     pub local_owned_carried_item_id: Option<i16>,
     pub local_owned_carried_item_amount: Option<i32>,
     pub local_owned_controller_type: Option<u8>,
     pub local_owned_controller_value: Option<i32>,
+    pub local_owned_controller_v2: Option<RuntimeUnitControllerObservability>,
+    pub local_owned_controller_detail: Option<String>,
+    pub local_owned_unit_status_detail: Option<String>,
 }
 
 impl RuntimeLiveEntityPanelModel {
+    pub fn ownership_conflict_unit_sample_label(&self) -> String {
+        if self.ownership_conflict_unit_sample.is_empty() {
+            "none".to_string()
+        } else {
+            self.ownership_conflict_unit_sample
+                .iter()
+                .map(i32::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        }
+    }
+
+    pub fn ownership_label(&self) -> String {
+        format!(
+            "own={}/{}:c{}@{}",
+            self.player_with_owned_unit_count,
+            self.owned_unit_count,
+            self.ownership_conflict_count,
+            self.ownership_conflict_unit_sample_label(),
+        )
+    }
+
     pub fn local_owned_unit_payload_label(&self) -> String {
         format!(
             "payload=count={}:unit={}/r{}/l{}:s{}",
@@ -1440,6 +1673,35 @@ impl RuntimeLiveEntityPanelModel {
         )
     }
 
+    pub fn local_owned_unit_payload_status_label(&self) -> String {
+        let Some(status) = self.local_owned_unit_payload_status.as_ref() else {
+            return "payload-status=none".to_string();
+        };
+
+        let mut label = format!(
+            "payload-status=c={}:d={}:n={}:f={}",
+            status.total_count,
+            status.dynamic_count,
+            status.payload_with_status_count,
+            optional_i16_label(status.first_status_id),
+        );
+        if let Some(name) = status.first_status_name.as_deref() {
+            if !name.is_empty() {
+                label.push('/');
+                label.push_str(name);
+            }
+        }
+        label.push('@');
+        match status.first_status_time_bits {
+            Some(bits) => label.push_str(&f32::from_bits(bits).to_string()),
+            None => label.push_str("none"),
+        }
+        if let Some(count) = status.first_status_dynamic_field_count {
+            label.push_str(&format!(":fd={count}"));
+        }
+        label
+    }
+
     pub fn local_owned_unit_stack_label(&self) -> String {
         match (
             self.local_owned_carried_item_id,
@@ -1455,16 +1717,43 @@ impl RuntimeLiveEntityPanelModel {
     }
 
     pub fn local_owned_unit_controller_label(&self) -> String {
-        format!(
+        let controller_type = self
+            .local_owned_controller_v2
+            .as_ref()
+            .and_then(|controller| controller.controller_type)
+            .or(self.local_owned_controller_type);
+        let controller_value = self
+            .local_owned_controller_v2
+            .as_ref()
+            .and_then(|controller| controller.controller_value)
+            .or(self.local_owned_controller_value);
+        let mut label = format!(
             "controller={}/{}",
-            optional_u8_label(self.local_owned_controller_type),
-            optional_i32_label(self.local_owned_controller_value),
-        )
+            optional_u8_label(controller_type),
+            optional_i32_label(controller_value),
+        );
+        let detail = self
+            .local_owned_controller_v2
+            .as_ref()
+            .map(RuntimeUnitControllerObservability::detail_label)
+            .filter(|detail| !detail.is_empty());
+        if let Some(detail) = detail {
+            label.push(':');
+            label.push_str(&detail);
+        }
+        label
+    }
+
+    pub fn local_owned_unit_status_label(&self) -> String {
+        match self.local_owned_unit_status_detail.as_deref() {
+            Some(detail) if !detail.is_empty() => format!("status={detail}"),
+            _ => "status=none".to_string(),
+        }
     }
 
     pub fn detail_label(&self) -> String {
         format!(
-            "local={} unit={}/{} pos={} hidden={} seen={} players={} units={} last={}/{}/{} owned={} {} {} {} {}",
+            "local={} unit={}/{} pos={} hidden={} seen={} players={} units={} {} last={}/{}/{} owned={} {} {} {} {} {} {}",
             optional_i32_label(self.local_entity_id),
             optional_u8_label(self.local_unit_kind),
             optional_u32_label(self.local_unit_value),
@@ -1473,14 +1762,17 @@ impl RuntimeLiveEntityPanelModel {
             optional_u64_label(self.local_last_seen_entity_snapshot_count),
             self.player_count,
             self.unit_count,
+            self.ownership_label(),
             optional_i32_label(self.last_entity_id),
             optional_i32_label(self.last_player_entity_id),
             optional_i32_label(self.last_unit_entity_id),
             optional_i32_label(self.local_owned_unit_entity_id),
             self.local_owned_unit_payload_label(),
             self.local_owned_unit_nested_label(),
+            self.local_owned_unit_payload_status_label(),
             self.local_owned_unit_stack_label(),
             self.local_owned_unit_controller_label(),
+            self.local_owned_unit_status_label(),
         )
     }
 }
@@ -1502,6 +1794,16 @@ pub struct RuntimeLiveEffectPanelModel {
     pub last_business_hint: Option<String>,
     pub last_position_hint: Option<crate::RuntimeWorldPositionObservability>,
     pub last_position_source: Option<crate::RuntimeLiveEffectPositionSource>,
+    pub session_target_binding_state: Option<String>,
+    pub session_source_binding_state: Option<String>,
+    pub overlay_target_binding_state: Option<String>,
+    pub overlay_source_binding_state: Option<String>,
+    pub target_follow_count: u64,
+    pub target_reject_count: u64,
+    pub target_fallback_count: u64,
+    pub source_follow_count: u64,
+    pub source_reject_count: u64,
+    pub source_fallback_count: u64,
 }
 
 impl RuntimeLiveEffectPanelModel {
@@ -1535,6 +1837,49 @@ impl RuntimeLiveEffectPanelModel {
         self.active_position
             .as_ref()
             .or(self.last_position_hint.as_ref())
+    }
+
+    pub fn binding_source_label(&self) -> &'static str {
+        if self.session_target_binding_state.is_some() || self.session_source_binding_state.is_some()
+        {
+            "session"
+        } else if self.overlay_target_binding_state.is_some()
+            || self.overlay_source_binding_state.is_some()
+        {
+            "overlay"
+        } else {
+            "none"
+        }
+    }
+
+    pub fn display_target_binding_state(&self) -> Option<&str> {
+        if self.binding_source_label() == "session" {
+            self.session_target_binding_state.as_deref()
+        } else {
+            self.overlay_target_binding_state.as_deref()
+        }
+    }
+
+    pub fn display_source_binding_state(&self) -> Option<&str> {
+        if self.binding_source_label() == "session" {
+            self.session_source_binding_state.as_deref()
+        } else {
+            self.overlay_source_binding_state.as_deref()
+        }
+    }
+
+    pub fn target_binding_counts_label(&self) -> String {
+        format!(
+            "{}/{}/{}",
+            self.target_follow_count, self.target_reject_count, self.target_fallback_count
+        )
+    }
+
+    pub fn source_binding_counts_label(&self) -> String {
+        format!(
+            "{}/{}/{}",
+            self.source_follow_count, self.source_reject_count, self.source_fallback_count
+        )
     }
 }
 
@@ -1730,12 +2075,16 @@ fn world_to_tile_index_floor(world_position: f32, tile_size: f32) -> i32 {
     (world_position / tile_size).floor() as i32
 }
 
-fn percent_of(part: usize, total: usize) -> usize {
+fn percent_of_total(part: usize, total: usize) -> usize {
     if total == 0 {
         0
     } else {
         part.saturating_mul(100) / total
     }
+}
+
+fn percent_of(part: usize, total: usize) -> usize {
+    percent_of_total(part, total)
 }
 
 fn text_char_count(value: Option<&str>) -> usize {
@@ -2157,17 +2506,12 @@ pub fn build_runtime_dialog_stack_panel(hud: &HudModel) -> Option<RuntimeDialogS
     let notice = build_runtime_notice_state_panel(hud)?;
     let chat = build_runtime_chat_panel(hud)?;
     let outstanding_follow_up_count = prompt.outstanding_follow_up_count();
-    let foreground_kind = if prompt.text_input_active() {
-        Some(RuntimeUiStackForegroundKind::TextInput)
-    } else if outstanding_follow_up_count > 0 {
-        Some(RuntimeUiStackForegroundKind::FollowUpMenu)
-    } else if prompt.menu_active() {
-        Some(RuntimeUiStackForegroundKind::Menu)
-    } else if !chat.is_empty() {
-        Some(RuntimeUiStackForegroundKind::Chat)
-    } else {
-        None
-    };
+    let foreground_kind = runtime_ui_stack_foreground_kind(
+        prompt.text_input_active(),
+        outstanding_follow_up_count,
+        prompt.menu_active(),
+        !chat.is_empty(),
+    );
 
     Some(RuntimeDialogStackPanelModel {
         foreground_kind,
@@ -2468,6 +2812,10 @@ pub fn build_runtime_live_entity_panel(hud: &HudModel) -> Option<RuntimeLiveEnti
         hidden_count: entity.hidden_count,
         player_count: entity.player_count,
         unit_count: entity.unit_count,
+        player_with_owned_unit_count: entity.player_with_owned_unit_count,
+        owned_unit_count: entity.owned_unit_count,
+        ownership_conflict_count: entity.ownership_conflict_count,
+        ownership_conflict_unit_sample: entity.ownership_conflict_unit_sample.clone(),
         last_entity_id: entity.last_entity_id,
         last_player_entity_id: entity.last_player_entity_id,
         last_unit_entity_id: entity.last_unit_entity_id,
@@ -2485,47 +2833,45 @@ pub fn build_runtime_live_entity_panel(hud: &HudModel) -> Option<RuntimeLiveEnti
         local_owned_unit_payload_sha256: entity.local_owned_unit_payload_sha256.clone(),
         local_owned_unit_payload_nested_descendant_count: entity
             .local_owned_unit_payload_nested_descendant_count,
+        local_owned_unit_payload_status: entity.local_owned_unit_payload_status.clone(),
         local_owned_carried_item_id: entity.local_owned_carried_item_id,
         local_owned_carried_item_amount: entity.local_owned_carried_item_amount,
         local_owned_controller_type: entity.local_owned_controller_type,
         local_owned_controller_value: entity.local_owned_controller_value,
+        local_owned_controller_v2: entity.local_owned_controller_v2.clone(),
+        local_owned_controller_detail: entity.local_owned_controller_detail.clone(),
+        local_owned_unit_status_detail: entity.local_owned_unit_status_detail.clone(),
     })
 }
 
-fn optional_i32_label(value: Option<i32>) -> String {
+pub(crate) fn optional_numeric_label<T: Display>(value: Option<T>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_i32_label(value: Option<i32>) -> String {
+    optional_numeric_label(value)
 }
 
 fn optional_u8_label(value: Option<u8>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_numeric_label(value)
 }
 
 fn optional_i16_label(value: Option<i16>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_numeric_label(value)
 }
 
 fn optional_u32_label(value: Option<u32>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_numeric_label(value)
 }
 
 fn optional_usize_label(value: Option<usize>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_numeric_label(value)
 }
 
 fn optional_u64_label(value: Option<u64>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_numeric_label(value)
 }
 
 fn optional_bool_label(value: Option<bool>) -> &'static str {
@@ -2548,11 +2894,15 @@ fn world_position_text(value: Option<&crate::RuntimeWorldPositionObservability>)
         .unwrap_or_else(|| "none".to_string())
 }
 
-fn compact_sha_label(value: Option<&str>) -> String {
+fn compact_prefix_label(value: Option<&str>, prefix_len: usize) -> String {
     value
-        .map(|value| value.chars().take(12).collect::<String>())
+        .map(|value| value.chars().take(prefix_len).collect::<String>())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn compact_sha_label(value: Option<&str>) -> String {
+    compact_prefix_label(value, 12)
 }
 
 pub fn build_runtime_live_effect_panel(hud: &HudModel) -> Option<RuntimeLiveEffectPanelModel> {
@@ -2573,6 +2923,16 @@ pub fn build_runtime_live_effect_panel(hud: &HudModel) -> Option<RuntimeLiveEffe
         last_business_hint: effect.last_business_hint.clone(),
         last_position_hint: effect.last_position_hint,
         last_position_source: effect.last_position_source,
+        session_target_binding_state: effect.session_target_binding_state.clone(),
+        session_source_binding_state: effect.session_source_binding_state.clone(),
+        overlay_target_binding_state: effect.overlay_target_binding_state.clone(),
+        overlay_source_binding_state: effect.overlay_source_binding_state.clone(),
+        target_follow_count: effect.target_follow_count,
+        target_reject_count: effect.target_reject_count,
+        target_fallback_count: effect.target_fallback_count,
+        source_follow_count: effect.source_follow_count,
+        source_reject_count: effect.source_reject_count,
+        source_fallback_count: effect.source_fallback_count,
     })
 }
 
@@ -2638,10 +2998,10 @@ mod tests {
     use super::{
         build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
-        build_runtime_bootstrap_panel,
-        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
-        build_runtime_command_mode_panel, build_runtime_core_binding_panel,
-        build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+        build_runtime_admin_panel, build_runtime_bootstrap_panel, build_runtime_chat_panel,
+        build_runtime_choice_panel, build_runtime_command_mode_panel,
+        build_runtime_core_binding_panel, build_runtime_dialog_panel,
+        build_runtime_dialog_stack_panel, build_runtime_kick_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
@@ -2650,20 +3010,20 @@ mod tests {
         build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
         BuildInteractionQueueState, BuildInteractionSelectionState, BuildMinimapAssistPanelModel,
         PresenterViewWindow, RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind,
-        RuntimeDialogPromptKind, RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind,
-        RuntimeWorldLabelPanelModel,
+        RuntimeDialogPromptKind, RuntimeMarkerPanelModel, RuntimeUiNoticePanelModel,
+        RuntimeUiStackForegroundKind, RuntimeWorldLabelPanelModel,
     };
     use crate::{
         hud_model::{
-            HudSummary, RuntimeCommandControlGroupObservability, RuntimeCommandModeObservability,
-            RuntimeCommandRectObservability, RuntimeCommandSelectionObservability,
-            RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
-            RuntimeCommandUnitRefObservability, RuntimeCoreBindingKindObservability,
-            RuntimeCoreBindingObservability, RuntimeReconnectObservability,
-            RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
-            RuntimeBootstrapObservability, RuntimeResourceDeltaObservability,
-            RuntimeSessionObservability,
-            RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+            HudSummary, RuntimeBootstrapObservability, RuntimeCommandControlGroupObservability,
+            RuntimeCommandModeObservability, RuntimeCommandRectObservability,
+            RuntimeCommandSelectionObservability, RuntimeCommandStanceObservability,
+            RuntimeCommandTargetObservability, RuntimeCommandUnitRefObservability,
+            RuntimeCoreBindingKindObservability, RuntimeCoreBindingObservability,
+            RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
+            RuntimeReconnectReasonKind, RuntimeResourceDeltaObservability,
+            RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+            RuntimeWorldReloadObservability,
         },
         BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
         BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
@@ -2683,6 +3043,138 @@ mod tests {
             runtime_ui: Some(runtime_ui),
             ..HudModel::default()
         }
+    }
+
+    struct RuntimeUiStackRegressionCase {
+        name: &'static str,
+        runtime_ui: RuntimeUiObservability,
+        foreground_kind: RuntimeUiStackForegroundKind,
+        prompt_labels: &'static [&'static str],
+        notice_kind: Option<RuntimeDialogNoticeKind>,
+        notice_labels: &'static [&'static str],
+        chat_depth: usize,
+        active_group_count: usize,
+        total_depth: usize,
+    }
+
+    fn assert_runtime_stack_regression_case(case: &RuntimeUiStackRegressionCase) {
+        let expected_prompt_labels = case.prompt_labels.to_vec();
+        let expected_notice_labels = case.notice_labels.to_vec();
+        let expected_prompt_depth = expected_prompt_labels.len();
+        let expected_notice_depth = expected_notice_labels.len();
+
+        let dialog_stack =
+            build_runtime_dialog_stack_panel(&runtime_stack_test_hud(case.runtime_ui.clone()))
+                .expect(case.name);
+        assert_eq!(
+            dialog_stack.foreground_kind,
+            Some(case.foreground_kind),
+            "{} dialog foreground kind",
+            case.name
+        );
+        assert_eq!(
+            dialog_stack.prompt.layer_labels(),
+            expected_prompt_labels,
+            "{} dialog prompt labels",
+            case.name
+        );
+        assert_eq!(
+            dialog_stack.notice.kind, case.notice_kind,
+            "{} dialog notice kind",
+            case.name
+        );
+        assert_eq!(
+            dialog_stack.notice.layer_labels(),
+            expected_notice_labels,
+            "{} dialog notice labels",
+            case.name
+        );
+        assert_eq!(
+            dialog_stack.prompt_depth(),
+            expected_prompt_depth,
+            "{} dialog prompt depth",
+            case.name
+        );
+        assert_eq!(
+            dialog_stack.notice_depth(),
+            expected_notice_depth,
+            "{} dialog notice depth",
+            case.name
+        );
+        assert_eq!(
+            dialog_stack.chat_depth(),
+            case.chat_depth,
+            "{} dialog chat depth",
+            case.name
+        );
+        assert_eq!(
+            dialog_stack.active_group_count(),
+            case.active_group_count,
+            "{} dialog active group count",
+            case.name
+        );
+        assert_eq!(
+            dialog_stack.total_depth(),
+            case.total_depth,
+            "{} dialog total depth",
+            case.name
+        );
+
+        let stack = build_runtime_ui_stack_panel(&runtime_stack_test_hud(case.runtime_ui.clone()))
+            .expect(case.name);
+        assert_eq!(
+            stack.foreground_kind,
+            Some(case.foreground_kind),
+            "{} ui foreground kind",
+            case.name
+        );
+        assert_eq!(
+            stack.prompt_layer_labels(),
+            case.prompt_labels,
+            "{} ui prompt labels",
+            case.name
+        );
+        assert_eq!(
+            stack.notice_kind, case.notice_kind,
+            "{} ui notice kind",
+            case.name
+        );
+        assert_eq!(
+            stack.notice_layer_labels(),
+            case.notice_labels,
+            "{} ui notice labels",
+            case.name
+        );
+        assert_eq!(
+            stack.prompt_depth(),
+            expected_prompt_depth,
+            "{} ui prompt depth",
+            case.name
+        );
+        assert_eq!(
+            stack.notice_depth(),
+            expected_notice_depth,
+            "{} ui notice depth",
+            case.name
+        );
+        assert_eq!(
+            stack.chat_depth(),
+            case.chat_depth,
+            "{} ui chat depth",
+            case.name
+        );
+        assert_eq!(
+            stack.active_group_count(),
+            case.active_group_count,
+            "{} ui active group count",
+            case.name
+        );
+        assert_eq!(
+            stack.total_depth(),
+            case.total_depth,
+            "{} ui total depth",
+            case.name
+        );
     }
 
     fn runtime_world_label_test_hud(
@@ -3433,7 +3925,6 @@ mod tests {
                     last_announce_message: Some("ann".to_string()),
                     info_message_count: 13,
                     last_info_message: Some("info".to_string()),
-                    ..RuntimeHudTextObservability::default()
                 },
                 toast: RuntimeToastObservability {
                     info_count: 14,
@@ -3455,7 +3946,6 @@ mod tests {
                     last_clipboard_text: Some("copied".to_string()),
                     open_uri_count: 19,
                     last_open_uri: Some("https://example.com".to_string()),
-                    ..RuntimeToastObservability::default()
                 },
                 text_input: RuntimeTextInputObservability {
                     open_count: 53,
@@ -3528,6 +4018,95 @@ mod tests {
         assert_eq!(panel.text_input_last_length, Some(16));
         assert_eq!(panel.text_input_last_numeric, Some(true));
         assert_eq!(panel.text_input_last_allow_empty, Some(true));
+        assert!(!panel.is_empty());
+    }
+
+    #[test]
+    fn runtime_ui_notice_panel_is_empty_detects_default_state() {
+        let panel = RuntimeUiNoticePanelModel {
+            hud_set_count: 0,
+            hud_set_reliable_count: 0,
+            hud_hide_count: 0,
+            hud_last_message: None,
+            hud_last_reliable_message: None,
+            announce_count: 0,
+            last_announce_message: None,
+            info_message_count: 0,
+            last_info_message: None,
+            toast_info_count: 0,
+            toast_warning_count: 0,
+            toast_last_info_message: None,
+            toast_last_warning_text: None,
+            info_popup_count: 0,
+            info_popup_reliable_count: 0,
+            last_info_popup_reliable: None,
+            last_info_popup_id: None,
+            last_info_popup_message: None,
+            last_info_popup_duration_bits: None,
+            last_info_popup_align: None,
+            last_info_popup_top: None,
+            last_info_popup_left: None,
+            last_info_popup_bottom: None,
+            last_info_popup_right: None,
+            clipboard_count: 0,
+            last_clipboard_text: None,
+            open_uri_count: 0,
+            last_open_uri: None,
+            text_input_open_count: 0,
+            text_input_last_id: None,
+            text_input_last_title: None,
+            text_input_last_message: None,
+            text_input_last_default_text: None,
+            text_input_last_length: None,
+            text_input_last_numeric: None,
+            text_input_last_allow_empty: None,
+        };
+
+        assert!(panel.is_empty());
+    }
+
+    #[test]
+    fn runtime_ui_notice_panel_is_empty_rejects_single_active_field() {
+        let panel = RuntimeUiNoticePanelModel {
+            hud_set_count: 0,
+            hud_set_reliable_count: 0,
+            hud_hide_count: 0,
+            hud_last_message: None,
+            hud_last_reliable_message: None,
+            announce_count: 0,
+            last_announce_message: None,
+            info_message_count: 0,
+            last_info_message: None,
+            toast_info_count: 0,
+            toast_warning_count: 0,
+            toast_last_info_message: None,
+            toast_last_warning_text: None,
+            info_popup_count: 0,
+            info_popup_reliable_count: 0,
+            last_info_popup_reliable: None,
+            last_info_popup_id: None,
+            last_info_popup_message: None,
+            last_info_popup_duration_bits: None,
+            last_info_popup_align: None,
+            last_info_popup_top: None,
+            last_info_popup_left: None,
+            last_info_popup_bottom: None,
+            last_info_popup_right: None,
+            clipboard_count: 0,
+            last_clipboard_text: None,
+            open_uri_count: 0,
+            last_open_uri: Some("https://example.com".to_string()),
+            text_input_open_count: 0,
+            text_input_last_id: None,
+            text_input_last_title: None,
+            text_input_last_message: None,
+            text_input_last_default_text: None,
+            text_input_last_length: None,
+            text_input_last_numeric: None,
+            text_input_last_allow_empty: None,
+        };
+
+        assert!(!panel.is_empty());
     }
 
     #[test]
@@ -3685,6 +4264,7 @@ mod tests {
                 y_bits: 60.0f32.to_bits(),
             })
         );
+        assert!(!panel.is_empty());
     }
 
     #[test]
@@ -3728,6 +4308,50 @@ mod tests {
         assert_eq!(panel.last_text_line_count(), 3);
         assert_eq!(panel.last_font_size(), None);
         assert_eq!(panel.last_z(), None);
+        assert!(!panel.is_empty());
+    }
+
+    #[test]
+    fn runtime_world_label_panel_is_empty_detects_default_state() {
+        let panel = RuntimeWorldLabelPanelModel {
+            label_count: 0,
+            reliable_label_count: 0,
+            remove_label_count: 0,
+            total_count: 0,
+            active_count: 0,
+            inactive_count: 0,
+            last_entity_id: None,
+            last_text: None,
+            last_flags: None,
+            last_font_size_bits: None,
+            last_z_bits: None,
+            last_position: None,
+        };
+
+        assert!(panel.is_empty());
+    }
+
+    #[test]
+    fn runtime_world_label_panel_is_empty_rejects_single_active_field() {
+        let panel = RuntimeWorldLabelPanelModel {
+            label_count: 0,
+            reliable_label_count: 0,
+            remove_label_count: 0,
+            total_count: 0,
+            active_count: 0,
+            inactive_count: 0,
+            last_entity_id: None,
+            last_text: None,
+            last_flags: None,
+            last_font_size_bits: None,
+            last_z_bits: None,
+            last_position: Some(crate::RuntimeWorldPositionObservability {
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+            }),
+        };
+
+        assert!(!panel.is_empty());
     }
 
     #[test]
@@ -3815,6 +4439,10 @@ mod tests {
                         hidden_count: 3,
                         player_count: 2,
                         unit_count: 1,
+                        player_with_owned_unit_count: 1,
+                        owned_unit_count: 2,
+                        ownership_conflict_count: 1,
+                        ownership_conflict_unit_sample: vec![202, 303],
                         last_entity_id: Some(202),
                         last_player_entity_id: Some(102),
                         last_unit_entity_id: Some(202),
@@ -3836,10 +4464,53 @@ mod tests {
                             "0123456789abcdef0123456789abcdef".to_string(),
                         ),
                         local_owned_unit_payload_nested_descendant_count: Some(2),
+                        local_owned_unit_payload_status: Some(
+                            crate::hud_model::RuntimePayloadSubtreeStatusObservability {
+                                total_count: 2,
+                                dynamic_count: 1,
+                                payload_with_status_count: 2,
+                                first_status_id: Some(13),
+                                first_status_name: Some("dynamic".to_string()),
+                                first_status_time_bits: Some(4.5f32.to_bits()),
+                                first_status_dynamic_field_count: Some(2),
+                            },
+                        ),
                         local_owned_carried_item_id: Some(6),
                         local_owned_carried_item_amount: Some(4),
                         local_owned_controller_type: Some(4),
                         local_owned_controller_value: Some(101),
+                        local_owned_controller_v2: Some(
+                            crate::hud_model::RuntimeUnitControllerObservability {
+                                controller_type: Some(4),
+                                controller_value: Some(101),
+                                target_position_tile: Some((12, 24)),
+                                attack_target: Some(
+                                    crate::hud_model::RuntimeUnitControllerAttackTargetObservability {
+                                        kind: Some("b".to_string()),
+                                        value: Some(789),
+                                    },
+                                ),
+                                command_id: Some(4),
+                                command_queue: Some(
+                                    crate::hud_model::RuntimeUnitControllerCommandQueueObservability {
+                                        total_count: 2,
+                                        building_count: 1,
+                                        unit_count: 0,
+                                        position_count: 0,
+                                        ignored_count: 1,
+                                    },
+                                ),
+                                stance_id: Some(9),
+                                status_count: Some(3),
+                                ..crate::hud_model::RuntimeUnitControllerObservability::default()
+                            },
+                        ),
+                        local_owned_controller_detail: Some(
+                            "cmd=4:q=2/1/0/0/1".to_string(),
+                        ),
+                        local_owned_unit_status_detail: Some(
+                            "c=2:d=1:f=7/overdrive@5.5:fd=2".to_string(),
+                        ),
                     },
                     effect: crate::RuntimeLiveEffectSummaryObservability::default(),
                 },
@@ -3854,6 +4525,10 @@ mod tests {
         assert_eq!(panel.hidden_count, 3);
         assert_eq!(panel.player_count, 2);
         assert_eq!(panel.unit_count, 1);
+        assert_eq!(panel.player_with_owned_unit_count, 1);
+        assert_eq!(panel.owned_unit_count, 2);
+        assert_eq!(panel.ownership_conflict_count, 1);
+        assert_eq!(panel.ownership_conflict_unit_sample, vec![202, 303]);
         assert_eq!(panel.last_entity_id, Some(202));
         assert_eq!(panel.last_player_entity_id, Some(102));
         assert_eq!(panel.last_unit_entity_id, Some(202));
@@ -3869,69 +4544,260 @@ mod tests {
                 y_bits: 33.0f32.to_bits(),
             })
         );
-        assert_eq!(
-            panel.local_owned_unit_entity_id,
-            Some(202)
-        );
-        assert_eq!(
-            panel.local_owned_unit_payload_count,
-            Some(2)
-        );
-        assert_eq!(
-            panel.local_owned_unit_payload_class_id,
-            Some(5)
-        );
-        assert_eq!(
-            panel.local_owned_unit_payload_revision,
-            Some(7)
-        );
-        assert_eq!(
-            panel.local_owned_unit_payload_body_len,
-            Some(12)
-        );
+        assert_eq!(panel.local_owned_unit_entity_id, Some(202));
+        assert_eq!(panel.local_owned_unit_payload_count, Some(2));
+        assert_eq!(panel.local_owned_unit_payload_class_id, Some(5));
+        assert_eq!(panel.local_owned_unit_payload_revision, Some(7));
+        assert_eq!(panel.local_owned_unit_payload_body_len, Some(12));
         assert_eq!(
             panel.local_owned_unit_payload_sha256.as_deref(),
             Some("0123456789abcdef0123456789abcdef")
         );
+        assert_eq!(panel.ownership_conflict_unit_sample_label(), "202,303");
+        assert_eq!(panel.ownership_label(), "own=1/2:c1@202,303");
         assert_eq!(
             panel.local_owned_unit_payload_nested_descendant_count,
             Some(2)
         );
         assert_eq!(
-            panel.local_owned_carried_item_id,
-            Some(6)
+            panel.local_owned_unit_payload_status,
+            Some(crate::hud_model::RuntimePayloadSubtreeStatusObservability {
+                total_count: 2,
+                dynamic_count: 1,
+                payload_with_status_count: 2,
+                first_status_id: Some(13),
+                first_status_name: Some("dynamic".to_string()),
+                first_status_time_bits: Some(4.5f32.to_bits()),
+                first_status_dynamic_field_count: Some(2),
+            })
+        );
+        assert_eq!(panel.local_owned_carried_item_id, Some(6));
+        assert_eq!(panel.local_owned_carried_item_amount, Some(4));
+        assert_eq!(panel.local_owned_controller_type, Some(4));
+        assert_eq!(panel.local_owned_controller_value, Some(101));
+        assert_eq!(
+            panel.local_owned_controller_v2,
+            Some(crate::hud_model::RuntimeUnitControllerObservability {
+                controller_type: Some(4),
+                controller_value: Some(101),
+                target_position_tile: Some((12, 24)),
+                attack_target: Some(
+                    crate::hud_model::RuntimeUnitControllerAttackTargetObservability {
+                        kind: Some("b".to_string()),
+                        value: Some(789),
+                    }
+                ),
+                command_id: Some(4),
+                command_queue: Some(
+                    crate::hud_model::RuntimeUnitControllerCommandQueueObservability {
+                        total_count: 2,
+                        building_count: 1,
+                        unit_count: 0,
+                        position_count: 0,
+                        ignored_count: 1,
+                    }
+                ),
+                stance_id: Some(9),
+                status_count: Some(3),
+                ..crate::hud_model::RuntimeUnitControllerObservability::default()
+            })
         );
         assert_eq!(
-            panel.local_owned_carried_item_amount,
-            Some(4)
+            panel.local_owned_controller_detail.as_deref(),
+            Some("cmd=4:q=2/1/0/0/1")
         );
         assert_eq!(
-            panel.local_owned_controller_type,
-            Some(4)
-        );
-        assert_eq!(
-            panel.local_owned_controller_value,
-            Some(101)
+            panel.local_owned_unit_status_detail.as_deref(),
+            Some("c=2:d=1:f=7/overdrive@5.5:fd=2")
         );
         assert_eq!(
             panel.local_owned_unit_payload_label(),
             "payload=count=2:unit=5/r7/l12:s0123456789ab"
         );
+        assert_eq!(panel.local_owned_unit_nested_label(), "nested=2");
         assert_eq!(
-            panel.local_owned_unit_nested_label(),
-            "nested=2"
+            panel.local_owned_unit_payload_status_label(),
+            "payload-status=c=2:d=1:n=2:f=13/dynamic@4.5:fd=2"
         );
-        assert_eq!(
-            panel.local_owned_unit_stack_label(),
-            "stack=6x4"
-        );
+        assert_eq!(panel.local_owned_unit_stack_label(), "stack=6x4");
         assert_eq!(
             panel.local_owned_unit_controller_label(),
-            "controller=4/101"
+            "controller=4/101:tp=12:24:atk=b/789:cmd=4:q=2/1/0/0/1:st=9:sts=3"
+        );
+        assert_eq!(
+            panel.local_owned_unit_status_label(),
+            "status=c=2:d=1:f=7/overdrive@5.5:fd=2"
         );
         assert_eq!(
             panel.detail_label(),
-            "local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=7 players=2 units=1 last=202/102/202 owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
+            "local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=7 players=2 units=1 own=1/2:c1@202,303 last=202/102/202 owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 payload-status=c=2:d=1:n=2:f=13/dynamic@4.5:fd=2 stack=6x4 controller=4/101:tp=12:24:atk=b/789:cmd=4:q=2/1/0/0/1:st=9:sts=3 status=c=2:d=1:f=7/overdrive@5.5:fd=2"
+        );
+    }
+
+    #[test]
+    fn runtime_live_entity_payload_status_label_defaults_to_none() {
+        let panel = super::RuntimeLiveEntityPanelModel {
+            entity_count: 0,
+            hidden_count: 0,
+            player_count: 0,
+            unit_count: 0,
+            player_with_owned_unit_count: 0,
+            owned_unit_count: 0,
+            ownership_conflict_count: 0,
+            ownership_conflict_unit_sample: Vec::new(),
+            last_entity_id: None,
+            last_player_entity_id: None,
+            last_unit_entity_id: None,
+            local_entity_id: None,
+            local_unit_kind: None,
+            local_unit_value: None,
+            local_hidden: None,
+            local_last_seen_entity_snapshot_count: None,
+            local_position: None,
+            local_owned_unit_entity_id: None,
+            local_owned_unit_payload_count: None,
+            local_owned_unit_payload_class_id: None,
+            local_owned_unit_payload_revision: None,
+            local_owned_unit_payload_body_len: None,
+            local_owned_unit_payload_sha256: None,
+            local_owned_unit_payload_nested_descendant_count: None,
+            local_owned_unit_payload_status: None,
+            local_owned_carried_item_id: None,
+            local_owned_carried_item_amount: None,
+            local_owned_controller_type: None,
+            local_owned_controller_value: None,
+            local_owned_controller_v2: None,
+            local_owned_controller_detail: None,
+            local_owned_unit_status_detail: None,
+        };
+
+        assert_eq!(
+            panel.local_owned_unit_payload_status_label(),
+            "payload-status=none"
+        );
+    }
+
+    #[test]
+    fn runtime_live_entity_controller_label_prefers_v2_over_legacy_detail() {
+        let panel = super::RuntimeLiveEntityPanelModel {
+            entity_count: 0,
+            hidden_count: 0,
+            player_count: 0,
+            unit_count: 0,
+            player_with_owned_unit_count: 0,
+            owned_unit_count: 0,
+            ownership_conflict_count: 0,
+            ownership_conflict_unit_sample: Vec::new(),
+            last_entity_id: None,
+            last_player_entity_id: None,
+            last_unit_entity_id: None,
+            local_entity_id: None,
+            local_unit_kind: None,
+            local_unit_value: None,
+            local_hidden: None,
+            local_last_seen_entity_snapshot_count: None,
+            local_position: None,
+            local_owned_unit_entity_id: None,
+            local_owned_unit_payload_count: None,
+            local_owned_unit_payload_class_id: None,
+            local_owned_unit_payload_revision: None,
+            local_owned_unit_payload_body_len: None,
+            local_owned_unit_payload_sha256: None,
+            local_owned_unit_payload_nested_descendant_count: None,
+            local_owned_unit_payload_status: None,
+            local_owned_carried_item_id: None,
+            local_owned_carried_item_amount: None,
+            local_owned_controller_type: Some(4),
+            local_owned_controller_value: Some(101),
+            local_owned_controller_v2: Some(crate::hud_model::RuntimeUnitControllerObservability {
+                controller_type: Some(4),
+                controller_value: Some(101),
+                command_id: Some(9),
+                status_count: Some(3),
+                ..crate::hud_model::RuntimeUnitControllerObservability::default()
+            }),
+            local_owned_controller_detail: Some("legacy=1".to_string()),
+            local_owned_unit_status_detail: None,
+        };
+
+        assert_eq!(
+            panel.local_owned_unit_controller_label(),
+            "controller=4/101:cmd=9:sts=3"
+        );
+    }
+
+    #[test]
+    fn runtime_unit_controller_observability_formats_detail_label() {
+        let controller = crate::hud_model::RuntimeUnitControllerObservability {
+            controller_type: Some(4),
+            controller_value: Some(101),
+            target_position_tile: Some((12, 24)),
+            attack_target: Some(
+                crate::hud_model::RuntimeUnitControllerAttackTargetObservability {
+                    kind: Some("b".to_string()),
+                    value: Some(789),
+                },
+            ),
+            command_id: Some(4),
+            command_queue: Some(
+                crate::hud_model::RuntimeUnitControllerCommandQueueObservability {
+                    total_count: 2,
+                    building_count: 1,
+                    unit_count: 0,
+                    position_count: 0,
+                    ignored_count: 1,
+                },
+            ),
+            stance_id: Some(9),
+            status_count: Some(3),
+        };
+
+        assert_eq!(
+            controller.detail_label(),
+            "tp=12:24:atk=b/789:cmd=4:q=2/1/0/0/1:st=9:sts=3"
+        );
+    }
+
+    #[test]
+    fn runtime_live_entity_controller_label_ignores_legacy_detail_without_v2() {
+        let panel = super::RuntimeLiveEntityPanelModel {
+            entity_count: 0,
+            hidden_count: 0,
+            player_count: 0,
+            unit_count: 0,
+            player_with_owned_unit_count: 0,
+            owned_unit_count: 0,
+            ownership_conflict_count: 0,
+            ownership_conflict_unit_sample: Vec::new(),
+            last_entity_id: None,
+            last_player_entity_id: None,
+            last_unit_entity_id: None,
+            local_entity_id: None,
+            local_unit_kind: None,
+            local_unit_value: None,
+            local_hidden: None,
+            local_last_seen_entity_snapshot_count: None,
+            local_position: None,
+            local_owned_unit_entity_id: None,
+            local_owned_unit_payload_count: None,
+            local_owned_unit_payload_class_id: None,
+            local_owned_unit_payload_revision: None,
+            local_owned_unit_payload_body_len: None,
+            local_owned_unit_payload_sha256: None,
+            local_owned_unit_payload_nested_descendant_count: None,
+            local_owned_unit_payload_status: None,
+            local_owned_carried_item_id: None,
+            local_owned_carried_item_amount: None,
+            local_owned_controller_type: Some(4),
+            local_owned_controller_value: Some(101),
+            local_owned_controller_v2: None,
+            local_owned_controller_detail: Some("cmd=4:q=2/1/0/0/1".to_string()),
+            local_owned_unit_status_detail: None,
+        };
+
+        assert_eq!(
+            panel.local_owned_unit_controller_label(),
+            "controller=4/101"
         );
     }
 
@@ -3976,6 +4842,16 @@ mod tests {
                         last_position_source: Some(
                             crate::RuntimeLiveEffectPositionSource::BusinessProjection,
                         ),
+                        session_target_binding_state: Some("follow".to_string()),
+                        session_source_binding_state: Some("reject".to_string()),
+                        overlay_target_binding_state: Some("fallback".to_string()),
+                        overlay_source_binding_state: Some("fallback".to_string()),
+                        target_follow_count: 1,
+                        target_reject_count: 2,
+                        target_fallback_count: 3,
+                        source_follow_count: 4,
+                        source_reject_count: 5,
+                        source_fallback_count: 6,
                     },
                 },
             }),
@@ -4021,6 +4897,15 @@ mod tests {
             panel.last_position_source,
             Some(crate::RuntimeLiveEffectPositionSource::BusinessProjection)
         );
+        assert_eq!(panel.session_target_binding_state.as_deref(), Some("follow"));
+        assert_eq!(panel.session_source_binding_state.as_deref(), Some("reject"));
+        assert_eq!(panel.overlay_target_binding_state.as_deref(), Some("fallback"));
+        assert_eq!(panel.overlay_source_binding_state.as_deref(), Some("fallback"));
+        assert_eq!(panel.binding_source_label(), "session");
+        assert_eq!(panel.display_target_binding_state(), Some("follow"));
+        assert_eq!(panel.display_source_binding_state(), Some("reject"));
+        assert_eq!(panel.target_binding_counts_label(), "1/2/3");
+        assert_eq!(panel.source_binding_counts_label(), "4/5/6");
         assert_eq!(panel.display_effect_id(), Some(13));
         assert_eq!(panel.display_contract_name(), Some("lightning"));
         assert_eq!(panel.display_reliable_contract_name(), Some("lightning"));
@@ -4076,7 +4961,6 @@ mod tests {
                     text_input_result_count: 30,
                     last_text_input_result_id: Some(405),
                     last_text_input_result_text: Some("ok123".to_string()),
-                    ..RuntimeMenuObservability::default()
                 },
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
@@ -5068,96 +5952,12 @@ mod tests {
         chat_only.chat.server_message_count = 1;
         chat_only.chat.chat_message_count = 2;
         chat_only.chat.last_chat_sender_entity_id = Some(42);
-        let chat_only_dialog =
-            build_runtime_dialog_stack_panel(&runtime_stack_test_hud(chat_only.clone()))
-                .expect("dialog stack");
-        assert_eq!(
-            chat_only_dialog.foreground_kind,
-            Some(RuntimeUiStackForegroundKind::Chat)
-        );
-        assert_eq!(
-            chat_only_dialog.prompt.layer_labels(),
-            Vec::<&'static str>::new()
-        );
-        assert_eq!(
-            chat_only_dialog.notice.layer_labels(),
-            Vec::<&'static str>::new()
-        );
-        assert_eq!(chat_only_dialog.chat_depth(), 1);
-        assert_eq!(chat_only_dialog.active_group_count(), 1);
-        assert_eq!(chat_only_dialog.total_depth(), 1);
-        let chat_only =
-            build_runtime_ui_stack_panel(&runtime_stack_test_hud(chat_only)).expect("stack");
-        assert_eq!(
-            chat_only.foreground_kind,
-            Some(RuntimeUiStackForegroundKind::Chat)
-        );
-        assert!(chat_only.prompt_layer_labels().is_empty());
-        assert!(chat_only.notice_layer_labels().is_empty());
-        assert_eq!(chat_only.chat_depth(), 1);
-        assert_eq!(chat_only.active_group_count(), 1);
-        assert_eq!(chat_only.total_depth(), 1);
 
         let mut menu_only = RuntimeUiObservability::default();
         menu_only.menu.menu_open_count = 1;
-        let menu_only_dialog =
-            build_runtime_dialog_stack_panel(&runtime_stack_test_hud(menu_only.clone()))
-                .expect("dialog stack");
-        assert_eq!(
-            menu_only_dialog.foreground_kind,
-            Some(RuntimeUiStackForegroundKind::Menu)
-        );
-        assert_eq!(menu_only_dialog.prompt.layer_labels(), vec!["menu"]);
-        assert_eq!(
-            menu_only_dialog.notice.layer_labels(),
-            Vec::<&'static str>::new()
-        );
-        assert_eq!(menu_only_dialog.chat_depth(), 0);
-        assert_eq!(menu_only_dialog.active_group_count(), 1);
-        assert_eq!(menu_only_dialog.total_depth(), 1);
-        let menu_only =
-            build_runtime_ui_stack_panel(&runtime_stack_test_hud(menu_only)).expect("stack");
-        assert_eq!(
-            menu_only.foreground_kind,
-            Some(RuntimeUiStackForegroundKind::Menu)
-        );
-        assert_eq!(menu_only.prompt_layer_labels(), vec!["menu"]);
-        assert!(menu_only.notice_layer_labels().is_empty());
-        assert_eq!(menu_only.chat_depth(), 0);
-        assert_eq!(menu_only.active_group_count(), 1);
-        assert_eq!(menu_only.total_depth(), 1);
 
         let mut follow_up_only = RuntimeUiObservability::default();
         follow_up_only.menu.follow_up_menu_open_count = 1;
-        let follow_up_only_dialog =
-            build_runtime_dialog_stack_panel(&runtime_stack_test_hud(follow_up_only.clone()))
-                .expect("dialog stack");
-        assert_eq!(
-            follow_up_only_dialog.foreground_kind,
-            Some(RuntimeUiStackForegroundKind::FollowUpMenu)
-        );
-        assert_eq!(
-            follow_up_only_dialog.prompt.layer_labels(),
-            vec!["follow-up"]
-        );
-        assert_eq!(
-            follow_up_only_dialog.notice.layer_labels(),
-            Vec::<&'static str>::new()
-        );
-        assert_eq!(follow_up_only_dialog.chat_depth(), 0);
-        assert_eq!(follow_up_only_dialog.active_group_count(), 1);
-        assert_eq!(follow_up_only_dialog.total_depth(), 1);
-        let follow_up_only =
-            build_runtime_ui_stack_panel(&runtime_stack_test_hud(follow_up_only)).expect("stack");
-        assert_eq!(
-            follow_up_only.foreground_kind,
-            Some(RuntimeUiStackForegroundKind::FollowUpMenu)
-        );
-        assert_eq!(follow_up_only.prompt_layer_labels(), vec!["follow-up"]);
-        assert!(follow_up_only.notice_layer_labels().is_empty());
-        assert_eq!(follow_up_only.chat_depth(), 0);
-        assert_eq!(follow_up_only.active_group_count(), 1);
-        assert_eq!(follow_up_only.total_depth(), 1);
 
         let mut input_notice_chat = RuntimeUiObservability::default();
         input_notice_chat.text_input.open_count = 1;
@@ -5167,41 +5967,57 @@ mod tests {
         input_notice_chat.chat.server_message_count = 1;
         input_notice_chat.chat.chat_message_count = 1;
         input_notice_chat.chat.last_chat_sender_entity_id = Some(404);
-        let input_notice_chat_dialog =
-            build_runtime_dialog_stack_panel(&runtime_stack_test_hud(input_notice_chat.clone()))
-                .expect("dialog stack");
-        assert_eq!(
-            input_notice_chat_dialog.foreground_kind,
-            Some(RuntimeUiStackForegroundKind::TextInput)
-        );
-        assert_eq!(
-            input_notice_chat_dialog.prompt.layer_labels(),
-            vec!["input"]
-        );
-        assert_eq!(
-            input_notice_chat_dialog.notice.kind,
-            Some(RuntimeDialogNoticeKind::ToastWarning)
-        );
-        assert_eq!(input_notice_chat_dialog.notice.layer_labels(), vec!["warn"]);
-        assert_eq!(input_notice_chat_dialog.chat_depth(), 1);
-        assert_eq!(input_notice_chat_dialog.active_group_count(), 3);
-        assert_eq!(input_notice_chat_dialog.total_depth(), 3);
-        let input_notice_chat =
-            build_runtime_ui_stack_panel(&runtime_stack_test_hud(input_notice_chat))
-                .expect("stack");
-        assert_eq!(
-            input_notice_chat.foreground_kind,
-            Some(RuntimeUiStackForegroundKind::TextInput)
-        );
-        assert_eq!(input_notice_chat.prompt_layer_labels(), vec!["input"]);
-        assert_eq!(
-            input_notice_chat.notice_kind,
-            Some(RuntimeDialogNoticeKind::ToastWarning)
-        );
-        assert_eq!(input_notice_chat.notice_layer_labels(), vec!["warn"]);
-        assert_eq!(input_notice_chat.chat_depth(), 1);
-        assert_eq!(input_notice_chat.active_group_count(), 3);
-        assert_eq!(input_notice_chat.total_depth(), 3);
+
+        let cases = vec![
+            RuntimeUiStackRegressionCase {
+                name: "chat_only",
+                runtime_ui: chat_only,
+                foreground_kind: RuntimeUiStackForegroundKind::Chat,
+                prompt_labels: &[],
+                notice_kind: None,
+                notice_labels: &[],
+                chat_depth: 1,
+                active_group_count: 1,
+                total_depth: 1,
+            },
+            RuntimeUiStackRegressionCase {
+                name: "menu_only",
+                runtime_ui: menu_only,
+                foreground_kind: RuntimeUiStackForegroundKind::Menu,
+                prompt_labels: &["menu"],
+                notice_kind: None,
+                notice_labels: &[],
+                chat_depth: 0,
+                active_group_count: 1,
+                total_depth: 1,
+            },
+            RuntimeUiStackRegressionCase {
+                name: "follow_up_only",
+                runtime_ui: follow_up_only,
+                foreground_kind: RuntimeUiStackForegroundKind::FollowUpMenu,
+                prompt_labels: &["follow-up"],
+                notice_kind: None,
+                notice_labels: &[],
+                chat_depth: 0,
+                active_group_count: 1,
+                total_depth: 1,
+            },
+            RuntimeUiStackRegressionCase {
+                name: "input_notice_chat",
+                runtime_ui: input_notice_chat,
+                foreground_kind: RuntimeUiStackForegroundKind::TextInput,
+                prompt_labels: &["input"],
+                notice_kind: Some(RuntimeDialogNoticeKind::ToastWarning),
+                notice_labels: &["warn"],
+                chat_depth: 1,
+                active_group_count: 3,
+                total_depth: 3,
+            },
+        ];
+
+        for case in &cases {
+            assert_runtime_stack_regression_case(case);
+        }
     }
 
     #[test]

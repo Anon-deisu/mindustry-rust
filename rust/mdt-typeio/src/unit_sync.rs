@@ -403,185 +403,253 @@ impl<'a> PrimitiveReader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fmt::Debug, panic};
+
+    fn sample_abilities() -> Vec<AbilityRaw> {
+        vec![AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }]
+    }
+
+    fn stale_abilities() -> Vec<AbilityRaw> {
+        vec![AbilityRaw { data: 99.0 }]
+    }
+
+    fn sample_weapon_mounts() -> Vec<WeaponMountRaw> {
+        vec![
+            WeaponMountRaw {
+                shoot: true,
+                rotate: false,
+                aim_x: 12.5,
+                aim_y: -3.25,
+            },
+            WeaponMountRaw {
+                shoot: false,
+                rotate: true,
+                aim_x: -8.0,
+                aim_y: 64.5,
+            },
+        ]
+    }
+
+    fn stale_weapon_mounts() -> Vec<WeaponMountRaw> {
+        vec![WeaponMountRaw {
+            shoot: false,
+            rotate: false,
+            aim_x: 99.0,
+            aim_y: 99.0,
+        }]
+    }
+
+    fn assert_round_trip<T>(
+        values: &[T],
+        write: fn(&mut Vec<u8>, &[T]),
+        read: fn(&[u8]) -> Result<Vec<T>, TypeIoReadError>,
+    ) where
+        T: Clone + Debug + PartialEq,
+    {
+        let mut bytes = Vec::new();
+
+        write(&mut bytes, values);
+
+        assert_eq!(read(&bytes).unwrap(), values);
+    }
+
+    fn assert_into_round_trip<T>(
+        values: &[T],
+        mut target: Vec<T>,
+        write: fn(&mut Vec<u8>, &[T]),
+        read_into: fn(&[u8], &mut Vec<T>) -> Result<(), TypeIoReadError>,
+    ) where
+        T: Clone + Debug + PartialEq,
+    {
+        let mut bytes = Vec::new();
+
+        write(&mut bytes, values);
+        read_into(&bytes, &mut target).unwrap();
+
+        assert_eq!(target, values);
+    }
+
+    fn assert_empty_round_trip<T>(
+        write: fn(&mut Vec<u8>, &[T]),
+        read: fn(&[u8]) -> Result<Vec<T>, TypeIoReadError>,
+    ) where
+        T: Debug + PartialEq,
+    {
+        let mut bytes = Vec::new();
+
+        write(&mut bytes, &[]);
+
+        assert_eq!(bytes, vec![0]);
+        assert_eq!(read(&bytes).unwrap(), Vec::<T>::new());
+    }
+
+    fn assert_prefix_overwrites_existing_entries<T>(
+        bytes: &[u8],
+        mut target: Vec<T>,
+        read_into_prefix: fn(&[u8], &mut Vec<T>) -> Result<usize, TypeIoReadError>,
+        expected: Vec<T>,
+    ) where
+        T: Debug + PartialEq,
+    {
+        let consumed = read_into_prefix(bytes, &mut target).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(target, expected);
+    }
+
+    fn assert_unexpected_eof<T>(
+        result: Result<T, TypeIoReadError>,
+        position: usize,
+        needed: usize,
+        remaining: usize,
+    ) {
+        assert!(matches!(
+            result,
+            Err(TypeIoReadError::UnexpectedEof {
+                position: actual_position,
+                needed: actual_needed,
+                remaining: actual_remaining,
+            }) if actual_position == position
+                && actual_needed == needed
+                && actual_remaining == remaining
+        ));
+    }
+
+    fn assert_trailing_bytes_preserves_target<T>(
+        bytes: &[u8],
+        mut target: Vec<T>,
+        read_into: fn(&[u8], &mut Vec<T>) -> Result<(), TypeIoReadError>,
+        consumed: usize,
+        total: usize,
+        expected_target: Vec<T>,
+    ) where
+        T: Debug + PartialEq,
+    {
+        assert!(matches!(
+            read_into(bytes, &mut target),
+            Err(TypeIoReadError::TrailingBytes {
+                consumed: actual_consumed,
+                total: actual_total,
+            }) if actual_consumed == consumed && actual_total == total
+        ));
+        assert_eq!(target, expected_target);
+    }
+
+    fn assert_panics_with_message<F>(f: F, expected: &str)
+    where
+        F: FnOnce() + panic::UnwindSafe,
+    {
+        let payload = panic::catch_unwind(f).expect_err("expected panic");
+        let message = if let Some(message) = payload.downcast_ref::<&str>() {
+            (*message).to_string()
+        } else if let Some(message) = payload.downcast_ref::<String>() {
+            message.clone()
+        } else {
+            panic!("unexpected panic payload type");
+        };
+
+        assert!(
+            message.contains(expected),
+            "panic message `{message}` did not contain `{expected}`"
+        );
+    }
 
     #[test]
     fn abilities_round_trip_two_entries() {
-        let abilities = vec![AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }];
-        let mut bytes = Vec::new();
+        let abilities = sample_abilities();
 
-        write_abilities(&mut bytes, &abilities);
-
-        assert_eq!(read_abilities(&bytes).unwrap(), abilities);
+        assert_round_trip(&abilities, write_abilities, read_abilities);
     }
 
     #[test]
     fn abilities_into_round_trip_two_entries() {
-        let abilities = vec![AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }];
-        let mut bytes = Vec::new();
-        let mut target = vec![AbilityRaw { data: 99.0 }];
+        let abilities = sample_abilities();
 
-        write_abilities(&mut bytes, &abilities);
-        read_abilities_into(&bytes, &mut target).unwrap();
-
-        assert_eq!(target, abilities);
+        assert_into_round_trip(
+            &abilities,
+            stale_abilities(),
+            write_abilities,
+            read_abilities_into,
+        );
     }
 
     #[test]
     fn abilities_round_trip_empty_array() {
-        let mut bytes = Vec::new();
-
-        write_abilities(&mut bytes, &[]);
-
-        assert_eq!(bytes, vec![0]);
-        assert_eq!(read_abilities(&bytes).unwrap(), Vec::<AbilityRaw>::new());
+        assert_empty_round_trip(write_abilities, read_abilities);
     }
 
     #[test]
     fn abilities_reader_reports_truncated_payload() {
         let bytes = vec![1, 0x41, 0x48, 0x00];
 
-        assert!(matches!(
-            read_abilities(&bytes),
-            Err(TypeIoReadError::UnexpectedEof {
-                position: 1,
-                needed: 4,
-                remaining: 3,
-            })
-        ));
-    }
-
-    #[test]
-    #[should_panic(expected = "status entry count exceeds wire byte capacity")]
-    fn write_status_entries_rejects_counts_outside_u8_range() {
-        let entries = vec![
-            StatusEntryRaw {
-                status_id: 1,
-                time: 1.0,
-                dynamic_fields: None,
-            };
-            u8::MAX as usize + 1
-        ];
-        let mut bytes = Vec::new();
-
-        write_status_entries(&mut bytes, &entries, false);
+        assert_unexpected_eof(read_abilities(&bytes), 1, 4, 3);
     }
 
     #[test]
     fn abilities_into_prefix_overwrites_existing_entries() {
         let bytes = vec![2, 0x41, 0x48, 0x00, 0x00, 0xc0, 0x50, 0x00, 0x00];
-        let mut abilities = vec![AbilityRaw { data: 99.0 }];
-
-        let consumed = read_abilities_into_prefix(&bytes, &mut abilities).unwrap();
-
-        assert_eq!(consumed, bytes.len());
-        assert_eq!(
-            abilities,
-            vec![AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }]
+        assert_prefix_overwrites_existing_entries(
+            &bytes,
+            stale_abilities(),
+            read_abilities_into_prefix,
+            sample_abilities(),
         );
     }
 
     #[test]
     fn abilities_into_rejects_trailing_payload() {
         let bytes = vec![1, 0x41, 0x48, 0x00, 0x00, 0xff];
-        let mut abilities = vec![AbilityRaw { data: 99.0 }];
+        let stale = stale_abilities();
 
-        assert!(matches!(
-            read_abilities_into(&bytes, &mut abilities),
-            Err(TypeIoReadError::TrailingBytes {
-                consumed: 5,
-                total: 6,
-            })
-        ));
-        assert_eq!(abilities, vec![AbilityRaw { data: 99.0 }]);
+        assert_trailing_bytes_preserves_target(
+            &bytes,
+            stale.clone(),
+            read_abilities_into,
+            5,
+            6,
+            stale,
+        );
     }
 
     #[test]
-    #[should_panic(expected = "ability count exceeds wire byte capacity")]
     fn write_abilities_rejects_counts_outside_u8_range() {
         let abilities = vec![AbilityRaw { data: 0.0 }; u8::MAX as usize + 1];
-        let mut bytes = Vec::new();
 
-        write_abilities(&mut bytes, &abilities);
+        assert_panics_with_message(
+            || write_abilities(&mut Vec::new(), &abilities),
+            "ability count exceeds wire byte capacity",
+        );
     }
 
     #[test]
     fn weapon_mounts_round_trip_two_entries() {
-        let mounts = vec![
-            WeaponMountRaw {
-                shoot: true,
-                rotate: false,
-                aim_x: 12.5,
-                aim_y: -3.25,
-            },
-            WeaponMountRaw {
-                shoot: false,
-                rotate: true,
-                aim_x: -8.0,
-                aim_y: 64.5,
-            },
-        ];
-        let mut bytes = Vec::new();
+        let mounts = sample_weapon_mounts();
 
-        write_weapon_mounts(&mut bytes, &mounts);
-
-        assert_eq!(read_weapon_mounts(&bytes).unwrap(), mounts);
+        assert_round_trip(&mounts, write_weapon_mounts, read_weapon_mounts);
     }
 
     #[test]
     fn weapon_mounts_into_round_trip_two_entries() {
-        let mounts = vec![
-            WeaponMountRaw {
-                shoot: true,
-                rotate: false,
-                aim_x: 12.5,
-                aim_y: -3.25,
-            },
-            WeaponMountRaw {
-                shoot: false,
-                rotate: true,
-                aim_x: -8.0,
-                aim_y: 64.5,
-            },
-        ];
-        let mut bytes = Vec::new();
-        let mut target = vec![WeaponMountRaw {
-            shoot: false,
-            rotate: false,
-            aim_x: 99.0,
-            aim_y: 99.0,
-        }];
+        let mounts = sample_weapon_mounts();
 
-        write_weapon_mounts(&mut bytes, &mounts);
-        read_weapon_mounts_into(&bytes, &mut target).unwrap();
-
-        assert_eq!(target, mounts);
+        assert_into_round_trip(
+            &mounts,
+            stale_weapon_mounts(),
+            write_weapon_mounts,
+            read_weapon_mounts_into,
+        );
     }
 
     #[test]
     fn weapon_mounts_round_trip_empty_array() {
-        let mut bytes = Vec::new();
-
-        write_weapon_mounts(&mut bytes, &[]);
-
-        assert_eq!(bytes, vec![0]);
-        assert_eq!(
-            read_weapon_mounts(&bytes).unwrap(),
-            Vec::<WeaponMountRaw>::new()
-        );
+        assert_empty_round_trip(write_weapon_mounts, read_weapon_mounts);
     }
 
     #[test]
     fn weapon_mounts_reader_reports_truncated_payload() {
         let bytes = vec![1, 3, 0x41, 0x48, 0x00];
 
-        assert!(matches!(
-            read_weapon_mounts(&bytes),
-            Err(TypeIoReadError::UnexpectedEof {
-                position: 2,
-                needed: 4,
-                remaining: 3,
-            })
-        ));
+        assert_unexpected_eof(read_weapon_mounts(&bytes), 2, 4, 3);
     }
 
     #[test]
@@ -598,24 +666,16 @@ mod tests {
             0x00,
             0x00,
         ];
-        let mut mounts = vec![WeaponMountRaw {
-            shoot: false,
-            rotate: false,
-            aim_x: 99.0,
-            aim_y: 99.0,
-        }];
-
-        let consumed = read_weapon_mounts_into_prefix(&bytes, &mut mounts).unwrap();
-
-        assert_eq!(consumed, bytes.len());
-        assert_eq!(
-            mounts,
+        assert_prefix_overwrites_existing_entries(
+            &bytes,
+            stale_weapon_mounts(),
+            read_weapon_mounts_into_prefix,
             vec![WeaponMountRaw {
                 shoot: true,
                 rotate: true,
                 aim_x: 12.5,
                 aim_y: -3.25,
-            }]
+            }],
         );
     }
 
@@ -634,33 +694,19 @@ mod tests {
             0x00,
             0xff,
         ];
-        let mut mounts = vec![WeaponMountRaw {
-            shoot: false,
-            rotate: false,
-            aim_x: 99.0,
-            aim_y: 99.0,
-        }];
+        let stale = stale_weapon_mounts();
 
-        assert!(matches!(
-            read_weapon_mounts_into(&bytes, &mut mounts),
-            Err(TypeIoReadError::TrailingBytes {
-                consumed: 10,
-                total: 11,
-            })
-        ));
-        assert_eq!(
-            mounts,
-            vec![WeaponMountRaw {
-                shoot: false,
-                rotate: false,
-                aim_x: 99.0,
-                aim_y: 99.0,
-            }]
+        assert_trailing_bytes_preserves_target(
+            &bytes,
+            stale.clone(),
+            read_weapon_mounts_into,
+            10,
+            11,
+            stale,
         );
     }
 
     #[test]
-    #[should_panic(expected = "weapon mount count exceeds wire byte capacity")]
     fn write_weapon_mounts_rejects_counts_outside_u8_range() {
         let mounts = vec![
             WeaponMountRaw {
@@ -671,9 +717,27 @@ mod tests {
             };
             u8::MAX as usize + 1
         ];
-        let mut bytes = Vec::new();
+        assert_panics_with_message(
+            || write_weapon_mounts(&mut Vec::new(), &mounts),
+            "weapon mount count exceeds wire byte capacity",
+        );
+    }
 
-        write_weapon_mounts(&mut bytes, &mounts);
+    #[test]
+    fn write_status_entries_rejects_counts_outside_u8_range() {
+        let entries = vec![
+            StatusEntryRaw {
+                status_id: 1,
+                time: 1.0,
+                dynamic_fields: None,
+            };
+            u8::MAX as usize + 1
+        ];
+
+        assert_panics_with_message(
+            || write_status_entries(&mut Vec::new(), &entries, false),
+            "status entry count exceeds wire byte capacity",
+        );
     }
 
     #[test]

@@ -1890,6 +1890,35 @@ mod tests {
         )
     }
 
+    fn overlay_fixture() -> RuntimeEffectOverlay {
+        RuntimeEffectOverlay {
+            effect_id: None,
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: None,
+            source_binding: None,
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        }
+    }
+
+    fn overlay_fixture_with(effect_id: i16, contract_name: &'static str) -> RuntimeEffectOverlay {
+        RuntimeEffectOverlay {
+            effect_id: Some(effect_id),
+            contract_name: Some(contract_name),
+            ..overlay_fixture()
+        }
+    }
+
     #[test]
     fn position_target_overlay_origin_projects_nested_building_payload() {
         let object = TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![
@@ -2087,22 +2116,7 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_returns_point_beam_projection() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(POINT_BEAM_EFFECT_ID),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
-            x_bits: 80.0f32.to_bits(),
-            y_bits: 160.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("point_beam"),
-            source_binding: None,
-            binding: None,
-            content_ref: None,
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(POINT_BEAM_EFFECT_ID, "point_beam")
         };
 
         assert_eq!(
@@ -2125,22 +2139,11 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_returns_leg_destroy_projection() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(LEG_DESTROY_EFFECT_ID),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
             x_bits: 72.0f32.to_bits(),
             y_bits: 96.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
             lifetime_ticks: 90,
             remaining_ticks: 90,
-            contract_name: Some("leg_destroy"),
-            source_binding: None,
-            binding: None,
-            content_ref: None,
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(LEG_DESTROY_EFFECT_ID, "leg_destroy")
         };
 
         assert_eq!(
@@ -2163,22 +2166,10 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_returns_float_length_projection() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(FLOAT_LENGTH_EFFECT_ID),
             source_x_bits: 10.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
-            source_binding: None,
             x_bits: 26.0f32.to_bits(),
             y_bits: 20.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("float_length"),
-            binding: None,
-            content_ref: None,
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(FLOAT_LENGTH_EFFECT_ID, "float_length")
         };
 
         assert_eq!(
@@ -2938,9 +2929,12 @@ mod tests {
 
         assert_eq!(executor.contract_name, "move_command");
         assert_eq!(
-            (executor.overlay_origin)(12.0, 20.0, 0.0, &TypeIoObject::ObjectArray(vec![
-                TypeIoObject::Point2 { x: 10, y: 20 }
-            ])),
+            (executor.overlay_origin)(
+                12.0,
+                20.0,
+                0.0,
+                &TypeIoObject::ObjectArray(vec![TypeIoObject::Point2 { x: 10, y: 20 }])
+            ),
             Some((80.0, 160.0))
         );
     }
@@ -3289,22 +3283,7 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_returns_chain_segments() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(CHAIN_LIGHTNING_EFFECT_ID),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
-            x_bits: 80.0f32.to_bits(),
-            y_bits: 160.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("position_target"),
-            source_binding: None,
-            binding: None,
-            content_ref: None,
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(CHAIN_LIGHTNING_EFFECT_ID, "position_target")
         };
 
         let lines = test_line_projections_for_overlay(
@@ -3333,22 +3312,7 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_returns_chain_emp_segments() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(CHAIN_EMP_EFFECT_ID),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
-            x_bits: 80.0f32.to_bits(),
-            y_bits: 160.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("position_target"),
-            source_binding: None,
-            binding: None,
-            content_ref: None,
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(CHAIN_EMP_EFFECT_ID, "position_target")
         };
 
         let lines = test_line_projections_for_overlay(
@@ -3377,22 +3341,7 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_ignores_other_effect_ids() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(99),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
-            x_bits: 80.0f32.to_bits(),
-            y_bits: 160.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("position_target"),
-            source_binding: None,
-            binding: None,
-            content_ref: None,
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(99, "position_target")
         };
 
         assert_eq!(
@@ -3409,22 +3358,9 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_returns_move_command_circle() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(MOVE_COMMAND_EFFECT_ID),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
-            x_bits: 80.0f32.to_bits(),
-            y_bits: 160.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
             lifetime_ticks: 20,
             remaining_ticks: 20,
-            contract_name: Some("move_command"),
-            source_binding: None,
-            binding: None,
-            content_ref: None,
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(MOVE_COMMAND_EFFECT_ID, "move_command")
         };
 
         let lines = test_line_projections_for_overlay(
@@ -3488,22 +3424,10 @@ mod tests {
     #[test]
     fn content_projections_for_effect_overlay_returns_block_content_icon_projection() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(252),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
             x_bits: 12.0f32.to_bits(),
             y_bits: 20.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("block_content_icon"),
-            source_binding: None,
-            binding: None,
             content_ref: Some((BLOCK_CONTENT_TYPE, 42)),
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(252, "block_content_icon")
         };
 
         assert_eq!(
@@ -3521,22 +3445,11 @@ mod tests {
     #[test]
     fn content_projections_for_effect_overlay_returns_payload_target_content_projection() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(PAYLOAD_DEPOSIT_EFFECT_ID),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
             x_bits: 84.0f32.to_bits(),
             y_bits: 140.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
             remaining_ticks: 2,
-            contract_name: Some("payload_target_content"),
-            source_binding: None,
-            binding: None,
             content_ref: Some((UNIT_CONTENT_TYPE, 9)),
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(PAYLOAD_DEPOSIT_EFFECT_ID, "payload_target_content")
         };
 
         assert_eq!(
@@ -3554,22 +3467,10 @@ mod tests {
     #[test]
     fn content_projections_for_effect_overlay_returns_content_icon_projection() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(35),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
             x_bits: 12.0f32.to_bits(),
             y_bits: 20.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("content_icon"),
-            source_binding: None,
-            binding: None,
             content_ref: Some((UNIT_CONTENT_TYPE, 9)),
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(35, "content_icon")
         };
 
         assert_eq!(
@@ -3587,22 +3488,11 @@ mod tests {
     #[test]
     fn content_projections_for_effect_overlay_returns_drop_item_projection() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(142),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
             x_bits: 12.0f32.to_bits(),
             y_bits: 40.0f32.to_bits(),
             rotation_bits: 90.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("drop_item"),
-            source_binding: None,
-            binding: None,
             content_ref: Some((ITEM_CONTENT_TYPE, 12)),
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(142, "drop_item")
         };
 
         assert_eq!(
@@ -3620,26 +3510,16 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_returns_lightning_path_segments() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(LIGHTNING_EFFECT_ID),
             source_x_bits: 1.0f32.to_bits(),
             source_y_bits: 2.0f32.to_bits(),
             x_bits: 50.0f32.to_bits(),
             y_bits: 60.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("lightning"),
-            source_binding: None,
-            binding: None,
-            content_ref: None,
             polyline_points: vec![
                 (10.0f32.to_bits(), 20.0f32.to_bits()),
                 (30.0f32.to_bits(), 40.0f32.to_bits()),
                 (50.0f32.to_bits(), 60.0f32.to_bits()),
             ],
+            ..overlay_fixture_with(LIGHTNING_EFFECT_ID, "lightning")
         };
 
         assert_eq!(
@@ -3671,18 +3551,8 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_uses_parent_unit_rotation_for_green_laser_charge() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(GREEN_LASER_CHARGE_EFFECT_ID),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
             x_bits: 32.0f32.to_bits(),
             y_bits: 48.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("unit_parent"),
             source_binding: None,
             binding: Some(RuntimeEffectBinding::ParentUnit {
                 unit_id: 404,
@@ -3698,8 +3568,7 @@ mod tests {
                 rotation_offset_bits: 0.0f32.to_bits(),
                 rotation_initialized: false,
             }),
-            content_ref: None,
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(GREEN_LASER_CHARGE_EFFECT_ID, "unit_parent")
         };
         let mut state = SessionState::default();
         state.entity_semantic_projection.by_entity_id.insert(
@@ -3716,6 +3585,7 @@ mod tests {
                         shield_bits: 0,
                         mine_tile_pos: 0,
                         status_count: 0,
+                        statuses: Vec::new(),
                         payload_count: None,
                         building_pos: None,
                         lifetime_bits: None,
@@ -3723,6 +3593,7 @@ mod tests {
                         runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
+                        controller_snapshot: None,
                     },
                 ),
             },
@@ -3750,18 +3621,8 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_uses_parent_unit_rotation_for_arc_shield_break() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(ARC_SHIELD_BREAK_EFFECT_ID),
-            source_x_bits: 12.0f32.to_bits(),
-            source_y_bits: 20.0f32.to_bits(),
             x_bits: 32.0f32.to_bits(),
             y_bits: 48.0f32.to_bits(),
-            rotation_bits: 0.0f32.to_bits(),
-            color_rgba: 0x11223344,
-            reliable: false,
-            has_data: true,
-            lifetime_ticks: 3,
-            remaining_ticks: 3,
-            contract_name: Some("unit_parent"),
             source_binding: None,
             binding: Some(RuntimeEffectBinding::ParentUnit {
                 unit_id: 404,
@@ -3777,8 +3638,7 @@ mod tests {
                 rotation_offset_bits: 0.0f32.to_bits(),
                 rotation_initialized: false,
             }),
-            content_ref: None,
-            polyline_points: Vec::new(),
+            ..overlay_fixture_with(ARC_SHIELD_BREAK_EFFECT_ID, "unit_parent")
         };
         let mut state = SessionState::default();
         state.entity_semantic_projection.by_entity_id.insert(
@@ -3795,6 +3655,7 @@ mod tests {
                         shield_bits: 0,
                         mine_tile_pos: 0,
                         status_count: 0,
+                        statuses: Vec::new(),
                         payload_count: None,
                         building_pos: None,
                         lifetime_bits: None,
@@ -3802,6 +3663,7 @@ mod tests {
                         runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
+                        controller_snapshot: None,
                     },
                 ),
             },

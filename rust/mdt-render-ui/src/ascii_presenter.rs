@@ -3,20 +3,23 @@ use crate::minimap_user_flow::build_minimap_user_flow_panel;
 use crate::panel_model::{
     build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
     build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
-    build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
-    build_runtime_command_mode_panel, build_runtime_core_binding_panel, build_runtime_dialog_panel,
-    build_runtime_dialog_stack_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
-    build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_marker_panel,
-    build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
-    build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
-    build_runtime_bootstrap_panel,
-    build_runtime_ui_notice_panel, build_runtime_ui_stack_panel, build_runtime_world_label_panel,
-    MinimapPanelModel, PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
-    RuntimeUiNoticePanelModel,
+    build_runtime_admin_panel, build_runtime_bootstrap_panel, build_runtime_chat_panel,
+    build_runtime_choice_panel, build_runtime_command_mode_panel, build_runtime_core_binding_panel,
+    build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+    build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
+    build_runtime_marker_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
+    build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
+    build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
+    build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
+    RuntimeDialogPromptKind,
 };
 use crate::presenter_view::{
-    crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
-    zoomed_view_tile_span,
+    build_queue_head_stage_text, build_queue_head_text, command_rect_text, compact_runtime_ui_text,
+    compose_minimap_window_distribution_text, compose_minimap_window_kind_distribution_text,
+    crop_window, marker_line_end_base_id, optional_display_label, rect_in_window,
+    render_pipeline_summary, runtime_layer_labels_text, runtime_ui_text_len, runtime_ui_uri_scheme,
+    semantic_detail_text, tile_in_window, visible_window_tile, world_rect_tile_coords,
+    world_tile_coords, CropWindowMode,
 };
 use crate::render_model::{
     RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
@@ -60,7 +63,14 @@ impl AsciiScenePresenter {
     fn compose_frame(&self, scene: &RenderModel, hud: &HudModel) -> String {
         let width = (scene.viewport.width / TILE_SIZE).round().max(0.0) as usize;
         let height = (scene.viewport.height / TILE_SIZE).round().max(0.0) as usize;
-        let window = crop_window(scene, width, height, self.max_view_tiles);
+        let window = crop_window(
+            scene,
+            TILE_SIZE,
+            width,
+            height,
+            self.max_view_tiles,
+            CropWindowMode::MaxTiles,
+        );
         let mut grid = vec![vec![' '; window.width]; window.height];
         let primitives = scene.primitives();
         let text_primitive_ids = primitives
@@ -88,7 +98,9 @@ impl AsciiScenePresenter {
         let line_end_objects = scene
             .objects
             .iter()
-            .filter_map(ascii_line_end_object_pair)
+            .filter_map(|object| {
+                marker_line_end_base_id(object).map(|base_id| (base_id.to_string(), object))
+            })
             .collect::<BTreeMap<_, _>>();
         let mut commands = scene
             .objects
@@ -465,15 +477,15 @@ impl AsciiScenePresenter {
                 window.origin_x, window.origin_y, window.width, window.height
             ));
         }
-        for y in (0..window.height).rev() {
-            for x in 0..window.width {
-                let ch = match grid[y][x] {
+        for (row_index, row) in grid.iter().take(window.height).rev().enumerate() {
+            for cell in row.iter().take(window.width) {
+                let ch = match *cell {
                     ' ' => '.',
                     other => other,
                 };
                 out.push(ch);
             }
-            if y > 0 {
+            if row_index + 1 < window.height {
                 out.push('\n');
             }
         }
@@ -543,12 +555,8 @@ fn ascii_render_command<'a>(
         RenderObjectSemanticKind::MarkerLineEnd => None,
         RenderObjectSemanticKind::MarkerLine => {
             if let Some(line_end) = line_end_objects.get(&object.id) {
-                let Some(start_tile) = ascii_world_object_tile(object) else {
-                    return None;
-                };
-                let Some(end_tile) = ascii_world_object_tile(line_end) else {
-                    return None;
-                };
+                let start_tile = ascii_world_object_tile(object)?;
+                let end_tile = ascii_world_object_tile(line_end)?;
                 return Some(AsciiRenderCommand::Line {
                     layer: object.layer,
                     start_tile,
@@ -586,18 +594,6 @@ fn ascii_render_command<'a>(
     }
 }
 
-fn ascii_line_end_object_pair(
-    object: &crate::RenderObject,
-) -> Option<(String, &crate::RenderObject)> {
-    if RenderObjectSemanticKind::from_id(&object.id) != RenderObjectSemanticKind::MarkerLineEnd {
-        return None;
-    }
-    object
-        .id
-        .strip_suffix(":line-end")
-        .map(|base_id| (base_id.to_string(), object))
-}
-
 fn ascii_primitive_render_command<'a>(
     primitive: &'a RenderPrimitive,
     window: PresenterViewWindow,
@@ -611,22 +607,13 @@ fn ascii_primitive_render_command<'a>(
             text,
             ..
         } => {
-            let Some((tile_x, tile_y)) = finite_world_tile(*x, *y) else {
-                return None;
-            };
-            let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
-            if tile_x < window.origin_x
-                || tile_y < window.origin_y
-                || tile_x >= window.origin_x.saturating_add(window.width)
-                || tile_y >= window.origin_y.saturating_add(window.height)
-            {
-                return None;
-            }
+            let (tile_x, tile_y) = world_tile_coords(*x, *y, TILE_SIZE)?;
+            let (local_x, local_y) = tile_in_window(tile_x, tile_y, window)?;
 
             Some(AsciiRenderCommand::Text {
                 layer: *layer,
-                local_x: tile_x - window.origin_x,
-                local_y: tile_y - window.origin_y,
+                local_x,
+                local_y,
                 text: text.as_str(),
             })
         }
@@ -638,16 +625,9 @@ fn ascii_primitive_render_command<'a>(
             bottom,
             ..
         } => {
-            let Some((left_tile, top_tile, right_tile, bottom_tile)) =
-                finite_world_rect_tiles(*left, *top, *right, *bottom)
-            else {
-                return None;
-            };
-            if right_tile < window.origin_x as i32
-                || bottom_tile < window.origin_y as i32
-                || left_tile >= window.origin_x.saturating_add(window.width) as i32
-                || top_tile >= window.origin_y.saturating_add(window.height) as i32
-            {
+            let (left_tile, top_tile, right_tile, bottom_tile) =
+                world_rect_tile_coords(*left, *top, *right, *bottom, TILE_SIZE)?;
+            if !rect_in_window(left_tile, top_tile, right_tile, bottom_tile, window) {
                 return None;
             }
             Some(AsciiRenderCommand::Rect {
@@ -666,21 +646,12 @@ fn ascii_primitive_render_command<'a>(
             y,
             ..
         } => {
-            let Some((tile_x, tile_y)) = finite_world_tile(*x, *y) else {
-                return None;
-            };
-            let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
-            if tile_x < window.origin_x
-                || tile_y < window.origin_y
-                || tile_x >= window.origin_x.saturating_add(window.width)
-                || tile_y >= window.origin_y.saturating_add(window.height)
-            {
-                return None;
-            }
+            let (tile_x, tile_y) = world_tile_coords(*x, *y, TILE_SIZE)?;
+            let (local_x, local_y) = tile_in_window(tile_x, tile_y, window)?;
             Some(AsciiRenderCommand::Icon {
                 layer: *layer,
-                local_x: tile_x - window.origin_x,
-                local_y: tile_y - window.origin_y,
+                local_x,
+                local_y,
                 sprite: ascii_sprite_for_icon(*family),
             })
         }
@@ -689,28 +660,7 @@ fn ascii_primitive_render_command<'a>(
 }
 
 fn ascii_world_object_tile(object: &crate::RenderObject) -> Option<(i32, i32)> {
-    finite_world_tile(object.x, object.y)
-}
-
-fn finite_world_tile(x: f32, y: f32) -> Option<(i32, i32)> {
-    (x.is_finite() && y.is_finite()).then_some((
-        crate::presenter_view::world_to_tile_index_floor(x, TILE_SIZE),
-        crate::presenter_view::world_to_tile_index_floor(y, TILE_SIZE),
-    ))
-}
-
-fn finite_world_rect_tiles(
-    left: f32,
-    top: f32,
-    right: f32,
-    bottom: f32,
-) -> Option<(i32, i32, i32, i32)> {
-    (left.is_finite() && top.is_finite() && right.is_finite() && bottom.is_finite()).then_some((
-        crate::presenter_view::world_to_tile_index_floor(left, TILE_SIZE),
-        crate::presenter_view::world_to_tile_index_floor(top, TILE_SIZE),
-        crate::presenter_view::world_to_tile_index_floor(right, TILE_SIZE),
-        crate::presenter_view::world_to_tile_index_floor(bottom, TILE_SIZE),
-    ))
+    world_tile_coords(object.x, object.y, TILE_SIZE)
 }
 
 fn draw_ascii_line_segment(
@@ -800,7 +750,7 @@ fn compose_render_rect_status_text(
                 right,
                 bottom,
                 ..
-            } => finite_world_rect_tiles(left, top, right, bottom)
+            } => world_rect_tile_coords(left, top, right, bottom, TILE_SIZE)
                 .map(|tiles| (family, layer, left, top, right, bottom, tiles)),
             _ => None,
         })
@@ -814,26 +764,18 @@ fn compose_render_rect_status_text(
                 bottom,
                 (left_tile, top_tile, right_tile, bottom_tile),
             )| {
-                if right_tile < window.origin_x as i32
-                    || bottom_tile < window.origin_y as i32
-                    || left_tile >= window.origin_x.saturating_add(window.width) as i32
-                    || top_tile >= window.origin_y.saturating_add(window.height) as i32
-                {
-                    None
-                } else {
-                    Some((
-                        family,
-                        layer,
-                        left,
-                        top,
-                        right,
-                        bottom,
-                        left_tile,
-                        top_tile,
-                        right_tile,
-                        bottom_tile,
-                    ))
-                }
+                rect_in_window(left_tile, top_tile, right_tile, bottom_tile, window).then_some((
+                    family,
+                    layer,
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    left_tile,
+                    top_tile,
+                    right_tile,
+                    bottom_tile,
+                ))
             },
         )
         .collect::<Vec<_>>();
@@ -869,7 +811,7 @@ fn compose_render_icon_status_text(
                 x,
                 y,
                 ..
-            } => finite_world_tile(x, y)
+            } => world_tile_coords(x, y, TILE_SIZE)
                 .map(|(tile_x, tile_y)| (family, variant, layer, tile_x, tile_y)),
             _ => None,
         })
@@ -921,7 +863,7 @@ fn compose_render_icon_detail_text(
                 ..
             } => {
                 let payload = primitive.payload()?;
-                let (tile_x, tile_y) = finite_world_tile(*x, *y)?;
+                let (tile_x, tile_y) = world_tile_coords(*x, *y, TILE_SIZE)?;
                 if !render_icon_detail_is_visible(window, tile_x, tile_y) {
                     return None;
                 }
@@ -1039,42 +981,10 @@ fn draw_ascii_tile_if_visible(
     tile_y: i32,
     sprite: char,
 ) {
-    let Ok(tile_x) = usize::try_from(tile_x) else {
+    let Some((local_x, local_y)) = tile_in_window(tile_x, tile_y, window) else {
         return;
     };
-    let Ok(tile_y) = usize::try_from(tile_y) else {
-        return;
-    };
-    if tile_x < window.origin_x
-        || tile_y < window.origin_y
-        || tile_x >= window.origin_x.saturating_add(window.width)
-        || tile_y >= window.origin_y.saturating_add(window.height)
-    {
-        return;
-    }
-    let local_x = tile_x - window.origin_x;
-    let local_y = tile_y - window.origin_y;
     grid[local_y][local_x] = sprite;
-}
-
-fn crop_window(
-    scene: &RenderModel,
-    width: usize,
-    height: usize,
-    max_view_tiles: Option<(usize, usize)>,
-) -> PresenterViewWindow {
-    let base_window = projected_window(scene, width, height);
-    let Some((max_width, max_height)) = max_view_tiles else {
-        return base_window;
-    };
-    if base_window.width <= max_width && base_window.height <= max_height {
-        return base_window;
-    }
-
-    let zoom = normalize_zoom(scene.viewport.zoom);
-    let window_width = zoomed_view_tile_span(max_width, zoom, base_window.width);
-    let window_height = zoomed_view_tile_span(max_height, zoom, base_window.height);
-    crop_window_to_focus(scene, TILE_SIZE, base_window, window_width, window_height)
 }
 
 fn sprite_for_id(id: &str) -> char {
@@ -1276,7 +1186,7 @@ fn compose_runtime_ui_notice_panel_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_ui_notice_panel(hud)?;
-    if runtime_ui_notice_panel_is_empty(&panel) {
+    if panel.is_empty() {
         return None;
     }
     Some(format!(
@@ -1583,23 +1493,15 @@ fn compose_runtime_stack_panel_text(hud: &HudModel) -> Option<String> {
     if panel.is_empty() {
         return None;
     }
-    let prompt_layers = panel.prompt_layer_labels().join(">");
-    let notice_layers = panel.notice_layer_labels().join(">");
+    let prompt_layers = runtime_layer_labels_text(panel.prompt_layer_labels());
+    let notice_layers = runtime_layer_labels_text(panel.notice_layer_labels());
     Some(format!(
         "front={} prompt={}@{} notice={}@{} chat={} groups={} total={} tin={} sender={}",
         panel.foreground_label(),
         panel.prompt_depth(),
-        if prompt_layers.is_empty() {
-            "none"
-        } else {
-            prompt_layers.as_str()
-        },
+        prompt_layers.as_str(),
         runtime_dialog_notice_text(panel.notice_kind),
-        if notice_layers.is_empty() {
-            "none"
-        } else {
-            notice_layers.as_str()
-        },
+        notice_layers.as_str(),
         panel.chat_depth(),
         panel.active_group_count(),
         panel.total_depth(),
@@ -1657,26 +1559,18 @@ fn compose_runtime_dialog_stack_text(hud: &HudModel) -> Option<String> {
     if summary.is_empty() {
         return None;
     }
-    let prompt_layers = summary.prompt_layer_labels().join(">");
-    let notice_layers = summary.notice_layer_labels().join(">");
+    let prompt_layers = runtime_layer_labels_text(summary.prompt_layer_labels());
+    let notice_layers = runtime_layer_labels_text(summary.notice_layer_labels());
     Some(format!(
         "front={} prompt={}@{} menu={} follow-up={} input={} notice={}@{} depths=menu:{}/hud:{}/dialog:{} chat={} server={} local={} tin={} sender={} total={}",
         summary.foreground_label(),
         summary.prompt_label(),
-        if prompt_layers.is_empty() {
-            "none"
-        } else {
-            prompt_layers.as_str()
-        },
+        prompt_layers.as_str(),
         summary.menu_open_count,
         summary.outstanding_follow_up_count,
         summary.text_input_open_count,
         summary.notice_label(),
-        if notice_layers.is_empty() {
-            "none"
-        } else {
-            notice_layers.as_str()
-        },
+        notice_layers.as_str(),
         summary.menu_depth(),
         summary.hud_depth(),
         summary.dialog_depth(),
@@ -1783,17 +1677,7 @@ fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_world_label_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_world_label_panel(hud)?;
-    if panel.label_count == 0
-        && panel.reliable_label_count == 0
-        && panel.remove_label_count == 0
-        && panel.active_count == 0
-        && panel.last_entity_id.is_none()
-        && panel.last_text.is_none()
-        && panel.last_flags.is_none()
-        && panel.last_font_size_bits.is_none()
-        && panel.last_z_bits.is_none()
-        && panel.last_position.is_none()
-    {
+    if panel.is_empty() {
         return None;
     }
 
@@ -1895,7 +1779,10 @@ fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
         "resource={}",
         compose_runtime_resource_delta_panel_text(&panel.resource_delta)
     ));
-    segments.push(format!("kick={}", compose_runtime_kick_panel_text(&panel.kick)));
+    segments.push(format!(
+        "kick={}",
+        compose_runtime_kick_panel_text(&panel.kick)
+    ));
     segments.push(format!(
         "loading={}",
         compose_runtime_loading_panel_text(&panel.loading)
@@ -2088,12 +1975,21 @@ fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_effect_panel(hud)?;
     Some(format!(
-        "hint={} source={} pos={} contract={} reliable={}",
+        "hint={} source={} pos={} contract={} reliable={} binding={}/{} via {} session={}/{} overlay={}/{} target_counts={} source_counts={}",
         panel.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(panel.display_position_source()),
         world_position_text(panel.display_position()),
         compact_runtime_ui_text(panel.display_contract_name()),
         compact_runtime_ui_text(panel.display_reliable_contract_name()),
+        compact_runtime_ui_text(panel.display_target_binding_state()),
+        compact_runtime_ui_text(panel.display_source_binding_state()),
+        panel.binding_source_label(),
+        compact_runtime_ui_text(panel.session_target_binding_state.as_deref()),
+        compact_runtime_ui_text(panel.session_source_binding_state.as_deref()),
+        compact_runtime_ui_text(panel.overlay_target_binding_state.as_deref()),
+        compact_runtime_ui_text(panel.overlay_source_binding_state.as_deref()),
+        panel.target_binding_counts_label(),
+        panel.source_binding_counts_label(),
     ))
 }
 
@@ -2262,39 +2158,9 @@ fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Stri
             )
         })
         .collect::<Vec<_>>();
-    lines.push(compose_minimap_window_distribution_line(&panel));
-    lines.push(compose_minimap_window_kind_distribution_line(&panel));
+    lines.push(compose_minimap_window_distribution_text(&panel));
+    lines.push(compose_minimap_window_kind_distribution_text(&panel));
     lines
-}
-
-fn compose_minimap_window_distribution_line(panel: &MinimapPanelModel) -> String {
-    format!(
-        "miniwin:win{}:off{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
-        panel.window_tracked_object_count,
-        panel.outside_window_count,
-        panel.window_player_count,
-        panel.window_marker_count,
-        panel.window_plan_count,
-        panel.window_block_count,
-        panel.window_runtime_count,
-        panel.window_terrain_count,
-        panel.window_unknown_count,
-    )
-}
-
-fn compose_minimap_window_kind_distribution_line(panel: &MinimapPanelModel) -> String {
-    format!(
-        "window-kinds: tracked={} outside={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
-        panel.window_tracked_object_count,
-        panel.outside_window_count,
-        panel.window_player_count,
-        panel.window_marker_count,
-        panel.window_plan_count,
-        panel.window_block_count,
-        panel.window_runtime_count,
-        panel.window_terrain_count,
-        panel.window_unknown_count,
-    )
 }
 
 fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {
@@ -2513,6 +2379,10 @@ fn compose_build_ui_inspector_lines(hud: &HudModel) -> Vec<String> {
 }
 
 fn compact_build_inspector_text(value: &str, limit: usize) -> String {
+    compact_whitespace_limited_text(value, limit)
+}
+
+fn compact_whitespace_limited_text(value: &str, limit: usize) -> String {
     let mut compact = String::new();
     for (index, ch) in value.chars().enumerate() {
         if index == limit {
@@ -2557,12 +2427,7 @@ fn build_config_head_text(head: Option<&crate::panel_model::BuildConfigHeadModel
     let Some(head) = head else {
         return "none".to_string();
     };
-    let stage = match head.stage {
-        crate::BuildQueueHeadStage::Queued => "queued",
-        crate::BuildQueueHeadStage::InFlight => "flight",
-        crate::BuildQueueHeadStage::Finished => "finish",
-        crate::BuildQueueHeadStage::Removed => "remove",
-    };
+    let stage = build_queue_head_stage_text(head.stage);
     let mode = if head.breaking { "break" } else { "place" };
     format!(
         "{stage}@{}:{}:{mode}:b{}:r{}",
@@ -2714,7 +2579,7 @@ fn build_config_alignment_text(value: Option<bool>) -> &'static str {
 
 fn compose_live_entity_text(entity: &crate::RuntimeLiveEntitySummaryObservability) -> String {
     format!(
-        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:last{}/{}/{}",
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:{}:last{}/{}/{}",
         entity.entity_count,
         entity.hidden_count,
         optional_i32_label(entity.local_entity_id),
@@ -2725,6 +2590,7 @@ fn compose_live_entity_text(entity: &crate::RuntimeLiveEntitySummaryObservabilit
         optional_u64_label(entity.local_last_seen_entity_snapshot_count),
         entity.player_count,
         entity.unit_count,
+        entity.ownership_label(),
         optional_i32_label(entity.last_entity_id),
         optional_i32_label(entity.last_player_entity_id),
         optional_i32_label(entity.last_unit_entity_id),
@@ -2735,7 +2601,7 @@ fn compose_live_entity_panel_text(
     entity: &crate::panel_model::RuntimeLiveEntityPanelModel,
 ) -> String {
     format!(
-        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:last{}/{}/{}",
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:{}:last{}/{}/{}",
         entity.entity_count,
         entity.hidden_count,
         optional_i32_label(entity.local_entity_id),
@@ -2746,6 +2612,7 @@ fn compose_live_entity_panel_text(
         optional_u64_label(entity.local_last_seen_entity_snapshot_count),
         entity.player_count,
         entity.unit_count,
+        entity.ownership_label(),
         optional_i32_label(entity.last_entity_id),
         optional_i32_label(entity.last_player_entity_id),
         optional_i32_label(entity.last_unit_entity_id),
@@ -3009,7 +2876,7 @@ fn compose_render_pipeline_text(
     scene: &RenderModel,
     window: PresenterViewWindow,
 ) -> Option<String> {
-    let summary = render_pipeline_summary(scene, window)?;
+    let summary = render_pipeline_summary(scene, window, TILE_SIZE)?;
     let window = summary.window?;
     let span_text = summary
         .layer_span
@@ -3037,7 +2904,7 @@ fn compose_render_pipeline_text(
 }
 
 fn compose_render_layer_lines(scene: &RenderModel, window: PresenterViewWindow) -> Vec<String> {
-    let Some(summary) = render_pipeline_summary(scene, window) else {
+    let Some(summary) = render_pipeline_summary(scene, window, TILE_SIZE) else {
         return Vec::new();
     };
 
@@ -3070,157 +2937,16 @@ fn compose_render_layer_lines(scene: &RenderModel, window: PresenterViewWindow) 
         .collect()
 }
 
-fn render_pipeline_summary(
-    scene: &RenderModel,
-    window: PresenterViewWindow,
-) -> Option<crate::render_model::RenderPipelineSummary> {
-    if scene.objects.is_empty() {
-        return None;
-    }
-
-    Some(scene.pipeline_summary_for_window(
-        TILE_SIZE,
-        crate::RenderViewWindow {
-            origin_x: window.origin_x,
-            origin_y: window.origin_y,
-            width: window.width,
-            height: window.height,
-        },
-    ))
-}
-
-fn semantic_detail_text(
-    detail_counts: &[crate::render_model::RenderSemanticDetailCount],
-) -> Option<String> {
-    if detail_counts.is_empty() {
-        return None;
-    }
-
-    Some(
-        detail_counts
-            .iter()
-            .map(|detail| format!("{}:{}", detail.label, detail.count))
-            .collect::<Vec<_>>()
-            .join(","),
-    )
-}
-
-fn build_queue_head_text(head: Option<&crate::BuildQueueHeadObservability>) -> String {
-    let Some(head) = head else {
-        return "none".to_string();
-    };
-
-    let stage = match head.stage {
-        crate::BuildQueueHeadStage::Queued => "queued",
-        crate::BuildQueueHeadStage::InFlight => "flight",
-        crate::BuildQueueHeadStage::Finished => "finish",
-        crate::BuildQueueHeadStage::Removed => "remove",
-    };
-    let mode = if head.breaking { "break" } else { "place" };
-    format!(
-        "{stage}@{}:{}:{mode}:b{}:r{}",
-        head.x,
-        head.y,
-        optional_i16_label(head.block_id),
-        optional_u8_label(head.rotation),
-    )
-}
-
-fn compact_runtime_ui_text(value: Option<&str>) -> String {
-    match value {
-        Some(value) => {
-            let mut compact = String::new();
-            for (index, ch) in value.chars().enumerate() {
-                if index == 12 {
-                    compact.push('~');
-                    break;
-                }
-                compact.push(match ch {
-                    ':' | ' ' | '\t' | '\r' | '\n' => '_',
-                    _ => ch,
-                });
-            }
-            if compact.is_empty() {
-                "-".to_string()
-            } else {
-                compact
-            }
-        }
-        None => "none".to_string(),
-    }
-}
-
-fn runtime_ui_text_len(value: Option<&str>) -> usize {
-    value
-        .map(str::chars)
-        .map(Iterator::count)
-        .unwrap_or_default()
-}
-
-fn runtime_ui_uri_scheme(value: Option<&str>) -> String {
-    value
-        .map(str::trim)
-        .and_then(|uri| uri.split_once(':').map(|(scheme, _)| scheme.trim()))
-        .filter(|scheme| !scheme.is_empty())
-        .map(|scheme| compact_runtime_ui_text(Some(scheme)))
-        .unwrap_or_else(|| "none".to_string())
-}
-
-fn runtime_ui_notice_panel_is_empty(panel: &RuntimeUiNoticePanelModel) -> bool {
-    panel.hud_set_count == 0
-        && panel.hud_set_reliable_count == 0
-        && panel.hud_hide_count == 0
-        && panel.hud_last_message.is_none()
-        && panel.hud_last_reliable_message.is_none()
-        && panel.announce_count == 0
-        && panel.last_announce_message.is_none()
-        && panel.info_message_count == 0
-        && panel.last_info_message.is_none()
-        && panel.toast_info_count == 0
-        && panel.toast_warning_count == 0
-        && panel.toast_last_info_message.is_none()
-        && panel.toast_last_warning_text.is_none()
-        && panel.info_popup_count == 0
-        && panel.info_popup_reliable_count == 0
-        && panel.last_info_popup_reliable.is_none()
-        && panel.last_info_popup_id.is_none()
-        && panel.last_info_popup_message.is_none()
-        && panel.last_info_popup_duration_bits.is_none()
-        && panel.last_info_popup_align.is_none()
-        && panel.last_info_popup_top.is_none()
-        && panel.last_info_popup_left.is_none()
-        && panel.last_info_popup_bottom.is_none()
-        && panel.last_info_popup_right.is_none()
-        && panel.clipboard_count == 0
-        && panel.last_clipboard_text.is_none()
-        && panel.open_uri_count == 0
-        && panel.last_open_uri.is_none()
-        && panel.text_input_open_count == 0
-        && panel.text_input_last_id.is_none()
-        && panel.text_input_last_title.is_none()
-        && panel.text_input_last_message.is_none()
-        && panel.text_input_last_default_text.is_none()
-        && panel.text_input_last_length.is_none()
-        && panel.text_input_last_numeric.is_none()
-        && panel.text_input_last_allow_empty.is_none()
-}
-
 fn optional_i32_label(value: Option<i32>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_display_label(value)
 }
 
 fn optional_i16_label(value: Option<i16>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_display_label(value)
 }
 
 fn optional_u8_label(value: Option<u8>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_display_label(value)
 }
 
 fn team_u8_sample_text(values: &[u8]) -> String {
@@ -3236,9 +2962,7 @@ fn team_u8_sample_text(values: &[u8]) -> String {
 }
 
 fn optional_u32_label(value: Option<u32>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_display_label(value)
 }
 
 fn runtime_world_label_scalar_text(bits: Option<u32>, value: Option<f32>) -> String {
@@ -3250,21 +2974,23 @@ fn runtime_world_label_scalar_text(bits: Option<u32>, value: Option<f32>) -> Str
 }
 
 fn optional_u64_label(value: Option<u64>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string())
+    optional_display_label(value)
 }
 
 fn world_position_text(value: Option<&crate::RuntimeWorldPositionObservability>) -> String {
     let Some(value) = value else {
         return "none".to_string();
     };
-    let x = f32::from_bits(value.x_bits);
-    let y = f32::from_bits(value.y_bits);
+    world_position_bits_text(value.x_bits, value.y_bits)
+}
+
+fn world_position_bits_text(x_bits: u32, y_bits: u32) -> String {
+    let x = f32::from_bits(x_bits);
+    let y = f32::from_bits(y_bits);
     if x.is_finite() && y.is_finite() {
         format!("{x:.1}:{y:.1}")
     } else {
-        format!("0x{:08x}:0x{:08x}", value.x_bits, value.y_bits)
+        format!("0x{x_bits:08x}:0x{y_bits:08x}")
     }
 }
 
@@ -3321,12 +3047,6 @@ fn command_i32_sample_text(values: &[i32]) -> String {
             .collect::<Vec<_>>()
             .join(",")
     }
-}
-
-fn command_rect_text(value: Option<crate::RuntimeCommandRectObservability>) -> String {
-    value
-        .map(|rect| format!("{}:{}:{}:{}", rect.x0, rect.y0, rect.x1, rect.y1))
-        .unwrap_or_else(|| "none".to_string())
 }
 
 fn command_control_groups_text(
@@ -3387,10 +3107,7 @@ fn command_stance_text(value: Option<crate::RuntimeCommandStanceObservability>) 
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ascii_line_end_object_pair, ascii_primitive_render_command, ascii_render_command,
-        AsciiScenePresenter,
-    };
+    use super::{ascii_primitive_render_command, ascii_render_command, AsciiScenePresenter};
     use crate::{
         hud_model::{
             HudSummary, RuntimeBootstrapObservability, RuntimeReconnectObservability,
@@ -3426,6 +3143,54 @@ mod tests {
             runtime_ui: Some(runtime_ui),
             ..HudModel::default()
         }
+    }
+
+    fn present_ascii_frame(scene: &RenderModel, hud: &HudModel) -> String {
+        let mut presenter = AsciiScenePresenter::default();
+        presenter.present(scene, hud);
+        presenter.last_frame().to_string()
+    }
+
+    fn present_runtime_frame(runtime_ui: RuntimeUiObservability) -> String {
+        present_ascii_frame(
+            &runtime_stack_test_scene(),
+            &runtime_stack_test_hud(runtime_ui),
+        )
+    }
+
+    fn runtime_ui_with_open_uri(uri: &str) -> RuntimeUiObservability {
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.toast.last_open_uri = Some(uri.to_string());
+        runtime_ui
+    }
+
+    fn runtime_ui_with_warning_notice(text: &str) -> RuntimeUiObservability {
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.toast.warning_count = 1;
+        runtime_ui.toast.last_warning_text = Some(text.to_string());
+        runtime_ui
+    }
+
+    fn assert_runtime_stack_case(
+        name: &str,
+        runtime_ui: RuntimeUiObservability,
+        stack_line: &str,
+        depth_line: &str,
+        detail_line: &str,
+    ) {
+        let frame = present_runtime_frame(runtime_ui);
+        assert!(
+            frame.contains(stack_line),
+            "missing runtime stack line for {name} in {frame}",
+        );
+        assert!(
+            frame.contains(depth_line),
+            "missing runtime stack depth line for {name} in {frame}",
+        );
+        assert!(
+            frame.contains(detail_line),
+            "missing runtime stack detail line for {name} in {frame}",
+        );
     }
 
     #[test]
@@ -4005,7 +3770,6 @@ mod tests {
                     last_announce_message: Some("announce".to_string()),
                     info_message_count: 13,
                     last_info_message: Some("info".to_string()),
-                    ..RuntimeHudTextObservability::default()
                 },
                 toast: RuntimeToastObservability {
                     info_count: 14,
@@ -4027,7 +3791,6 @@ mod tests {
                     last_clipboard_text: Some("copied".to_string()),
                     open_uri_count: 19,
                     last_open_uri: Some("https://example.com".to_string()),
-                    ..RuntimeToastObservability::default()
                 },
                 text_input: RuntimeTextInputObservability {
                     open_count: 53,
@@ -4078,7 +3841,6 @@ mod tests {
                     text_input_result_count: 30,
                     last_text_input_result_id: Some(405),
                     last_text_input_result_text: Some("ok123".to_string()),
-                    ..RuntimeMenuObservability::default()
                 },
                 command_mode: crate::RuntimeCommandModeObservability {
                     active: true,
@@ -4284,6 +4046,10 @@ mod tests {
                         hidden_count: 0,
                         player_count: 1,
                         unit_count: 0,
+                        player_with_owned_unit_count: 1,
+                        owned_unit_count: 1,
+                        ownership_conflict_count: 0,
+                        ownership_conflict_unit_sample: Vec::new(),
                         last_entity_id: Some(404),
                         last_player_entity_id: Some(404),
                         last_unit_entity_id: None,
@@ -4305,10 +4071,44 @@ mod tests {
                             "0123456789abcdef0123456789abcdef".to_string(),
                         ),
                         local_owned_unit_payload_nested_descendant_count: Some(2),
+                        local_owned_unit_payload_status: Some(
+                            crate::RuntimePayloadSubtreeStatusObservability {
+                                total_count: 2,
+                                dynamic_count: 1,
+                                payload_with_status_count: 2,
+                                first_status_id: Some(13),
+                                first_status_name: Some("dynamic".to_string()),
+                                first_status_time_bits: Some(4.5f32.to_bits()),
+                                first_status_dynamic_field_count: Some(2),
+                            },
+                        ),
                         local_owned_carried_item_id: Some(6),
                         local_owned_carried_item_amount: Some(4),
                         local_owned_controller_type: Some(4),
                         local_owned_controller_value: Some(101),
+                        local_owned_controller_v2: Some(
+                            crate::RuntimeUnitControllerObservability {
+                                controller_type: Some(4),
+                                controller_value: Some(101),
+                                command_id: Some(4),
+                                command_queue: Some(
+                                    crate::RuntimeUnitControllerCommandQueueObservability {
+                                        total_count: 2,
+                                        building_count: 1,
+                                        unit_count: 0,
+                                        position_count: 0,
+                                        ignored_count: 1,
+                                    },
+                                ),
+                                ..crate::RuntimeUnitControllerObservability::default()
+                            },
+                        ),
+                        local_owned_controller_detail: Some(
+                            "cmd=4:q=2/1/0/0/1".to_string(),
+                        ),
+                        local_owned_unit_status_detail: Some(
+                            "c=2:d=1:f=7/overdrive@5.5:fd=2".to_string(),
+                        ),
                     },
                     effect: crate::RuntimeLiveEffectSummaryObservability {
                         effect_count: 11,
@@ -4334,6 +4134,16 @@ mod tests {
                         last_position_source: Some(
                             crate::RuntimeLiveEffectPositionSource::BusinessProjection,
                         ),
+                        session_target_binding_state: Some("follow".to_string()),
+                        session_source_binding_state: Some("reject".to_string()),
+                        overlay_target_binding_state: Some("fallback".to_string()),
+                        overlay_source_binding_state: Some("fallback".to_string()),
+                        target_follow_count: 1,
+                        target_reject_count: 2,
+                        target_fallback_count: 3,
+                        source_follow_count: 4,
+                        source_reject_count: 5,
+                        source_fallback_count: 6,
                     },
                 },
             }),
@@ -4535,21 +4345,117 @@ mod tests {
             "RUNTIME-RECONNECT-DETAIL: phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
+            "RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:own=1/1:c0@none:last404/404/none"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-ENTITY-DETAIL: local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 stack=6x4 controller=4/101"
+            "RUNTIME-LIVE-ENTITY-DETAIL: local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 own=1/1:c0@none last=404/404/none owned=202 payload=count=2:unit=5/r7/l12:s0123456789ab nested=2 payload-status=c=2:d=1:n=2:f=13/dynamic@4.5:fd=2 stack=6x4 controller=4/101:cmd=4:q=2/1/0/0/1 status=c=2:d=1:f=7/overdrive@5.5:fd=2"
         ));
         assert!(frame.contains(
             "RUNTIME-LIVE-EFFECT: 11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT-DETAIL: hint=pos:point2:3:4@1/0 source=active pos=28.0:36.0 contract=lightning reliable=lightning"
+            "RUNTIME-LIVE-EFFECT-DETAIL: hint=pos:point2:3:4@1/0 source=active pos=28.0:36.0 contract=lightning reliable=lightning binding=follow/reject via session session=follow/reject overlay=fallback/fallback target_counts=1/2/3 source_counts=4/5/6"
         ));
         assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.contains(
             "fx=11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
         ));
+    }
+
+    #[test]
+    fn ascii_presenter_runtime_live_entity_detail_includes_controller_v2_stance_id_label() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            ..RenderModel::default()
+        };
+        let hud = HudModel {
+            runtime_ui: Some(crate::RuntimeUiObservability {
+                live: crate::RuntimeLiveSummaryObservability {
+                    entity: crate::RuntimeLiveEntitySummaryObservability {
+                        local_owned_controller_type: Some(4),
+                        local_owned_controller_value: Some(101),
+                        local_owned_controller_v2: Some(
+                            crate::RuntimeUnitControllerObservability {
+                                controller_type: Some(4),
+                                controller_value: Some(101),
+                                stance_id: Some(9),
+                                ..crate::RuntimeUnitControllerObservability::default()
+                            },
+                        ),
+                        local_owned_controller_detail: Some("legacy=1".to_string()),
+                        ..crate::RuntimeLiveEntitySummaryObservability::default()
+                    },
+                    ..crate::RuntimeLiveSummaryObservability::default()
+                },
+                ..crate::RuntimeUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RUNTIME-LIVE-ENTITY-DETAIL:"));
+        assert!(frame.contains("controller=4/101:st=9"));
+    }
+
+    #[test]
+    fn ascii_presenter_runtime_live_entity_detail_omits_controller_v2_stance_label_when_absent() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            ..RenderModel::default()
+        };
+        let hud = HudModel {
+            runtime_ui: Some(crate::RuntimeUiObservability {
+                live: crate::RuntimeLiveSummaryObservability {
+                    entity: crate::RuntimeLiveEntitySummaryObservability {
+                        local_owned_controller_type: Some(4),
+                        local_owned_controller_value: Some(101),
+                        local_owned_controller_v2: Some(
+                            crate::RuntimeUnitControllerObservability {
+                                controller_type: Some(4),
+                                controller_value: Some(101),
+                                stance_id: None,
+                                ..crate::RuntimeUnitControllerObservability::default()
+                            },
+                        ),
+                        local_owned_controller_detail: Some("legacy=1".to_string()),
+                        ..crate::RuntimeLiveEntitySummaryObservability::default()
+                    },
+                    ..crate::RuntimeLiveSummaryObservability::default()
+                },
+                ..crate::RuntimeUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        let detail_line = frame
+            .lines()
+            .find(|line| line.starts_with("RUNTIME-LIVE-ENTITY-DETAIL:"))
+            .expect("missing runtime live entity detail line");
+        let controller_fragment = detail_line
+            .split_whitespace()
+            .find(|fragment| fragment.starts_with("controller="))
+            .expect("missing controller fragment");
+
+        assert_eq!(controller_fragment, "controller=4/101");
+        assert!(
+            !controller_fragment.contains(":st="),
+            "unexpected stance fragment residue in `{controller_fragment}`"
+        );
     }
 
     #[test]
@@ -4713,25 +4619,14 @@ mod tests {
 
     #[test]
     fn runtime_ui_uri_scheme_rejects_empty_and_colonless_values() {
-        let scene = runtime_stack_test_scene();
-        let mut presenter = AsciiScenePresenter::default();
-
         for uri in ["", "noscheme", "://example.com"] {
-            let mut runtime_ui = RuntimeUiObservability::default();
-            runtime_ui.toast.last_open_uri = Some(uri.to_string());
-
-            presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
-            let frame = presenter.last_frame();
+            let frame = present_runtime_frame(runtime_ui_with_open_uri(uri));
 
             assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
             assert!(frame.contains("scheme=none"));
         }
 
-        let mut runtime_ui = RuntimeUiObservability::default();
-        runtime_ui.toast.last_open_uri = Some("https://example.com".to_string());
-
-        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
-        let frame = presenter.last_frame();
+        let frame = present_runtime_frame(runtime_ui_with_open_uri("https://example.com"));
 
         assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(frame.contains("scheme=https"));
@@ -4739,13 +4634,7 @@ mod tests {
 
     #[test]
     fn runtime_ui_uri_scheme_trims_whitespace_around_the_uri() {
-        let scene = runtime_stack_test_scene();
-        let mut presenter = AsciiScenePresenter::default();
-        let mut runtime_ui = RuntimeUiObservability::default();
-        runtime_ui.toast.last_open_uri = Some("  https://example.com  ".to_string());
-
-        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
-        let frame = presenter.last_frame();
+        let frame = present_runtime_frame(runtime_ui_with_open_uri("  https://example.com  "));
 
         assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(frame.contains("scheme=https"));
@@ -4754,20 +4643,10 @@ mod tests {
 
     #[test]
     fn runtime_ui_notice_panel_is_empty_rejects_single_active_field() {
-        let scene = runtime_stack_test_scene();
-        let mut presenter = AsciiScenePresenter::default();
+        let frame = present_runtime_frame(RuntimeUiObservability::default());
+        assert!(!frame.contains("RUNTIME-NOTICE-DETAIL:"));
 
-        presenter.present(
-            &scene,
-            &runtime_stack_test_hud(RuntimeUiObservability::default()),
-        );
-        assert!(!presenter.last_frame().contains("RUNTIME-NOTICE-DETAIL:"));
-
-        let mut runtime_ui = RuntimeUiObservability::default();
-        runtime_ui.toast.last_open_uri = Some("https://example.com".to_string());
-
-        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
-        let frame = presenter.last_frame();
+        let frame = present_runtime_frame(runtime_ui_with_open_uri("https://example.com"));
 
         assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(frame.contains("scheme=https"));
@@ -4775,15 +4654,11 @@ mod tests {
 
     #[test]
     fn runtime_ui_text_len_counts_unicode_scalars_not_bytes() {
-        let scene = runtime_stack_test_scene();
-        let mut presenter = AsciiScenePresenter::default();
         let mut runtime_ui = RuntimeUiObservability::default();
         runtime_ui.text_input.open_count = 1;
         runtime_ui.text_input.last_title = Some("é🙂a".to_string());
 
-        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
-
-        let frame = presenter.last_frame();
+        let frame = present_runtime_frame(runtime_ui);
         assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(frame.contains("title-len=3"));
         assert!(!frame.contains("title-len=7"));
@@ -4791,39 +4666,19 @@ mod tests {
 
     #[test]
     fn ascii_presenter_omits_runtime_session_row_for_empty_default_state() {
-        let scene = RenderModel {
-            viewport: Viewport {
-                width: 8.0,
-                height: 8.0,
-                zoom: 1.0,
-            },
-            view_window: None,
-            objects: Vec::new(),
-        };
-        let hud = HudModel {
-            runtime_ui: Some(RuntimeUiObservability::default()),
-            ..HudModel::default()
-        };
-        let mut presenter = AsciiScenePresenter::default();
+        let frame = present_runtime_frame(RuntimeUiObservability::default());
 
-        presenter.present(&scene, &hud);
-
-        assert!(!presenter.last_frame().contains("RUNTIME-SESSION:"));
-        assert!(!presenter.last_frame().contains("RUNTIME-SESSION-DETAIL:"));
-        assert!(!presenter.last_frame().contains("RUNTIME-NOTICE-DETAIL:"));
-        assert!(!presenter.last_frame().contains("RUNTIME-COMMAND-DETAIL:"));
-        assert!(!presenter.last_frame().contains("RUNTIME-DIALOG-STACK:"));
-        assert!(!presenter.last_frame().contains("BUILD-FLOW-DETAIL:"));
-        assert!(!presenter
-            .last_frame()
-            .contains("RUNTIME-WORLD-LABEL-DETAIL:"));
+        assert!(!frame.contains("RUNTIME-SESSION:"));
+        assert!(!frame.contains("RUNTIME-SESSION-DETAIL:"));
+        assert!(!frame.contains("RUNTIME-NOTICE-DETAIL:"));
+        assert!(!frame.contains("RUNTIME-COMMAND-DETAIL:"));
+        assert!(!frame.contains("RUNTIME-DIALOG-STACK:"));
+        assert!(!frame.contains("BUILD-FLOW-DETAIL:"));
+        assert!(!frame.contains("RUNTIME-WORLD-LABEL-DETAIL:"));
     }
 
     #[test]
     fn ascii_presenter_surfaces_runtime_stack_minimal_regression_cases() {
-        let scene = runtime_stack_test_scene();
-        let mut presenter = AsciiScenePresenter::default();
-
         let mut chat_only = RuntimeUiObservability::default();
         chat_only.chat.server_message_count = 1;
         chat_only.chat.chat_message_count = 2;
@@ -4834,6 +4689,8 @@ mod tests {
 
         let mut follow_up_only = RuntimeUiObservability::default();
         follow_up_only.menu.follow_up_menu_open_count = 1;
+
+        let notice_only = runtime_ui_with_warning_notice("warn");
 
         let mut input_notice_chat = RuntimeUiObservability::default();
         input_notice_chat.text_input.open_count = 1;
@@ -4847,56 +4704,48 @@ mod tests {
         let cases = vec![
             (
                 "chat-only",
-                runtime_stack_test_hud(chat_only),
+                chat_only,
                 "RUNTIME-STACK: front=chat prompt=0@none notice=none@none chat=1 groups=1 total=1 tin=none sender=42",
                 "RUNTIME-STACK-DEPTH: prompt=0 notice=0 chat=1 menu=0 hud=0 dialog=1 groups=1 total=1",
                 "RUNTIME-STACK-DETAIL: dialog=front:chat groups:1 total:1 prompt=none/menu:0/follow-up:0/input:0 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:1/server:1/local:2 sender=42",
             ),
             (
                 "menu-only",
-                runtime_stack_test_hud(menu_only),
+                menu_only,
                 "RUNTIME-STACK: front=menu prompt=1@menu notice=none@none chat=0 groups=1 total=1 tin=none sender=none",
                 "RUNTIME-STACK-DEPTH: prompt=1 notice=0 chat=0 menu=1 hud=0 dialog=1 groups=1 total=1",
                 "RUNTIME-STACK-DETAIL: dialog=front:menu groups:1 total:1 prompt=menu/menu:1/follow-up:0/input:0 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:0/server:0/local:0 sender=none",
             ),
             (
                 "follow-up-without-text-input",
-                runtime_stack_test_hud(follow_up_only),
+                follow_up_only,
                 "RUNTIME-STACK: front=follow-up prompt=1@follow-up notice=none@none chat=0 groups=1 total=1 tin=none sender=none",
                 "RUNTIME-STACK-DEPTH: prompt=1 notice=0 chat=0 menu=1 hud=0 dialog=1 groups=1 total=1",
                 "RUNTIME-STACK-DETAIL: dialog=front:follow-up groups:1 total:1 prompt=follow/menu:0/follow-up:1/input:0 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:0/server:0/local:0 sender=none",
             ),
             (
+                "notice-only",
+                notice_only,
+                "RUNTIME-STACK: front=none prompt=0@none notice=warn@warn chat=0 groups=1 total=1 tin=none sender=none",
+                "RUNTIME-STACK-DEPTH: prompt=0 notice=1 chat=0 menu=0 hud=1 dialog=1 groups=1 total=1",
+                "RUNTIME-STACK-DETAIL: dialog=front:none groups:1 total:1 prompt=none/menu:0/follow-up:0/input:0 notice=warn/hud:0/reliable:0/info:0/warn:1 chat=active:0/server:0/local:0 sender=none",
+            ),
+            (
                 "text-input+notice+chat",
-                runtime_stack_test_hud(input_notice_chat),
+                input_notice_chat,
                 "RUNTIME-STACK: front=input prompt=1@input notice=warn@warn chat=1 groups=3 total=3 tin=404 sender=404",
                 "RUNTIME-STACK-DEPTH: prompt=1 notice=1 chat=1 menu=1 hud=1 dialog=3 groups=3 total=3",
                 "RUNTIME-STACK-DETAIL: dialog=front:input groups:3 total:3 prompt=input/menu:0/follow-up:0/input:1 notice=warn/hud:0/reliable:0/info:0/warn:1 chat=active:1/server:1/local:1 sender=404",
             ),
         ];
 
-        for (name, hud, stack_line, depth_line, detail_line) in cases {
-            presenter.present(&scene, &hud);
-            let frame = presenter.last_frame();
-            assert!(
-                frame.contains(stack_line),
-                "missing runtime stack line for {name} in {frame}",
-            );
-            assert!(
-                frame.contains(depth_line),
-                "missing runtime stack depth line for {name} in {frame}",
-            );
-            assert!(
-                frame.contains(detail_line),
-                "missing runtime stack detail line for {name} in {frame}",
-            );
+        for (name, runtime_ui, stack_line, depth_line, detail_line) in cases {
+            assert_runtime_stack_case(name, runtime_ui, stack_line, depth_line, detail_line);
         }
     }
 
     #[test]
     fn ascii_presenter_drops_completed_prompt_history_from_stack_foreground() {
-        let scene = runtime_stack_test_scene();
-        let mut presenter = AsciiScenePresenter::default();
         let mut runtime_ui = RuntimeUiObservability::default();
         runtime_ui.text_input.open_count = 1;
         runtime_ui.text_input.last_id = Some(404);
@@ -4910,9 +4759,7 @@ mod tests {
         runtime_ui.chat.chat_message_count = 2;
         runtime_ui.chat.last_chat_sender_entity_id = Some(42);
 
-        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
-
-        let frame = presenter.last_frame();
+        let frame = present_runtime_frame(runtime_ui);
         assert!(frame.contains(
             "RUNTIME-STACK: front=chat prompt=0@none notice=none@none chat=1 groups=1 total=1 tin=404 sender=42"
         ));
@@ -4929,8 +4776,6 @@ mod tests {
 
     #[test]
     fn ascii_presenter_surfaces_runtime_prompt_rows() {
-        let scene = runtime_stack_test_scene();
-        let mut presenter = AsciiScenePresenter::default();
         let mut runtime_ui = RuntimeUiObservability::default();
         runtime_ui.text_input.open_count = 53;
         runtime_ui.text_input.last_id = Some(404);
@@ -4947,9 +4792,7 @@ mod tests {
         let mut presenter_hud = runtime_stack_test_hud(runtime_ui);
         presenter_hud.title = "prompt".to_string();
 
-        presenter.present(&scene, &presenter_hud);
-
-        let frame = presenter.last_frame();
+        let frame = present_ascii_frame(&runtime_stack_test_scene(), &presenter_hud);
         assert!(frame.contains(
             "RUNTIME-PROMPT: kind=input active=1 depth=3 layers=input>follow-up>menu menu=16 follow-up=2 tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
         ));
@@ -5012,10 +4855,13 @@ mod tests {
             x: 8.0,
             y: 0.0,
         };
-        let line_objects = vec![line.clone(), line_end.clone()];
+        let line_objects = [line.clone(), line_end.clone()];
         let line_end_objects = line_objects
             .iter()
-            .filter_map(ascii_line_end_object_pair)
+            .filter_map(|object| {
+                crate::presenter_view::marker_line_end_base_id(object)
+                    .map(|base_id| (base_id.to_string(), object))
+            })
             .collect::<BTreeMap<_, _>>();
         assert!(ascii_render_command(&line, &line_end_objects, window).is_none());
 
@@ -5672,9 +5518,8 @@ mod tests {
         assert!(frame.contains("runtime-config/string@30:0:0"));
         assert!(frame.contains("runtime-config-parse-fail/int@31:1:0"));
         assert!(frame.contains("RENDER-ICON-DETAIL: count=5"));
-        assert!(frame.contains(
-            "runtime-config/string@30:0:0 payload[tile_x=0,tile_y=0,variant=string]"
-        ));
+        assert!(frame
+            .contains("runtime-config/string@30:0:0 payload[tile_x=0,tile_y=0,variant=string]"));
         assert!(frame.contains(
             "runtime-config-pending-mismatch/payload@34:4:0 payload[tile_x=4,tile_y=0,variant=payload]"
         ));

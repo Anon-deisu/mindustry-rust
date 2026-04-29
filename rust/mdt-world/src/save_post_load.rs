@@ -1,21 +1,21 @@
 use crate::{
-    marker_region_is_empty, CustomChunkEntry, MarkerEntry, MarkerModel, ParsedBuildingTail,
-    ParsedCustomChunk, SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeReadiness,
+    bool_digit_label, marker_region_is_empty,
+    save_post_load_runtime_source_region::find_source_region,
+    save_post_load_runtime_world_ownership::SavePostLoadRuntimeWorldOwnershipSourceRegion,
+    CustomChunkEntry, MarkerEntry, MarkerModel, ParsedBuildingTail, ParsedCustomChunk,
+    SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeReadiness,
     SavePostLoadRuntimeSeedSurface, SavePostLoadRuntimeSourceRegionReadiness,
-    SavePostLoadRuntimeWorldOwnership, save_post_load_runtime_world_ownership::SavePostLoadRuntimeWorldOwnershipSourceRegion,
-    SavePostLoadRuntimeWorldSemanticsExecution, SavePostLoadWorldObservation, StaticFogChunk,
-    TeamPlan, TeamPlanGroup, WorldGraph, WorldLoadUnknownCoverageSummary,
+    SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldSemanticsExecution,
+    SavePostLoadWorldObservation, StaticFogChunk, TeamPlan, TeamPlanGroup, WorldGraph,
+    WorldLoadUnknownCoverageSummary,
 };
 
-fn unique_match<'a, T, F>(
-    mut iter: impl Iterator<Item = &'a T>,
-    mut predicate: F,
-) -> Option<&'a T>
+fn unique_match<'a, T, F>(mut iter: impl Iterator<Item = &'a T>, mut predicate: F) -> Option<&'a T>
 where
     F: FnMut(&T) -> bool,
 {
     let first = iter.find(|item| predicate(item))?;
-    if iter.any(|item| predicate(item)) {
+    if iter.any(predicate) {
         None
     } else {
         Some(first)
@@ -43,9 +43,9 @@ impl<'a> SavePostLoadWorldApplyBundleReadiness<'a> {
         &self,
         source_region_name: &str,
     ) -> Option<&SavePostLoadRuntimeSourceRegionReadiness> {
-        self.source_regions
-            .iter()
-            .find(|region| region.source_region_name == source_region_name)
+        find_source_region(self.source_regions.iter(), source_region_name, |region| {
+            region.source_region_name
+        })
     }
 }
 
@@ -60,9 +60,9 @@ impl<'a> SavePostLoadWorldApplyBundleOwnership<'a> {
         &self,
         source_region_name: &str,
     ) -> Option<&SavePostLoadRuntimeWorldOwnershipSourceRegion> {
-        self.source_regions
-            .iter()
-            .find(|region| region.source_region_name == source_region_name)
+        find_source_region(self.source_regions.iter(), source_region_name, |region| {
+            region.source_region_name
+        })
     }
 }
 
@@ -124,10 +124,10 @@ impl<'a> SavePostLoadWorldApplyBundleDecision<'a> {
     pub fn summary_label(&self) -> String {
         format!(
             "seed={} semantics={} shell={}/{} apply={} wait={} block={} defer={} own={}/{} claim={}/{}",
-            bool_label(self.can_seed_runtime_apply()),
-            bool_label(self.can_apply_world_semantics()),
-            bool_label(self.readiness_world_shell_ready()),
-            bool_label(self.ownership_world_shell_ready()),
+            bool_digit_label(self.can_seed_runtime_apply()),
+            bool_digit_label(self.can_apply_world_semantics()),
+            bool_digit_label(self.readiness_world_shell_ready()),
+            bool_digit_label(self.ownership_world_shell_ready()),
             self.apply_now_step_count(),
             self.awaiting_world_shell_step_count(),
             self.blocked_step_count(),
@@ -142,10 +142,10 @@ impl<'a> SavePostLoadWorldApplyBundleDecision<'a> {
     pub fn detail_label(&self) -> String {
         format!(
             "seed={} semantics={} shell={}/{} apply={} wait={} block={} defer={} own={}/{} claim={}/{} readiness_sources={} ownership_sources={}",
-            bool_label(self.can_seed_runtime_apply()),
-            bool_label(self.can_apply_world_semantics()),
-            bool_label(self.readiness_world_shell_ready()),
-            bool_label(self.ownership_world_shell_ready()),
+            bool_digit_label(self.can_seed_runtime_apply()),
+            bool_digit_label(self.can_apply_world_semantics()),
+            bool_digit_label(self.readiness_world_shell_ready()),
+            bool_digit_label(self.ownership_world_shell_ready()),
             self.apply_now_step_count(),
             self.awaiting_world_shell_step_count(),
             self.blocked_step_count(),
@@ -173,9 +173,7 @@ impl<'a> SavePostLoadWorldApplyBundle<'a> {
         }
     }
 
-    pub fn runtime_world_ownership_summary(
-        &self,
-    ) -> SavePostLoadWorldApplyBundleOwnership<'_> {
+    pub fn runtime_world_ownership_summary(&self) -> SavePostLoadWorldApplyBundleOwnership<'_> {
         SavePostLoadWorldApplyBundleOwnership {
             runtime_world_ownership: self.runtime_world_ownership(),
             source_regions: self.runtime_world_ownership().source_regions(),
@@ -197,7 +195,10 @@ impl<'a> SavePostLoadWorldApplyBundle<'a> {
         self.observation.custom_chunk(name)
     }
 
-    pub fn world_entity_chunk(&self, entity_id: i32) -> Option<&'a crate::SaveEntityChunkObservation> {
+    pub fn world_entity_chunk(
+        &self,
+        entity_id: i32,
+    ) -> Option<&'a crate::SaveEntityChunkObservation> {
         self.observation.world_entity_chunk(entity_id)
     }
 
@@ -241,7 +242,9 @@ impl SavePostLoadWorldObservation {
     }
 
     pub fn team_plan_group(&self, team_id: u32) -> Option<&TeamPlanGroup> {
-        unique_match(self.team_plan_groups.iter(), |group| group.team_id == team_id)
+        unique_match(self.team_plan_groups.iter(), |group| {
+            group.team_id == team_id
+        })
     }
 
     pub fn all_team_plans(&self) -> impl Iterator<Item = &TeamPlan> {
@@ -255,7 +258,9 @@ impl SavePostLoadWorldObservation {
     }
 
     pub fn world_entity_chunk(&self, entity_id: i32) -> Option<&crate::SaveEntityChunkObservation> {
-        unique_match(self.world_entity_chunks.iter(), |chunk| chunk.entity_id == entity_id)
+        unique_match(self.world_entity_chunks.iter(), |chunk| {
+            chunk.entity_id == entity_id
+        })
     }
 
     pub fn marker(&self, id: i32) -> Option<&MarkerEntry> {
@@ -311,12 +316,9 @@ impl SavePostLoadWorldObservation {
     }
 }
 
-fn bool_label(value: bool) -> &'static str {
-    if value { "1" } else { "0" }
-}
-
 #[cfg(test)]
 mod tests {
+    use super::{SavePostLoadWorldApplyBundle, SavePostLoadWorldApplyBundleDecision};
     use crate::{
         CustomChunkEntry, MarkerEntry, MarkerModel, ParsedCustomChunk, SaveEntityChunkObservation,
         SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
@@ -344,22 +346,11 @@ mod tests {
 
     #[test]
     fn world_entity_chunk_resolves_unique_entity_ids() {
-        let observation = SavePostLoadWorldObservation {
-            world_entity_chunks: vec![SaveEntityChunkObservation {
-                chunk_len: 4,
-                chunk_bytes: vec![1, 2, 3, 4],
-                chunk_sha256: "unique-chunk".to_string(),
-                class_id: 7,
-                custom_name: None,
-                entity_id: 42,
-                body_len: 2,
-                body_bytes: vec![5, 6],
-                body_sha256: "unique-body".to_string(),
-            }],
-            ..test_observation()
-        };
+        let observation = observation_with_unique_world_entity_chunk();
 
-        let chunk = observation.world_entity_chunk(42).expect("unique entity chunk");
+        let chunk = observation
+            .world_entity_chunk(42)
+            .expect("unique entity chunk");
         assert_eq!(chunk.entity_id, 42);
         assert_eq!(chunk.class_id, 7);
         assert_eq!(chunk.chunk_bytes, vec![1, 2, 3, 4]);
@@ -367,74 +358,12 @@ mod tests {
 
     #[test]
     fn post_load_world_apply_bundle_aggregates_runtime_and_query_surfaces() {
-        let observation = SavePostLoadWorldObservation {
-            world_entity_chunks: vec![SaveEntityChunkObservation {
-                chunk_len: 4,
-                chunk_bytes: vec![1, 2, 3, 4],
-                chunk_sha256: "unique-chunk".to_string(),
-                class_id: 7,
-                custom_name: None,
-                entity_id: 42,
-                body_len: 2,
-                body_bytes: vec![5, 6],
-                body_sha256: "unique-body".to_string(),
-            }],
-            markers: vec![MarkerEntry {
-                id: 42,
-                marker: MarkerModel::Unknown(UnknownMarkerModel {
-                    class_tag: None,
-                    world: true,
-                    minimap: false,
-                    autoscale: false,
-                    draw_layer_bits: None,
-                    x_bits: None,
-                    y_bits: None,
-                }),
-            }],
-            team_plan_groups: vec![TeamPlanGroup {
-                team_id: 9,
-                plan_count: 1,
-                plans: Vec::new(),
-            }],
-            custom_chunks: vec![CustomChunkEntry {
-                name: "static-fog-data".to_string(),
-                chunk_len: 1,
-                chunk_bytes: vec![1],
-                chunk_sha256: "fog".to_string(),
-                parsed: ParsedCustomChunk::StaticFog(StaticFogChunk {
-                    used_teams: 1,
-                    width: 1,
-                    height: 1,
-                    teams: vec![StaticFogTeam {
-                        team_id: 1,
-                        run_count: 1,
-                        rle_bytes: vec![1],
-                        discovered: vec![true],
-                    }],
-                }),
-            }],
-            ..test_observation()
-        };
+        let observation = observation_with_unique_query_surfaces();
 
         let bundle = observation.post_load_world_apply_bundle();
 
-        assert_eq!(bundle.runtime_readiness, observation.runtime_readiness());
-        assert_eq!(bundle.runtime_seed_surface, observation.runtime_seed_surface());
-        assert_eq!(bundle.runtime_apply, observation.execute_runtime_apply());
-        assert_eq!(
-            bundle.runtime_world_semantics,
-            observation.execute_runtime_world_semantics()
-        );
-        assert_eq!(
-            bundle.runtime_world_ownership(),
-            &observation.runtime_world_ownership()
-        );
-        assert!(bundle.graph().marker(42).is_some());
-        assert!(bundle.team_plan_group(9).is_some());
-        assert!(bundle.custom_chunk("static-fog-data").is_some());
-        assert!(bundle.world_entity_chunk(42).is_some());
-        assert!(bundle.marker(42).is_some());
-        assert!(bundle.static_fog_chunk().is_some());
+        assert_bundle_runtime_matches(&observation, &bundle);
+        assert_bundle_query_surfaces(&bundle);
         assert_eq!(
             bundle.unknown_coverage_summary(),
             observation.unknown_coverage_summary()
@@ -450,14 +379,15 @@ mod tests {
         let runtime_seed_surface = observation.runtime_seed_surface();
 
         assert_eq!(readiness_summary.runtime_readiness, &runtime_readiness);
-        assert_eq!(readiness_summary.runtime_seed_surface, &runtime_seed_surface);
         assert_eq!(
-            readiness_summary.source_regions,
-            runtime_readiness.source_regions()
+            readiness_summary.runtime_seed_surface,
+            &runtime_seed_surface
         );
-        assert_eq!(
-            readiness_summary.source_region("entities").cloned(),
-            runtime_readiness.source_region("entities")
+        assert_source_region_summary_matches(
+            &readiness_summary.source_regions,
+            runtime_readiness.source_regions(),
+            readiness_summary.source_region("entities"),
+            runtime_readiness.source_region("entities"),
         );
     }
 
@@ -472,13 +402,11 @@ mod tests {
             ownership_summary.runtime_world_ownership,
             &runtime_world_ownership
         );
-        assert_eq!(
-            ownership_summary.source_regions,
-            runtime_world_ownership.source_regions()
-        );
-        assert_eq!(
-            ownership_summary.source_region("entities").cloned(),
-            runtime_world_ownership.source_region("entities")
+        assert_source_region_summary_matches(
+            &ownership_summary.source_regions,
+            runtime_world_ownership.source_regions(),
+            ownership_summary.source_region("entities"),
+            runtime_world_ownership.source_region("entities"),
         );
     }
 
@@ -490,8 +418,135 @@ mod tests {
         let runtime_world_ownership = observation.runtime_world_ownership();
         let decision = bundle.runtime_decision_summary();
 
-        assert_eq!(decision.runtime_readiness, &runtime_readiness);
-        assert_eq!(decision.runtime_world_ownership, &runtime_world_ownership);
+        assert_runtime_decision_matches(
+            &decision,
+            &runtime_readiness,
+            &runtime_world_ownership,
+        );
+    }
+
+    fn observation_with_unique_world_entity_chunk() -> SavePostLoadWorldObservation {
+        SavePostLoadWorldObservation {
+            world_entity_chunks: vec![unique_world_entity_chunk()],
+            ..test_observation()
+        }
+    }
+
+    fn observation_with_unique_query_surfaces() -> SavePostLoadWorldObservation {
+        SavePostLoadWorldObservation {
+            world_entity_chunks: vec![unique_world_entity_chunk()],
+            markers: vec![unknown_world_marker(42)],
+            team_plan_groups: vec![team_plan_group_fixture(9)],
+            custom_chunks: vec![static_fog_custom_chunk_fixture()],
+            ..test_observation()
+        }
+    }
+
+    fn unique_world_entity_chunk() -> SaveEntityChunkObservation {
+        SaveEntityChunkObservation {
+            chunk_len: 4,
+            chunk_bytes: vec![1, 2, 3, 4],
+            chunk_sha256: "unique-chunk".to_string(),
+            class_id: 7,
+            custom_name: None,
+            entity_id: 42,
+            body_len: 2,
+            body_bytes: vec![5, 6],
+            body_sha256: "unique-body".to_string(),
+        }
+    }
+
+    fn unknown_world_marker(id: i32) -> MarkerEntry {
+        MarkerEntry {
+            id,
+            marker: MarkerModel::Unknown(UnknownMarkerModel {
+                class_tag: None,
+                world: true,
+                minimap: false,
+                autoscale: false,
+                draw_layer_bits: None,
+                x_bits: None,
+                y_bits: None,
+            }),
+        }
+    }
+
+    fn team_plan_group_fixture(team_id: u32) -> TeamPlanGroup {
+        TeamPlanGroup {
+            team_id,
+            plan_count: 1,
+            plans: Vec::new(),
+        }
+    }
+
+    fn static_fog_custom_chunk_fixture() -> CustomChunkEntry {
+        CustomChunkEntry {
+            name: "static-fog-data".to_string(),
+            chunk_len: 1,
+            chunk_bytes: vec![1],
+            chunk_sha256: "fog".to_string(),
+            parsed: ParsedCustomChunk::StaticFog(StaticFogChunk {
+                used_teams: 1,
+                width: 1,
+                height: 1,
+                teams: vec![StaticFogTeam {
+                    team_id: 1,
+                    run_count: 1,
+                    rle_bytes: vec![1],
+                    discovered: vec![true],
+                }],
+            }),
+        }
+    }
+
+    fn assert_bundle_runtime_matches(
+        observation: &SavePostLoadWorldObservation,
+        bundle: &SavePostLoadWorldApplyBundle<'_>,
+    ) {
+        assert_eq!(bundle.runtime_readiness, observation.runtime_readiness());
+        assert_eq!(
+            bundle.runtime_seed_surface,
+            observation.runtime_seed_surface()
+        );
+        assert_eq!(bundle.runtime_apply, observation.execute_runtime_apply());
+        assert_eq!(
+            bundle.runtime_world_semantics,
+            observation.execute_runtime_world_semantics()
+        );
+        assert_eq!(
+            bundle.runtime_world_ownership(),
+            &observation.runtime_world_ownership()
+        );
+    }
+
+    fn assert_bundle_query_surfaces(bundle: &SavePostLoadWorldApplyBundle<'_>) {
+        assert!(bundle.graph().marker(42).is_some());
+        assert!(bundle.team_plan_group(9).is_some());
+        assert!(bundle.custom_chunk("static-fog-data").is_some());
+        assert!(bundle.world_entity_chunk(42).is_some());
+        assert!(bundle.marker(42).is_some());
+        assert!(bundle.static_fog_chunk().is_some());
+    }
+
+    fn assert_source_region_summary_matches<T>(
+        summary_regions: &[T],
+        runtime_regions: Vec<T>,
+        summary_region: Option<&T>,
+        runtime_region: Option<T>,
+    ) where
+        T: Clone + core::fmt::Debug + PartialEq,
+    {
+        assert_eq!(summary_regions, runtime_regions.as_slice());
+        assert_eq!(summary_region.cloned(), runtime_region);
+    }
+
+    fn assert_runtime_decision_matches(
+        decision: &SavePostLoadWorldApplyBundleDecision<'_>,
+        runtime_readiness: &crate::SavePostLoadRuntimeReadiness,
+        runtime_world_ownership: &crate::SavePostLoadRuntimeWorldOwnership,
+    ) {
+        assert_eq!(decision.runtime_readiness, runtime_readiness);
+        assert_eq!(decision.runtime_world_ownership, runtime_world_ownership);
         assert_eq!(
             decision.can_seed_runtime_apply(),
             runtime_readiness.can_seed_runtime_apply
@@ -516,8 +571,14 @@ mod tests {
             decision.awaiting_world_shell_step_count(),
             runtime_readiness.awaiting_world_shell_step_count()
         );
-        assert_eq!(decision.blocked_step_count(), runtime_readiness.blocked_step_count());
-        assert_eq!(decision.deferred_step_count(), runtime_readiness.deferred_step_count());
+        assert_eq!(
+            decision.blocked_step_count(),
+            runtime_readiness.blocked_step_count()
+        );
+        assert_eq!(
+            decision.deferred_step_count(),
+            runtime_readiness.deferred_step_count()
+        );
         assert_eq!(
             decision.required_surface_count(),
             runtime_world_ownership.surfaces.len()

@@ -1,5 +1,6 @@
 use crate::{
-    save_post_load_runtime_source_region::source_region_name_for_stage_kind,
+    bool_digit_label,
+    save_post_load_runtime_source_region::{find_source_region, source_region_name_for_stage_kind},
     SavePostLoadRuntimeSeedPlan, SavePostLoadWorldIssue, SavePostLoadWorldObservation,
 };
 
@@ -38,6 +39,17 @@ pub enum SavePostLoadConsumerBlocker {
         source_name: String,
         effective_name: Option<String>,
     },
+}
+
+pub(crate) fn extend_unique_consumer_blockers(
+    blockers: &mut Vec<SavePostLoadConsumerBlocker>,
+    additions: &[SavePostLoadConsumerBlocker],
+) {
+    for blocker in additions {
+        if !blockers.contains(blocker) {
+            blockers.push(blocker.clone());
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,7 +114,7 @@ impl SavePostLoadConsumerApplyPlan {
     pub fn summary_label(&self) -> String {
         format!(
             "seed={} stages={} steps={} blockers={} regions={}",
-            bool_label(self.can_seed_runtime_apply),
+            bool_digit_label(self.can_seed_runtime_apply),
             self.stages.len(),
             self.total_step_count(),
             self.blockers.len(),
@@ -113,7 +125,7 @@ impl SavePostLoadConsumerApplyPlan {
     pub fn detail_label(&self) -> String {
         format!(
             "seed={} stages={} steps={} blockers={} regions=[{}]",
-            bool_label(self.can_seed_runtime_apply),
+            bool_digit_label(self.can_seed_runtime_apply),
             self.stages.len(),
             self.total_step_count(),
             self.blockers.len(),
@@ -133,9 +145,9 @@ impl SavePostLoadConsumerApplyPlan {
         &self,
         source_region_name: &str,
     ) -> Option<SavePostLoadConsumerSourceRegion> {
-        self.source_regions()
-            .into_iter()
-            .find(|region| region.source_region_name == source_region_name)
+        find_source_region(self.source_regions(), source_region_name, |region| {
+            region.source_region_name
+        })
     }
 
     pub fn source_regions(&self) -> Vec<SavePostLoadConsumerSourceRegion> {
@@ -229,8 +241,8 @@ impl SavePostLoadConsumerRuntimeHelper {
     pub fn summary_label(&self) -> String {
         format!(
             "seed={} shell={} stages={} apply={} waiting={} blocked={} deferred={} regions={}",
-            bool_label(self.can_seed_runtime_apply),
-            bool_label(self.world_shell_ready),
+            bool_digit_label(self.can_seed_runtime_apply),
+            bool_digit_label(self.world_shell_ready),
             self.stages.len(),
             self.apply_now_step_count(),
             self.awaiting_world_shell_step_count(),
@@ -243,8 +255,8 @@ impl SavePostLoadConsumerRuntimeHelper {
     pub fn detail_label(&self) -> String {
         format!(
             "seed={} shell={} stages={} apply={} waiting={} blocked={} deferred={} regions=[{}]",
-            bool_label(self.can_seed_runtime_apply),
-            bool_label(self.world_shell_ready),
+            bool_digit_label(self.can_seed_runtime_apply),
+            bool_digit_label(self.world_shell_ready),
             self.stages.len(),
             self.apply_now_step_count(),
             self.awaiting_world_shell_step_count(),
@@ -275,9 +287,9 @@ impl SavePostLoadConsumerRuntimeHelper {
         &self,
         source_region_name: &str,
     ) -> Option<SavePostLoadConsumerSourceRegion> {
-        self.source_regions()
-            .into_iter()
-            .find(|region| region.source_region_name == source_region_name)
+        find_source_region(self.source_regions(), source_region_name, |region| {
+            region.source_region_name
+        })
     }
 
     pub fn source_regions(&self) -> Vec<SavePostLoadConsumerSourceRegion> {
@@ -337,10 +349,6 @@ fn source_region_summary(region: &SavePostLoadConsumerSourceRegion) -> String {
         "{}:{}/{}/{}",
         region.source_region_name, region.stage_count, region.step_count, region.blocker_count
     )
-}
-
-fn bool_label(value: bool) -> &'static str {
-    if value { "1" } else { "0" }
 }
 
 impl SavePostLoadWorldObservation {
@@ -594,9 +602,13 @@ mod tests {
         TileModel, TypeIoValue, WorldModel,
     };
 
-    #[test]
-    fn consumer_apply_plan_tracks_required_and_deferred_steps() {
+    fn seedable_observation() -> SavePostLoadWorldObservation {
         let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation
+    }
+
+    fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {
         observation.world_entity_chunks[1].class_id = 3;
         observation.world_entity_chunks[1].custom_name = None;
         observation
@@ -650,6 +662,56 @@ mod tests {
                 count: 1,
             },
         ];
+    }
+
+    fn assert_stage_disposition(
+        helper: &SavePostLoadConsumerRuntimeHelper,
+        kind: SavePostLoadConsumerStageKind,
+        disposition: SavePostLoadConsumerRuntimeDisposition,
+    ) {
+        assert_eq!(
+            helper.stage(kind).map(|stage| stage.disposition),
+            Some(disposition),
+            "unexpected disposition for stage {:?}",
+            kind
+        );
+    }
+
+    fn assert_stage_contains_blocker(
+        helper: &SavePostLoadConsumerRuntimeHelper,
+        kind: SavePostLoadConsumerStageKind,
+        disposition: SavePostLoadConsumerRuntimeDisposition,
+        blocker: &SavePostLoadConsumerBlocker,
+    ) {
+        let stage = helper
+            .stage(kind)
+            .unwrap_or_else(|| panic!("missing stage {:?}", kind));
+        assert_eq!(stage.disposition, disposition);
+        assert!(
+            stage.blockers.contains(blocker),
+            "expected blocker {:?} in stage {:?}",
+            blocker,
+            kind
+        );
+    }
+
+    fn assert_source_region_lookup(
+        actual: Option<SavePostLoadConsumerSourceRegion>,
+        expected_regions: &[SavePostLoadConsumerSourceRegion],
+        source_region_name: &str,
+    ) {
+        assert_eq!(
+            actual,
+            expected_regions
+                .iter()
+                .find(|region| region.source_region_name == source_region_name)
+                .cloned()
+        );
+    }
+
+    #[test]
+    fn consumer_apply_plan_tracks_required_and_deferred_steps() {
+        let observation = seedable_observation();
 
         let plan = observation.consumer_apply_plan();
 
@@ -755,60 +817,7 @@ mod tests {
 
     #[test]
     fn consumer_runtime_helper_marks_clean_stages_apply_now() {
-        let mut observation = test_observation();
-        observation.world_entity_chunks[1].class_id = 3;
-        observation.world_entity_chunks[1].custom_name = None;
-        observation
-            .entity_remap_summary
-            .unresolved_effective_names
-            .clear();
-        observation.entity_summary.loadable_entities = 3;
-        observation.entity_summary.skipped_entities = 0;
-        observation.entity_summary.builtin_entities = 2;
-        observation.entity_summary.custom_entities = 1;
-        observation.entity_summary.class_summaries = vec![
-            SaveEntityClassSummary {
-                class_id: 3,
-                kind: SaveEntityClassKind::Builtin,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-            SaveEntityClassSummary {
-                class_id: 4,
-                kind: SaveEntityClassKind::Builtin,
-                resolved_name: "mace".to_string(),
-                count: 1,
-            },
-            SaveEntityClassSummary {
-                class_id: 255,
-                kind: SaveEntityClassKind::Custom,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-        ];
-        observation.entity_summary.post_load_class_summaries = vec![
-            SaveEntityPostLoadClassSummary {
-                source_class_ids: vec![3],
-                effective_class_id: Some(3),
-                kind: SaveEntityPostLoadKind::Builtin,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-            SaveEntityPostLoadClassSummary {
-                source_class_ids: vec![4],
-                effective_class_id: Some(4),
-                kind: SaveEntityPostLoadKind::Builtin,
-                resolved_name: "mace".to_string(),
-                count: 1,
-            },
-            SaveEntityPostLoadClassSummary {
-                source_class_ids: vec![255],
-                effective_class_id: Some(3),
-                kind: SaveEntityPostLoadKind::RemappedBuiltin,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-        ];
+        let observation = seedable_observation();
 
         let helper = observation.consumer_runtime_helper();
 
@@ -878,11 +887,10 @@ mod tests {
             .iter()
             .filter(|stage| stage.kind != SavePostLoadConsumerStageKind::SkippedEntities)
             .all(SavePostLoadConsumerRuntimeStageHelper::can_apply_now));
-        assert_eq!(
-            helper
-                .stage(SavePostLoadConsumerStageKind::LoadableEntities)
-                .map(|stage| stage.disposition),
-            Some(SavePostLoadConsumerRuntimeDisposition::ApplyNow)
+        assert_stage_disposition(
+            &helper,
+            SavePostLoadConsumerStageKind::LoadableEntities,
+            SavePostLoadConsumerRuntimeDisposition::ApplyNow,
         );
     }
 
@@ -943,8 +951,8 @@ mod tests {
 
         assert_eq!(plan.source_regions(), expected_regions);
         assert_eq!(helper.source_regions(), expected_regions);
-        assert_eq!(plan.source_region("entities"), Some(expected_regions[1].clone()));
-        assert_eq!(helper.source_region("map"), Some(expected_regions[0].clone()));
+        assert_source_region_lookup(plan.source_region("entities"), &expected_regions, "entities");
+        assert_source_region_lookup(helper.source_region("map"), &expected_regions, "map");
         assert!(plan.source_region("missing").is_none());
         assert!(helper.source_region("missing").is_none());
         assert_eq!(
@@ -1092,89 +1100,34 @@ mod tests {
         assert!(!helper.can_seed_runtime_apply);
         assert!(!helper.world_shell_ready);
         assert!(helper.has_blocked_stages());
-        assert!(helper
-            .stage(SavePostLoadConsumerStageKind::WorldShell)
-            .is_some_and(|stage| {
-                stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
-            }));
-        assert!(helper
-            .stage(SavePostLoadConsumerStageKind::TeamPlans)
-            .is_some_and(|stage| {
-                stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
-                    && stage
-                        .blockers
-                        .contains(&SavePostLoadConsumerBlocker::ContractIssue(
-                            SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds,
-                        ))
-            }));
-        assert!(helper
-            .stage(SavePostLoadConsumerStageKind::Markers)
-            .is_some_and(|stage| {
-                stage.disposition == SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell
-            }));
-        assert!(helper
-            .stage(SavePostLoadConsumerStageKind::CustomChunks)
-            .is_some_and(|stage| {
-                stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
-            }));
+        assert_stage_disposition(
+            &helper,
+            SavePostLoadConsumerStageKind::WorldShell,
+            SavePostLoadConsumerRuntimeDisposition::Blocked,
+        );
+        assert_stage_contains_blocker(
+            &helper,
+            SavePostLoadConsumerStageKind::TeamPlans,
+            SavePostLoadConsumerRuntimeDisposition::Blocked,
+            &SavePostLoadConsumerBlocker::ContractIssue(
+                SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds,
+            ),
+        );
+        assert_stage_disposition(
+            &helper,
+            SavePostLoadConsumerStageKind::Markers,
+            SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+        );
+        assert_stage_disposition(
+            &helper,
+            SavePostLoadConsumerStageKind::CustomChunks,
+            SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+        );
     }
 
     #[test]
     fn consumer_runtime_helper_keeps_world_shell_ready_for_auxiliary_marker_and_chunk_duplicates() {
-        let mut observation = test_observation();
-        observation.world_entity_chunks[1].class_id = 3;
-        observation.world_entity_chunks[1].custom_name = None;
-        observation
-            .entity_remap_summary
-            .unresolved_effective_names
-            .clear();
-        observation.entity_summary.loadable_entities = 3;
-        observation.entity_summary.skipped_entities = 0;
-        observation.entity_summary.builtin_entities = 2;
-        observation.entity_summary.custom_entities = 1;
-        observation.entity_summary.class_summaries = vec![
-            SaveEntityClassSummary {
-                class_id: 3,
-                kind: SaveEntityClassKind::Builtin,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-            SaveEntityClassSummary {
-                class_id: 4,
-                kind: SaveEntityClassKind::Builtin,
-                resolved_name: "mace".to_string(),
-                count: 1,
-            },
-            SaveEntityClassSummary {
-                class_id: 255,
-                kind: SaveEntityClassKind::Custom,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-        ];
-        observation.entity_summary.post_load_class_summaries = vec![
-            SaveEntityPostLoadClassSummary {
-                source_class_ids: vec![3],
-                effective_class_id: Some(3),
-                kind: SaveEntityPostLoadKind::Builtin,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-            SaveEntityPostLoadClassSummary {
-                source_class_ids: vec![4],
-                effective_class_id: Some(4),
-                kind: SaveEntityPostLoadKind::Builtin,
-                resolved_name: "mace".to_string(),
-                count: 1,
-            },
-            SaveEntityPostLoadClassSummary {
-                source_class_ids: vec![255],
-                effective_class_id: Some(3),
-                kind: SaveEntityPostLoadKind::RemappedBuiltin,
-                resolved_name: "flare".to_string(),
-                count: 1,
-            },
-        ];
+        let mut observation = seedable_observation();
         observation.markers.push(observation.markers[0].clone());
         observation
             .custom_chunks
@@ -1185,21 +1138,21 @@ mod tests {
         assert!(helper.can_seed_runtime_apply);
         assert!(helper.world_shell_ready);
         assert!(!helper.has_blocked_stages());
-        assert!(helper
-            .stage(SavePostLoadConsumerStageKind::WorldShell)
-            .is_some_and(|stage| {
-                stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
-            }));
-        assert!(helper
-            .stage(SavePostLoadConsumerStageKind::Markers)
-            .is_some_and(|stage| {
-                stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
-            }));
-        assert!(helper
-            .stage(SavePostLoadConsumerStageKind::CustomChunks)
-            .is_some_and(|stage| {
-                stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
-            }));
+        assert_stage_disposition(
+            &helper,
+            SavePostLoadConsumerStageKind::WorldShell,
+            SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+        );
+        assert_stage_disposition(
+            &helper,
+            SavePostLoadConsumerStageKind::Markers,
+            SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+        );
+        assert_stage_disposition(
+            &helper,
+            SavePostLoadConsumerStageKind::CustomChunks,
+            SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+        );
     }
 
     #[test]
@@ -1219,26 +1172,22 @@ mod tests {
 
         assert!(!helper.can_seed_runtime_apply);
         assert!(!helper.world_shell_ready);
-        assert!(helper
-            .stage(SavePostLoadConsumerStageKind::WorldShell)
-            .is_some_and(|stage| {
-                stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
-                    && stage
-                        .blockers
-                        .contains(&SavePostLoadConsumerBlocker::ContractIssue(
-                            SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
-                        ))
-            }));
-        assert!(helper
-            .stage(SavePostLoadConsumerStageKind::StaticFog)
-            .is_some_and(|stage| {
-                stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
-                    && stage
-                        .blockers
-                        .contains(&SavePostLoadConsumerBlocker::ContractIssue(
-                            SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
-                        ))
-            }));
+        assert_stage_contains_blocker(
+            &helper,
+            SavePostLoadConsumerStageKind::WorldShell,
+            SavePostLoadConsumerRuntimeDisposition::Blocked,
+            &SavePostLoadConsumerBlocker::ContractIssue(
+                SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
+            ),
+        );
+        assert_stage_contains_blocker(
+            &helper,
+            SavePostLoadConsumerStageKind::StaticFog,
+            SavePostLoadConsumerRuntimeDisposition::Blocked,
+            &SavePostLoadConsumerBlocker::ContractIssue(
+                SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
+            ),
+        );
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {

@@ -1,6 +1,7 @@
 /// Render-facing projection of world state for UI drawing.
 ///
 /// This crate intentionally avoids protocol parsing and transport concerns.
+use crate::presenter_view::marker_line_end_base_id;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -280,7 +281,9 @@ impl RenderModel {
         let line_end_objects = self
             .objects
             .iter()
-            .filter_map(render_line_end_object_pair)
+            .filter_map(|object| {
+                marker_line_end_base_id(object).map(|base_id| (base_id.to_string(), object))
+            })
             .collect::<BTreeMap<_, _>>();
         let rect_primitives = render_rect_primitives(&self.objects, &line_end_objects);
         let rect_line_ids = rect_primitives
@@ -387,10 +390,7 @@ impl RenderPrimitive {
                 let mut fields = BTreeMap::new();
                 fields.insert("text", RenderPrimitivePayloadValue::Text(text.clone()));
                 Some(RenderPrimitivePayload {
-                    label: kind
-                        .detail_label()
-                        .unwrap_or("render-text")
-                        .to_string(),
+                    label: kind.detail_label().unwrap_or("render-text").to_string(),
                     fields,
                 })
             }
@@ -455,16 +455,6 @@ fn render_primitive_for_object(
         | RenderObjectSemanticKind::MarkerShapeText => render_text_primitive_for_object(object),
         _ => render_icon_primitive_for_object(object),
     }
-}
-
-fn render_line_end_object_pair(object: &RenderObject) -> Option<(String, &RenderObject)> {
-    if object.semantic_kind() != RenderObjectSemanticKind::MarkerLineEnd {
-        return None;
-    }
-    object
-        .id
-        .strip_suffix(":line-end")
-        .map(|base_id| (base_id.to_string(), object))
 }
 
 fn render_text_primitive_for_object(object: &RenderObject) -> Option<RenderPrimitive> {
@@ -652,18 +642,16 @@ fn render_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
                     ),
             )
         }
-        ["marker", "runtime-command-selected-unit", value] if value.parse::<i32>().is_ok() => {
-            Some(
-                ParsedRenderIconPayload::new(
-                    RenderIconPrimitiveFamily::RuntimeCommand,
-                    "selected-unit",
-                )
-                .with_field(
-                    "unit_id",
-                    RenderPrimitivePayloadValue::I32(value.parse().ok()?),
-                ),
+        ["marker", "runtime-command-selected-unit", value] if value.parse::<i32>().is_ok() => Some(
+            ParsedRenderIconPayload::new(
+                RenderIconPrimitiveFamily::RuntimeCommand,
+                "selected-unit",
             )
-        }
+            .with_field(
+                "unit_id",
+                RenderPrimitivePayloadValue::I32(value.parse().ok()?),
+            ),
+        ),
         ["marker", "runtime-command-build-target", tile_x, tile_y]
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
         {
@@ -705,15 +693,15 @@ fn render_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
             if kind.parse::<i16>().is_ok() && value.parse::<i32>().is_ok() =>
         {
             Some(
-                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeCommand, "unit-target")
-                    .with_field(
-                        "kind",
-                        RenderPrimitivePayloadValue::I16(kind.parse().ok()?),
-                    )
-                    .with_field(
-                        "value",
-                        RenderPrimitivePayloadValue::I32(value.parse().ok()?),
-                    ),
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimeCommand,
+                    "unit-target",
+                )
+                .with_field("kind", RenderPrimitivePayloadValue::I16(kind.parse().ok()?))
+                .with_field(
+                    "value",
+                    RenderPrimitivePayloadValue::I32(value.parse().ok()?),
+                ),
             )
         }
         ["marker", "runtime-effect-icon", kind, delivery, effect_id, content_type, content_id, x_bits, y_bits]
@@ -761,23 +749,26 @@ fn render_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
                 && content_id.parse::<i16>().is_ok() =>
         {
             Some(
-                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeBuildConfig, *family)
-                    .with_field(
-                        "tile_x",
-                        RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
-                    )
-                    .with_field(
-                        "tile_y",
-                        RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
-                    )
-                    .with_field(
-                        "content_type",
-                        RenderPrimitivePayloadValue::U8(content_type.parse().ok()?),
-                    )
-                    .with_field(
-                        "content_id",
-                        RenderPrimitivePayloadValue::I16(content_id.parse().ok()?),
-                    ),
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimeBuildConfig,
+                    *family,
+                )
+                .with_field(
+                    "tile_x",
+                    RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                )
+                .with_field(
+                    "tile_y",
+                    RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                )
+                .with_field(
+                    "content_type",
+                    RenderPrimitivePayloadValue::U8(content_type.parse().ok()?),
+                )
+                .with_field(
+                    "content_id",
+                    RenderPrimitivePayloadValue::I16(content_id.parse().ok()?),
+                ),
             )
         }
         _ => None,
@@ -906,9 +897,7 @@ fn render_runtime_world_event_icon_payload(id: &str) -> Option<ParsedRenderIconP
             ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeBreak, "break")
                 .with_field(
                     "values",
-                    RenderPrimitivePayloadValue::I32List(
-                        parse_runtime_icon_i32_values(rest, 3)?,
-                    ),
+                    RenderPrimitivePayloadValue::I32List(parse_runtime_icon_i32_values(rest, 3)?),
                 ),
         );
     }
@@ -917,9 +906,7 @@ fn render_runtime_world_event_icon_payload(id: &str) -> Option<ParsedRenderIconP
             ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeBullet, "bullet")
                 .with_field(
                     "values",
-                    RenderPrimitivePayloadValue::I32List(
-                        parse_runtime_icon_i32_values(rest, 3)?,
-                    ),
+                    RenderPrimitivePayloadValue::I32List(parse_runtime_icon_i32_values(rest, 3)?),
                 ),
         );
     }
@@ -928,9 +915,7 @@ fn render_runtime_world_event_icon_payload(id: &str) -> Option<ParsedRenderIconP
             ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeSoundAt, "sound-at")
                 .with_field(
                     "values",
-                    RenderPrimitivePayloadValue::I32List(
-                        parse_runtime_icon_i32_values(rest, 2)?,
-                    ),
+                    RenderPrimitivePayloadValue::I32List(parse_runtime_icon_i32_values(rest, 2)?),
                 ),
         );
     }
@@ -997,9 +982,10 @@ fn render_runtime_tile_action_icon_payload(id: &str) -> Option<ParsedRenderIconP
                 ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeTileAction, variant)
                     .with_field(
                         "values",
-                        RenderPrimitivePayloadValue::I32List(
-                            parse_runtime_icon_i32_values(rest, field_count)?,
-                        ),
+                        RenderPrimitivePayloadValue::I32List(parse_runtime_icon_i32_values(
+                            rest,
+                            field_count,
+                        )?),
                     ),
             );
         }
@@ -1152,10 +1138,7 @@ fn render_rect_descriptor(id: &str) -> Option<RectPrimitiveLineDescriptor> {
 fn render_line_payload(id: &str) -> Option<RenderPrimitivePayload> {
     if let Some(descriptor) = render_rect_descriptor(id) {
         let mut fields = BTreeMap::new();
-        fields.insert(
-            "edge",
-            RenderPrimitivePayloadValue::Text(descriptor.edge),
-        );
+        fields.insert("edge", RenderPrimitivePayloadValue::Text(descriptor.edge));
         if let Some(rest) = id.strip_prefix("marker:line:runtime-unit-assembler-area:") {
             let parts = rest.split(':').collect::<Vec<_>>();
             if let [block_name, tile_x, tile_y, _, ..] = parts.as_slice() {
@@ -1243,7 +1226,7 @@ pub(crate) fn encode_render_text(text: &str) -> String {
 }
 
 fn decode_render_text(encoded_text: &str) -> Option<String> {
-    if encoded_text.is_empty() || encoded_text.len() % 2 != 0 {
+    if encoded_text.is_empty() || !encoded_text.len().is_multiple_of(2) {
         return None;
     }
 
@@ -1589,6 +1572,124 @@ mod tests {
         RenderPrimitive, RenderPrimitiveKind, RenderPrimitivePayloadValue,
         RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
     };
+
+    type TestPoint = (f32, f32);
+    type TestRectBounds = (f32, f32, f32, f32);
+
+    fn test_render_object(id: impl Into<String>, layer: i32, x: f32, y: f32) -> RenderObject {
+        RenderObject {
+            id: id.into(),
+            layer,
+            x,
+            y,
+        }
+    }
+
+    fn test_render_model(objects: Vec<RenderObject>) -> RenderModel {
+        RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects,
+        }
+    }
+
+    fn test_render_model_with_projected_window(
+        view_window: RenderViewWindow,
+        objects: Vec<RenderObject>,
+    ) -> RenderModel {
+        RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: Some(view_window),
+            objects,
+        }
+    }
+
+    fn marker_line_pair(
+        line_id: impl Into<String>,
+        layer: i32,
+        start: TestPoint,
+        end: TestPoint,
+    ) -> [RenderObject; 2] {
+        let line_id = line_id.into();
+        [
+            test_render_object(line_id.clone(), layer, start.0, start.1),
+            test_render_object(format!("{line_id}:line-end"), layer, end.0, end.1),
+        ]
+    }
+
+    fn bits_rect_line_id(family: &str, edge: &str, start: TestPoint, end: TestPoint) -> String {
+        format!(
+            "marker:line:{family}:{edge}:{}:{}:{}:{}",
+            start.0.to_bits(),
+            start.1.to_bits(),
+            end.0.to_bits(),
+            end.1.to_bits()
+        )
+    }
+
+    fn bits_rect_line_pair(
+        family: &str,
+        edge: &str,
+        layer: i32,
+        start: TestPoint,
+        end: TestPoint,
+    ) -> [RenderObject; 2] {
+        marker_line_pair(
+            bits_rect_line_id(family, edge, start, end),
+            layer,
+            start,
+            end,
+        )
+    }
+
+    fn named_rect_line_id(prefix: &str, edge: &str) -> String {
+        format!("{prefix}:{edge}")
+    }
+
+    fn named_rect_line_pair(
+        prefix: &str,
+        edge: &str,
+        layer: i32,
+        start: TestPoint,
+        end: TestPoint,
+    ) -> [RenderObject; 2] {
+        marker_line_pair(named_rect_line_id(prefix, edge), layer, start, end)
+    }
+
+    fn rect_id(tag: &str, bounds: TestRectBounds) -> String {
+        let (left, top, right, bottom) = bounds;
+        format!(
+            "marker:rect:{tag}:{}:{}:{}:{}",
+            left.to_bits(),
+            top.to_bits(),
+            right.to_bits(),
+            bottom.to_bits()
+        )
+    }
+
+    fn rect_primitive(
+        tag: &str,
+        family: &str,
+        layer: i32,
+        bounds: TestRectBounds,
+        line_ids: Vec<String>,
+    ) -> RenderPrimitive {
+        let (left, top, right, bottom) = bounds;
+        RenderPrimitive::Rect {
+            id: rect_id(tag, bounds),
+            family: family.to_string(),
+            layer,
+            left,
+            top,
+            right,
+            bottom,
+            line_ids,
+        }
+    }
 
     #[test]
     fn semantic_kind_from_id_supports_known_prefixes_aliases_and_runtime_patterns() {
@@ -1987,10 +2088,8 @@ mod tests {
         assert_eq!(
             rect_payload.field("line_ids"),
             Some(&RenderPrimitivePayloadValue::TextList(vec![
-                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top"
-                    .to_string(),
-                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right"
-                    .to_string(),
+                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top".to_string(),
+                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right".to_string(),
             ]))
         );
 
@@ -2081,67 +2180,35 @@ mod tests {
 
     #[test]
     fn render_model_tracks_projected_view_window_and_player_focus_tile() {
-        let scene = RenderModel {
-            viewport: Viewport {
-                width: 64.0,
-                height: 64.0,
-                zoom: 1.0,
-            },
-            view_window: Some(RenderViewWindow {
-                origin_x: 2,
-                origin_y: 3,
-                width: 4,
-                height: 5,
-            }),
-            objects: vec![RenderObject {
-                id: "player:7".to_string(),
-                layer: 40,
-                x: 28.0,
-                y: 33.0,
-            }],
+        let view_window = RenderViewWindow {
+            origin_x: 2,
+            origin_y: 3,
+            width: 4,
+            height: 5,
         };
-
-        assert_eq!(
-            scene.view_window,
-            Some(RenderViewWindow {
-                origin_x: 2,
-                origin_y: 3,
-                width: 4,
-                height: 5,
-            })
+        let scene = test_render_model_with_projected_window(
+            view_window,
+            vec![test_render_object("player:7", 40, 28.0, 33.0)],
         );
+
+        assert_eq!(scene.view_window, Some(view_window));
         assert_eq!(scene.player_focus_tile(8.0), Some((3, 4)));
     }
 
     #[test]
     fn render_model_tracks_projected_view_window_and_runtime_unit_focus_tile() {
-        let scene = RenderModel {
-            viewport: Viewport {
-                width: 64.0,
-                height: 64.0,
-                zoom: 1.0,
-            },
-            view_window: Some(RenderViewWindow {
+        let scene = test_render_model_with_projected_window(
+            RenderViewWindow {
                 origin_x: 2,
                 origin_y: 3,
                 width: 4,
                 height: 5,
-            }),
-            objects: vec![
-                RenderObject {
-                    id: "unit:7".to_string(),
-                    layer: 40,
-                    x: 28.0,
-                    y: 33.0,
-                },
-                RenderObject {
-                    id: "player:7".to_string(),
-                    layer: 41,
-                    x: 40.0,
-                    y: 48.0,
-                },
+            },
+            vec![
+                test_render_object("unit:7", 40, 28.0, 33.0),
+                test_render_object("player:7", 41, 40.0, 48.0),
             ],
-        };
+        );
 
         assert_eq!(scene.player_focus_tile(8.0), Some((5, 6)));
     }
@@ -2839,404 +2906,120 @@ mod tests {
 
     #[test]
     fn render_model_derives_rect_primitives_from_runtime_command_rect_line_families() {
-        let scene = RenderModel {
-            viewport: Viewport::default(),
-            view_window: None,
-            objects: vec![
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
-                        8.0f32.to_bits(),
-                        16.0f32.to_bits(),
-                        24.0f32.to_bits(),
-                        16.0f32.to_bits()
-                    ),
-                    layer: 29,
-                    x: 8.0,
-                    y: 16.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}:line-end",
-                        8.0f32.to_bits(),
-                        16.0f32.to_bits(),
-                        24.0f32.to_bits(),
-                        16.0f32.to_bits()
-                    ),
-                    layer: 29,
-                    x: 24.0,
-                    y: 16.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}",
-                        24.0f32.to_bits(),
-                        16.0f32.to_bits(),
-                        24.0f32.to_bits(),
-                        32.0f32.to_bits()
-                    ),
-                    layer: 29,
-                    x: 24.0,
-                    y: 16.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}:line-end",
-                        24.0f32.to_bits(),
-                        16.0f32.to_bits(),
-                        24.0f32.to_bits(),
-                        32.0f32.to_bits()
-                    ),
-                    layer: 29,
-                    x: 24.0,
-                    y: 32.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}",
-                        24.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        8.0f32.to_bits(),
-                        32.0f32.to_bits()
-                    ),
-                    layer: 29,
-                    x: 24.0,
-                    y: 32.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}:line-end",
-                        24.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        8.0f32.to_bits(),
-                        32.0f32.to_bits()
-                    ),
-                    layer: 29,
-                    x: 8.0,
-                    y: 32.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-command-rect:left:{}:{}:{}:{}",
-                        8.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        8.0f32.to_bits(),
-                        16.0f32.to_bits()
-                    ),
-                    layer: 29,
-                    x: 8.0,
-                    y: 32.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-command-rect:left:{}:{}:{}:{}:line-end",
-                        8.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        8.0f32.to_bits(),
-                        16.0f32.to_bits()
-                    ),
-                    layer: 29,
-                    x: 8.0,
-                    y: 16.0,
-                },
-            ],
-        };
+        let family = "runtime-command-rect";
+        let bounds = (8.0, 16.0, 24.0, 32.0);
+        let top = ((8.0, 16.0), (24.0, 16.0));
+        let right = ((24.0, 16.0), (24.0, 32.0));
+        let bottom = ((24.0, 32.0), (8.0, 32.0));
+        let left = ((8.0, 32.0), (8.0, 16.0));
+        let mut objects = Vec::new();
+        objects.extend(bits_rect_line_pair(family, "top", 29, top.0, top.1));
+        objects.extend(bits_rect_line_pair(family, "right", 29, right.0, right.1));
+        objects.extend(bits_rect_line_pair(
+            family, "bottom", 29, bottom.0, bottom.1,
+        ));
+        objects.extend(bits_rect_line_pair(family, "left", 29, left.0, left.1));
+        let scene = test_render_model(objects);
 
         assert_eq!(
             scene.primitives(),
-            vec![RenderPrimitive::Rect {
-                id: format!(
-                    "marker:rect:runtime-command-rect:{}:{}:{}:{}",
-                    8.0f32.to_bits(),
-                    16.0f32.to_bits(),
-                    24.0f32.to_bits(),
-                    32.0f32.to_bits()
-                ),
-                family: "runtime-command-rect".to_string(),
-                layer: 29,
-                left: 8.0,
-                top: 16.0,
-                right: 24.0,
-                bottom: 32.0,
-                line_ids: vec![
-                    format!(
-                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}",
-                        24.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        8.0f32.to_bits(),
-                        32.0f32.to_bits()
-                    ),
-                    format!(
-                        "marker:line:runtime-command-rect:left:{}:{}:{}:{}",
-                        8.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        8.0f32.to_bits(),
-                        16.0f32.to_bits()
-                    ),
-                    format!(
-                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}",
-                        24.0f32.to_bits(),
-                        16.0f32.to_bits(),
-                        24.0f32.to_bits(),
-                        32.0f32.to_bits()
-                    ),
-                    format!(
-                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
-                        8.0f32.to_bits(),
-                        16.0f32.to_bits(),
-                        24.0f32.to_bits(),
-                        16.0f32.to_bits()
-                    ),
+            vec![rect_primitive(
+                family,
+                family,
+                29,
+                bounds,
+                vec![
+                    bits_rect_line_id(family, "bottom", bottom.0, bottom.1),
+                    bits_rect_line_id(family, "left", left.0, left.1),
+                    bits_rect_line_id(family, "right", right.0, right.1),
+                    bits_rect_line_id(family, "top", top.0, top.1),
                 ],
-            }]
+            )]
         );
     }
 
     #[test]
     fn render_model_derives_rect_primitives_from_runtime_break_rect_line_families() {
-        let scene = RenderModel {
-            viewport: Viewport::default(),
-            view_window: None,
-            objects: vec![
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-break-rect:top:{}:{}:{}:{}",
-                        32.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits()
-                    ),
-                    layer: 30,
-                    x: 32.0,
-                    y: 40.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-break-rect:top:{}:{}:{}:{}:line-end",
-                        32.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits()
-                    ),
-                    layer: 30,
-                    x: 40.0,
-                    y: 40.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-break-rect:right:{}:{}:{}:{}",
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        48.0f32.to_bits()
-                    ),
-                    layer: 30,
-                    x: 40.0,
-                    y: 40.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-break-rect:right:{}:{}:{}:{}:line-end",
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        48.0f32.to_bits()
-                    ),
-                    layer: 30,
-                    x: 40.0,
-                    y: 48.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-break-rect:bottom:{}:{}:{}:{}",
-                        40.0f32.to_bits(),
-                        48.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        48.0f32.to_bits()
-                    ),
-                    layer: 30,
-                    x: 40.0,
-                    y: 48.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-break-rect:bottom:{}:{}:{}:{}:line-end",
-                        40.0f32.to_bits(),
-                        48.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        48.0f32.to_bits()
-                    ),
-                    layer: 30,
-                    x: 32.0,
-                    y: 48.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-break-rect:left:{}:{}:{}:{}",
-                        32.0f32.to_bits(),
-                        48.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        40.0f32.to_bits()
-                    ),
-                    layer: 30,
-                    x: 32.0,
-                    y: 48.0,
-                },
-                RenderObject {
-                    id: format!(
-                        "marker:line:runtime-break-rect:left:{}:{}:{}:{}:line-end",
-                        32.0f32.to_bits(),
-                        48.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        40.0f32.to_bits()
-                    ),
-                    layer: 30,
-                    x: 32.0,
-                    y: 40.0,
-                },
-            ],
-        };
+        let family = "runtime-break-rect";
+        let bounds = (32.0, 40.0, 40.0, 48.0);
+        let top = ((32.0, 40.0), (40.0, 40.0));
+        let right = ((40.0, 40.0), (40.0, 48.0));
+        let bottom = ((40.0, 48.0), (32.0, 48.0));
+        let left = ((32.0, 48.0), (32.0, 40.0));
+        let mut objects = Vec::new();
+        objects.extend(bits_rect_line_pair(family, "top", 30, top.0, top.1));
+        objects.extend(bits_rect_line_pair(family, "right", 30, right.0, right.1));
+        objects.extend(bits_rect_line_pair(
+            family, "bottom", 30, bottom.0, bottom.1,
+        ));
+        objects.extend(bits_rect_line_pair(family, "left", 30, left.0, left.1));
+        let scene = test_render_model(objects);
 
         assert_eq!(
             scene.primitives(),
-            vec![RenderPrimitive::Rect {
-                id: format!(
-                    "marker:rect:runtime-break-rect:{}:{}:{}:{}",
-                    32.0f32.to_bits(),
-                    40.0f32.to_bits(),
-                    40.0f32.to_bits(),
-                    48.0f32.to_bits()
-                ),
-                family: "runtime-break-rect".to_string(),
-                layer: 30,
-                left: 32.0,
-                top: 40.0,
-                right: 40.0,
-                bottom: 48.0,
-                line_ids: vec![
-                    format!(
-                        "marker:line:runtime-break-rect:bottom:{}:{}:{}:{}",
-                        40.0f32.to_bits(),
-                        48.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        48.0f32.to_bits()
-                    ),
-                    format!(
-                        "marker:line:runtime-break-rect:left:{}:{}:{}:{}",
-                        32.0f32.to_bits(),
-                        48.0f32.to_bits(),
-                        32.0f32.to_bits(),
-                        40.0f32.to_bits()
-                    ),
-                    format!(
-                        "marker:line:runtime-break-rect:right:{}:{}:{}:{}",
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        48.0f32.to_bits()
-                    ),
-                    format!(
-                        "marker:line:runtime-break-rect:top:{}:{}:{}:{}",
-                        32.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits(),
-                        40.0f32.to_bits()
-                    ),
+            vec![rect_primitive(
+                family,
+                family,
+                30,
+                bounds,
+                vec![
+                    bits_rect_line_id(family, "bottom", bottom.0, bottom.1),
+                    bits_rect_line_id(family, "left", left.0, left.1),
+                    bits_rect_line_id(family, "right", right.0, right.1),
+                    bits_rect_line_id(family, "top", top.0, top.1),
                 ],
-            }]
+            )]
         );
     }
 
     #[test]
     fn render_model_derives_rect_primitives_from_runtime_unit_assembler_area_line_families() {
-        let scene = RenderModel {
-            viewport: Viewport::default(),
-            view_window: None,
-            objects: vec![
-                RenderObject {
-                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top"
-                        .to_string(),
-                    layer: 15,
-                    x: 216.0,
-                    y: 280.0,
-                },
-                RenderObject {
-                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top:line-end"
-                        .to_string(),
-                    layer: 15,
-                    x: 256.0,
-                    y: 280.0,
-                },
-                RenderObject {
-                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right"
-                        .to_string(),
-                    layer: 15,
-                    x: 256.0,
-                    y: 280.0,
-                },
-                RenderObject {
-                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right:line-end"
-                        .to_string(),
-                    layer: 15,
-                    x: 256.0,
-                    y: 320.0,
-                },
-                RenderObject {
-                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:bottom"
-                        .to_string(),
-                    layer: 15,
-                    x: 256.0,
-                    y: 320.0,
-                },
-                RenderObject {
-                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:bottom:line-end"
-                        .to_string(),
-                    layer: 15,
-                    x: 216.0,
-                    y: 320.0,
-                },
-                RenderObject {
-                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:left"
-                        .to_string(),
-                    layer: 15,
-                    x: 216.0,
-                    y: 320.0,
-                },
-                RenderObject {
-                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:left:line-end"
-                        .to_string(),
-                    layer: 15,
-                    x: 216.0,
-                    y: 280.0,
-                },
-            ],
-        };
+        let rect_tag = "runtime-unit-assembler-area:tank-assembler:30:40";
+        let line_prefix = "marker:line:runtime-unit-assembler-area:tank-assembler:30:40";
+        let bounds = (216.0, 280.0, 256.0, 320.0);
+        let top = ((216.0, 280.0), (256.0, 280.0));
+        let right = ((256.0, 280.0), (256.0, 320.0));
+        let bottom = ((256.0, 320.0), (216.0, 320.0));
+        let left = ((216.0, 320.0), (216.0, 280.0));
+        let mut objects = Vec::new();
+        objects.extend(named_rect_line_pair(line_prefix, "top", 15, top.0, top.1));
+        objects.extend(named_rect_line_pair(
+            line_prefix,
+            "right",
+            15,
+            right.0,
+            right.1,
+        ));
+        objects.extend(named_rect_line_pair(
+            line_prefix,
+            "bottom",
+            15,
+            bottom.0,
+            bottom.1,
+        ));
+        objects.extend(named_rect_line_pair(
+            line_prefix,
+            "left",
+            15,
+            left.0,
+            left.1,
+        ));
+        let scene = test_render_model(objects);
 
         assert_eq!(
             scene.primitives(),
-            vec![RenderPrimitive::Rect {
-                id: format!(
-                    "marker:rect:runtime-unit-assembler-area:tank-assembler:30:40:{}:{}:{}:{}",
-                    216.0f32.to_bits(),
-                    280.0f32.to_bits(),
-                    256.0f32.to_bits(),
-                    320.0f32.to_bits()
-                ),
-                family: "runtime-unit-assembler-area".to_string(),
-                layer: 15,
-                left: 216.0,
-                top: 280.0,
-                right: 256.0,
-                bottom: 320.0,
-                line_ids: vec![
-                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:bottom"
-                        .to_string(),
-                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:left".to_string(),
-                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right"
-                        .to_string(),
-                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top".to_string(),
+            vec![rect_primitive(
+                rect_tag,
+                "runtime-unit-assembler-area",
+                15,
+                bounds,
+                vec![
+                    named_rect_line_id(line_prefix, "bottom"),
+                    named_rect_line_id(line_prefix, "left"),
+                    named_rect_line_id(line_prefix, "right"),
+                    named_rect_line_id(line_prefix, "top"),
                 ],
-            }]
+            )]
         );
     }
 

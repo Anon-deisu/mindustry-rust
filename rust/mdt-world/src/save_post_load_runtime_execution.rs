@@ -1,10 +1,13 @@
+use crate::save_post_load_runtime_source_region::{
+    find_source_region, source_region_name_for_step, source_region_sort_key,
+};
 use crate::save_post_load_runtime_world_ownership::build_runtime_world_ownership;
 use crate::{
-    SavePostLoadRuntimeApplyScript, SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeBuildingSeed,
-    SavePostLoadRuntimeCustomChunkSeed, SavePostLoadRuntimeEntityRemapSeed,
-    SavePostLoadRuntimeEntitySeed, SavePostLoadRuntimeMarkerSeed, SavePostLoadRuntimeSeedPlan,
-    SavePostLoadRuntimeStaticFogSeed, SavePostLoadRuntimeTeamPlanSeed,
-    SavePostLoadRuntimeExecutionStepStatus,
+    bool_word_label, SavePostLoadRuntimeApplyScript, SavePostLoadRuntimeApplyStep,
+    SavePostLoadRuntimeBuildingSeed, SavePostLoadRuntimeCustomChunkSeed,
+    SavePostLoadRuntimeEntityRemapSeed, SavePostLoadRuntimeEntitySeed,
+    SavePostLoadRuntimeExecutionStepStatus, SavePostLoadRuntimeMarkerSeed,
+    SavePostLoadRuntimeSeedPlan, SavePostLoadRuntimeStaticFogSeed, SavePostLoadRuntimeTeamPlanSeed,
     SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldSeed,
     SavePostLoadRuntimeWorldSurfaceKind, SavePostLoadWorldObservation,
 };
@@ -232,9 +235,9 @@ impl SavePostLoadRuntimeWorldSemanticsExecution {
         &self,
         source_region_name: &str,
     ) -> Option<SavePostLoadRuntimeExecutionSourceRegion> {
-        self.source_regions()
-            .into_iter()
-            .find(|region| region.source_region_name == source_region_name)
+        find_source_region(self.source_regions(), source_region_name, |region| {
+            region.source_region_name
+        })
     }
 
     pub fn source_regions(&self) -> Vec<SavePostLoadRuntimeExecutionSourceRegion> {
@@ -291,8 +294,8 @@ impl SavePostLoadRuntimeWorldSemanticsExecution {
     pub fn summary_label(&self) -> String {
         format!(
             "shell={} semantics={} exec={} fail={} wait={} block={} defer={} total={} sources={} issues={} live={}",
-            bool_label(self.world_shell_ready),
-            bool_label(self.can_apply_world_semantics()),
+            bool_word_label(self.world_shell_ready),
+            bool_word_label(self.can_apply_world_semantics()),
             self.executed_step_count(),
             self.failed_step_count(),
             self.awaiting_world_shell_steps.len(),
@@ -301,15 +304,15 @@ impl SavePostLoadRuntimeWorldSemanticsExecution {
             self.targeted_step_count(),
             self.source_regions().len(),
             self.issues.len(),
-            bool_label(self.can_activate_live_runtime()),
+            bool_word_label(self.can_activate_live_runtime()),
         )
     }
 
     pub fn detail_label(&self) -> String {
         format!(
             "shell={} semantics={} exec={} fail={} wait={} block={} defer={} total={} sources=[{}] issues={} live={}",
-            bool_label(self.world_shell_ready),
-            bool_label(self.can_apply_world_semantics()),
+            bool_word_label(self.world_shell_ready),
+            bool_word_label(self.can_apply_world_semantics()),
             self.executed_step_count(),
             self.failed_step_count(),
             self.awaiting_world_shell_steps.len(),
@@ -322,7 +325,7 @@ impl SavePostLoadRuntimeWorldSemanticsExecution {
                 .collect::<Vec<_>>()
                 .join(","),
             self.issues.len(),
-            bool_label(self.can_activate_live_runtime()),
+            bool_word_label(self.can_activate_live_runtime()),
         )
     }
 }
@@ -332,9 +335,9 @@ impl SavePostLoadRuntimeApplyExecution {
         &self,
         source_region_name: &str,
     ) -> Option<SavePostLoadRuntimeExecutionSourceRegion> {
-        self.source_regions()
-            .into_iter()
-            .find(|region| region.source_region_name == source_region_name)
+        find_source_region(self.source_regions(), source_region_name, |region| {
+            region.source_region_name
+        })
     }
 
     pub fn source_regions(&self) -> Vec<SavePostLoadRuntimeExecutionSourceRegion> {
@@ -387,8 +390,8 @@ impl SavePostLoadRuntimeApplyExecution {
     pub fn summary_label(&self) -> String {
         format!(
             "seed={} shell={} exec={} fail={} wait={} block={} defer={} total={} sources={} issues={} live={}",
-            bool_label(self.can_seed_runtime_apply),
-            bool_label(self.world_shell_ready),
+            bool_word_label(self.can_seed_runtime_apply),
+            bool_word_label(self.world_shell_ready),
             self.executed_step_count(),
             self.failed_step_count(),
             self.awaiting_world_shell_steps.len(),
@@ -397,15 +400,15 @@ impl SavePostLoadRuntimeApplyExecution {
             self.targeted_step_count(),
             self.source_regions().len(),
             self.issues.len(),
-            bool_label(self.can_activate_live_runtime()),
+            bool_word_label(self.can_activate_live_runtime()),
         )
     }
 
     pub fn detail_label(&self) -> String {
         format!(
             "seed={} shell={} exec={} fail={} wait={} block={} defer={} total={} sources=[{}] issues={} live={}",
-            bool_label(self.can_seed_runtime_apply),
-            bool_label(self.world_shell_ready),
+            bool_word_label(self.can_seed_runtime_apply),
+            bool_word_label(self.world_shell_ready),
             self.executed_step_count(),
             self.failed_step_count(),
             self.awaiting_world_shell_steps.len(),
@@ -418,7 +421,7 @@ impl SavePostLoadRuntimeApplyExecution {
                 .collect::<Vec<_>>()
                 .join(","),
             self.issues.len(),
-            bool_label(self.can_activate_live_runtime()),
+            bool_word_label(self.can_activate_live_runtime()),
         )
     }
 
@@ -495,9 +498,11 @@ impl SavePostLoadRuntimeApplyExecution {
                 group_index,
                 plan_index,
             } => {
-                let Some(seed) = plan.team_plan_seeds.iter().find(|seed| {
-                    seed.group_index == *group_index && seed.plan_index == *plan_index
-                }) else {
+                let Some(seed): Option<&SavePostLoadRuntimeTeamPlanSeed> =
+                    plan.team_plan_seeds.iter().find(|seed| {
+                        seed.group_index == *group_index && seed.plan_index == *plan_index
+                    })
+                else {
                     self.issues
                         .push(SavePostLoadRuntimeApplyIssue::MissingSeed(step.clone()));
                     return false;
@@ -551,7 +556,9 @@ impl SavePostLoadRuntimeApplyExecution {
                 }
             }
             SavePostLoadRuntimeApplyStep::StaticFog => {
-                let Some(seed) = plan.static_fog_seed.as_ref() else {
+                let Some(seed): Option<&SavePostLoadRuntimeStaticFogSeed> =
+                    plan.static_fog_seed.as_ref()
+                else {
                     self.issues
                         .push(SavePostLoadRuntimeApplyIssue::MissingSeed(step.clone()));
                     return false;
@@ -684,7 +691,7 @@ impl SavePostLoadRuntimeApplyExecution {
                 }
             }
             SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index } => {
-                let Some(seed) = plan
+                let Some(seed): Option<&SavePostLoadRuntimeEntitySeed> = plan
                     .skipped_entity_seeds
                     .iter()
                     .find(|seed| seed.entity_index == *entity_index)
@@ -813,8 +820,14 @@ fn build_source_regions(
             SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell,
             awaiting_world_shell_steps,
         ),
-        (SavePostLoadRuntimeExecutionStepStatus::Blocked, blocked_steps),
-        (SavePostLoadRuntimeExecutionStepStatus::Deferred, deferred_steps),
+        (
+            SavePostLoadRuntimeExecutionStepStatus::Blocked,
+            blocked_steps,
+        ),
+        (
+            SavePostLoadRuntimeExecutionStepStatus::Deferred,
+            deferred_steps,
+        ),
     ] {
         for step in steps {
             let source_region_name = source_region_name_for_step(step);
@@ -838,7 +851,9 @@ fn build_source_regions(
                         .expect("source region was just pushed")
                 }
             };
-            source_region.steps_with_status_mut(status).push(step.clone());
+            source_region
+                .steps_with_status_mut(status)
+                .push(step.clone());
         }
     }
 
@@ -846,733 +861,19 @@ fn build_source_regions(
     source_regions
 }
 
-fn source_region_name_for_step(step: &SavePostLoadRuntimeApplyStep) -> &'static str {
-    match step {
-        SavePostLoadRuntimeApplyStep::WorldShell | SavePostLoadRuntimeApplyStep::Building { .. } => {
-            "map"
-        }
-        SavePostLoadRuntimeApplyStep::EntityRemap { .. }
-        | SavePostLoadRuntimeApplyStep::TeamPlan { .. }
-        | SavePostLoadRuntimeApplyStep::LoadableEntity { .. }
-        | SavePostLoadRuntimeApplyStep::SkippedEntity { .. } => "entities",
-        SavePostLoadRuntimeApplyStep::Marker { .. } => "markers",
-        SavePostLoadRuntimeApplyStep::StaticFog | SavePostLoadRuntimeApplyStep::CustomChunk { .. } => {
-            "custom"
-        }
-    }
-}
-
-fn source_region_sort_key(source_region_name: &str) -> u8 {
-    match source_region_name {
-        "map" => 0,
-        "entities" => 1,
-        "markers" => 2,
-        "custom" => 3,
-        _ => 4,
-    }
-}
-
-fn bool_label(value: bool) -> &'static str {
-    if value { "yes" } else { "no" }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) mod test_support {
     use crate::{
         BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, ContentHeaderEntry,
         CoreTailSnapshot, CustomChunkEntry, MarkerEntry, MarkerModel, ParsedBuildingTail,
         ParsedCustomChunk, PointMarkerModel, SaveEntityChunkObservation, SaveEntityClassKind,
         SaveEntityClassSummary, SaveEntityPostLoadClassSummary, SaveEntityPostLoadKind,
         SaveEntityPostLoadSummary, SaveEntityRemapEntry, SaveEntityRemapSummary,
-        SaveMapRegionObservation, SavePostLoadRuntimeWorldOwnershipStatus,
-        SavePostLoadRuntimeWorldSurfaceKind, StaticFogChunk, StaticFogTeam, TeamPlan,
-        TeamPlanGroup, TileModel, TypeIoValue, WorldModel,
+        SaveMapRegionObservation, StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup,
+        TileModel, TypeIoValue, WorldModel,
     };
 
-    #[test]
-    fn execute_runtime_apply_materializes_clean_seedable_state() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-
-        let execution = observation.execute_runtime_apply();
-        let shell = execution.world_shell.as_ref().unwrap();
-
-        assert!(execution.can_seed_runtime_apply);
-        assert!(execution.world_shell_ready);
-        assert!(execution.can_activate_live_runtime());
-        assert!(execution.awaiting_world_shell_steps.is_empty());
-        assert!(execution.blocked_steps.is_empty());
-        assert!(execution.deferred_steps.is_empty());
-        assert!(execution.failed_steps.is_empty());
-        assert!(execution.issues.is_empty());
-        assert_eq!(execution.executed_step_count(), 14);
-        assert_eq!(execution.failed_step_count(), 0);
-        assert_eq!(execution.pending_step_count(), 0);
-        assert_eq!(
-            execution.summary_label(),
-            "seed=yes shell=yes exec=14 fail=0 wait=0 block=0 defer=0 total=14 sources=4 issues=0 live=yes"
-        );
-        assert!(execution
-            .detail_label()
-            .contains("region=custom exec=3 fail=0 wait=0 block=0 defer=0 total=3"));
-        assert_eq!(execution.entity_remaps.len(), 2);
-        assert_eq!(execution.entity_remaps_by_custom_id.len(), 2);
-        assert_eq!(execution.custom_chunks.len(), 2);
-        assert_eq!(execution.custom_chunks_by_name.len(), 2);
-        assert_eq!(shell.team_plans.len(), 2);
-        assert_eq!(shell.team_plans_by_team.len(), 2);
-        assert_eq!(shell.markers.len(), 2);
-        assert_eq!(shell.markers_by_id.len(), 2);
-        assert!(shell.static_fog.is_some());
-        assert_eq!(shell.buildings.len(), 1);
-        assert_eq!(shell.buildings_by_center_index.len(), 1);
-        assert_eq!(shell.loadable_entities.len(), 3);
-        assert_eq!(shell.loadable_entities_by_id.len(), 3);
-        assert_eq!(shell.loadable_entities_by_effective_class_id.len(), 2);
-        assert_eq!(shell.loadable_entities_by_effective_name.len(), 2);
-        assert_eq!(
-            shell
-                .loadable_entities_for_effective_class_id(3)
-                .unwrap()
-                .iter()
-                .map(|seed| seed.activation.entity_id)
-                .collect::<Vec<_>>(),
-            vec![42, 43]
-        );
-        assert_eq!(
-            shell
-                .loadable_entities_for_effective_class_id(4)
-                .unwrap()
-                .iter()
-                .map(|seed| seed.activation.entity_id)
-                .collect::<Vec<_>>(),
-            vec![44]
-        );
-        assert_eq!(
-            shell
-                .loadable_entities_for_effective_name("flare")
-                .unwrap()
-                .iter()
-                .map(|seed| seed.activation.entity_id)
-                .collect::<Vec<_>>(),
-            vec![42, 43]
-        );
-        assert_eq!(
-            shell
-                .loadable_entities_for_effective_name("mace")
-                .unwrap()
-                .iter()
-                .map(|seed| seed.activation.entity_id)
-                .collect::<Vec<_>>(),
-            vec![44]
-        );
-        assert_eq!(shell.applied_step_count(), 9);
-        assert_eq!(shell.seed.tile_count(), 4);
-    }
-
-    #[test]
-    fn live_runtime_activation_materializes_clean_seedable_runtime_bundle() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-
-        let activation = observation
-            .live_runtime_activation()
-            .expect("expected live runtime activation");
-
-        assert!(activation.ownership.can_activate_live_runtime());
-        assert_eq!(activation.world_shell.team_plans.len(), 2);
-        assert_eq!(activation.world_shell.markers.len(), 2);
-        assert_eq!(activation.world_shell.buildings.len(), 1);
-        assert_eq!(activation.world_shell.loadable_entities.len(), 3);
-        assert_eq!(activation.entity_remaps.len(), 2);
-        assert_eq!(activation.entity_remaps_by_custom_id.len(), 2);
-        assert_eq!(activation.custom_chunks.len(), 2);
-        assert_eq!(activation.custom_chunks_by_name.len(), 2);
-        assert!(activation.custom_chunks_by_name.contains_key("static-fog-data"));
-        assert!(activation.skipped_entities.is_empty());
-    }
-
-    #[test]
-    fn live_runtime_activation_rejects_auxiliary_or_world_failures() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-        observation.custom_chunks[1].name = "static-fog-data".to_string();
-
-        assert!(observation.live_runtime_activation().is_none());
-
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-        observation.map.world.tiles[0].building_center_index = None;
-
-        assert!(observation.live_runtime_activation().is_none());
-    }
-
-    #[test]
-    fn execute_runtime_apply_preserves_non_applyable_steps_as_pending() {
-        let mut observation = test_observation();
-        observation.world_entity_chunks[2].entity_id = 42;
-        observation.entity_summary.duplicate_entity_ids = vec![42];
-        observation.entity_summary.unique_entity_ids = 2;
-        observation.map.world.tiles[0].building_center_index = None;
-
-        let execution = observation.execute_runtime_apply();
-
-        assert!(!execution.can_seed_runtime_apply);
-        assert!(!execution.world_shell_ready);
-        assert!(!execution.has_world_shell());
-        assert!(execution.failed_steps.is_empty());
-        assert!(execution.issues.is_empty());
-        assert_eq!(
-            execution.executed_steps,
-            vec![
-                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
-                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 1 },
-                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 },
-                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 1 },
-            ]
-        );
-        assert_eq!(execution.entity_remaps.len(), 2);
-        assert_eq!(execution.entity_remaps_by_custom_id.len(), 2);
-        assert_eq!(execution.custom_chunks.len(), 2);
-        assert_eq!(execution.custom_chunks_by_name.len(), 2);
-        assert_eq!(
-            execution.awaiting_world_shell_steps,
-            vec![
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: 0,
-                    plan_index: 0,
-                },
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: 1,
-                    plan_index: 0,
-                },
-                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
-                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
-                SavePostLoadRuntimeApplyStep::StaticFog,
-            ]
-        );
-        assert_eq!(
-            execution.blocked_steps,
-            vec![
-                SavePostLoadRuntimeApplyStep::WorldShell,
-                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
-            ]
-        );
-        assert_eq!(
-            execution.deferred_steps,
-            vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }]
-        );
-        assert_eq!(execution.deferred_step_count(), 1);
-        assert_eq!(execution.pending_step_count(), 10);
-    }
-
-    #[test]
-    fn execute_runtime_apply_groups_steps_by_source_region() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-        observation.world_entity_chunks[1].class_id = 254;
-        observation.world_entity_chunks[1].custom_name = Some("mod-unit".to_string());
-        observation.world_entity_chunks[2].entity_id = 42;
-        observation.entity_summary.duplicate_entity_ids = vec![42];
-        observation.entity_summary.unique_entity_ids = 2;
-        observation.map.world.tiles[0].building_center_index = None;
-        observation.custom_chunks.push(CustomChunkEntry {
-            name: observation.custom_chunks[1].name.clone(),
-            chunk_len: 1,
-            chunk_bytes: vec![0xee],
-            chunk_sha256: "mystery-duplicate".to_string(),
-            parsed: ParsedCustomChunk::Unknown,
-        });
-
-        let execution = observation.execute_runtime_apply();
-        let source_regions = execution.source_regions();
-        let map = execution.source_region("map").unwrap();
-        let entities = execution.source_region("entities").unwrap();
-        let markers = execution.source_region("markers").unwrap();
-        let custom = execution.source_region("custom").unwrap();
-
-        assert_eq!(source_regions.len(), 4);
-        let source_region_names = source_regions
-            .iter()
-            .map(|region| region.source_region_name)
-            .collect::<Vec<_>>();
-        assert_eq!(source_region_names, vec!["map", "entities", "markers", "custom"]);
-        assert_eq!(
-            execution.summary_label(),
-            format!(
-                "seed={} shell={} exec={} fail={} wait={} block={} defer={} total={} sources={} issues={} live={}",
-                bool_label(execution.can_seed_runtime_apply),
-                bool_label(execution.world_shell_ready),
-                execution.executed_step_count(),
-                execution.failed_step_count(),
-                execution.awaiting_world_shell_steps.len(),
-                execution.blocked_steps.len(),
-                execution.deferred_step_count(),
-                execution.targeted_step_count(),
-                execution.source_regions().len(),
-                execution.issues.len(),
-                bool_label(execution.can_activate_live_runtime()),
-            )
-        );
-        assert_eq!(
-            entities.summary_label(),
-            "region=entities exec=2 fail=0 wait=2 block=2 defer=1 total=7"
-        );
-        assert_eq!(
-            custom.detail_label(),
-            "region=custom exec=2 fail=1 wait=1 block=0 defer=0 total=4"
-        );
-        assert_eq!(map.step_count(SavePostLoadRuntimeExecutionStepStatus::Blocked), 2);
-        assert_eq!(map.total_step_count(), 2);
-        assert_eq!(entities.total_step_count(), 7);
-        assert_eq!(
-            entities.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
-            2
-        );
-        assert_eq!(
-            entities.step_count(SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell),
-            2
-        );
-        assert_eq!(
-            entities.step_count(SavePostLoadRuntimeExecutionStepStatus::Blocked),
-            2
-        );
-        assert_eq!(
-            entities.step_count(SavePostLoadRuntimeExecutionStepStatus::Deferred),
-            1
-        );
-        assert_eq!(entities.total_step_count(), 7);
-        assert_eq!(
-            custom.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
-            2
-        );
-        assert_eq!(
-            custom.step_count(SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell),
-            1
-        );
-        assert_eq!(
-            custom.step_count(SavePostLoadRuntimeExecutionStepStatus::Failed),
-            1
-        );
-        assert_eq!(custom.total_step_count(), 4);
-        assert_eq!(markers.step_count(SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell), 2);
-        assert_eq!(markers.total_step_count(), 2);
-    }
-
-    #[test]
-    fn execute_runtime_apply_allows_activation_with_only_deferred_steps() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-
-        let mut execution = observation.execute_runtime_apply();
-        execution.executed_steps.clear();
-        execution.failed_steps.clear();
-        execution.awaiting_world_shell_steps.clear();
-        execution.blocked_steps.clear();
-        execution.deferred_steps = vec![SavePostLoadRuntimeApplyStep::SkippedEntity {
-            entity_index: 1,
-        }];
-
-        assert!(execution.can_seed_runtime_apply);
-        assert!(execution.world_shell_ready);
-        assert!(execution.has_world_shell());
-        assert!(execution.executed_steps.is_empty());
-        assert!(execution.failed_steps.is_empty());
-        assert!(execution.awaiting_world_shell_steps.is_empty());
-        assert!(execution.blocked_steps.is_empty());
-        assert_eq!(
-            execution.deferred_steps,
-            vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }]
-        );
-        assert_eq!(execution.deferred_step_count(), 1);
-        assert_eq!(execution.pending_step_count(), 1);
-        assert!(execution.can_activate_live_runtime());
-    }
-
-    #[test]
-    fn execute_runtime_apply_blocks_activation_on_auxiliary_failures() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-        observation.custom_chunks.push(CustomChunkEntry {
-            name: observation.custom_chunks[1].name.clone(),
-            chunk_len: 1,
-            chunk_bytes: vec![0xee],
-            chunk_sha256: "mystery-duplicate".to_string(),
-            parsed: ParsedCustomChunk::Unknown,
-        });
-
-        let execution = observation.execute_runtime_apply();
-
-        assert!(execution.can_seed_runtime_apply);
-        assert!(execution.world_shell_ready);
-        assert!(execution.has_world_shell());
-        assert!(!execution.failed_steps.is_empty());
-        assert_eq!(
-            execution.failed_steps,
-            vec![SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 2 }]
-        );
-        assert_eq!(
-            execution.issues,
-            vec![SavePostLoadRuntimeApplyIssue::DuplicateCustomChunkName("mystery".to_string(),)]
-        );
-        assert!(!execution.can_activate_live_runtime());
-    }
-
-    #[test]
-    fn execute_runtime_world_semantics_ignores_duplicate_non_world_custom_chunk_failures() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-        observation.custom_chunks.push(CustomChunkEntry {
-            name: observation.custom_chunks[1].name.clone(),
-            chunk_len: 1,
-            chunk_bytes: vec![0xee],
-            chunk_sha256: "mystery-duplicate".to_string(),
-            parsed: ParsedCustomChunk::Unknown,
-        });
-
-        let runtime_apply = observation.execute_runtime_apply();
-        let execution = observation.execute_runtime_world_semantics();
-        let shell = execution.world_shell.as_ref().unwrap();
-
-        assert_eq!(
-            runtime_apply.failed_steps,
-            vec![SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 2 }]
-        );
-        assert_eq!(
-            runtime_apply.issues,
-            vec![SavePostLoadRuntimeApplyIssue::DuplicateCustomChunkName(
-                "mystery".to_string(),
-            )]
-        );
-        assert!(!runtime_apply.can_activate_live_runtime());
-
-        assert!(execution.world_shell_ready);
-        assert!(execution.has_world_shell());
-        assert!(execution.awaiting_world_shell_steps.is_empty());
-        assert!(execution.blocked_steps.is_empty());
-        assert!(execution.failed_steps.is_empty());
-        assert!(execution.issues.is_empty());
-        assert!(execution.can_activate_live_runtime());
-        assert!(shell.static_fog.is_some());
-    }
-
-    #[test]
-    fn execute_runtime_apply_records_duplicate_marker_ids_without_overwriting_first_marker() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-        observation.markers[1].id = observation.markers[0].id;
-
-        let execution = observation.execute_runtime_apply();
-        let shell = execution.world_shell.as_ref().unwrap();
-
-        assert_eq!(
-            execution.failed_steps,
-            vec![SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 }]
-        );
-        assert_eq!(
-            execution.issues,
-            vec![SavePostLoadRuntimeApplyIssue::DuplicateMarkerId(11)]
-        );
-        assert_eq!(
-            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::Markers),
-            1
-        );
-        assert_eq!(shell.markers.len(), 1);
-        assert_eq!(shell.markers_by_id.len(), 1);
-        assert!(shell.markers_by_id.contains_key(&11));
-    }
-
-    #[test]
-    fn execute_runtime_world_semantics_rejects_duplicate_marker_ids_after_world_shell_ready() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-        observation.markers[1].id = observation.markers[0].id;
-
-        let execution = observation.execute_runtime_world_semantics();
-        let shell = execution.world_shell.as_ref().unwrap();
-
-        assert!(execution.world_shell_ready);
-        assert!(execution.has_world_shell());
-        assert!(execution.awaiting_world_shell_steps.is_empty());
-        assert!(execution.blocked_steps.is_empty());
-        assert_eq!(
-            execution.failed_steps,
-            vec![SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 }]
-        );
-        assert_eq!(
-            execution.issues,
-            vec![SavePostLoadRuntimeApplyIssue::DuplicateMarkerId(11)]
-        );
-        assert!(!execution.can_activate_live_runtime());
-        assert_eq!(
-            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::Markers),
-            1
-        );
-        assert_eq!(shell.markers.len(), 1);
-        assert_eq!(shell.markers_by_id.len(), 1);
-        assert!(shell.markers_by_id.contains_key(&11));
-    }
-
-    #[test]
-    fn execute_runtime_world_semantics_groups_steps_by_source_region() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-        observation.markers[1].id = observation.markers[0].id;
-
-        let execution = observation.execute_runtime_world_semantics();
-        let source_regions = execution.source_regions();
-        let map = execution.source_region("map").unwrap();
-        let entities = execution.source_region("entities").unwrap();
-        let markers = execution.source_region("markers").unwrap();
-        let custom = execution.source_region("custom").unwrap();
-
-        assert_eq!(source_regions.len(), 4);
-        let mut source_region_names = source_regions
-            .iter()
-            .map(|region| region.source_region_name)
-            .collect::<Vec<_>>();
-        source_region_names.sort_unstable();
-        assert_eq!(source_region_names, vec!["custom", "entities", "map", "markers"]);
-        assert_eq!(
-            execution.summary_label(),
-            format!(
-                "shell={} semantics={} exec={} fail={} wait={} block={} defer={} total={} sources={} issues={} live={}",
-                bool_label(execution.world_shell_ready),
-                bool_label(execution.can_apply_world_semantics()),
-                execution.executed_step_count(),
-                execution.failed_step_count(),
-                execution.awaiting_world_shell_steps.len(),
-                execution.blocked_steps.len(),
-                execution.deferred_step_count(),
-                execution.targeted_step_count(),
-                execution.source_regions().len(),
-                execution.issues.len(),
-                bool_label(execution.can_activate_live_runtime()),
-            )
-        );
-        assert_eq!(
-            markers.summary_label(),
-            "region=markers exec=1 fail=1 wait=0 block=0 defer=0 total=2"
-        );
-        assert!(execution
-            .detail_label()
-            .contains("region=markers exec=1 fail=1 wait=0 block=0 defer=0 total=2"));
-        assert_eq!(map.total_step_count(), 2);
-        assert_eq!(entities.total_step_count(), 5);
-        assert_eq!(markers.total_step_count(), 2);
-        assert_eq!(custom.total_step_count(), 1);
-        assert_eq!(
-            markers.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
-            1
-        );
-        assert_eq!(
-            markers.step_count(SavePostLoadRuntimeExecutionStepStatus::Failed),
-            1
-        );
-        assert_eq!(markers.total_step_count(), 2);
-    }
-
-    #[test]
-    fn execute_runtime_world_semantics_keeps_world_shell_overlay_steps_and_ignores_non_world_tail()
-    {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-        let mut plan = observation.runtime_seed_plan();
-        let mut skipped = plan.loadable_entity_seeds[1].clone();
-        skipped.entity_index = 99;
-        plan.skipped_entity_seeds.push(skipped);
-
-        let execution = plan.execute_runtime_world_semantics();
-        let shell = execution.world_shell.as_ref().unwrap();
-
-        assert!(execution.world_shell_ready);
-        assert!(execution.can_apply_world_semantics());
-        assert!(execution.can_activate_live_runtime());
-        assert!(execution.ownership.can_apply_world_semantics());
-        assert_eq!(execution.executed_step_count(), 10);
-        assert_eq!(execution.failed_step_count(), 0);
-        assert_eq!(execution.pending_step_count(), 0);
-        assert_eq!(execution.targeted_step_count(), 10);
-        assert_eq!(
-            execution.executed_steps,
-            vec![
-                SavePostLoadRuntimeApplyStep::WorldShell,
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: 0,
-                    plan_index: 0,
-                },
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: 1,
-                    plan_index: 0,
-                },
-                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
-                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
-                SavePostLoadRuntimeApplyStep::StaticFog,
-                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 1 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
-            ]
-        );
-        assert!(execution.issues.is_empty());
-        assert_eq!(
-            execution
-                .ownership
-                .surface(SavePostLoadRuntimeWorldSurfaceKind::Markers)
-                .unwrap()
-                .status,
-            SavePostLoadRuntimeWorldOwnershipStatus::Owned
-        );
-        assert_eq!(shell.team_plans.len(), 2);
-        assert_eq!(shell.team_plans_by_team.len(), 2);
-        assert_eq!(shell.markers.len(), 2);
-        assert_eq!(shell.markers_by_id.len(), 2);
-        assert!(shell.static_fog.is_some());
-        assert_eq!(shell.buildings.len(), 1);
-        assert_eq!(shell.buildings_by_center_index.len(), 1);
-        assert_eq!(shell.loadable_entities.len(), 3);
-        assert_eq!(shell.loadable_entities_by_id.len(), 3);
-        assert_eq!(
-            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities),
-            3
-        );
-        assert_eq!(shell.loadable_entities_by_effective_class_id.len(), 2);
-        assert_eq!(
-            shell
-                .loadable_entities_for_effective_class_id(3)
-                .unwrap()
-                .iter()
-                .map(|seed| seed.activation.entity_id)
-                .collect::<Vec<_>>(),
-            vec![42, 43]
-        );
-        assert_eq!(
-            shell
-                .loadable_entities_for_effective_name("flare")
-                .unwrap()
-                .iter()
-                .map(|seed| seed.activation.entity_id)
-                .collect::<Vec<_>>(),
-            vec![42, 43]
-        );
-        assert!(!execution.executed_steps.iter().any(|step| {
-            matches!(
-                step,
-                SavePostLoadRuntimeApplyStep::EntityRemap { .. }
-                    | SavePostLoadRuntimeApplyStep::CustomChunk { .. }
-                    | SavePostLoadRuntimeApplyStep::SkippedEntity { .. }
-            )
-        }));
-    }
-
-    #[test]
-    fn execute_runtime_world_semantics_keeps_world_blockers_without_non_world_pending_steps() {
-        let mut observation = test_observation();
-        observation.world_entity_chunks[2].entity_id = 42;
-        observation.entity_summary.duplicate_entity_ids = vec![42];
-        observation.entity_summary.unique_entity_ids = 2;
-        observation.map.world.tiles[0].building_center_index = None;
-
-        let execution = observation.execute_runtime_world_semantics();
-
-        assert!(!execution.world_shell_ready);
-        assert!(!execution.can_apply_world_semantics());
-        assert!(!execution.can_activate_live_runtime());
-        assert_eq!(
-            execution
-                .ownership
-                .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
-                .unwrap()
-                .status,
-            SavePostLoadRuntimeWorldOwnershipStatus::Blocked
-        );
-        assert!(!execution.has_world_shell());
-        assert!(execution.failed_steps.is_empty());
-        assert!(execution.issues.is_empty());
-        assert_eq!(
-            execution.awaiting_world_shell_steps,
-            vec![
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: 0,
-                    plan_index: 0,
-                },
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: 1,
-                    plan_index: 0,
-                },
-                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
-                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
-                SavePostLoadRuntimeApplyStep::StaticFog,
-            ]
-        );
-        assert_eq!(
-            execution.blocked_steps,
-            vec![
-                SavePostLoadRuntimeApplyStep::WorldShell,
-                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
-            ]
-        );
-        assert_eq!(execution.executed_step_count(), 0);
-        assert_eq!(execution.pending_step_count(), 9);
-        assert_eq!(execution.targeted_step_count(), 9);
-    }
-
-    #[test]
-    fn world_semantics_activation_rejects_failed_world_steps() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-
-        let mut execution = observation.execute_runtime_world_semantics();
-        execution
-            .failed_steps
-            .push(SavePostLoadRuntimeApplyStep::Building { center_index: 0 });
-
-        assert!(execution.world_shell_ready);
-        assert!(execution.can_apply_world_semantics());
-        assert!(execution.has_world_shell());
-        assert!(!execution.failed_steps.is_empty());
-        assert!(!execution.can_activate_live_runtime());
-    }
-
-    #[test]
-    fn world_semantics_activation_rejects_pending_steps() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-
-        let mut execution = observation.execute_runtime_world_semantics();
-        execution
-            .awaiting_world_shell_steps
-            .push(SavePostLoadRuntimeApplyStep::TeamPlan {
-                group_index: 0,
-                plan_index: 0,
-            });
-
-        assert!(execution.world_shell_ready);
-        assert!(execution.can_apply_world_semantics());
-        assert!(execution.has_world_shell());
-        assert!(execution.failed_steps.is_empty());
-        assert!(!execution.awaiting_world_shell_steps.is_empty());
-        assert!(!execution.can_activate_live_runtime());
-
-        let mut execution = observation.execute_runtime_world_semantics();
-        execution
-            .blocked_steps
-            .push(SavePostLoadRuntimeApplyStep::Building { center_index: 0 });
-
-        assert!(execution.world_shell_ready);
-        assert!(execution.can_apply_world_semantics());
-        assert!(execution.has_world_shell());
-        assert!(execution.failed_steps.is_empty());
-        assert!(!execution.blocked_steps.is_empty());
-        assert!(!execution.can_activate_live_runtime());
-    }
-
-    fn make_observation_seedable(observation: &mut crate::SavePostLoadWorldObservation) {
+    fn apply_seedable_observation_fixture(observation: &mut crate::SavePostLoadWorldObservation) {
         observation.world_entity_chunks[1].class_id = 3;
         observation.world_entity_chunks[1].custom_name = None;
         observation
@@ -1628,7 +929,314 @@ mod tests {
         ];
     }
 
-    fn test_observation() -> crate::SavePostLoadWorldObservation {
+    fn seedable_observation_from(
+        base: impl FnOnce() -> crate::SavePostLoadWorldObservation,
+    ) -> crate::SavePostLoadWorldObservation {
+        let mut observation = base();
+        apply_seedable_observation_fixture(&mut observation);
+        observation
+    }
+
+    pub(crate) fn make_observation_seedable(observation: &mut crate::SavePostLoadWorldObservation) {
+        apply_seedable_observation_fixture(observation);
+    }
+
+    pub(crate) fn seedable_test_observation() -> crate::SavePostLoadWorldObservation {
+        seedable_observation_from(test_observation)
+    }
+
+    pub(crate) fn make_runtime_plan_observation_seedable(
+        observation: &mut crate::SavePostLoadWorldObservation,
+    ) {
+        apply_seedable_observation_fixture(observation);
+    }
+
+    pub(crate) fn runtime_plan_seedable_test_observation() -> crate::SavePostLoadWorldObservation {
+        seedable_observation_from(runtime_plan_test_observation)
+    }
+
+    pub(crate) fn runtime_plan_test_observation() -> crate::SavePostLoadWorldObservation {
+        crate::SavePostLoadWorldObservation {
+            save_version: 11,
+            content_header: vec![ContentHeaderEntry {
+                content_type: 1,
+                names: vec!["core-nucleus".to_string(), "duo".to_string()],
+            }],
+            patches: vec![vec![0xaa, 0xbb]],
+            map: SaveMapRegionObservation {
+                floor_runs: 1,
+                floor_region_bytes: vec![1],
+                block_runs: 1,
+                block_region_bytes: vec![2],
+                world: runtime_plan_test_world(),
+            },
+            entity_remap_entries: vec![
+                SaveEntityRemapEntry {
+                    custom_id: 255,
+                    name: "flare".to_string(),
+                },
+                SaveEntityRemapEntry {
+                    custom_id: 254,
+                    name: "mod-unit".to_string(),
+                },
+            ],
+            entity_remap_bytes: Vec::new(),
+            entity_remap_summary: SaveEntityRemapSummary {
+                remap_count: 2,
+                unique_custom_ids: 2,
+                duplicate_custom_ids: Vec::new(),
+                unique_names: 2,
+                duplicate_names: Vec::new(),
+                effective_custom_ids: 1,
+                resolved_builtin_custom_ids: vec![255],
+                unresolved_effective_names: vec!["mod-unit".to_string()],
+            },
+            team_plan_groups: vec![
+                TeamPlanGroup {
+                    team_id: 1,
+                    plan_count: 1,
+                    plans: vec![TeamPlan {
+                        x: 1,
+                        y: 1,
+                        rotation: 0,
+                        block_id: 0x0101,
+                        config: TypeIoValue::Null,
+                        config_bytes: Vec::new(),
+                        config_sha256: "plan-a".to_string(),
+                    }],
+                },
+                TeamPlanGroup {
+                    team_id: 2,
+                    plan_count: 1,
+                    plans: vec![TeamPlan {
+                        x: 0,
+                        y: 1,
+                        rotation: 1,
+                        block_id: 0x0102,
+                        config: TypeIoValue::Integer(7),
+                        config_bytes: vec![7],
+                        config_sha256: "plan-b".to_string(),
+                    }],
+                },
+            ],
+            team_region_bytes: vec![3],
+            world_entity_count: 3,
+            world_entity_bytes: vec![4],
+            world_entity_chunks: vec![
+                SaveEntityChunkObservation {
+                    chunk_len: 3,
+                    chunk_bytes: vec![4, 5, 6],
+                    chunk_sha256: "chunk-remap".to_string(),
+                    class_id: 255,
+                    custom_name: Some("flare".to_string()),
+                    entity_id: 42,
+                    body_len: 2,
+                    body_bytes: vec![5, 6],
+                    body_sha256: "entity-remap".to_string(),
+                },
+                SaveEntityChunkObservation {
+                    chunk_len: 3,
+                    chunk_bytes: vec![6, 7, 8],
+                    chunk_sha256: "chunk-skip".to_string(),
+                    class_id: 254,
+                    custom_name: Some("mod-unit".to_string()),
+                    entity_id: 43,
+                    body_len: 2,
+                    body_bytes: vec![7, 8],
+                    body_sha256: "entity-skip".to_string(),
+                },
+                SaveEntityChunkObservation {
+                    chunk_len: 3,
+                    chunk_bytes: vec![8, 9, 10],
+                    chunk_sha256: "chunk-builtin".to_string(),
+                    class_id: 4,
+                    custom_name: None,
+                    entity_id: 44,
+                    body_len: 2,
+                    body_bytes: vec![9, 10],
+                    body_sha256: "entity-builtin".to_string(),
+                },
+            ],
+            markers: vec![
+                MarkerEntry {
+                    id: 11,
+                    marker: MarkerModel::Point(PointMarkerModel {
+                        class_tag: "Minimap".to_string(),
+                        world: true,
+                        minimap: true,
+                        autoscale: false,
+                        draw_layer_bits: 0.0f32.to_bits(),
+                        x_bits: 8.0f32.to_bits(),
+                        y_bits: 0.0f32.to_bits(),
+                        radius_bits: 1.0f32.to_bits(),
+                        stroke_bits: 1.0f32.to_bits(),
+                        color: Some("ffffff".to_string()),
+                    }),
+                },
+                MarkerEntry {
+                    id: 12,
+                    marker: MarkerModel::Point(PointMarkerModel {
+                        class_tag: "Objective".to_string(),
+                        world: true,
+                        minimap: false,
+                        autoscale: false,
+                        draw_layer_bits: 0.0f32.to_bits(),
+                        x_bits: 0.0f32.to_bits(),
+                        y_bits: 8.0f32.to_bits(),
+                        radius_bits: 1.5f32.to_bits(),
+                        stroke_bits: 1.0f32.to_bits(),
+                        color: Some("00ff00".to_string()),
+                    }),
+                },
+            ],
+            marker_region_bytes: b"{markers}".to_vec(),
+            custom_chunks: vec![
+                CustomChunkEntry {
+                    name: "static-fog-data".to_string(),
+                    chunk_len: 1,
+                    chunk_bytes: vec![7],
+                    chunk_sha256: "fog".to_string(),
+                    parsed: ParsedCustomChunk::StaticFog(StaticFogChunk {
+                        used_teams: 2,
+                        width: 2,
+                        height: 2,
+                        teams: vec![
+                            StaticFogTeam {
+                                team_id: 1,
+                                run_count: 1,
+                                rle_bytes: vec![8],
+                                discovered: vec![true, false, true, true],
+                            },
+                            StaticFogTeam {
+                                team_id: 2,
+                                run_count: 1,
+                                rle_bytes: vec![9],
+                                discovered: vec![false, true, false, true],
+                            },
+                        ],
+                    }),
+                },
+                CustomChunkEntry {
+                    name: "mystery".to_string(),
+                    chunk_len: 2,
+                    chunk_bytes: vec![1, 2],
+                    chunk_sha256: "mystery".to_string(),
+                    parsed: ParsedCustomChunk::Unknown,
+                },
+            ],
+            custom_region_bytes: vec![9],
+            entity_summary: SaveEntityPostLoadSummary {
+                total_entities: 3,
+                unique_entity_ids: 3,
+                duplicate_entity_ids: Vec::new(),
+                builtin_entities: 1,
+                custom_entities: 2,
+                unknown_entities: 0,
+                class_summaries: Vec::new(),
+                loadable_entities: 2,
+                skipped_entities: 1,
+                post_load_class_summaries: Vec::new(),
+            },
+        }
+    }
+
+    pub(crate) fn runtime_plan_test_world() -> WorldModel {
+        let floors = vec![1, 1, 1, 1];
+        let overlays = vec![0, 0, 0, 0];
+        let blocks = vec![0x0153, 0, 0, 0];
+        WorldModel {
+            width: 2,
+            height: 2,
+            floors: floors.clone(),
+            overlays: overlays.clone(),
+            blocks: blocks.clone(),
+            tiles: vec![
+                TileModel {
+                    tile_index: 0,
+                    x: 0,
+                    y: 0,
+                    floor_id: floors[0],
+                    overlay_id: overlays[0],
+                    block_id: blocks[0],
+                    building_center_index: Some(0),
+                },
+                TileModel {
+                    tile_index: 1,
+                    x: 1,
+                    y: 0,
+                    floor_id: floors[1],
+                    overlay_id: overlays[1],
+                    block_id: blocks[1],
+                    building_center_index: None,
+                },
+                TileModel {
+                    tile_index: 2,
+                    x: 0,
+                    y: 1,
+                    floor_id: floors[2],
+                    overlay_id: overlays[2],
+                    block_id: blocks[2],
+                    building_center_index: None,
+                },
+                TileModel {
+                    tile_index: 3,
+                    x: 1,
+                    y: 1,
+                    floor_id: floors[3],
+                    overlay_id: overlays[3],
+                    block_id: blocks[3],
+                    building_center_index: None,
+                },
+            ],
+            building_centers: vec![BuildingCenter {
+                tile_index: 0,
+                x: 0,
+                y: 0,
+                block_id: 0x0153,
+                chunk_len: 3,
+                chunk_bytes: vec![0, 1, 2],
+                chunk_sha256: "center".to_string(),
+                building: BuildingSnapshot {
+                    revision: 0,
+                    base_len: 0,
+                    base: BuildingBaseSnapshot {
+                        health_bits: 1.0f32.to_bits(),
+                        rotation: 0,
+                        team_id: 1,
+                        legacy: false,
+                        save_version: None,
+                        enabled: None,
+                        module_bitmask: None,
+                        item_module: None,
+                        power_module: None,
+                        liquid_module: None,
+                        time_scale_bits: None,
+                        time_scale_duration_bits: None,
+                        last_disabler_pos: None,
+                        legacy_consume_connected: None,
+                        efficiency: None,
+                        optional_efficiency: None,
+                        visible_flags: None,
+                    },
+                    tail_len: 0,
+                    tail_bytes: Vec::new(),
+                    tail_sha256: "tail".to_string(),
+                    parsed_tail: ParsedBuildingTail::Core(CoreTailSnapshot {
+                        command_pos_present: false,
+                        command_pos_x_bits: 0,
+                        command_pos_y_bits: 0,
+                    }),
+                },
+            }],
+            data_tiles: 1,
+            team_count: 2,
+            total_plans: 2,
+            team_ids: vec![1, 2],
+            team_plan_counts: vec![1, 1],
+        }
+    }
+
+    pub(crate) fn test_observation() -> crate::SavePostLoadWorldObservation {
         crate::SavePostLoadWorldObservation {
             save_version: 11,
             content_header: vec![ContentHeaderEntry {
@@ -1813,7 +1421,7 @@ mod tests {
         }
     }
 
-    fn test_world() -> WorldModel {
+    pub(crate) fn test_world() -> WorldModel {
         let floors = vec![1, 1, 1, 1];
         let overlays = vec![0, 0, 0, 0];
         let blocks = vec![0x0153, 0, 0, 0];
@@ -1907,5 +1515,712 @@ mod tests {
             team_ids: vec![1, 2],
             team_plan_counts: vec![1, 1],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::save_post_load_runtime_execution::test_support::{
+        make_observation_seedable, test_observation,
+    };
+    use crate::{
+        CustomChunkEntry, ParsedCustomChunk, SavePostLoadRuntimeWorldOwnershipStatus,
+        SavePostLoadRuntimeWorldSurfaceKind,
+    };
+
+    fn apply_blocked_pending_world_shell_fixture(observation: &mut SavePostLoadWorldObservation) {
+        observation.world_entity_chunks[2].entity_id = 42;
+        observation.entity_summary.duplicate_entity_ids = vec![42];
+        observation.entity_summary.unique_entity_ids = 2;
+        observation.map.world.tiles[0].building_center_index = None;
+    }
+
+    #[test]
+    fn execute_runtime_apply_materializes_clean_seedable_state() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let execution = observation.execute_runtime_apply();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert!(execution.can_seed_runtime_apply);
+        assert!(execution.world_shell_ready);
+        assert!(execution.can_activate_live_runtime());
+        assert!(execution.awaiting_world_shell_steps.is_empty());
+        assert!(execution.blocked_steps.is_empty());
+        assert!(execution.deferred_steps.is_empty());
+        assert!(execution.failed_steps.is_empty());
+        assert!(execution.issues.is_empty());
+        assert_eq!(execution.executed_step_count(), 14);
+        assert_eq!(execution.failed_step_count(), 0);
+        assert_eq!(execution.pending_step_count(), 0);
+        assert_eq!(
+            execution.summary_label(),
+            "seed=yes shell=yes exec=14 fail=0 wait=0 block=0 defer=0 total=14 sources=4 issues=0 live=yes"
+        );
+        assert!(execution
+            .detail_label()
+            .contains("region=custom exec=3 fail=0 wait=0 block=0 defer=0 total=3"));
+        assert_eq!(execution.entity_remaps.len(), 2);
+        assert_eq!(execution.entity_remaps_by_custom_id.len(), 2);
+        assert_eq!(execution.custom_chunks.len(), 2);
+        assert_eq!(execution.custom_chunks_by_name.len(), 2);
+        assert_eq!(shell.team_plans.len(), 2);
+        assert_eq!(shell.team_plans_by_team.len(), 2);
+        assert_eq!(shell.markers.len(), 2);
+        assert_eq!(shell.markers_by_id.len(), 2);
+        assert!(shell.static_fog.is_some());
+        assert_eq!(shell.buildings.len(), 1);
+        assert_eq!(shell.buildings_by_center_index.len(), 1);
+        assert_eq!(shell.loadable_entities.len(), 3);
+        assert_eq!(shell.loadable_entities_by_id.len(), 3);
+        assert_eq!(shell.loadable_entities_by_effective_class_id.len(), 2);
+        assert_eq!(shell.loadable_entities_by_effective_name.len(), 2);
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_class_id(3)
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![42, 43]
+        );
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_class_id(4)
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![44]
+        );
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_name("flare")
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![42, 43]
+        );
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_name("mace")
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![44]
+        );
+        assert_eq!(shell.applied_step_count(), 9);
+        assert_eq!(shell.seed.tile_count(), 4);
+    }
+
+    #[test]
+    fn live_runtime_activation_materializes_clean_seedable_runtime_bundle() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let activation = observation
+            .live_runtime_activation()
+            .expect("expected live runtime activation");
+
+        assert!(activation.ownership.can_activate_live_runtime());
+        assert_eq!(activation.world_shell.team_plans.len(), 2);
+        assert_eq!(activation.world_shell.markers.len(), 2);
+        assert_eq!(activation.world_shell.buildings.len(), 1);
+        assert_eq!(activation.world_shell.loadable_entities.len(), 3);
+        assert_eq!(activation.entity_remaps.len(), 2);
+        assert_eq!(activation.entity_remaps_by_custom_id.len(), 2);
+        assert_eq!(activation.custom_chunks.len(), 2);
+        assert_eq!(activation.custom_chunks_by_name.len(), 2);
+        assert!(activation
+            .custom_chunks_by_name
+            .contains_key("static-fog-data"));
+        assert!(activation.skipped_entities.is_empty());
+    }
+
+    #[test]
+    fn live_runtime_activation_rejects_auxiliary_or_world_failures() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.custom_chunks[1].name = "static-fog-data".to_string();
+
+        assert!(observation.live_runtime_activation().is_none());
+
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.map.world.tiles[0].building_center_index = None;
+
+        assert!(observation.live_runtime_activation().is_none());
+    }
+
+    #[test]
+    fn execute_runtime_apply_preserves_non_applyable_steps_as_pending() {
+        let mut observation = test_observation();
+        apply_blocked_pending_world_shell_fixture(&mut observation);
+
+        let execution = observation.execute_runtime_apply();
+
+        assert!(!execution.can_seed_runtime_apply);
+        assert!(!execution.world_shell_ready);
+        assert!(!execution.has_world_shell());
+        assert!(execution.failed_steps.is_empty());
+        assert!(execution.issues.is_empty());
+        assert_eq!(
+            execution.executed_steps,
+            vec![
+                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
+                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 1 },
+                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 },
+                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 1 },
+            ]
+        );
+        assert_eq!(execution.entity_remaps.len(), 2);
+        assert_eq!(execution.entity_remaps_by_custom_id.len(), 2);
+        assert_eq!(execution.custom_chunks.len(), 2);
+        assert_eq!(execution.custom_chunks_by_name.len(), 2);
+        assert_eq!(
+            execution.awaiting_world_shell_steps,
+            vec![
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 0,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 1,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
+                SavePostLoadRuntimeApplyStep::StaticFog,
+            ]
+        );
+        assert_eq!(
+            execution.blocked_steps,
+            vec![
+                SavePostLoadRuntimeApplyStep::WorldShell,
+                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
+            ]
+        );
+        assert_eq!(
+            execution.deferred_steps,
+            vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }]
+        );
+        assert_eq!(execution.deferred_step_count(), 1);
+        assert_eq!(execution.pending_step_count(), 10);
+    }
+
+    #[test]
+    fn execute_runtime_apply_groups_steps_by_source_region() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.world_entity_chunks[1].class_id = 254;
+        observation.world_entity_chunks[1].custom_name = Some("mod-unit".to_string());
+        apply_blocked_pending_world_shell_fixture(&mut observation);
+        observation.custom_chunks.push(CustomChunkEntry {
+            name: observation.custom_chunks[1].name.clone(),
+            chunk_len: 1,
+            chunk_bytes: vec![0xee],
+            chunk_sha256: "mystery-duplicate".to_string(),
+            parsed: ParsedCustomChunk::Unknown,
+        });
+
+        let execution = observation.execute_runtime_apply();
+        let source_regions = execution.source_regions();
+        let map = execution.source_region("map").unwrap();
+        let entities = execution.source_region("entities").unwrap();
+        let markers = execution.source_region("markers").unwrap();
+        let custom = execution.source_region("custom").unwrap();
+
+        assert_eq!(source_regions.len(), 4);
+        let source_region_names = source_regions
+            .iter()
+            .map(|region| region.source_region_name)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            source_region_names,
+            vec!["map", "entities", "markers", "custom"]
+        );
+        assert_eq!(
+            execution.summary_label(),
+            format!(
+                "seed={} shell={} exec={} fail={} wait={} block={} defer={} total={} sources={} issues={} live={}",
+                bool_word_label(execution.can_seed_runtime_apply),
+                bool_word_label(execution.world_shell_ready),
+                execution.executed_step_count(),
+                execution.failed_step_count(),
+                execution.awaiting_world_shell_steps.len(),
+                execution.blocked_steps.len(),
+                execution.deferred_step_count(),
+                execution.targeted_step_count(),
+                execution.source_regions().len(),
+                execution.issues.len(),
+                bool_word_label(execution.can_activate_live_runtime()),
+            )
+        );
+        assert_eq!(
+            entities.summary_label(),
+            "region=entities exec=2 fail=0 wait=2 block=2 defer=1 total=7"
+        );
+        assert_eq!(
+            custom.detail_label(),
+            "region=custom exec=2 fail=1 wait=1 block=0 defer=0 total=4"
+        );
+        assert_eq!(
+            map.step_count(SavePostLoadRuntimeExecutionStepStatus::Blocked),
+            2
+        );
+        assert_eq!(map.total_step_count(), 2);
+        assert_eq!(entities.total_step_count(), 7);
+        assert_eq!(
+            entities.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
+            2
+        );
+        assert_eq!(
+            entities.step_count(SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell),
+            2
+        );
+        assert_eq!(
+            entities.step_count(SavePostLoadRuntimeExecutionStepStatus::Blocked),
+            2
+        );
+        assert_eq!(
+            entities.step_count(SavePostLoadRuntimeExecutionStepStatus::Deferred),
+            1
+        );
+        assert_eq!(entities.total_step_count(), 7);
+        assert_eq!(
+            custom.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
+            2
+        );
+        assert_eq!(
+            custom.step_count(SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell),
+            1
+        );
+        assert_eq!(
+            custom.step_count(SavePostLoadRuntimeExecutionStepStatus::Failed),
+            1
+        );
+        assert_eq!(custom.total_step_count(), 4);
+        assert_eq!(
+            markers.step_count(SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell),
+            2
+        );
+        assert_eq!(markers.total_step_count(), 2);
+    }
+
+    #[test]
+    fn execute_runtime_apply_allows_activation_with_only_deferred_steps() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let mut execution = observation.execute_runtime_apply();
+        execution.executed_steps.clear();
+        execution.failed_steps.clear();
+        execution.awaiting_world_shell_steps.clear();
+        execution.blocked_steps.clear();
+        execution.deferred_steps =
+            vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }];
+
+        assert!(execution.can_seed_runtime_apply);
+        assert!(execution.world_shell_ready);
+        assert!(execution.has_world_shell());
+        assert!(execution.executed_steps.is_empty());
+        assert!(execution.failed_steps.is_empty());
+        assert!(execution.awaiting_world_shell_steps.is_empty());
+        assert!(execution.blocked_steps.is_empty());
+        assert_eq!(
+            execution.deferred_steps,
+            vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }]
+        );
+        assert_eq!(execution.deferred_step_count(), 1);
+        assert_eq!(execution.pending_step_count(), 1);
+        assert!(execution.can_activate_live_runtime());
+    }
+
+    #[test]
+    fn execute_runtime_apply_blocks_activation_on_auxiliary_failures() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.custom_chunks.push(CustomChunkEntry {
+            name: observation.custom_chunks[1].name.clone(),
+            chunk_len: 1,
+            chunk_bytes: vec![0xee],
+            chunk_sha256: "mystery-duplicate".to_string(),
+            parsed: ParsedCustomChunk::Unknown,
+        });
+
+        let execution = observation.execute_runtime_apply();
+
+        assert!(execution.can_seed_runtime_apply);
+        assert!(execution.world_shell_ready);
+        assert!(execution.has_world_shell());
+        assert!(!execution.failed_steps.is_empty());
+        assert_eq!(
+            execution.failed_steps,
+            vec![SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 2 }]
+        );
+        assert_eq!(
+            execution.issues,
+            vec![SavePostLoadRuntimeApplyIssue::DuplicateCustomChunkName(
+                "mystery".to_string(),
+            )]
+        );
+        assert!(!execution.can_activate_live_runtime());
+    }
+
+    #[test]
+    fn execute_runtime_world_semantics_ignores_duplicate_non_world_custom_chunk_failures() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.custom_chunks.push(CustomChunkEntry {
+            name: observation.custom_chunks[1].name.clone(),
+            chunk_len: 1,
+            chunk_bytes: vec![0xee],
+            chunk_sha256: "mystery-duplicate".to_string(),
+            parsed: ParsedCustomChunk::Unknown,
+        });
+
+        let runtime_apply = observation.execute_runtime_apply();
+        let execution = observation.execute_runtime_world_semantics();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert_eq!(
+            runtime_apply.failed_steps,
+            vec![SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 2 }]
+        );
+        assert_eq!(
+            runtime_apply.issues,
+            vec![SavePostLoadRuntimeApplyIssue::DuplicateCustomChunkName(
+                "mystery".to_string(),
+            )]
+        );
+        assert!(!runtime_apply.can_activate_live_runtime());
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.has_world_shell());
+        assert!(execution.awaiting_world_shell_steps.is_empty());
+        assert!(execution.blocked_steps.is_empty());
+        assert!(execution.failed_steps.is_empty());
+        assert!(execution.issues.is_empty());
+        assert!(execution.can_activate_live_runtime());
+        assert!(shell.static_fog.is_some());
+    }
+
+    #[test]
+    fn execute_runtime_apply_records_duplicate_marker_ids_without_overwriting_first_marker() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.markers[1].id = observation.markers[0].id;
+
+        let execution = observation.execute_runtime_apply();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert_eq!(
+            execution.failed_steps,
+            vec![SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 }]
+        );
+        assert_eq!(
+            execution.issues,
+            vec![SavePostLoadRuntimeApplyIssue::DuplicateMarkerId(11)]
+        );
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::Markers),
+            1
+        );
+        assert_eq!(shell.markers.len(), 1);
+        assert_eq!(shell.markers_by_id.len(), 1);
+        assert!(shell.markers_by_id.contains_key(&11));
+    }
+
+    #[test]
+    fn execute_runtime_world_semantics_rejects_duplicate_marker_ids_after_world_shell_ready() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.markers[1].id = observation.markers[0].id;
+
+        let execution = observation.execute_runtime_world_semantics();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.has_world_shell());
+        assert!(execution.awaiting_world_shell_steps.is_empty());
+        assert!(execution.blocked_steps.is_empty());
+        assert_eq!(
+            execution.failed_steps,
+            vec![SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 }]
+        );
+        assert_eq!(
+            execution.issues,
+            vec![SavePostLoadRuntimeApplyIssue::DuplicateMarkerId(11)]
+        );
+        assert!(!execution.can_activate_live_runtime());
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::Markers),
+            1
+        );
+        assert_eq!(shell.markers.len(), 1);
+        assert_eq!(shell.markers_by_id.len(), 1);
+        assert!(shell.markers_by_id.contains_key(&11));
+    }
+
+    #[test]
+    fn execute_runtime_world_semantics_groups_steps_by_source_region() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.markers[1].id = observation.markers[0].id;
+
+        let execution = observation.execute_runtime_world_semantics();
+        let source_regions = execution.source_regions();
+        let map = execution.source_region("map").unwrap();
+        let entities = execution.source_region("entities").unwrap();
+        let markers = execution.source_region("markers").unwrap();
+        let custom = execution.source_region("custom").unwrap();
+
+        assert_eq!(source_regions.len(), 4);
+        let mut source_region_names = source_regions
+            .iter()
+            .map(|region| region.source_region_name)
+            .collect::<Vec<_>>();
+        source_region_names.sort_unstable();
+        assert_eq!(
+            source_region_names,
+            vec!["custom", "entities", "map", "markers"]
+        );
+        assert_eq!(
+            execution.summary_label(),
+            format!(
+                "shell={} semantics={} exec={} fail={} wait={} block={} defer={} total={} sources={} issues={} live={}",
+                bool_word_label(execution.world_shell_ready),
+                bool_word_label(execution.can_apply_world_semantics()),
+                execution.executed_step_count(),
+                execution.failed_step_count(),
+                execution.awaiting_world_shell_steps.len(),
+                execution.blocked_steps.len(),
+                execution.deferred_step_count(),
+                execution.targeted_step_count(),
+                execution.source_regions().len(),
+                execution.issues.len(),
+                bool_word_label(execution.can_activate_live_runtime()),
+            )
+        );
+        assert_eq!(
+            markers.summary_label(),
+            "region=markers exec=1 fail=1 wait=0 block=0 defer=0 total=2"
+        );
+        assert!(execution
+            .detail_label()
+            .contains("region=markers exec=1 fail=1 wait=0 block=0 defer=0 total=2"));
+        assert_eq!(map.total_step_count(), 2);
+        assert_eq!(entities.total_step_count(), 5);
+        assert_eq!(markers.total_step_count(), 2);
+        assert_eq!(custom.total_step_count(), 1);
+        assert_eq!(
+            markers.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
+            1
+        );
+        assert_eq!(
+            markers.step_count(SavePostLoadRuntimeExecutionStepStatus::Failed),
+            1
+        );
+        assert_eq!(markers.total_step_count(), 2);
+    }
+
+    #[test]
+    fn execute_runtime_world_semantics_keeps_world_shell_overlay_steps_and_ignores_non_world_tail()
+    {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        let mut plan = observation.runtime_seed_plan();
+        let mut skipped = plan.loadable_entity_seeds[1].clone();
+        skipped.entity_index = 99;
+        plan.skipped_entity_seeds.push(skipped);
+
+        let execution = plan.execute_runtime_world_semantics();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.can_apply_world_semantics());
+        assert!(execution.can_activate_live_runtime());
+        assert!(execution.ownership.can_apply_world_semantics());
+        assert_eq!(execution.executed_step_count(), 10);
+        assert_eq!(execution.failed_step_count(), 0);
+        assert_eq!(execution.pending_step_count(), 0);
+        assert_eq!(execution.targeted_step_count(), 10);
+        assert_eq!(
+            execution.executed_steps,
+            vec![
+                SavePostLoadRuntimeApplyStep::WorldShell,
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 0,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 1,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
+                SavePostLoadRuntimeApplyStep::StaticFog,
+                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 1 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
+            ]
+        );
+        assert!(execution.issues.is_empty());
+        assert_eq!(
+            execution
+                .ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::Markers)
+                .unwrap()
+                .status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Owned
+        );
+        assert_eq!(shell.team_plans.len(), 2);
+        assert_eq!(shell.team_plans_by_team.len(), 2);
+        assert_eq!(shell.markers.len(), 2);
+        assert_eq!(shell.markers_by_id.len(), 2);
+        assert!(shell.static_fog.is_some());
+        assert_eq!(shell.buildings.len(), 1);
+        assert_eq!(shell.buildings_by_center_index.len(), 1);
+        assert_eq!(shell.loadable_entities.len(), 3);
+        assert_eq!(shell.loadable_entities_by_id.len(), 3);
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities),
+            3
+        );
+        assert_eq!(shell.loadable_entities_by_effective_class_id.len(), 2);
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_class_id(3)
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![42, 43]
+        );
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_name("flare")
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![42, 43]
+        );
+        assert!(!execution.executed_steps.iter().any(|step| {
+            matches!(
+                step,
+                SavePostLoadRuntimeApplyStep::EntityRemap { .. }
+                    | SavePostLoadRuntimeApplyStep::CustomChunk { .. }
+                    | SavePostLoadRuntimeApplyStep::SkippedEntity { .. }
+            )
+        }));
+    }
+
+    #[test]
+    fn execute_runtime_world_semantics_keeps_world_blockers_without_non_world_pending_steps() {
+        let mut observation = test_observation();
+        apply_blocked_pending_world_shell_fixture(&mut observation);
+
+        let execution = observation.execute_runtime_world_semantics();
+
+        assert!(!execution.world_shell_ready);
+        assert!(!execution.can_apply_world_semantics());
+        assert!(!execution.can_activate_live_runtime());
+        assert_eq!(
+            execution
+                .ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
+                .unwrap()
+                .status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Blocked
+        );
+        assert!(!execution.has_world_shell());
+        assert!(execution.failed_steps.is_empty());
+        assert!(execution.issues.is_empty());
+        assert_eq!(
+            execution.awaiting_world_shell_steps,
+            vec![
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 0,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 1,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
+                SavePostLoadRuntimeApplyStep::StaticFog,
+            ]
+        );
+        assert_eq!(
+            execution.blocked_steps,
+            vec![
+                SavePostLoadRuntimeApplyStep::WorldShell,
+                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
+            ]
+        );
+        assert_eq!(execution.executed_step_count(), 0);
+        assert_eq!(execution.pending_step_count(), 9);
+        assert_eq!(execution.targeted_step_count(), 9);
+    }
+
+    #[test]
+    fn world_semantics_activation_rejects_failed_world_steps() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let mut execution = observation.execute_runtime_world_semantics();
+        execution
+            .failed_steps
+            .push(SavePostLoadRuntimeApplyStep::Building { center_index: 0 });
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.can_apply_world_semantics());
+        assert!(execution.has_world_shell());
+        assert!(!execution.failed_steps.is_empty());
+        assert!(!execution.can_activate_live_runtime());
+    }
+
+    #[test]
+    fn world_semantics_activation_rejects_pending_steps() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let mut execution = observation.execute_runtime_world_semantics();
+        execution
+            .awaiting_world_shell_steps
+            .push(SavePostLoadRuntimeApplyStep::TeamPlan {
+                group_index: 0,
+                plan_index: 0,
+            });
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.can_apply_world_semantics());
+        assert!(execution.has_world_shell());
+        assert!(execution.failed_steps.is_empty());
+        assert!(!execution.awaiting_world_shell_steps.is_empty());
+        assert!(!execution.can_activate_live_runtime());
+
+        let mut execution = observation.execute_runtime_world_semantics();
+        execution
+            .blocked_steps
+            .push(SavePostLoadRuntimeApplyStep::Building { center_index: 0 });
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.can_apply_world_semantics());
+        assert!(execution.has_world_shell());
+        assert!(execution.failed_steps.is_empty());
+        assert!(!execution.blocked_steps.is_empty());
+        assert!(!execution.can_activate_live_runtime());
     }
 }

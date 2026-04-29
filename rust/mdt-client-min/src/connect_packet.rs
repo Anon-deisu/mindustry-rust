@@ -548,10 +548,7 @@ mod tests {
 
         assert_eq!(
             err,
-            ConnectPacketEncodeError::InvalidBase64Char {
-                ch: '*',
-                index: 2,
-            }
+            ConnectPacketEncodeError::InvalidBase64Char { ch: '*', index: 2 }
         );
     }
 
@@ -568,10 +565,7 @@ mod tests {
 
         assert_eq!(
             err,
-            ConnectPacketEncodeError::InvalidBase64Char {
-                ch: '=',
-                index: 2,
-            }
+            ConnectPacketEncodeError::InvalidBase64Char { ch: '=', index: 2 }
         );
     }
 
@@ -671,7 +665,10 @@ mod tests {
             + wire_string_len(&spec.locale)
             + wire_string_len(&spec.usid);
 
-        assert_eq!(&encoded[uuid_offset..uuid_offset + raw_uuid.len()], raw_uuid.as_slice());
+        assert_eq!(
+            &encoded[uuid_offset..uuid_offset + raw_uuid.len()],
+            raw_uuid.as_slice()
+        );
     }
 
     #[test]
@@ -803,6 +800,17 @@ mod tests {
         assert_eq!(
             strict_connect_version_type(b"build = 146\ntype = \xff\n"),
             Err(ConnectVersionPropertiesError::InvalidUtf8("type"))
+        );
+    }
+
+    #[test]
+    fn write_java_modified_utf_prefixes_length_and_preserves_nul_and_astral_boundaries() {
+        let mut out = Vec::new();
+        write_java_modified_utf(&mut out, "field", "A\0\u{1f600}").unwrap();
+
+        assert_eq!(
+            out,
+            vec![0x00, 0x09, 0x41, 0xc0, 0x80, 0xed, 0xa0, 0xbd, 0xed, 0xb8, 0x80,]
         );
     }
 }

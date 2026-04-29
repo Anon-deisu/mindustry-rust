@@ -23,6 +23,22 @@ mod save_post_load_runtime_seed_plan;
 mod save_post_load_runtime_source_region;
 mod save_post_load_runtime_world_ownership;
 
+pub(crate) const fn bool_digit_label(value: bool) -> &'static str {
+    if value {
+        "1"
+    } else {
+        "0"
+    }
+}
+
+pub(crate) const fn bool_word_label(value: bool) -> &'static str {
+    if value {
+        "yes"
+    } else {
+        "no"
+    }
+}
+
 pub use save_post_load::SavePostLoadWorldApplyBundle;
 pub use save_post_load_activation::{
     SavePostLoadActivationSurface, SavePostLoadBuildingActivationCandidate,
@@ -402,6 +418,7 @@ pub struct TypedLoadContext {
     pub map_locales: JsonValue,
     pub tags: BTreeMap<String, String>,
     pub content_patches: Vec<ContentPatchSummary>,
+    pub content_patch_texts: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -468,11 +485,65 @@ impl EntityPlayerSyncSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityUnitControllerCommandQueueSummary {
+    pub total_count: u8,
+    pub building_count: u8,
+    pub unit_count: u8,
+    pub position_count: u8,
+    pub ignored_count: u8,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct EntityUnitControllerSnapshot {
+    pub target_pos_x_bits: Option<u32>,
+    pub target_pos_y_bits: Option<u32>,
+    pub attack_target_kind_raw: Option<u8>,
+    pub attack_target_value: Option<i32>,
+    pub command_id_raw: Option<u8>,
+    pub command_queue: Option<EntityUnitControllerCommandQueueSummary>,
+    pub stance_id_raw: Option<u8>,
+    pub stance_count: Option<u8>,
+}
+
+impl EntityUnitControllerSnapshot {
+    pub fn is_empty(&self) -> bool {
+        self.target_pos_x_bits.is_none()
+            && self.target_pos_y_bits.is_none()
+            && self.attack_target_kind_raw.is_none()
+            && self.attack_target_value.is_none()
+            && self.command_id_raw.is_none()
+            && self.command_queue.is_none()
+            && self.stance_id_raw.is_none()
+            && self.stance_count.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityUnitStatusDynamicSnapshot {
+    pub damage_multiplier_bits: Option<u32>,
+    pub health_multiplier_bits: Option<u32>,
+    pub speed_multiplier_bits: Option<u32>,
+    pub reload_multiplier_bits: Option<u32>,
+    pub build_speed_multiplier_bits: Option<u32>,
+    pub drag_multiplier_bits: Option<u32>,
+    pub armor_override_bits: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityUnitStatusSnapshot {
+    pub status_id: i16,
+    pub time_bits: u32,
+    pub resolved_name: Option<String>,
+    pub dynamic: Option<EntityUnitStatusDynamicSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityAlphaSyncSnapshot {
     pub abilities_len: u8,
     pub ammo_bits: u32,
     pub controller_type: u8,
     pub controller_value: Option<i32>,
+    pub controller_snapshot: Option<EntityUnitControllerSnapshot>,
     pub elevation_bits: u32,
     pub flag_bits: u64,
     pub health_bits: u32,
@@ -486,6 +557,7 @@ pub struct EntityAlphaSyncSnapshot {
     pub stack_item_id: i16,
     pub stack_amount: i32,
     pub status_count: i32,
+    pub statuses: Vec<EntityUnitStatusSnapshot>,
     pub team_id: u8,
     pub unit_type_id: i16,
     pub update_building: bool,
@@ -512,6 +584,7 @@ pub struct EntityMechSyncSnapshot {
     pub base_rotation_bits: u32,
     pub controller_type: u8,
     pub controller_value: Option<i32>,
+    pub controller_snapshot: Option<EntityUnitControllerSnapshot>,
     pub elevation_bits: u32,
     pub flag_bits: u64,
     pub health_bits: u32,
@@ -525,6 +598,7 @@ pub struct EntityMechSyncSnapshot {
     pub stack_item_id: i16,
     pub stack_amount: i32,
     pub status_count: i32,
+    pub statuses: Vec<EntityUnitStatusSnapshot>,
     pub team_id: u8,
     pub unit_type_id: i16,
     pub update_building: bool,
@@ -550,6 +624,7 @@ pub struct EntityMissileSyncSnapshot {
     pub ammo_bits: u32,
     pub controller_type: u8,
     pub controller_value: Option<i32>,
+    pub controller_snapshot: Option<EntityUnitControllerSnapshot>,
     pub elevation_bits: u32,
     pub flag_bits: u64,
     pub health_bits: u32,
@@ -564,6 +639,7 @@ pub struct EntityMissileSyncSnapshot {
     pub stack_item_id: i16,
     pub stack_amount: i32,
     pub status_count: i32,
+    pub statuses: Vec<EntityUnitStatusSnapshot>,
     pub team_id: u8,
     pub time_bits: u32,
     pub unit_type_id: i16,
@@ -590,6 +666,7 @@ pub struct EntityPayloadSyncSnapshot {
     pub ammo_bits: u32,
     pub controller_type: u8,
     pub controller_value: Option<i32>,
+    pub controller_snapshot: Option<EntityUnitControllerSnapshot>,
     pub elevation_bits: u32,
     pub flag_bits: u64,
     pub health_bits: u32,
@@ -605,6 +682,7 @@ pub struct EntityPayloadSyncSnapshot {
     pub stack_item_id: i16,
     pub stack_amount: i32,
     pub status_count: i32,
+    pub statuses: Vec<EntityUnitStatusSnapshot>,
     pub team_id: u8,
     pub unit_type_id: i16,
     pub update_building: bool,
@@ -631,6 +709,7 @@ pub struct EntityBuildingTetherPayloadSyncSnapshot {
     pub building_pos: i32,
     pub controller_type: u8,
     pub controller_value: Option<i32>,
+    pub controller_snapshot: Option<EntityUnitControllerSnapshot>,
     pub elevation_bits: u32,
     pub flag_bits: u64,
     pub health_bits: u32,
@@ -646,6 +725,7 @@ pub struct EntityBuildingTetherPayloadSyncSnapshot {
     pub stack_item_id: i16,
     pub stack_amount: i32,
     pub status_count: i32,
+    pub statuses: Vec<EntityUnitStatusSnapshot>,
     pub team_id: u8,
     pub unit_type_id: i16,
     pub update_building: bool,
@@ -1230,8 +1310,8 @@ impl SavePostLoadRuntimeSeedSurface {
     pub fn summary_label(&self) -> String {
         format!(
             "seed={} shell={} apply={} wait={} block={} defer={} next={} blocked_regions={} awaiting_regions={}",
-            bool_label(self.can_seed_runtime_apply),
-            bool_label(self.world_shell_ready),
+            bool_word_label(self.can_seed_runtime_apply),
+            bool_word_label(self.world_shell_ready),
             self.apply_now_step_count,
             self.awaiting_world_shell_step_count,
             self.blocked_step_count,
@@ -1248,8 +1328,8 @@ impl SavePostLoadRuntimeSeedSurface {
     pub fn detail_label(&self) -> String {
         format!(
             "seed={} shell={} apply={} wait={} block={} defer={} next={} blocked=[{}] awaiting=[{}]",
-            bool_label(self.can_seed_runtime_apply),
-            bool_label(self.world_shell_ready),
+            bool_word_label(self.can_seed_runtime_apply),
+            bool_word_label(self.world_shell_ready),
             self.apply_now_step_count,
             self.awaiting_world_shell_step_count,
             self.blocked_step_count,
@@ -1395,6 +1475,10 @@ impl MsavSaveObservation {
 }
 
 impl SavePostLoadWorldObservation {
+    pub fn patch_texts(&self) -> Result<Vec<String>, String> {
+        decode_save_content_patches_utf8(&self.patches)
+    }
+
     pub fn runtime_seed_surface(&self) -> SavePostLoadRuntimeSeedSurface {
         self.runtime_seed_plan().runtime_seed_surface()
     }
@@ -1429,7 +1513,7 @@ where
     F: FnMut(&T) -> bool,
 {
     let first = iter.find(|item| predicate(item))?;
-    if iter.any(|item| predicate(item)) {
+    if iter.any(predicate) {
         None
     } else {
         Some(first)
@@ -1508,14 +1592,6 @@ fn next_apply_now_batch_label(batch_index: Option<usize>, step_count: Option<usi
     match (batch_index, step_count) {
         (Some(batch_index), Some(step_count)) => format!("{batch_index}/{step_count}"),
         _ => "none".to_string(),
-    }
-}
-
-fn bool_label(value: bool) -> &'static str {
-    if value {
-        "yes"
-    } else {
-        "no"
     }
 }
 
@@ -1852,6 +1928,10 @@ pub struct WorldBundle {
 impl WorldBundle {
     pub fn loaded_session(&self) -> Result<LoadedWorldSession<'_>, String> {
         LoadedWorldSession::from_bundle(self)
+    }
+
+    pub fn content_patch_texts(&self) -> Result<Vec<String>, String> {
+        decode_save_content_patches_utf8(&self.patches)
     }
 
     pub fn enter_init_envelope(&self, locale: &str) -> Result<WorldEnterInitEnvelope, String> {
@@ -2411,6 +2491,7 @@ impl LoadedWorldBootstrap {
             content_header_mapped_types: self.content_header_mapped_types,
             content_header_sha256: &self.content_header_sha256,
             patches_sha256: &self.patches_sha256,
+            content_patch_texts: &self.content_patch_texts,
         }
     }
 
@@ -2566,6 +2647,7 @@ pub struct LoadedWorldBootstrap {
     pub marker_count: usize,
     pub custom_chunk_count: usize,
     pub content_patch_count: usize,
+    pub content_patch_texts: Vec<String>,
     pub player_team_plan_count: usize,
     pub static_fog_team_count: usize,
     pub player_x_bits: u32,
@@ -2605,6 +2687,7 @@ pub struct BootstrapContentView<'a> {
     pub content_header_mapped_types: usize,
     pub content_header_sha256: &'a str,
     pub patches_sha256: &'a str,
+    pub content_patch_texts: &'a [String],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2745,6 +2828,7 @@ pub struct WorldEnterInitContent {
     pub content_header_mapped_types: usize,
     pub content_header_sha256: String,
     pub patches_sha256: String,
+    pub content_patch_texts: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3768,6 +3852,7 @@ pub struct WorldEnterStableContentProofContract {
     pub unit_content_count: usize,
     pub first_weather_name: Option<String>,
     pub weather_content_count: usize,
+    pub content_patch_texts: Vec<String>,
     pub interaction_ready: bool,
     pub sync_loop: bool,
     pub last_received_snapshot: u32,
@@ -4962,6 +5047,7 @@ pub struct WorldEnterPlayableSessionBootstrapContentContract {
     pub liquid_content_count: usize,
     pub unit_content_count: usize,
     pub weather_content_count: usize,
+    pub content_patch_texts: Vec<String>,
     pub session_complete: bool,
 }
 
@@ -6550,6 +6636,7 @@ pub struct WorldEnterPlayableSessionEntryBootstrapContentContract {
     pub liquid_content_count: usize,
     pub unit_content_count: usize,
     pub weather_content_count: usize,
+    pub content_patch_texts: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -6728,6 +6815,7 @@ pub struct WorldEnterPlayableSessionEntryBootstrapProofContract {
     pub liquid_content_count: usize,
     pub unit_content_count: usize,
     pub weather_content_count: usize,
+    pub content_patch_texts: Vec<String>,
     pub floor_sha256: String,
     pub block_sha256: String,
     pub team_blocks_sha256: String,
@@ -8090,6 +8178,7 @@ impl WorldEnterStableBootstrapProofContract {
             && self.playable == entry_bootstrap_content.playable
             && self.locale_title == entry_bootstrap_content.locale_title
             && self.content_patch_count == entry_bootstrap_content.content_patch_count
+            && self.content_patch_count == entry_bootstrap_content.content_patch_texts.len()
             && self.compressed_length == entry_bootstrap_content.compressed_length
             && self.tail_sha256 == entry_bootstrap_content.tail_sha256
             && self.rules_sha256 == entry_bootstrap_content.rules_sha256
@@ -8141,6 +8230,7 @@ impl WorldEnterStableBootstrapProofContract {
             unit_content_count: entry_bootstrap_content.unit_content_count,
             first_weather_name: entry_bootstrap_content.first_weather_name.clone(),
             weather_content_count: entry_bootstrap_content.weather_content_count,
+            content_patch_texts: entry_bootstrap_content.content_patch_texts.clone(),
             interaction_ready: self.interaction_ready && entry_bootstrap_content.interaction_ready,
             sync_loop: self.sync_loop && entry_bootstrap_content.sync_loop,
             last_received_snapshot: self.last_received_snapshot,
@@ -9490,6 +9580,7 @@ impl WorldEnterInitState {
             liquid_content_count: bootstrap.liquid_content_count,
             unit_content_count: bootstrap.unit_content_count,
             weather_content_count: bootstrap.weather_content_count,
+            content_patch_texts: bootstrap.content_patch_texts.clone(),
             session_complete: bootstrap.ready_to_enter_world,
         };
         let bootstrap_overlay = WorldEnterPlayableSessionBootstrapOverlayContract {
@@ -11125,6 +11216,7 @@ impl WorldEnterInitState {
             liquid_content_count: bootstrap_content.liquid_content_count,
             unit_content_count: bootstrap_content.unit_content_count,
             weather_content_count: bootstrap_content.weather_content_count,
+            content_patch_texts: bootstrap_content.content_patch_texts.clone(),
         };
         let entry_bootstrap_proof = WorldEnterPlayableSessionEntryBootstrapProofContract {
             ready: entry_bootstrap_content.ready && bootstrap_world.ready && bootstrap_player.ready,
@@ -11304,6 +11396,7 @@ impl WorldEnterInitState {
             liquid_content_count: entry_bootstrap_content.liquid_content_count,
             unit_content_count: entry_bootstrap_content.unit_content_count,
             weather_content_count: entry_bootstrap_content.weather_content_count,
+            content_patch_texts: entry_bootstrap_content.content_patch_texts.clone(),
             floor_sha256: bootstrap_world.floor_sha256.clone(),
             block_sha256: bootstrap_world.block_sha256.clone(),
             team_blocks_sha256: bootstrap_world.team_blocks_sha256.clone(),
@@ -12126,6 +12219,7 @@ impl WorldEnterInitEnvelope {
                 content_header_mapped_types: content.content_header_mapped_types,
                 content_header_sha256: content.content_header_sha256.to_string(),
                 patches_sha256: content.patches_sha256.to_string(),
+                content_patch_texts: content.content_patch_texts.to_vec(),
             },
             player: WorldEnterInitPlayer {
                 player_id: player.player_id,
@@ -12612,12 +12706,15 @@ impl<'a> LoadedWorldState<'a> {
                 sha256: sha256_hex(patch),
             })
             .collect();
+        let content_patch_texts = decode_save_content_patches_utf8(&self.bundle.patches)
+            .map_err(|err| format!("failed to decode content patches utf-8: {err}"))?;
 
         Ok(TypedLoadContext {
             rules,
             map_locales,
             tags,
             content_patches,
+            content_patch_texts,
         })
     }
 }
@@ -12966,6 +13063,10 @@ impl<'a> LoadedWorldSession<'a> {
 
     pub fn content_patch_count(&self) -> usize {
         self.context.content_patches.len()
+    }
+
+    pub fn content_patch_texts(&self) -> &[String] {
+        &self.context.content_patch_texts
     }
 
     pub fn player_position_bits(&self) -> (u32, u32) {
@@ -13439,6 +13540,7 @@ impl<'a> LoadedWorldSession<'a> {
             marker_count: self.marker_count(),
             custom_chunk_count: self.custom_chunk_count(),
             content_patch_count: self.content_patch_count(),
+            content_patch_texts: self.context.content_patch_texts.clone(),
             player_team_plan_count: self.player_team_plans().len(),
             static_fog_team_count: self
                 .state
@@ -13969,9 +14071,12 @@ pub struct UnitPayloadSnapshot {
     pub revision: i16,
     pub body_len: usize,
     pub body_sha256: String,
+    pub status_count: i32,
+    pub statuses: Vec<EntityUnitStatusSnapshot>,
     pub nested_unit_payloads: Vec<UnitPayloadSnapshot>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PayloadSnapshot {
     Null,
@@ -14081,7 +14186,8 @@ pub fn parse_entity_alpha_sync_bytes(
     let abilities_len = reader.read_u8()?;
     reader.skip_bytes(usize::from(abilities_len).saturating_mul(4))?;
     let ammo_bits = reader.read_u32()?;
-    let (controller_type, controller_value) = skip_entity_unit_controller(&mut reader)?;
+    let (controller_type, controller_value, controller_snapshot) =
+        parse_entity_unit_controller(&mut reader)?;
     let elevation_bits = reader.read_u32()?;
     let flag_bits = reader.read_u64()?;
     let health_bits = reader.read_u32()?;
@@ -14104,12 +14210,13 @@ pub fn parse_entity_alpha_sync_bytes(
     let stack_item_id = reader.read_i16()?;
     let stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    consume_entity_status_entries(&mut reader, status_count, None, "alpha sync")?;
+    let statuses = parse_entity_status_entries(&mut reader, status_count, None, "alpha sync")?;
     let snapshot = EntityAlphaSyncSnapshot {
         abilities_len,
         ammo_bits,
         controller_type,
         controller_value,
+        controller_snapshot,
         elevation_bits,
         flag_bits,
         health_bits,
@@ -14123,6 +14230,7 @@ pub fn parse_entity_alpha_sync_bytes(
         stack_item_id,
         stack_amount,
         status_count,
+        statuses,
         team_id: reader.read_u8()?,
         unit_type_id: reader.read_i16()?,
         update_building: reader.read_bool()?,
@@ -14145,7 +14253,8 @@ pub fn parse_entity_mech_sync_bytes(
     reader.skip_bytes(usize::from(abilities_len).saturating_mul(4))?;
     let ammo_bits = reader.read_u32()?;
     let base_rotation_bits = reader.read_u32()?;
-    let (controller_type, controller_value) = skip_entity_unit_controller(&mut reader)?;
+    let (controller_type, controller_value, controller_snapshot) =
+        parse_entity_unit_controller(&mut reader)?;
     let elevation_bits = reader.read_u32()?;
     let flag_bits = reader.read_u64()?;
     let health_bits = reader.read_u32()?;
@@ -14168,13 +14277,14 @@ pub fn parse_entity_mech_sync_bytes(
     let stack_item_id = reader.read_i16()?;
     let stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    consume_entity_status_entries(&mut reader, status_count, None, "mech sync")?;
+    let statuses = parse_entity_status_entries(&mut reader, status_count, None, "mech sync")?;
     let snapshot = EntityMechSyncSnapshot {
         abilities_len,
         ammo_bits,
         base_rotation_bits,
         controller_type,
         controller_value,
+        controller_snapshot,
         elevation_bits,
         flag_bits,
         health_bits,
@@ -14188,6 +14298,7 @@ pub fn parse_entity_mech_sync_bytes(
         stack_item_id,
         stack_amount,
         status_count,
+        statuses,
         team_id: reader.read_u8()?,
         unit_type_id: reader.read_i16()?,
         update_building: reader.read_bool()?,
@@ -14209,7 +14320,8 @@ pub fn parse_entity_missile_sync_bytes(
     let abilities_len = reader.read_u8()?;
     reader.skip_bytes(usize::from(abilities_len).saturating_mul(4))?;
     let ammo_bits = reader.read_u32()?;
-    let (controller_type, controller_value) = skip_entity_unit_controller(&mut reader)?;
+    let (controller_type, controller_value, controller_snapshot) =
+        parse_entity_unit_controller(&mut reader)?;
     let elevation_bits = reader.read_u32()?;
     let flag_bits = reader.read_u64()?;
     let health_bits = reader.read_u32()?;
@@ -14233,12 +14345,13 @@ pub fn parse_entity_missile_sync_bytes(
     let stack_item_id = reader.read_i16()?;
     let stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    consume_entity_status_entries(&mut reader, status_count, None, "missile sync")?;
+    let statuses = parse_entity_status_entries(&mut reader, status_count, None, "missile sync")?;
     let snapshot = EntityMissileSyncSnapshot {
         abilities_len,
         ammo_bits,
         controller_type,
         controller_value,
+        controller_snapshot,
         elevation_bits,
         flag_bits,
         health_bits,
@@ -14253,6 +14366,7 @@ pub fn parse_entity_missile_sync_bytes(
         stack_item_id,
         stack_amount,
         status_count,
+        statuses,
         team_id: reader.read_u8()?,
         time_bits: reader.read_u32()?,
         unit_type_id: reader.read_i16()?,
@@ -14393,56 +14507,77 @@ fn consume_unit_item_stack(reader: &mut Reader<'_>) -> Result<(), String> {
     reader.skip_bytes(std::mem::size_of::<i16>() + std::mem::size_of::<i32>())
 }
 
-fn consume_entity_status_entries(
+fn read_status_dynamic_field_bits(
+    reader: &mut Reader<'_>,
+    flags: u8,
+    bit_index: u8,
+) -> Result<Option<u32>, String> {
+    if (flags & (1 << bit_index)) != 0 {
+        Ok(Some(reader.read_u32()?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn parse_entity_status_entries(
     reader: &mut Reader<'_>,
     status_count: i32,
     content_header: Option<&[ContentHeaderEntry]>,
     context: &str,
-) -> Result<(), String> {
+) -> Result<Vec<EntityUnitStatusSnapshot>, String> {
     if status_count < 0 {
         return Err(format!(
             "unsupported {context} negative status count: {status_count}"
         ));
     }
 
+    let mut statuses = Vec::with_capacity(status_count as usize);
     for _ in 0..status_count {
         let status_id = reader.read_i16()?;
-        reader.skip_bytes(std::mem::size_of::<f32>())?;
-        if status_id_uses_dynamic_fields(status_id, |status_id| {
+        let time_bits = reader.read_u32()?;
+        let resolved_name = (status_id >= 0)
+            .then_some(status_id as u16)
+            .and_then(|status_id| {
+                content_header
+                    .and_then(|header| resolve_content_name(header, STATUS_CONTENT_TYPE, status_id))
+            })
+            .map(str::to_string);
+        let dynamic = if status_id_uses_dynamic_fields(status_id, |status_id| {
             content_header
                 .and_then(|header| resolve_content_name(header, STATUS_CONTENT_TYPE, status_id))
         }) {
             let flags = reader.read_u8()?;
-            reader.skip_bytes((flags.count_ones() as usize).saturating_mul(4))?;
-        }
+            Some(EntityUnitStatusDynamicSnapshot {
+                damage_multiplier_bits: read_status_dynamic_field_bits(reader, flags, 0)?,
+                health_multiplier_bits: read_status_dynamic_field_bits(reader, flags, 1)?,
+                speed_multiplier_bits: read_status_dynamic_field_bits(reader, flags, 2)?,
+                reload_multiplier_bits: read_status_dynamic_field_bits(reader, flags, 3)?,
+                build_speed_multiplier_bits: read_status_dynamic_field_bits(reader, flags, 4)?,
+                drag_multiplier_bits: read_status_dynamic_field_bits(reader, flags, 5)?,
+                armor_override_bits: read_status_dynamic_field_bits(reader, flags, 6)?,
+            })
+        } else {
+            None
+        };
+        statuses.push(EntityUnitStatusSnapshot {
+            status_id,
+            time_bits,
+            resolved_name,
+            dynamic,
+        });
     }
 
-    Ok(())
+    Ok(statuses)
 }
 
-fn consume_unit_statuses(
+fn parse_unit_payload_statuses(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
-) -> Result<(), String> {
+) -> Result<(i32, Vec<EntityUnitStatusSnapshot>), String> {
     let status_count = reader.read_i32()?;
-    if status_count < 0 {
-        return Err(format!(
-            "unsupported unit payload negative status count: {status_count}"
-        ));
-    }
-
-    for _ in 0..status_count {
-        let status_id = reader.read_i16()?;
-        reader.skip_bytes(std::mem::size_of::<f32>())?;
-        if status_id_uses_dynamic_fields(status_id, |status_id| {
-            resolve_content_name(content_header, STATUS_CONTENT_TYPE, status_id)
-        }) {
-            let flags = reader.read_u8()?;
-            reader.skip_bytes((flags.count_ones() as usize).saturating_mul(4))?;
-        }
-    }
-
-    Ok(())
+    let statuses =
+        parse_entity_status_entries(reader, status_count, Some(content_header), "unit payload")?;
+    Ok((status_count, statuses))
 }
 
 fn consume_unit_payload_sequence(
@@ -14487,6 +14622,8 @@ fn consume_standard_legacy_unit_payload_body(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
     revision: i16,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
 ) -> Result<(), String> {
     if !(0..=7).contains(&revision) {
         return Err(format!(
@@ -14522,7 +14659,10 @@ fn consume_standard_legacy_unit_payload_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.read_i16()?;
     if revision >= 5 {
@@ -14538,6 +14678,8 @@ fn consume_alpha_legacy_unit_payload_body(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
     revision: i16,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
 ) -> Result<(), String> {
     if !(0..=3).contains(&revision) {
         return Err(format!(
@@ -14564,7 +14706,10 @@ fn consume_alpha_legacy_unit_payload_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.read_i16()?;
     if revision >= 1 {
@@ -14580,8 +14725,10 @@ fn consume_standard_current_unit_payload_body(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
     revision: i16,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
 ) -> Result<(), String> {
-    if revision != 0 {
+    if !(0..=1).contains(&revision) {
         return Err(format!(
             "unsupported standard current unit payload revision: {revision}"
         ));
@@ -14601,7 +14748,10 @@ fn consume_standard_current_unit_payload_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.read_i16()?;
     reader.read_bool()?;
@@ -14613,6 +14763,8 @@ fn consume_mono_legacy_unit_payload_body(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
     revision: i16,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
 ) -> Result<(), String> {
     if !(0..=6).contains(&revision) {
         return Err(format!(
@@ -14646,7 +14798,10 @@ fn consume_mono_legacy_unit_payload_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.read_i16()?;
     if revision >= 4 {
@@ -14662,6 +14817,8 @@ fn consume_poly_legacy_unit_payload_body(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
     revision: i16,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
 ) -> Result<(), String> {
     if !(0..=5).contains(&revision) {
         return Err(format!(
@@ -14693,7 +14850,10 @@ fn consume_poly_legacy_unit_payload_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.read_i16()?;
     if revision >= 3 {
@@ -14709,6 +14869,8 @@ fn consume_spiroct_legacy_unit_payload_body(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
     revision: i16,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
 ) -> Result<(), String> {
     if !(0..=6).contains(&revision) {
         return Err(format!(
@@ -14742,7 +14904,10 @@ fn consume_spiroct_legacy_unit_payload_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.read_i16()?;
     if revision >= 4 {
@@ -14758,6 +14923,8 @@ fn consume_tank_like_current_unit_payload_body(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
     revision: i16,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
 ) -> Result<(), String> {
     match revision {
         0 => {}
@@ -14782,7 +14949,10 @@ fn consume_tank_like_current_unit_payload_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.read_i16()?;
     reader.read_bool()?;
@@ -14794,6 +14964,8 @@ fn consume_mech_legacy_unit_payload_body(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
     revision: i16,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
 ) -> Result<(), String> {
     if !(0..=7).contains(&revision) {
         return Err(format!(
@@ -14830,7 +15002,10 @@ fn consume_mech_legacy_unit_payload_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.read_i16()?;
     if revision >= 5 {
@@ -14863,6 +15038,8 @@ fn consume_payload_legacy_like_unit_payload_body(
     revision: i16,
     depth: usize,
     shape: PayloadLegacyLikeShape,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
     nested_unit_payloads: &mut Vec<UnitPayloadSnapshot>,
 ) -> Result<(), String> {
     let max_revision = match shape {
@@ -14929,7 +15106,10 @@ fn consume_payload_legacy_like_unit_payload_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.read_i16()?;
     if has_update_building {
@@ -14946,6 +15126,8 @@ fn consume_building_tether_payload_unit_body(
     content_header: &[ContentHeaderEntry],
     revision: i16,
     depth: usize,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
     nested_unit_payloads: &mut Vec<UnitPayloadSnapshot>,
 ) -> Result<(), String> {
     if !(0..=1).contains(&revision) {
@@ -14972,7 +15154,10 @@ fn consume_building_tether_payload_unit_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.read_i16()?;
     reader.read_bool()?;
@@ -14984,6 +15169,8 @@ fn consume_timed_kill_unit_payload_body(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
     revision: i16,
+    status_count: &mut i32,
+    statuses: &mut Vec<EntityUnitStatusSnapshot>,
 ) -> Result<(), String> {
     if !(0..=1).contains(&revision) {
         return Err(format!(
@@ -15008,7 +15195,10 @@ fn consume_timed_kill_unit_payload_body(
     reader.skip_bytes(4)?;
     reader.read_bool()?;
     consume_unit_item_stack(reader)?;
-    consume_unit_statuses(reader, content_header)?;
+    let (parsed_status_count, parsed_statuses) =
+        parse_unit_payload_statuses(reader, content_header)?;
+    *status_count = parsed_status_count;
+    *statuses = parsed_statuses;
     reader.read_u8()?;
     reader.skip_bytes(4)?;
     reader.read_i16()?;
@@ -15033,6 +15223,8 @@ fn parse_unit_payload_snapshot_bytes(
     let mut errors = Vec::new();
     for shape in candidate_unit_payload_shapes(class_id) {
         let mut reader = Reader::new(bytes);
+        let mut status_count = 0;
+        let mut statuses = Vec::new();
         let mut nested_unit_payloads = Vec::new();
         let revision = match reader.read_i16() {
             Ok(revision) => revision,
@@ -15042,36 +15234,70 @@ fn parse_unit_payload_snapshot_bytes(
             }
         };
         let result = match shape {
-            UnitPayloadShape::AlphaLegacy => {
-                consume_alpha_legacy_unit_payload_body(&mut reader, content_header, revision)
-            }
-            UnitPayloadShape::StandardLegacy => {
-                consume_standard_legacy_unit_payload_body(&mut reader, content_header, revision)
-            }
-            UnitPayloadShape::MonoLegacy => {
-                consume_mono_legacy_unit_payload_body(&mut reader, content_header, revision)
-            }
-            UnitPayloadShape::PolyLegacy => {
-                consume_poly_legacy_unit_payload_body(&mut reader, content_header, revision)
-            }
-            UnitPayloadShape::SpiroctLegacy => {
-                consume_spiroct_legacy_unit_payload_body(&mut reader, content_header, revision)
-            }
-            UnitPayloadShape::StandardCurrent => {
-                consume_standard_current_unit_payload_body(&mut reader, content_header, revision)
-            }
-            UnitPayloadShape::TankLikeCurrent => {
-                consume_tank_like_current_unit_payload_body(&mut reader, content_header, revision)
-            }
-            UnitPayloadShape::MechLegacy => {
-                consume_mech_legacy_unit_payload_body(&mut reader, content_header, revision)
-            }
+            UnitPayloadShape::AlphaLegacy => consume_alpha_legacy_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                &mut status_count,
+                &mut statuses,
+            ),
+            UnitPayloadShape::StandardLegacy => consume_standard_legacy_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                &mut status_count,
+                &mut statuses,
+            ),
+            UnitPayloadShape::MonoLegacy => consume_mono_legacy_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                &mut status_count,
+                &mut statuses,
+            ),
+            UnitPayloadShape::PolyLegacy => consume_poly_legacy_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                &mut status_count,
+                &mut statuses,
+            ),
+            UnitPayloadShape::SpiroctLegacy => consume_spiroct_legacy_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                &mut status_count,
+                &mut statuses,
+            ),
+            UnitPayloadShape::StandardCurrent => consume_standard_current_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                &mut status_count,
+                &mut statuses,
+            ),
+            UnitPayloadShape::TankLikeCurrent => consume_tank_like_current_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                &mut status_count,
+                &mut statuses,
+            ),
+            UnitPayloadShape::MechLegacy => consume_mech_legacy_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                &mut status_count,
+                &mut statuses,
+            ),
             UnitPayloadShape::PayloadMegaLike => consume_payload_legacy_like_unit_payload_body(
                 &mut reader,
                 content_header,
                 revision,
                 depth,
                 PayloadLegacyLikeShape::Mega,
+                &mut status_count,
+                &mut statuses,
                 &mut nested_unit_payloads,
             ),
             UnitPayloadShape::PayloadOctLike => consume_payload_legacy_like_unit_payload_body(
@@ -15080,6 +15306,8 @@ fn parse_unit_payload_snapshot_bytes(
                 revision,
                 depth,
                 PayloadLegacyLikeShape::Oct,
+                &mut status_count,
+                &mut statuses,
                 &mut nested_unit_payloads,
             ),
             UnitPayloadShape::PayloadQuadLike => consume_payload_legacy_like_unit_payload_body(
@@ -15088,6 +15316,8 @@ fn parse_unit_payload_snapshot_bytes(
                 revision,
                 depth,
                 PayloadLegacyLikeShape::Quad,
+                &mut status_count,
+                &mut statuses,
                 &mut nested_unit_payloads,
             ),
             UnitPayloadShape::BuildingTetherPayload => consume_building_tether_payload_unit_body(
@@ -15095,20 +15325,34 @@ fn parse_unit_payload_snapshot_bytes(
                 content_header,
                 revision,
                 depth,
+                &mut status_count,
+                &mut statuses,
                 &mut nested_unit_payloads,
             ),
-            UnitPayloadShape::TimedKill => {
-                consume_timed_kill_unit_payload_body(&mut reader, content_header, revision)
-            }
+            UnitPayloadShape::TimedKill => consume_timed_kill_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                &mut status_count,
+                &mut statuses,
+            ),
         };
 
         match result {
-            Ok(()) => successes.push((revision, reader.position(), nested_unit_payloads)),
+            Ok(()) => successes.push((
+                revision,
+                reader.position(),
+                status_count,
+                statuses,
+                nested_unit_payloads,
+            )),
             Err(error) => errors.push(error),
         }
     }
 
-    let Some((revision, body_len, nested_unit_payloads)) = successes.first().cloned() else {
+    let Some((revision, body_len, status_count, statuses, nested_unit_payloads)) =
+        successes.first().cloned()
+    else {
         return Err(format!(
             "unsupported unit payload parser body: class_id={class_id}:{}",
             errors.join(" | ")
@@ -15117,7 +15361,7 @@ fn parse_unit_payload_snapshot_bytes(
 
     let distinct_lengths = successes
         .iter()
-        .map(|(_, consumed, _)| *consumed)
+        .map(|(_, consumed, _, _, _)| *consumed)
         .collect::<BTreeSet<_>>();
     if distinct_lengths.len() > 1 {
         return Err(format!(
@@ -15131,6 +15375,8 @@ fn parse_unit_payload_snapshot_bytes(
         revision,
         body_len,
         body_sha256: sha256_hex(&bytes[..body_len]),
+        status_count,
+        statuses,
         nested_unit_payloads,
     })
 }
@@ -15159,7 +15405,10 @@ fn consume_entity_payload_entries(
     for payload_index in 0..payload_count {
         let remaining = reader.remaining_bytes();
         let parsed = match read_payload_header_prefix(&remaining) {
-            Ok((TypedPayload::Unit(_), _)) => parse_payload_snapshot_bytes(&[], &remaining),
+            Ok((TypedPayload::Unit(_), _)) => {
+                parse_payload_snapshot_bytes(content_header, &remaining)
+                    .or_else(|_| parse_payload_snapshot_bytes(&[], &remaining))
+            }
             Ok((TypedPayload::Build(_), _)) | Ok((TypedPayload::Null, _)) => {
                 parse_payload_snapshot_bytes(content_header, &remaining)
             }
@@ -15170,39 +15419,36 @@ fn consume_entity_payload_entries(
         })?;
 
         if matches!(&payload, PayloadSnapshot::Unit(_))
-            && !validate_entity_payload_tail_bytes(
+            && validate_entity_payload_tail_bytes(
                 &remaining[consumed..],
                 content_header,
                 outer_kind,
             )
-            .is_ok()
+            .is_err()
         {
-            let mut matched = None;
-            for candidate_end in (5..consumed).rev() {
-                let candidate_bytes = &remaining[..candidate_end];
-                let Ok((candidate_payload, candidate_consumed)) =
-                    parse_payload_snapshot_bytes(&[], candidate_bytes)
-                else {
-                    continue;
-                };
-                if candidate_consumed != candidate_end {
-                    continue;
-                }
-                let PayloadSnapshot::Unit(candidate_unit_payload) = candidate_payload else {
-                    continue;
-                };
-                if validate_entity_payload_tail_bytes(
-                    &remaining[candidate_end..],
-                    content_header,
-                    outer_kind,
+            if let Some((candidate_unit_payload, candidate_end)) =
+                salvage_entity_unit_payload_boundary_with_hooks(
+                    &remaining,
+                    consumed,
+                    |candidate_bytes| {
+                        let Ok((candidate_payload, candidate_consumed)) =
+                            parse_payload_snapshot_bytes(content_header, candidate_bytes)
+                                .or_else(|_| parse_payload_snapshot_bytes(&[], candidate_bytes))
+                        else {
+                            return None;
+                        };
+                        let PayloadSnapshot::Unit(candidate_unit_payload) = candidate_payload
+                        else {
+                            return None;
+                        };
+                        Some((candidate_unit_payload, candidate_consumed))
+                    },
+                    |tail_bytes| {
+                        validate_entity_payload_tail_bytes(tail_bytes, content_header, outer_kind)
+                            .is_ok()
+                    },
                 )
-                .is_ok()
-                {
-                    matched = Some((candidate_unit_payload, candidate_end));
-                    break;
-                }
-            }
-            if let Some((candidate_unit_payload, candidate_end)) = matched {
+            {
                 payload = PayloadSnapshot::Unit(candidate_unit_payload);
                 consumed = candidate_end;
             }
@@ -15240,7 +15486,8 @@ fn validate_entity_payload_tail_bytes(
     let _stack_item_id = reader.read_i16()?;
     let _stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    consume_entity_status_entries(&mut reader, status_count, Some(content_header), outer_kind)?;
+    let _statuses =
+        parse_entity_status_entries(&mut reader, status_count, Some(content_header), outer_kind)?;
     let _team_id = reader.read_u8()?;
     let _unit_type_id = reader.read_i16()?;
     let _update_building = reader.read_bool()?;
@@ -15256,6 +15503,34 @@ fn validate_entity_payload_tail_bytes(
         ));
     }
     Ok(())
+}
+
+fn salvage_entity_unit_payload_boundary_with_hooks<FParse, FValidate>(
+    remaining: &[u8],
+    consumed: usize,
+    mut parse_candidate: FParse,
+    mut validate_tail: FValidate,
+) -> Option<(UnitPayloadSnapshot, usize)>
+where
+    FParse: FnMut(&[u8]) -> Option<(UnitPayloadSnapshot, usize)>,
+    FValidate: FnMut(&[u8]) -> bool,
+{
+    let mut matched = None;
+    for candidate_end in (5..consumed).rev() {
+        let candidate_bytes = &remaining[..candidate_end];
+        let Some((candidate_unit_payload, candidate_consumed)) = parse_candidate(candidate_bytes)
+        else {
+            continue;
+        };
+        if candidate_consumed != candidate_end {
+            continue;
+        }
+        if validate_tail(&remaining[candidate_end..]) {
+            matched = Some((candidate_unit_payload, candidate_end));
+            break;
+        }
+    }
+    matched
 }
 
 pub fn parse_entity_payload_sync_bytes(
@@ -15279,7 +15554,8 @@ fn parse_entity_payload_sync_bytes_with_content_header_option(
     let abilities_len = reader.read_u8()?;
     reader.skip_bytes(usize::from(abilities_len).saturating_mul(4))?;
     let ammo_bits = reader.read_u32()?;
-    let (controller_type, controller_value) = skip_entity_unit_controller(&mut reader)?;
+    let (controller_type, controller_value, controller_snapshot) =
+        parse_entity_unit_controller(&mut reader)?;
     let elevation_bits = reader.read_u32()?;
     let flag_bits = reader.read_u64()?;
     let health_bits = reader.read_u32()?;
@@ -15310,12 +15586,14 @@ fn parse_entity_payload_sync_bytes_with_content_header_option(
     let stack_item_id = reader.read_i16()?;
     let stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    consume_entity_status_entries(&mut reader, status_count, content_header, "payload sync")?;
+    let statuses =
+        parse_entity_status_entries(&mut reader, status_count, content_header, "payload sync")?;
     let snapshot = EntityPayloadSyncSnapshot {
         abilities_len,
         ammo_bits,
         controller_type,
         controller_value,
+        controller_snapshot,
         elevation_bits,
         flag_bits,
         health_bits,
@@ -15331,6 +15609,7 @@ fn parse_entity_payload_sync_bytes_with_content_header_option(
         stack_item_id,
         stack_amount,
         status_count,
+        statuses,
         team_id: reader.read_u8()?,
         unit_type_id: reader.read_i16()?,
         update_building: reader.read_bool()?,
@@ -15370,7 +15649,8 @@ fn parse_entity_building_tether_payload_sync_bytes_with_content_header_option(
     reader.skip_bytes(usize::from(abilities_len).saturating_mul(4))?;
     let ammo_bits = reader.read_u32()?;
     let building_pos = reader.read_i32()?;
-    let (controller_type, controller_value) = skip_entity_unit_controller(&mut reader)?;
+    let (controller_type, controller_value, controller_snapshot) =
+        parse_entity_unit_controller(&mut reader)?;
     let elevation_bits = reader.read_u32()?;
     let flag_bits = reader.read_u64()?;
     let health_bits = reader.read_u32()?;
@@ -15405,7 +15685,7 @@ fn parse_entity_building_tether_payload_sync_bytes_with_content_header_option(
     let stack_item_id = reader.read_i16()?;
     let stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    consume_entity_status_entries(
+    let statuses = parse_entity_status_entries(
         &mut reader,
         status_count,
         content_header,
@@ -15417,6 +15697,7 @@ fn parse_entity_building_tether_payload_sync_bytes_with_content_header_option(
         building_pos,
         controller_type,
         controller_value,
+        controller_snapshot,
         elevation_bits,
         flag_bits,
         health_bits,
@@ -15432,6 +15713,7 @@ fn parse_entity_building_tether_payload_sync_bytes_with_content_header_option(
         stack_item_id,
         stack_amount,
         status_count,
+        statuses,
         team_id: reader.read_u8()?,
         unit_type_id: reader.read_i16()?,
         update_building: reader.read_bool()?,
@@ -15519,9 +15801,12 @@ pub fn parse_entity_world_label_sync_bytes(
     Ok((snapshot, reader.position()))
 }
 
-fn skip_entity_unit_controller(reader: &mut Reader<'_>) -> Result<(u8, Option<i32>), String> {
+fn parse_entity_unit_controller(
+    reader: &mut Reader<'_>,
+) -> Result<(u8, Option<i32>, Option<EntityUnitControllerSnapshot>), String> {
     let controller_type = reader.read_u8()?;
     let mut controller_value = None;
+    let mut controller_snapshot = EntityUnitControllerSnapshot::default();
     match controller_type {
         0 | 1 | 3 => {
             controller_value = Some(reader.read_i32()?);
@@ -15531,41 +15816,76 @@ fn skip_entity_unit_controller(reader: &mut Reader<'_>) -> Result<(u8, Option<i3
             let has_attack = reader.read_bool()?;
             let has_pos = reader.read_bool()?;
             if has_pos {
-                reader.skip_bytes(8)?;
+                controller_snapshot.target_pos_x_bits = Some(reader.read_u32()?);
+                controller_snapshot.target_pos_y_bits = Some(reader.read_u32()?);
             }
             if has_attack {
-                reader.skip_bytes(1)?;
-                reader.skip_bytes(4)?;
+                controller_snapshot.attack_target_kind_raw = Some(reader.read_u8()?);
+                controller_snapshot.attack_target_value = Some(reader.read_i32()?);
             }
-            if matches!(controller_type, 6 | 7 | 8 | 9) {
-                reader.skip_bytes(1)?;
+            if matches!(controller_type, 6..=9) {
+                controller_snapshot.command_id_raw = Some(reader.read_u8()?);
             }
-            if matches!(controller_type, 7 | 8 | 9) {
-                let command_count = reader.read_u8()? as usize;
-                for _ in 0..command_count {
+            if matches!(controller_type, 7..=9) {
+                let command_count = reader.read_u8()?;
+                let mut command_queue = EntityUnitControllerCommandQueueSummary {
+                    total_count: command_count,
+                    building_count: 0,
+                    unit_count: 0,
+                    position_count: 0,
+                    ignored_count: 0,
+                };
+                for _ in 0..usize::from(command_count) {
                     match reader.read_u8()? {
-                        0 | 1 => reader.skip_bytes(4)?,
-                        2 => reader.skip_bytes(8)?,
-                        3 => {}
+                        0 => {
+                            reader.skip_bytes(4)?;
+                            command_queue.building_count =
+                                command_queue.building_count.saturating_add(1);
+                        }
+                        1 => {
+                            reader.skip_bytes(4)?;
+                            command_queue.unit_count = command_queue.unit_count.saturating_add(1);
+                        }
+                        2 => {
+                            reader.skip_bytes(8)?;
+                            command_queue.position_count =
+                                command_queue.position_count.saturating_add(1);
+                        }
+                        3 => {
+                            command_queue.ignored_count =
+                                command_queue.ignored_count.saturating_add(1);
+                        }
                         value => {
                             return Err(format!(
-                                "unsupported alpha sync controller command type: {value}"
+                                "unsupported entity sync controller command type: {value}"
                             ));
                         }
                     }
                 }
+                controller_snapshot.command_queue = Some(command_queue);
             }
             if controller_type == 8 {
-                reader.skip_bytes(1)?;
+                controller_snapshot.stance_id_raw = Some(reader.read_u8()?);
             } else if controller_type == 9 {
-                let stance_count = reader.read_u8()? as usize;
-                reader.skip_bytes(stance_count)?;
+                let stance_count = reader.read_u8()?;
+                controller_snapshot.stance_count = Some(stance_count);
+                reader.skip_bytes(usize::from(stance_count))?;
             }
         }
         value => {
-            return Err(format!("unsupported alpha sync controller type: {value}"));
+            return Err(format!("unsupported entity sync controller type: {value}"));
         }
     }
+    Ok((
+        controller_type,
+        controller_value,
+        (!controller_snapshot.is_empty()).then_some(controller_snapshot),
+    ))
+}
+
+fn skip_entity_unit_controller(reader: &mut Reader<'_>) -> Result<(u8, Option<i32>), String> {
+    let (controller_type, controller_value, _controller_snapshot) =
+        parse_entity_unit_controller(reader)?;
     Ok((controller_type, controller_value))
 }
 
@@ -16368,7 +16688,7 @@ pub fn parse_world_load_goldens(compressed: &[u8]) -> Result<WorldLoadSummary, S
     push_hex(
         &mut lines,
         "rules.length",
-        bundle.rules_json.as_bytes().len() as u32,
+        bundle.rules_json.len() as u32,
         8,
     );
     push_str(
@@ -16379,7 +16699,7 @@ pub fn parse_world_load_goldens(compressed: &[u8]) -> Result<WorldLoadSummary, S
     push_hex(
         &mut lines,
         "mapLocales.length",
-        bundle.map_locales_json.as_bytes().len() as u32,
+        bundle.map_locales_json.len() as u32,
         8,
     );
     push_str(
@@ -16945,6 +17265,65 @@ pub fn generate_payload_campaign_compound_goldens() -> Result<PayloadCampaignCom
             }
         };
 
+    let payload_router = PayloadRouterTailSnapshot {
+        progress_bits: 0x3f400000,
+        item_rotation_bits: 0x40400000,
+        payload_present: true,
+        payload_type: Some(0),
+        payload_serialized_len: 5,
+        payload_serialized_sha256: "0123456789abcdef".to_string(),
+        parsed_payload: Some(Box::new(PayloadSnapshot::Unit(UnitPayloadSnapshot {
+            class_id: 0x2a,
+            revision: 2,
+            body_len: 0,
+            body_sha256: String::new(),
+            status_count: 0,
+            statuses: Vec::new(),
+            nested_unit_payloads: Vec::new(),
+        }))),
+        sorted: MixedContentRefTailSnapshot {
+            content_type: Some(UNIT_CONTENT_TYPE),
+            content_id: Some(0x0042),
+        },
+        rec_dir: 3,
+    };
+    let reinforced_payload_router = PayloadRouterTailSnapshot {
+        progress_bits: 0x3f200000,
+        item_rotation_bits: 0x40000000,
+        payload_present: true,
+        payload_type: Some(1),
+        payload_serialized_len: 7,
+        payload_serialized_sha256: "fedcba9876543210".to_string(),
+        parsed_payload: None,
+        sorted: MixedContentRefTailSnapshot {
+            content_type: Some(BLOCK_CONTENT_TYPE),
+            content_id: Some(0x0123),
+        },
+        rec_dir: 1,
+    };
+    let reconstructor = ReconstructorTailSnapshot {
+        payload_block: PayloadBlockTailSnapshot {
+            pay_vector_x_bits: 0x41200000,
+            pay_vector_y_bits: 0x41a00000,
+            pay_rotation_bits: 0x40000000,
+            payload_present: true,
+            payload_type: Some(1),
+            build_block_id: Some(1),
+            build_revision: Some(1),
+            build_payload: None,
+            unit_class_id: None,
+            unit_payload_len: None,
+            unit_payload_sha256: None,
+        },
+        progress_bits: 0x3f400000,
+        command_pos: NullableVec2TailSnapshot {
+            present: true,
+            x_bits: 0x41480000,
+            y_bits: 0x41900000,
+        },
+        command_id: Some(7),
+    };
+
     let constructor = match parse_building_tail_with_context(
         &payload_constructor_content_header,
         Some("constructor"),
@@ -17107,6 +17486,136 @@ pub fn generate_payload_campaign_compound_goldens() -> Result<PayloadCampaignCom
         } else {
             "0"
         },
+    );
+
+    push_hex(
+        &mut lines,
+        "payloadCampaignCompound.payloadRouters.count",
+        2,
+        8,
+    );
+    for (index, (block_name, payload_router)) in [
+        ("payload-router", &payload_router),
+        ("reinforced-payload-router", &reinforced_payload_router),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let payload_router_prefix = format!("payloadCampaignCompound.payloadRouters.{index}");
+        push_str(
+            &mut lines,
+            &format!("{payload_router_prefix}.blockName"),
+            block_name,
+        );
+        push_hex(
+            &mut lines,
+            &format!("{payload_router_prefix}.tail.payloadRouter.progressBits"),
+            payload_router.progress_bits,
+            8,
+        );
+        push_hex(
+            &mut lines,
+            &format!("{payload_router_prefix}.tail.payloadRouter.itemRotationBits"),
+            payload_router.item_rotation_bits,
+            8,
+        );
+        push_str(
+            &mut lines,
+            &format!("{payload_router_prefix}.tail.payloadRouter.payloadPresent"),
+            if payload_router.payload_present {
+                "1"
+            } else {
+                "0"
+            },
+        );
+        push_str(
+            &mut lines,
+            &format!("{payload_router_prefix}.tail.payloadRouter.payloadType"),
+            &format_optional_byte(payload_router.payload_type),
+        );
+        push_hex(
+            &mut lines,
+            &format!("{payload_router_prefix}.tail.payloadRouter.payloadSerializedLen"),
+            payload_router.payload_serialized_len as u32,
+            8,
+        );
+        push_str(
+            &mut lines,
+            &format!("{payload_router_prefix}.tail.payloadRouter.payloadSerializedSha256"),
+            &payload_router.payload_serialized_sha256,
+        );
+        push_str(
+            &mut lines,
+            &format!("{payload_router_prefix}.tail.payloadRouter.parsedPayloadKind"),
+            match payload_router.parsed_payload.as_deref() {
+                Some(PayloadSnapshot::Null) => "null",
+                Some(PayloadSnapshot::Build(_)) => "build",
+                Some(PayloadSnapshot::Unit(_)) => "unit",
+                None => "none",
+            },
+        );
+        if let Some(PayloadSnapshot::Unit(unit_payload)) = payload_router.parsed_payload.as_deref()
+        {
+            push_str(
+                &mut lines,
+                &format!("{payload_router_prefix}.tail.payloadRouter.unitClassId"),
+                &format!("{:02x}", unit_payload.class_id),
+            );
+            push_str(
+                &mut lines,
+                &format!("{payload_router_prefix}.tail.payloadRouter.unitRevision"),
+                &format!("{:02x}", unit_payload.revision as u16),
+            );
+        }
+        push_str(
+            &mut lines,
+            &format!("{payload_router_prefix}.tail.payloadRouter.sorted.contentType"),
+            &format_optional_byte(payload_router.sorted.content_type),
+        );
+        push_str(
+            &mut lines,
+            &format!("{payload_router_prefix}.tail.payloadRouter.sorted.contentId"),
+            &format_optional_item_id(payload_router.sorted.content_id),
+        );
+        push_str(
+            &mut lines,
+            &format!("{payload_router_prefix}.tail.payloadRouter.recDir"),
+            &format!("{:02x}", payload_router.rec_dir),
+        );
+    }
+
+    push_hex(
+        &mut lines,
+        "payloadCampaignCompound.reconstructors.count",
+        1,
+        8,
+    );
+    let reconstructor_prefix = "payloadCampaignCompound.reconstructors.0";
+    push_str(
+        &mut lines,
+        &format!("{reconstructor_prefix}.blockName"),
+        "prime-refabricator",
+    );
+    push_payload_block_summary_lines(
+        &mut lines,
+        reconstructor_prefix,
+        &reconstructor.payload_block,
+    );
+    push_hex(
+        &mut lines,
+        &format!("{reconstructor_prefix}.tail.reconstructor.progressBits"),
+        reconstructor.progress_bits,
+        8,
+    );
+    push_str(
+        &mut lines,
+        &format!("{reconstructor_prefix}.tail.reconstructor.commandId"),
+        &format_optional_byte(reconstructor.command_id),
+    );
+    push_nullable_vec2_summary_lines(
+        &mut lines,
+        &format!("{reconstructor_prefix}.tail.reconstructor.commandPos"),
+        &reconstructor.command_pos,
     );
 
     push_hex(
@@ -26234,6 +26743,7 @@ fn inspect_payload_router_payload_prefix(bytes: &[u8]) -> Option<(bool, Option<u
     Some((summary.payload_present, summary.payload_type_id()))
 }
 
+#[allow(clippy::type_complexity)]
 fn parse_payload_router_payload_segment(
     content_header: &[ContentHeaderEntry],
     bytes: &[u8],
@@ -27208,11 +27718,11 @@ fn parse_building_liquid_module_snapshot(
     Ok(BuildingLiquidModuleSnapshot { count, entries })
 }
 
-fn resolve_content_name<'a>(
-    header: &'a [ContentHeaderEntry],
+fn resolve_content_name(
+    header: &[ContentHeaderEntry],
     content_type: u8,
     content_id: u16,
-) -> Option<&'a str> {
+) -> Option<&str> {
     header
         .iter()
         .find(|entry| entry.content_type == content_type)
@@ -27374,12 +27884,10 @@ fn cached_save_entity_region_bytes(
             out.extend_from_slice(&entities.world_entity_bytes);
             Ok(out)
         }
-        _ => {
-            return Err(format!(
-                "unsupported .msav save version for entity byte replay: {}",
-                save_version
-            ))
-        }
+        _ => Err(format!(
+            "unsupported .msav save version for entity byte replay: {}",
+            save_version
+        )),
     }
 }
 
@@ -27838,6 +28346,18 @@ fn parse_save_content_patches_region(bytes: &[u8]) -> Result<Vec<Vec<u8>>, Strin
     Ok(patches)
 }
 
+pub(crate) fn decode_save_content_patches_utf8(patches: &[Vec<u8>]) -> Result<Vec<String>, String> {
+    patches
+        .iter()
+        .enumerate()
+        .map(|(index, patch)| {
+            std::str::from_utf8(patch)
+                .map(str::to_owned)
+                .map_err(|error| format!("save content patch {index} is not valid UTF-8: {error}"))
+        })
+        .collect()
+}
+
 fn parse_save_map_region(
     save_version: i32,
     content_header: &[ContentHeaderEntry],
@@ -27999,8 +28519,8 @@ fn parse_save_map_region(
                 ));
             }
             block_region_bytes.push(consecutives as u8);
-            for j in (i + 1)..=run_end {
-                blocks[j] = block;
+            for cell in blocks.iter_mut().take(run_end + 1).skip(i + 1) {
+                *cell = block;
             }
             i = run_end;
         }
@@ -28055,6 +28575,7 @@ fn parse_save_map_region(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_legacy_save_map_region_blocks(
     content_header: &[ContentHeaderEntry],
     bytes: &[u8],
@@ -28124,8 +28645,8 @@ fn parse_legacy_save_map_region_blocks(
                     tile_count
                 ));
             }
-            for j in (i + 1)..=run_end {
-                blocks[j] = block;
+            for cell in blocks.iter_mut().take(run_end + 1).skip(i + 1) {
+                *cell = block;
             }
             i = run_end;
         }
@@ -28531,7 +29052,7 @@ fn parse_msav_envelope_from_inflated(
         ));
     }
 
-    let mut reader = Reader::new(&inflated);
+    let mut reader = Reader::new(inflated);
     let header = reader
         .read_exact_vec(MSAV_HEADER.len())?
         .try_into()
@@ -28963,8 +29484,8 @@ pub fn parse_world_bundle(compressed: &[u8]) -> Result<WorldBundle, String> {
                 ));
             }
             block_region_bytes.push(consecutives as u8);
-            for j in (i + 1)..=run_end {
-                blocks[j] = block;
+            for cell in blocks.iter_mut().take(run_end + 1).skip(i + 1) {
+                *cell = block;
             }
             i = run_end;
         }
@@ -31077,7 +31598,7 @@ fn read_msav_zlib_header(bytes: &[u8]) -> Result<MsavZlibHeader, String> {
         ));
     }
 
-    let header_checksum_ok = (((cmf as u16) << 8) | flg as u16) % 31 == 0;
+    let header_checksum_ok = (((cmf as u16) << 8) | flg as u16).is_multiple_of(31);
     if !header_checksum_ok {
         return Err(format!(
             "invalid .msav zlib header checksum: cmf=0x{cmf:02x}, flg=0x{flg:02x}"
@@ -37958,6 +38479,7 @@ fn entry_bootstrap_proof_as_entry_bootstrap_content(
         liquid_content_count: entry_bootstrap_proof.liquid_content_count,
         unit_content_count: entry_bootstrap_proof.unit_content_count,
         weather_content_count: entry_bootstrap_proof.weather_content_count,
+        content_patch_texts: entry_bootstrap_proof.content_patch_texts.clone(),
     }
 }
 
@@ -40948,8 +41470,8 @@ fn parse_static_fog_chunk(bytes: &[u8]) -> Result<StaticFogChunk, String> {
 
             rle_bytes.push(data);
             if sign {
-                for index in pos..run_end {
-                    discovered[index] = true;
+                for cell in discovered.iter_mut().take(run_end).skip(pos) {
+                    *cell = true;
                 }
             }
             pos = run_end;
@@ -42010,6 +42532,38 @@ mod tests {
             .collect::<Vec<_>>()
     }
 
+    fn sample_world_graph_goldens() -> WorldGraphSummary {
+        parse_world_graph_goldens(&sample_world_stream_bytes()).unwrap()
+    }
+
+    fn sample_world_graph_goldens_text() -> String {
+        format_world_graph_goldens(&sample_world_graph_goldens())
+    }
+
+    fn sample_team_plan_goldens() -> TeamPlanSummary {
+        parse_team_plan_goldens(&generate_team_plan_sample_bytes()).unwrap()
+    }
+
+    fn sample_team_plan_goldens_text() -> String {
+        format_team_plan_goldens(&sample_team_plan_goldens())
+    }
+
+    fn sample_static_fog_goldens() -> StaticFogSummary {
+        parse_static_fog_goldens(&generate_static_fog_sample_bytes()).unwrap()
+    }
+
+    fn sample_static_fog_goldens_text() -> String {
+        format_static_fog_goldens(&sample_static_fog_goldens())
+    }
+
+    fn sample_marker_goldens() -> MarkerSummary {
+        parse_marker_goldens(&generate_marker_sample_bytes()).unwrap()
+    }
+
+    fn sample_marker_goldens_text() -> String {
+        format_marker_goldens(&sample_marker_goldens())
+    }
+
     fn compress_logic_processor_config_bytes(bytes: &[u8]) -> Vec<u8> {
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(bytes).unwrap();
@@ -42023,7 +42577,7 @@ mod tests {
     ) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.push(version);
-        bytes.extend_from_slice(&(code.as_bytes().len() as i32).to_be_bytes());
+        bytes.extend_from_slice(&(code.len() as i32).to_be_bytes());
         bytes.extend_from_slice(code.as_bytes());
         bytes.extend_from_slice(&(links.len() as i32).to_be_bytes());
         for (name, x, y) in links {
@@ -42040,7 +42594,7 @@ mod tests {
     ) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.push(0);
-        bytes.extend_from_slice(&(code.as_bytes().len() as i32).to_be_bytes());
+        bytes.extend_from_slice(&(code.len() as i32).to_be_bytes());
         bytes.extend_from_slice(code.as_bytes());
         bytes.extend_from_slice(&(legacy_links.len() as i32).to_be_bytes());
         for link in legacy_links {
@@ -42303,6 +42857,41 @@ mod tests {
             .filter_map(|line| line.split_once('='))
             .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
             .collect()
+    }
+
+    fn sample_world_content_header() -> Vec<ContentHeaderEntry> {
+        let inflated = inflate_sample_world_bundle_bytes();
+        let layout = sample_world_bundle_mutation_layout(&inflated);
+        parse_save_content_header_region(
+            &inflated[layout.mapped_types_offset..layout.content_header_end],
+        )
+        .unwrap()
+    }
+
+    fn sample_java_unit_payload_fixture(sample_name: &str) -> (Vec<u8>, UnitPayloadSnapshot) {
+        let entries = java_unit_payload_golden_entries();
+        let unit_class_id = u8::from_str_radix(
+            entries[&format!("unitPayload.{sample_name}.classId")].as_str(),
+            16,
+        )
+        .unwrap();
+        let unit_body = decode_hex(entries[&format!("unitPayload.{sample_name}.bodyHex")].as_str());
+        let unit_payload_bytes = {
+            let mut bytes = Vec::new();
+            bytes.push(1);
+            bytes.push(0);
+            bytes.push(unit_class_id);
+            bytes.extend_from_slice(&unit_body);
+            bytes
+        };
+        let (expected_payload, expected_consumed) =
+            parse_payload_snapshot_bytes(&[], &unit_payload_bytes).unwrap();
+        assert_eq!(expected_consumed, unit_payload_bytes.len());
+        let expected_unit_payload = match expected_payload {
+            PayloadSnapshot::Unit(unit_payload) => unit_payload,
+            other => panic!("expected unit payload, got {other:?}"),
+        };
+        (unit_payload_bytes, expected_unit_payload)
     }
 
     fn generated_java_entity_mapping_name_ids() -> HashMap<String, u8> {
@@ -42794,6 +43383,18 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert_no_duplicate_text(label, &text);
+    }
+
+    fn assert_no_duplicate_text_cases(cases: Vec<(&'static str, String)>) {
+        for (label, text) in cases {
+            assert_no_duplicate_text(label, &text);
+        }
+    }
+
+    fn assert_no_duplicate_key_cases(cases: Vec<(&'static str, Vec<(String, String)>)>) {
+        for (label, lines) in cases {
+            assert_no_duplicate_keys(label, &lines);
+        }
     }
 
     fn assert_no_duplicate_text(label: &str, text: &str) {
@@ -43621,6 +44222,18 @@ mod tests {
     }
 
     #[test]
+    fn msav_post_load_world_exposes_decoded_patch_texts_for_save11_regions() {
+        let bundle = sample_world_bundle();
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+
+        assert_eq!(
+            post_load.patch_texts().unwrap(),
+            decode_save_content_patches_utf8(&bundle.patches).unwrap()
+        );
+    }
+
+    #[test]
     fn post_load_world_rejects_missing_required_regions() {
         let mut missing_content = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         missing_content
@@ -43908,8 +44521,8 @@ mod tests {
             seed_surface.summary_label(),
             format!(
                 "seed={} shell={} apply={} wait={} block={} defer={} next={} blocked_regions=0 awaiting_regions=0",
-                bool_label(seed_surface.can_seed_runtime_apply),
-                bool_label(seed_surface.world_shell_ready),
+                bool_word_label(seed_surface.can_seed_runtime_apply),
+                bool_word_label(seed_surface.world_shell_ready),
                 seed_surface.apply_now_step_count,
                 seed_surface.awaiting_world_shell_step_count,
                 seed_surface.blocked_step_count,
@@ -43924,8 +44537,8 @@ mod tests {
             seed_surface.detail_label(),
             format!(
                 "seed={} shell={} apply={} wait={} block={} defer={} next={} blocked=[] awaiting=[]",
-                bool_label(seed_surface.can_seed_runtime_apply),
-                bool_label(seed_surface.world_shell_ready),
+                bool_word_label(seed_surface.can_seed_runtime_apply),
+                bool_word_label(seed_surface.world_shell_ready),
                 seed_surface.apply_now_step_count,
                 seed_surface.awaiting_world_shell_step_count,
                 seed_surface.blocked_step_count,
@@ -45595,6 +46208,7 @@ mod tests {
         assert_eq!(snapshot.ammo_bits, 123.0f32.to_bits());
         assert_eq!(snapshot.controller_type, 0);
         assert_eq!(snapshot.controller_value, Some(7));
+        assert_eq!(snapshot.controller_snapshot, None);
         assert_eq!(snapshot.elevation_bits, 1.0f32.to_bits());
         assert_eq!(snapshot.flag_bits, 0);
         assert_eq!(snapshot.health_bits, 150.0f32.to_bits());
@@ -45636,11 +46250,7 @@ mod tests {
         controller_type_6.extend_from_slice(&22.0f32.to_bits().to_be_bytes());
         controller_type_6.push(9);
 
-        let mut controller_type_7 = Vec::new();
-        controller_type_7.push(7);
-        controller_type_7.push(1);
-        controller_type_7.push(0);
-        controller_type_7.push(5);
+        let mut controller_type_7 = vec![7, 1, 0, 5];
         controller_type_7.extend_from_slice(&456i32.to_be_bytes());
         controller_type_7.push(2);
         controller_type_7.push(4);
@@ -45696,6 +46306,121 @@ mod tests {
             assert_eq!(consumed, bytes.len(), "{label}");
             assert_eq!(snapshot.controller_type, expected_type, "{label}");
             assert_eq!(snapshot.controller_value, None, "{label}");
+            let controller = snapshot
+                .controller_snapshot
+                .as_ref()
+                .unwrap_or_else(|| panic!("missing controller detail for {label}"));
+            match expected_type {
+                4 => {
+                    assert_eq!(
+                        controller.target_pos_x_bits,
+                        Some(10.0f32.to_bits()),
+                        "{label}"
+                    );
+                    assert_eq!(
+                        controller.target_pos_y_bits,
+                        Some(20.0f32.to_bits()),
+                        "{label}"
+                    );
+                    assert_eq!(controller.attack_target_kind_raw, Some(3), "{label}");
+                    assert_eq!(controller.attack_target_value, Some(321), "{label}");
+                    assert_eq!(controller.command_id_raw, None, "{label}");
+                    assert_eq!(controller.command_queue, None, "{label}");
+                    assert_eq!(controller.stance_id_raw, None, "{label}");
+                    assert_eq!(controller.stance_count, None, "{label}");
+                }
+                6 => {
+                    assert_eq!(
+                        controller.target_pos_x_bits,
+                        Some(11.0f32.to_bits()),
+                        "{label}"
+                    );
+                    assert_eq!(
+                        controller.target_pos_y_bits,
+                        Some(22.0f32.to_bits()),
+                        "{label}"
+                    );
+                    assert_eq!(controller.attack_target_kind_raw, None, "{label}");
+                    assert_eq!(controller.attack_target_value, None, "{label}");
+                    assert_eq!(controller.command_id_raw, Some(9), "{label}");
+                    assert_eq!(controller.command_queue, None, "{label}");
+                }
+                7 => {
+                    assert_eq!(controller.target_pos_x_bits, None, "{label}");
+                    assert_eq!(controller.target_pos_y_bits, None, "{label}");
+                    assert_eq!(controller.attack_target_kind_raw, Some(5), "{label}");
+                    assert_eq!(controller.attack_target_value, Some(456), "{label}");
+                    assert_eq!(controller.command_id_raw, Some(2), "{label}");
+                    assert_eq!(
+                        controller.command_queue,
+                        Some(EntityUnitControllerCommandQueueSummary {
+                            total_count: 4,
+                            building_count: 1,
+                            unit_count: 1,
+                            position_count: 1,
+                            ignored_count: 1,
+                        }),
+                        "{label}"
+                    );
+                }
+                8 => {
+                    assert_eq!(
+                        controller.target_pos_x_bits,
+                        Some(30.0f32.to_bits()),
+                        "{label}"
+                    );
+                    assert_eq!(
+                        controller.target_pos_y_bits,
+                        Some(45.0f32.to_bits()),
+                        "{label}"
+                    );
+                    assert_eq!(controller.attack_target_kind_raw, None, "{label}");
+                    assert_eq!(controller.attack_target_value, None, "{label}");
+                    assert_eq!(controller.command_id_raw, Some(7), "{label}");
+                    assert_eq!(
+                        controller.command_queue,
+                        Some(EntityUnitControllerCommandQueueSummary {
+                            total_count: 1,
+                            building_count: 0,
+                            unit_count: 0,
+                            position_count: 1,
+                            ignored_count: 0,
+                        }),
+                        "{label}"
+                    );
+                    assert_eq!(controller.stance_id_raw, Some(1), "{label}");
+                    assert_eq!(controller.stance_count, None, "{label}");
+                }
+                9 => {
+                    assert_eq!(
+                        controller.target_pos_x_bits,
+                        Some(12.0f32.to_bits()),
+                        "{label}"
+                    );
+                    assert_eq!(
+                        controller.target_pos_y_bits,
+                        Some(24.0f32.to_bits()),
+                        "{label}"
+                    );
+                    assert_eq!(controller.attack_target_kind_raw, Some(6), "{label}");
+                    assert_eq!(controller.attack_target_value, Some(789), "{label}");
+                    assert_eq!(controller.command_id_raw, Some(4), "{label}");
+                    assert_eq!(
+                        controller.command_queue,
+                        Some(EntityUnitControllerCommandQueueSummary {
+                            total_count: 2,
+                            building_count: 1,
+                            unit_count: 0,
+                            position_count: 0,
+                            ignored_count: 1,
+                        }),
+                        "{label}"
+                    );
+                    assert_eq!(controller.stance_id_raw, None, "{label}");
+                    assert_eq!(controller.stance_count, Some(3), "{label}");
+                }
+                _ => panic!("unexpected controller type {expected_type}"),
+            }
             assert_eq!(snapshot.team_id, 1, "{label}");
             assert_eq!(snapshot.unit_type_id, 35, "{label}");
             assert_eq!(snapshot.x_bits, 40.0f32.to_bits(), "{label}");
@@ -45743,6 +46468,15 @@ mod tests {
 
         assert_eq!(consumed, bytes.len());
         assert_eq!(snapshot.status_count, 1);
+        assert_eq!(
+            snapshot.statuses,
+            vec![EntityUnitStatusSnapshot {
+                status_id: 2,
+                time_bits: 8.0f32.to_bits(),
+                resolved_name: None,
+                dynamic: None,
+            }]
+        );
         assert_eq!(snapshot.team_id, 1);
         assert_eq!(snapshot.unit_type_id, 35);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
@@ -45848,6 +46582,15 @@ mod tests {
 
         assert_eq!(consumed, bytes.len());
         assert_eq!(snapshot.status_count, 1);
+        assert_eq!(
+            snapshot.statuses,
+            vec![EntityUnitStatusSnapshot {
+                status_id: 3,
+                time_bits: 6.0f32.to_bits(),
+                resolved_name: None,
+                dynamic: None,
+            }]
+        );
         assert_eq!(snapshot.team_id, 1);
         assert_eq!(snapshot.unit_type_id, 35);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
@@ -45956,6 +46699,15 @@ mod tests {
 
         assert_eq!(consumed, bytes.len());
         assert_eq!(snapshot.status_count, 1);
+        assert_eq!(
+            snapshot.statuses,
+            vec![EntityUnitStatusSnapshot {
+                status_id: 5,
+                time_bits: 2.0f32.to_bits(),
+                resolved_name: None,
+                dynamic: None,
+            }]
+        );
         assert_eq!(snapshot.team_id, 1);
         assert_eq!(snapshot.unit_type_id, 39);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
@@ -46061,6 +46813,15 @@ mod tests {
 
         assert_eq!(consumed, bytes.len());
         assert_eq!(snapshot.status_count, 1);
+        assert_eq!(
+            snapshot.statuses,
+            vec![EntityUnitStatusSnapshot {
+                status_id: 7,
+                time_bits: 5.5f32.to_bits(),
+                resolved_name: None,
+                dynamic: None,
+            }]
+        );
         assert_eq!(snapshot.team_id, 1);
         assert_eq!(snapshot.unit_type_id, 35);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
@@ -46169,7 +46930,88 @@ mod tests {
 
         assert_eq!(consumed, bytes.len());
         assert_eq!(snapshot.status_count, 1);
+        assert_eq!(
+            snapshot.statuses,
+            vec![EntityUnitStatusSnapshot {
+                status_id: 4,
+                time_bits: 4.5f32.to_bits(),
+                resolved_name: None,
+                dynamic: None,
+            }]
+        );
         assert_eq!(snapshot.building_pos, 12345);
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 35);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_payload_sync_bytes_with_dynamic_status_when_content_header_is_known() {
+        let content_header = vec![ContentHeaderEntry {
+            content_type: STATUS_CONTENT_TYPE,
+            names: vec!["none".into(), "dynamic".into()],
+        }];
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(2);
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.extend_from_slice(&1i16.to_be_bytes());
+        bytes.extend_from_slice(&9.5f32.to_bits().to_be_bytes());
+        bytes.push(0b0100_0001);
+        bytes.extend_from_slice(&1.25f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&6.0f32.to_bits().to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) =
+            parse_entity_payload_sync_bytes_with_content_header(&content_header, &bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.status_count, 1);
+        assert_eq!(
+            snapshot.statuses,
+            vec![EntityUnitStatusSnapshot {
+                status_id: 1,
+                time_bits: 9.5f32.to_bits(),
+                resolved_name: Some("dynamic".to_string()),
+                dynamic: Some(EntityUnitStatusDynamicSnapshot {
+                    damage_multiplier_bits: Some(1.25f32.to_bits()),
+                    health_multiplier_bits: None,
+                    speed_multiplier_bits: None,
+                    reload_multiplier_bits: None,
+                    build_speed_multiplier_bits: None,
+                    drag_multiplier_bits: None,
+                    armor_override_bits: Some(6.0f32.to_bits()),
+                }),
+            }]
+        );
         assert_eq!(snapshot.team_id, 1);
         assert_eq!(snapshot.unit_type_id, 35);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
@@ -46222,10 +47064,46 @@ mod tests {
         );
     }
 
+    fn unit_status_entry_bytes(status_id: i16, time_bits: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&status_id.to_be_bytes());
+        bytes.extend_from_slice(&time_bits.to_be_bytes());
+        bytes
+    }
+
+    fn dynamic_status_entry_bytes(
+        status_id: i16,
+        time_bits: u32,
+        flags: u8,
+        dynamic_field_bits: &[u32],
+    ) -> Vec<u8> {
+        let mut bytes = unit_status_entry_bytes(status_id, time_bits);
+        bytes.push(flags);
+        for field_bits in dynamic_field_bits {
+            bytes.extend_from_slice(&field_bits.to_be_bytes());
+        }
+        bytes
+    }
+
     fn synthetic_alpha_unit_payload_body() -> Vec<u8> {
-        decode_hex(
+        synthetic_alpha_unit_payload_body_with_status_bytes(0, &[])
+    }
+
+    fn synthetic_alpha_unit_payload_body_with_status_bytes(
+        status_count: i32,
+        status_bytes: &[u8],
+    ) -> Vec<u8> {
+        let base = decode_hex(
             "00030042f600000900000000003f80000000000000000000004316000000ffffffff0200000000000000000000000000000000000000000000000000000000000000000000000000000000000100230100000000000000000000000000000000",
-        )
+        );
+        let tail_after_status_len = 1 + 2 + 1 + 8 + 8;
+        let status_count_offset = base.len() - (std::mem::size_of::<i32>() + tail_after_status_len);
+        let mut body = Vec::with_capacity(base.len() + status_bytes.len());
+        body.extend_from_slice(&base[..status_count_offset]);
+        body.extend_from_slice(&status_count.to_be_bytes());
+        body.extend_from_slice(status_bytes);
+        body.extend_from_slice(&base[(status_count_offset + std::mem::size_of::<i32>())..]);
+        body
     }
 
     fn unit_payload_bytes(class_id: u8, body: &[u8]) -> Vec<u8> {
@@ -46237,11 +47115,9 @@ mod tests {
         bytes
     }
 
-    fn synthetic_quad_unit_payload_body_with_nested_unit_payload(
-        nested_unit_class_id: u8,
-        nested_unit_body: &[u8],
+    fn synthetic_quad_unit_payload_body_with_nested_payload_bytes(
+        nested_payload: &[u8],
     ) -> Vec<u8> {
-        let nested_payload = unit_payload_bytes(nested_unit_class_id, nested_unit_body);
         let mut unit_body = Vec::new();
         unit_body.extend_from_slice(&6i16.to_be_bytes());
         unit_body.push(0);
@@ -46271,6 +47147,14 @@ mod tests {
         unit_body.extend_from_slice(&128.0f32.to_bits().to_be_bytes());
         unit_body.extend_from_slice(&256.0f32.to_bits().to_be_bytes());
         unit_body
+    }
+
+    fn synthetic_quad_unit_payload_body_with_nested_unit_payload(
+        nested_unit_class_id: u8,
+        nested_unit_body: &[u8],
+    ) -> Vec<u8> {
+        let nested_payload = unit_payload_bytes(nested_unit_class_id, nested_unit_body);
+        synthetic_quad_unit_payload_body_with_nested_payload_bytes(&nested_payload)
     }
 
     fn synthetic_building_tether_unit_payload_body_with_nested_unit_payload(
@@ -46310,6 +47194,327 @@ mod tests {
         unit_body
     }
 
+    fn synthetic_entity_payload_sync_tail_with_status_bytes(
+        status_count: i32,
+        status_bytes: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&status_count.to_be_bytes());
+        bytes.extend_from_slice(status_bytes);
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
+    fn synthetic_entity_payload_sync_bytes_with_payload_and_tail(
+        payload_count: i32,
+        payload_bytes: &[u8],
+        tail_bytes: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&payload_count.to_be_bytes());
+        bytes.extend_from_slice(payload_bytes);
+        bytes.extend_from_slice(tail_bytes);
+        bytes
+    }
+
+    fn synthetic_building_tether_payload_sync_bytes_with_payload_entries(
+        payload_count: i32,
+        payload_bytes: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&payload_count.to_be_bytes());
+        bytes.extend_from_slice(payload_bytes);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
+    #[test]
+    fn payload_candidate_end_salvage_keeps_nested_dynamic_status_semantics_at_highest_valid_shrunk_boundary(
+    ) {
+        use std::cell::RefCell;
+
+        let nested_dynamic_status = EntityUnitStatusSnapshot {
+            status_id: 1,
+            time_bits: 9.5f32.to_bits(),
+            resolved_name: Some("dynamic".to_string()),
+            dynamic: Some(EntityUnitStatusDynamicSnapshot {
+                damage_multiplier_bits: Some(1.25f32.to_bits()),
+                health_multiplier_bits: None,
+                speed_multiplier_bits: None,
+                reload_multiplier_bits: None,
+                build_speed_multiplier_bits: None,
+                drag_multiplier_bits: None,
+                armor_override_bits: Some(6.0f32.to_bits()),
+            }),
+        };
+        let expected = UnitPayloadSnapshot {
+            class_id: 23,
+            revision: 6,
+            body_len: b"quad-candidate".len(),
+            body_sha256: sha256_hex(b"quad-candidate"),
+            status_count: 0,
+            statuses: vec![],
+            nested_unit_payloads: vec![UnitPayloadSnapshot {
+                class_id: 0,
+                revision: 3,
+                body_len: b"alpha-child".len(),
+                body_sha256: sha256_hex(b"alpha-child"),
+                status_count: 1,
+                statuses: vec![nested_dynamic_status.clone()],
+                nested_unit_payloads: vec![],
+            }],
+        };
+        let larger_but_invalid = UnitPayloadSnapshot {
+            class_id: 23,
+            revision: 6,
+            body_len: b"quad-candidate-with-tail-slip".len(),
+            body_sha256: sha256_hex(b"quad-candidate-with-tail-slip"),
+            status_count: 0,
+            statuses: vec![],
+            nested_unit_payloads: vec![],
+        };
+        let remaining = vec![0u8; 18];
+        let visited_candidate_ends = RefCell::new(Vec::new());
+
+        let matched = salvage_entity_unit_payload_boundary_with_hooks(
+            &remaining,
+            18,
+            |candidate_bytes| {
+                visited_candidate_ends
+                    .borrow_mut()
+                    .push(candidate_bytes.len());
+                match candidate_bytes.len() {
+                    17 => Some((larger_but_invalid.clone(), 17)),
+                    13 => Some((expected.clone(), 13)),
+                    _ => None,
+                }
+            },
+            |tail_bytes| tail_bytes.len() == remaining.len() - 13,
+        );
+
+        assert_eq!(
+            visited_candidate_ends.into_inner(),
+            vec![17, 16, 15, 14, 13]
+        );
+        assert_eq!(matched, Some((expected, 13)));
+    }
+
+    #[test]
+    fn payload_candidate_end_salvage_keeps_payload_subtree_status_semantics_after_receding_from_a_false_boundary(
+    ) {
+        use std::cell::RefCell;
+
+        let subtree_status = EntityUnitStatusSnapshot {
+            status_id: 7,
+            time_bits: 4.25f32.to_bits(),
+            resolved_name: Some("boss".to_string()),
+            dynamic: None,
+        };
+        let expected = UnitPayloadSnapshot {
+            class_id: 36,
+            revision: 1,
+            body_len: b"tether-candidate".len(),
+            body_sha256: sha256_hex(b"tether-candidate"),
+            status_count: 1,
+            statuses: vec![EntityUnitStatusSnapshot {
+                status_id: 2,
+                time_bits: 3.0f32.to_bits(),
+                resolved_name: Some("root".to_string()),
+                dynamic: None,
+            }],
+            nested_unit_payloads: vec![UnitPayloadSnapshot {
+                class_id: 0,
+                revision: 3,
+                body_len: b"payload-subtree".len(),
+                body_sha256: sha256_hex(b"payload-subtree"),
+                status_count: 1,
+                statuses: vec![subtree_status.clone()],
+                nested_unit_payloads: vec![UnitPayloadSnapshot {
+                    class_id: 29,
+                    revision: 3,
+                    body_len: b"payload-leaf".len(),
+                    body_sha256: sha256_hex(b"payload-leaf"),
+                    status_count: 1,
+                    statuses: vec![subtree_status],
+                    nested_unit_payloads: vec![],
+                }],
+            }],
+        };
+        let larger_but_invalid = UnitPayloadSnapshot {
+            class_id: 36,
+            revision: 1,
+            body_len: b"tether-candidate-with-tail-slip".len(),
+            body_sha256: sha256_hex(b"tether-candidate-with-tail-slip"),
+            status_count: 0,
+            statuses: vec![],
+            nested_unit_payloads: vec![],
+        };
+        let remaining = vec![0u8; 16];
+        let visited_candidate_ends = RefCell::new(Vec::new());
+
+        let matched = salvage_entity_unit_payload_boundary_with_hooks(
+            &remaining,
+            16,
+            |candidate_bytes| {
+                visited_candidate_ends
+                    .borrow_mut()
+                    .push(candidate_bytes.len());
+                match candidate_bytes.len() {
+                    15 => Some((larger_but_invalid.clone(), 15)),
+                    10 => Some((expected.clone(), 10)),
+                    _ => None,
+                }
+            },
+            |tail_bytes| tail_bytes.len() == remaining.len() - 10,
+        );
+
+        assert_eq!(
+            visited_candidate_ends.into_inner(),
+            vec![15, 14, 13, 12, 11, 10]
+        );
+        assert_eq!(matched, Some((expected, 10)));
+    }
+
+    #[test]
+    fn parses_entity_payload_sync_bytes_with_candidate_end_salvage_for_nested_dynamic_status_header_mismatch(
+    ) {
+        fn synthetic_quad_unit_payload_body_with_nested_payload_and_tail(
+            nested_payload: &[u8],
+            tail_bytes: &[u8],
+        ) -> Vec<u8> {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&6i16.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&27.0f32.to_bits().to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&11i32.to_be_bytes());
+            bytes.extend_from_slice(&0.75f32.to_bits().to_be_bytes());
+            bytes.extend_from_slice(&9.0f64.to_bits().to_be_bytes());
+            bytes.extend_from_slice(&140.0f32.to_bits().to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&12345i32.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&1i32.to_be_bytes());
+            bytes.extend_from_slice(nested_payload);
+            bytes.extend_from_slice(tail_bytes);
+            bytes
+        }
+
+        let content_header = vec![ContentHeaderEntry {
+            content_type: STATUS_CONTENT_TYPE,
+            names: vec!["none".into(), "dynamic".into()],
+        }];
+        let plain_status = unit_status_entry_bytes(1, 9.5f32.to_bits());
+        let mut inner_unit_body =
+            synthetic_alpha_unit_payload_body_with_status_bytes(1, &plain_status);
+        let inner_team_offset = inner_unit_body.len() - (1 + 2 + 1 + 8 + 8);
+        inner_unit_body[inner_team_offset] = 0;
+        let nested_unit_payload_bytes = unit_payload_bytes(0, &inner_unit_body);
+        let outer_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0i32.to_be_bytes());
+            bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+            bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&0i16.to_be_bytes());
+            bytes.extend_from_slice(&0i32.to_be_bytes());
+            bytes.extend_from_slice(&0i32.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&35i16.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+            bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+            bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+            bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+            bytes
+        };
+        let outer_unit_body = synthetic_quad_unit_payload_body_with_nested_payload_and_tail(
+            &nested_unit_payload_bytes,
+            &outer_tail,
+        );
+        let top_payload_bytes = unit_payload_bytes(23, &outer_unit_body);
+
+        let (expected_payload, expected_consumed) =
+            parse_payload_snapshot_bytes(&[], &top_payload_bytes).unwrap();
+        assert_eq!(expected_consumed, top_payload_bytes.len());
+        let expected_unit_payload = match expected_payload {
+            PayloadSnapshot::Unit(unit_payload) => unit_payload,
+            other => panic!("expected unit payload, got {other:?}"),
+        };
+
+        let valid_tail = synthetic_entity_payload_sync_tail_with_status_bytes(0, &[]);
+        let mut remaining = top_payload_bytes.clone();
+        remaining.extend_from_slice(&valid_tail);
+        let (initial_payload, initial_consumed) =
+            parse_payload_snapshot_bytes(&content_header, &remaining).unwrap();
+        let initial_unit_payload = match initial_payload {
+            PayloadSnapshot::Unit(unit_payload) => unit_payload,
+            other => panic!("expected unit payload, got {other:?}"),
+        };
+
+        assert_eq!(initial_consumed, top_payload_bytes.len() + 1);
+        assert_ne!(
+            initial_unit_payload, expected_unit_payload,
+            "expected header-aware nested status parse to overconsume entity tail before salvage"
+        );
+
+        let bytes = synthetic_entity_payload_sync_bytes_with_payload_and_tail(
+            1,
+            &top_payload_bytes,
+            &valid_tail,
+        );
+        let (snapshot, consumed) =
+            parse_entity_payload_sync_bytes_with_content_header(&content_header, &bytes).unwrap();
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.unit_payload, Some(expected_unit_payload));
+    }
+
     #[test]
     fn parses_payload_snapshot_bytes_with_unit_payload() {
         let unit_body = synthetic_alpha_unit_payload_body();
@@ -46324,6 +47529,8 @@ mod tests {
                 revision: 3,
                 body_len: unit_body.len(),
                 body_sha256: sha256_hex(&unit_body),
+                status_count: 0,
+                statuses: vec![],
                 nested_unit_payloads: vec![],
             })
         );
@@ -46371,6 +47578,8 @@ mod tests {
                 revision: 1,
                 body_len: unit_body.len(),
                 body_sha256: sha256_hex(&unit_body),
+                status_count: 0,
+                statuses: vec![],
                 nested_unit_payloads: vec![],
             })
         );
@@ -46422,6 +47631,8 @@ mod tests {
                 revision: 6,
                 body_len: unit_body.len(),
                 body_sha256: sha256_hex(&unit_body),
+                status_count: 0,
+                statuses: vec![],
                 nested_unit_payloads: vec![],
             })
         );
@@ -46444,16 +47655,94 @@ mod tests {
                 revision: 6,
                 body_len: outer_unit_body.len(),
                 body_sha256: sha256_hex(&outer_unit_body),
+                status_count: 0,
+                statuses: vec![],
                 nested_unit_payloads: vec![UnitPayloadSnapshot {
                     class_id: 0,
                     revision: 3,
                     body_len: inner_unit_body.len(),
                     body_sha256: sha256_hex(&inner_unit_body),
+                    status_count: 0,
+                    statuses: vec![],
                     nested_unit_payloads: vec![],
                 }],
             })
         );
         assert_eq!(consumed, bytes.len());
+    }
+
+    #[test]
+    fn parses_payload_snapshot_bytes_with_nested_unit_payload_dynamic_status_mirror_when_content_header_is_known(
+    ) {
+        let content_header = vec![ContentHeaderEntry {
+            content_type: STATUS_CONTENT_TYPE,
+            names: vec!["none".into(), "dynamic".into()],
+        }];
+        let dynamic_status = dynamic_status_entry_bytes(
+            1,
+            9.5f32.to_bits(),
+            0b0100_0001,
+            &[1.25f32.to_bits(), 6.0f32.to_bits()],
+        );
+        let inner_unit_body =
+            synthetic_alpha_unit_payload_body_with_status_bytes(1, &dynamic_status);
+        let outer_unit_body =
+            synthetic_quad_unit_payload_body_with_nested_unit_payload(0, &inner_unit_body);
+        let bytes = unit_payload_bytes(23, &outer_unit_body);
+
+        let (snapshot, consumed) = parse_payload_snapshot_bytes(&content_header, &bytes).unwrap();
+
+        let PayloadSnapshot::Unit(outer) = snapshot else {
+            panic!("expected unit payload snapshot");
+        };
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(outer.status_count, 0);
+        assert!(outer.statuses.is_empty());
+        assert_eq!(outer.nested_unit_payloads.len(), 1);
+        let nested = &outer.nested_unit_payloads[0];
+        assert_eq!(nested.class_id, 0);
+        assert_eq!(nested.revision, 3);
+        assert_eq!(nested.status_count, 1);
+        assert_eq!(
+            nested.statuses,
+            vec![EntityUnitStatusSnapshot {
+                status_id: 1,
+                time_bits: 9.5f32.to_bits(),
+                resolved_name: Some("dynamic".to_string()),
+                dynamic: Some(EntityUnitStatusDynamicSnapshot {
+                    damage_multiplier_bits: Some(1.25f32.to_bits()),
+                    health_multiplier_bits: None,
+                    speed_multiplier_bits: None,
+                    reload_multiplier_bits: None,
+                    build_speed_multiplier_bits: None,
+                    drag_multiplier_bits: None,
+                    armor_override_bits: Some(6.0f32.to_bits()),
+                }),
+            }]
+        );
+    }
+
+    #[test]
+    fn payload_snapshot_bytes_rejects_headerless_nested_dynamic_status_payloads() {
+        let dynamic_status = dynamic_status_entry_bytes(
+            1,
+            9.5f32.to_bits(),
+            0b0100_0001,
+            &[1.25f32.to_bits(), 6.0f32.to_bits()],
+        );
+        let inner_unit_body =
+            synthetic_alpha_unit_payload_body_with_status_bytes(1, &dynamic_status);
+        let outer_unit_body =
+            synthetic_quad_unit_payload_body_with_nested_unit_payload(0, &inner_unit_body);
+        let bytes = unit_payload_bytes(23, &outer_unit_body);
+
+        let error = parse_payload_snapshot_bytes(&[], &bytes).unwrap_err();
+
+        assert!(
+            error.contains("unsupported nested unit payload")
+                || error.contains("unsupported unit payload parser body"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
@@ -46504,6 +47793,8 @@ mod tests {
                     revision,
                     body_len: unit_body.len(),
                     body_sha256: sha256_hex(&unit_body),
+                    status_count: 0,
+                    statuses: vec![],
                     nested_unit_payloads: vec![],
                 }),
                 "sample={sample_name}"
@@ -46514,6 +47805,36 @@ mod tests {
                 "sample={sample_name}"
             );
         }
+    }
+
+    #[test]
+    fn parses_standard_current_revision_one_payload_from_vanquish_layout() {
+        let entries = java_unit_payload_golden_entries();
+        let class_id =
+            u8::from_str_radix(entries["unitPayload.vanquish.classId"].as_str(), 16).unwrap();
+        let mut unit_body = decode_hex(entries["unitPayload.vanquish.bodyHex"].as_str());
+        unit_body[..2].copy_from_slice(&1i16.to_be_bytes());
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(class_id);
+        bytes.extend_from_slice(&unit_body);
+
+        let (snapshot, consumed) = parse_payload_snapshot_bytes(&[], &bytes).unwrap();
+
+        assert_eq!(
+            snapshot,
+            PayloadSnapshot::Unit(UnitPayloadSnapshot {
+                class_id,
+                revision: 1,
+                body_len: unit_body.len(),
+                body_sha256: sha256_hex(&unit_body),
+                status_count: 0,
+                statuses: vec![],
+                nested_unit_payloads: vec![],
+            })
+        );
+        assert_eq!(consumed, 1 + 1 + 1 + unit_body.len());
     }
 
     #[test]
@@ -46633,31 +47954,8 @@ mod tests {
 
     #[test]
     fn parses_entity_payload_sync_bytes_with_unit_payload_when_content_header_is_known() {
-        let entries = java_unit_payload_golden_entries();
-        let unit_class_id =
-            u8::from_str_radix(entries["unitPayload.alpha.classId"].as_str(), 16).unwrap();
-        let unit_body = decode_hex(entries["unitPayload.alpha.bodyHex"].as_str());
-        let inflated = inflate_sample_world_bundle_bytes();
-        let layout = sample_world_bundle_mutation_layout(&inflated);
-        let content_header = parse_save_content_header_region(
-            &inflated[layout.mapped_types_offset..layout.content_header_end],
-        )
-        .unwrap();
-        let unit_payload_bytes = {
-            let mut bytes = Vec::new();
-            bytes.push(1);
-            bytes.push(0);
-            bytes.push(unit_class_id);
-            bytes.extend_from_slice(&unit_body);
-            bytes
-        };
-        let (expected_payload, expected_consumed) =
-            parse_payload_snapshot_bytes(&[], &unit_payload_bytes).unwrap();
-        assert_eq!(expected_consumed, unit_payload_bytes.len());
-        let expected_unit_payload = match expected_payload {
-            PayloadSnapshot::Unit(unit_payload) => unit_payload,
-            other => panic!("expected unit payload, got {other:?}"),
-        };
+        let content_header = sample_world_content_header();
+        let (unit_payload_bytes, expected_unit_payload) = sample_java_unit_payload_fixture("alpha");
         let mut bytes = Vec::new();
         bytes.push(0);
         bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
@@ -46702,18 +48000,23 @@ mod tests {
 
     #[test]
     fn parses_entity_payload_sync_bytes_with_nested_unit_payload_when_content_header_is_known() {
-        let inflated = inflate_sample_world_bundle_bytes();
-        let layout = sample_world_bundle_mutation_layout(&inflated);
-        let content_header = parse_save_content_header_region(
-            &inflated[layout.mapped_types_offset..layout.content_header_end],
-        )
-        .unwrap();
-        let inner_unit_body = synthetic_alpha_unit_payload_body();
+        let content_header = vec![ContentHeaderEntry {
+            content_type: STATUS_CONTENT_TYPE,
+            names: vec!["none".into(), "dynamic".into()],
+        }];
+        let dynamic_status = dynamic_status_entry_bytes(
+            1,
+            9.5f32.to_bits(),
+            0b0100_0001,
+            &[1.25f32.to_bits(), 6.0f32.to_bits()],
+        );
+        let inner_unit_body =
+            synthetic_alpha_unit_payload_body_with_status_bytes(1, &dynamic_status);
         let outer_unit_body =
             synthetic_quad_unit_payload_body_with_nested_unit_payload(0, &inner_unit_body);
         let unit_payload_bytes = unit_payload_bytes(23, &outer_unit_body);
         let (expected_payload, expected_consumed) =
-            parse_payload_snapshot_bytes(&[], &unit_payload_bytes).unwrap();
+            parse_payload_snapshot_bytes(&content_header, &unit_payload_bytes).unwrap();
         assert_eq!(expected_consumed, unit_payload_bytes.len());
         let expected_unit_payload = match expected_payload {
             PayloadSnapshot::Unit(unit_payload) => unit_payload,
@@ -46751,7 +48054,32 @@ mod tests {
             parse_entity_payload_sync_bytes_with_content_header(&content_header, &bytes).unwrap();
 
         assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.status_count, 0);
+        assert!(snapshot.statuses.is_empty());
         assert_eq!(snapshot.unit_payload, Some(expected_unit_payload));
+        let nested = &snapshot
+            .unit_payload
+            .as_ref()
+            .expect("missing unit payload")
+            .nested_unit_payloads[0];
+        assert_eq!(nested.status_count, 1);
+        assert_eq!(
+            nested.statuses,
+            vec![EntityUnitStatusSnapshot {
+                status_id: 1,
+                time_bits: 9.5f32.to_bits(),
+                resolved_name: Some("dynamic".to_string()),
+                dynamic: Some(EntityUnitStatusDynamicSnapshot {
+                    damage_multiplier_bits: Some(1.25f32.to_bits()),
+                    health_multiplier_bits: None,
+                    speed_multiplier_bits: None,
+                    reload_multiplier_bits: None,
+                    build_speed_multiplier_bits: None,
+                    drag_multiplier_bits: None,
+                    armor_override_bits: Some(6.0f32.to_bits()),
+                }),
+            }]
+        );
         assert_eq!(
             snapshot
                 .unit_payload
@@ -46763,11 +48091,68 @@ mod tests {
                     revision: 3,
                     body_len: inner_unit_body.len(),
                     body_sha256: sha256_hex(&inner_unit_body),
+                    status_count: 1,
+                    statuses: vec![EntityUnitStatusSnapshot {
+                        status_id: 1,
+                        time_bits: 9.5f32.to_bits(),
+                        resolved_name: Some("dynamic".to_string()),
+                        dynamic: Some(EntityUnitStatusDynamicSnapshot {
+                            damage_multiplier_bits: Some(1.25f32.to_bits()),
+                            health_multiplier_bits: None,
+                            speed_multiplier_bits: None,
+                            reload_multiplier_bits: None,
+                            build_speed_multiplier_bits: None,
+                            drag_multiplier_bits: None,
+                            armor_override_bits: Some(6.0f32.to_bits()),
+                        }),
+                    }],
                     nested_unit_payloads: vec![],
                 }]
                 .as_slice()
             )
         );
+    }
+
+    #[test]
+    fn parses_entity_payload_sync_bytes_consumes_multiple_root_unit_payload_entries_but_surfaces_only_first_unit_payload(
+    ) {
+        let content_header = Vec::<ContentHeaderEntry>::new();
+        let first_unit_body = synthetic_alpha_unit_payload_body();
+        let first_unit_payload_bytes = unit_payload_bytes(0, &first_unit_body);
+        let second_unit_body = synthetic_quad_unit_payload_body_with_nested_unit_payload(
+            0,
+            &synthetic_alpha_unit_payload_body(),
+        );
+        let second_unit_payload_bytes = unit_payload_bytes(23, &second_unit_body);
+        let (expected_first_payload, first_consumed) =
+            parse_payload_snapshot_bytes(&content_header, &first_unit_payload_bytes).unwrap();
+        let (expected_second_payload, second_consumed) =
+            parse_payload_snapshot_bytes(&content_header, &second_unit_payload_bytes).unwrap();
+        assert_eq!(first_consumed, first_unit_payload_bytes.len());
+        assert_eq!(second_consumed, second_unit_payload_bytes.len());
+        let expected_first_unit_payload = match expected_first_payload {
+            PayloadSnapshot::Unit(unit_payload) => unit_payload,
+            other => panic!("expected first unit payload, got {other:?}"),
+        };
+        let expected_second_unit_payload = match expected_second_payload {
+            PayloadSnapshot::Unit(unit_payload) => unit_payload,
+            other => panic!("expected second unit payload, got {other:?}"),
+        };
+        let mut all_payload_bytes = first_unit_payload_bytes.clone();
+        all_payload_bytes.extend_from_slice(&second_unit_payload_bytes);
+        let bytes = synthetic_entity_payload_sync_bytes_with_payload_and_tail(
+            2,
+            &all_payload_bytes,
+            &synthetic_entity_payload_sync_tail_with_status_bytes(0, &[]),
+        );
+
+        let (snapshot, consumed) =
+            parse_entity_payload_sync_bytes_with_content_header(&content_header, &bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.payload_count, 2);
+        assert_eq!(snapshot.unit_payload, Some(expected_first_unit_payload));
+        assert_ne!(snapshot.unit_payload, Some(expected_second_unit_payload));
     }
 
     #[test]
@@ -46880,33 +48265,230 @@ mod tests {
     }
 
     #[test]
-    fn parses_entity_building_tether_payload_sync_bytes_with_unit_payload_when_content_header_is_known(
+    #[ignore = "exploratory single-byte tail mutation search is not deterministic across parser refinements"]
+    fn salvages_entity_payload_sync_candidate_end_after_unit_payload_overconsumes_tail_and_preserves_nested_status(
     ) {
-        let entries = java_unit_payload_golden_entries();
-        let unit_class_id =
-            u8::from_str_radix(entries["unitPayload.manifold.classId"].as_str(), 16).unwrap();
-        let unit_body = decode_hex(entries["unitPayload.manifold.bodyHex"].as_str());
-        let inflated = inflate_sample_world_bundle_bytes();
-        let layout = sample_world_bundle_mutation_layout(&inflated);
-        let content_header = parse_save_content_header_region(
-            &inflated[layout.mapped_types_offset..layout.content_header_end],
-        )
-        .unwrap();
-        let unit_payload_bytes = {
-            let mut bytes = Vec::new();
-            bytes.push(1);
-            bytes.push(0);
-            bytes.push(unit_class_id);
-            bytes.extend_from_slice(&unit_body);
-            bytes
-        };
+        fn salvage_candidate_end_for_remaining(
+            content_header: &[ContentHeaderEntry],
+            remaining: &[u8],
+        ) -> Option<(usize, usize, UnitPayloadSnapshot, UnitPayloadSnapshot)> {
+            let parsed = match read_payload_header_prefix(remaining) {
+                Ok((TypedPayload::Unit(_), _)) => {
+                    parse_payload_snapshot_bytes(content_header, remaining)
+                        .or_else(|_| parse_payload_snapshot_bytes(&[], remaining))
+                }
+                Ok((TypedPayload::Build(_), _)) | Ok((TypedPayload::Null, _)) => {
+                    parse_payload_snapshot_bytes(content_header, remaining)
+                }
+                Err(_) => parse_payload_snapshot_bytes(content_header, remaining),
+            }
+            .ok()?;
+
+            let (payload, consumed) = parsed;
+            let PayloadSnapshot::Unit(initial_unit_payload) = payload else {
+                return None;
+            };
+            if validate_entity_payload_tail_bytes(
+                &remaining[consumed..],
+                content_header,
+                "payload sync",
+            )
+            .is_ok()
+            {
+                return None;
+            }
+
+            for candidate_end in (5..consumed).rev() {
+                let candidate_bytes = &remaining[..candidate_end];
+                let Ok((candidate_payload, candidate_consumed)) =
+                    parse_payload_snapshot_bytes(content_header, candidate_bytes)
+                        .or_else(|_| parse_payload_snapshot_bytes(&[], candidate_bytes))
+                else {
+                    continue;
+                };
+                if candidate_consumed != candidate_end {
+                    continue;
+                }
+                let PayloadSnapshot::Unit(candidate_unit_payload) = candidate_payload else {
+                    continue;
+                };
+                if validate_entity_payload_tail_bytes(
+                    &remaining[candidate_end..],
+                    content_header,
+                    "payload sync",
+                )
+                .is_ok()
+                {
+                    return Some((
+                        consumed,
+                        candidate_end,
+                        initial_unit_payload,
+                        candidate_unit_payload,
+                    ));
+                }
+            }
+            None
+        }
+
+        let content_header = vec![ContentHeaderEntry {
+            content_type: STATUS_CONTENT_TYPE,
+            names: vec!["none".into(), "dynamic".into()],
+        }];
+        let dynamic_status = dynamic_status_entry_bytes(
+            1,
+            9.5f32.to_bits(),
+            0b0100_0001,
+            &[1.25f32.to_bits(), 6.0f32.to_bits()],
+        );
+        let inner_unit_body =
+            synthetic_alpha_unit_payload_body_with_status_bytes(1, &dynamic_status);
+        let outer_unit_body =
+            synthetic_quad_unit_payload_body_with_nested_unit_payload(0, &inner_unit_body);
+        let unit_payload_bytes = unit_payload_bytes(23, &outer_unit_body);
         let (expected_payload, expected_consumed) =
-            parse_payload_snapshot_bytes(&[], &unit_payload_bytes).unwrap();
+            parse_payload_snapshot_bytes(&content_header, &unit_payload_bytes).unwrap();
         assert_eq!(expected_consumed, unit_payload_bytes.len());
         let expected_unit_payload = match expected_payload {
             PayloadSnapshot::Unit(unit_payload) => unit_payload,
             other => panic!("expected unit payload, got {other:?}"),
         };
+        let valid_tail = synthetic_entity_payload_sync_tail_with_status_bytes(0, &[]);
+
+        let mut found = None;
+        'single_byte: for position in 0..valid_tail.len().min(16) {
+            for value in 0u8..=u8::MAX {
+                if value == valid_tail[position] {
+                    continue;
+                }
+                let mut mutated_tail = valid_tail.clone();
+                mutated_tail[position] = value;
+                let mut remaining = unit_payload_bytes.clone();
+                remaining.extend_from_slice(&mutated_tail);
+                if let Some((initial_consumed, candidate_end, initial, salvaged)) =
+                    salvage_candidate_end_for_remaining(&content_header, &remaining)
+                {
+                    if candidate_end < initial_consumed && salvaged == expected_unit_payload {
+                        found = Some((
+                            position,
+                            value,
+                            mutated_tail,
+                            initial_consumed,
+                            candidate_end,
+                            initial,
+                            salvaged,
+                        ));
+                        break 'single_byte;
+                    }
+                }
+            }
+        }
+
+        if found.is_none() {
+            let interesting_values = [0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 23, 36, 39, 0xff];
+            'double_byte: for first_position in 0..valid_tail.len().min(10) {
+                for second_position in (first_position + 1)..valid_tail.len().min(10) {
+                    for &first_value in &interesting_values {
+                        for &second_value in &interesting_values {
+                            if first_value == valid_tail[first_position]
+                                && second_value == valid_tail[second_position]
+                            {
+                                continue;
+                            }
+                            let mut mutated_tail = valid_tail.clone();
+                            mutated_tail[first_position] = first_value;
+                            mutated_tail[second_position] = second_value;
+                            let mut remaining = unit_payload_bytes.clone();
+                            remaining.extend_from_slice(&mutated_tail);
+                            if let Some((initial_consumed, candidate_end, initial, salvaged)) =
+                                salvage_candidate_end_for_remaining(&content_header, &remaining)
+                            {
+                                if candidate_end < initial_consumed
+                                    && salvaged == expected_unit_payload
+                                {
+                                    found = Some((
+                                        first_position,
+                                        first_value,
+                                        mutated_tail,
+                                        initial_consumed,
+                                        candidate_end,
+                                        initial,
+                                        salvaged,
+                                    ));
+                                    break 'double_byte;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let Some((
+            mutated_position,
+            mutated_value,
+            mutated_tail,
+            initial_consumed,
+            candidate_end,
+            initial_unit_payload,
+            salvaged_unit_payload,
+        )) = found
+        else {
+            panic!("failed to find deterministic single-byte tail mutation that triggers candidate_end salvage");
+        };
+
+        assert!(
+            initial_consumed > candidate_end,
+            "expected initial parse to overconsume beyond salvaged candidate_end"
+        );
+        assert_ne!(
+            initial_unit_payload, salvaged_unit_payload,
+            "expected salvage to change the parsed unit payload boundary"
+        );
+        assert_eq!(salvaged_unit_payload, expected_unit_payload);
+        assert_eq!(salvaged_unit_payload.nested_unit_payloads.len(), 1);
+        assert_eq!(
+            salvaged_unit_payload.nested_unit_payloads[0].status_count, 1,
+            "mutation pos={mutated_position} value={mutated_value:#04x}"
+        );
+        assert_eq!(
+            salvaged_unit_payload.nested_unit_payloads[0].statuses,
+            vec![EntityUnitStatusSnapshot {
+                status_id: 1,
+                time_bits: 9.5f32.to_bits(),
+                resolved_name: Some("dynamic".to_string()),
+                dynamic: Some(EntityUnitStatusDynamicSnapshot {
+                    damage_multiplier_bits: Some(1.25f32.to_bits()),
+                    health_multiplier_bits: None,
+                    speed_multiplier_bits: None,
+                    reload_multiplier_bits: None,
+                    build_speed_multiplier_bits: None,
+                    drag_multiplier_bits: None,
+                    armor_override_bits: Some(6.0f32.to_bits()),
+                }),
+            }]
+        );
+
+        let bytes = synthetic_entity_payload_sync_bytes_with_payload_and_tail(
+            1,
+            &unit_payload_bytes,
+            &mutated_tail,
+        );
+        let (snapshot, consumed) =
+            parse_entity_payload_sync_bytes_with_content_header(&content_header, &bytes).unwrap();
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(
+            snapshot.unit_payload,
+            Some(expected_unit_payload),
+            "candidate_end salvage should preserve nested payload/status after tail mutation at pos={mutated_position} value={mutated_value:#04x}"
+        );
+    }
+
+    #[test]
+    fn parses_entity_building_tether_payload_sync_bytes_with_unit_payload_when_content_header_is_known(
+    ) {
+        let content_header = sample_world_content_header();
+        let (unit_payload_bytes, expected_unit_payload) =
+            sample_java_unit_payload_fixture("manifold");
         let mut bytes = Vec::new();
         bytes.push(0);
         bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
@@ -46958,18 +48540,22 @@ mod tests {
     #[test]
     fn parses_entity_building_tether_payload_sync_bytes_with_nested_unit_payload_when_content_header_is_known(
     ) {
-        let inflated = inflate_sample_world_bundle_bytes();
-        let layout = sample_world_bundle_mutation_layout(&inflated);
-        let content_header = parse_save_content_header_region(
-            &inflated[layout.mapped_types_offset..layout.content_header_end],
-        )
-        .unwrap();
-        let inner_unit_body = synthetic_alpha_unit_payload_body();
-        let outer_unit_body =
-            synthetic_building_tether_unit_payload_body_with_nested_unit_payload(
-                0,
-                &inner_unit_body,
-            );
+        let content_header = vec![ContentHeaderEntry {
+            content_type: STATUS_CONTENT_TYPE,
+            names: vec!["none".into(), "dynamic".into()],
+        }];
+        let dynamic_status = dynamic_status_entry_bytes(
+            1,
+            9.5f32.to_bits(),
+            0b0100_0001,
+            &[1.25f32.to_bits(), 6.0f32.to_bits()],
+        );
+        let inner_unit_body =
+            synthetic_alpha_unit_payload_body_with_status_bytes(1, &dynamic_status);
+        let outer_unit_body = synthetic_building_tether_unit_payload_body_with_nested_unit_payload(
+            0,
+            &inner_unit_body,
+        );
         let unit_payload_bytes = unit_payload_bytes(36, &outer_unit_body);
         let (expected_payload, expected_consumed) =
             parse_payload_snapshot_bytes(&content_header, &unit_payload_bytes).unwrap();
@@ -47016,6 +48602,29 @@ mod tests {
 
         assert_eq!(consumed, bytes.len());
         assert_eq!(snapshot.unit_payload, Some(expected_unit_payload));
+        let nested = &snapshot
+            .unit_payload
+            .as_ref()
+            .expect("missing unit payload")
+            .nested_unit_payloads[0];
+        assert_eq!(nested.status_count, 1);
+        assert_eq!(
+            nested.statuses,
+            vec![EntityUnitStatusSnapshot {
+                status_id: 1,
+                time_bits: 9.5f32.to_bits(),
+                resolved_name: Some("dynamic".to_string()),
+                dynamic: Some(EntityUnitStatusDynamicSnapshot {
+                    damage_multiplier_bits: Some(1.25f32.to_bits()),
+                    health_multiplier_bits: None,
+                    speed_multiplier_bits: None,
+                    reload_multiplier_bits: None,
+                    build_speed_multiplier_bits: None,
+                    drag_multiplier_bits: None,
+                    armor_override_bits: Some(6.0f32.to_bits()),
+                }),
+            }]
+        );
         assert_eq!(
             snapshot
                 .unit_payload
@@ -47027,11 +48636,72 @@ mod tests {
                     revision: 3,
                     body_len: inner_unit_body.len(),
                     body_sha256: sha256_hex(&inner_unit_body),
+                    status_count: 1,
+                    statuses: vec![EntityUnitStatusSnapshot {
+                        status_id: 1,
+                        time_bits: 9.5f32.to_bits(),
+                        resolved_name: Some("dynamic".to_string()),
+                        dynamic: Some(EntityUnitStatusDynamicSnapshot {
+                            damage_multiplier_bits: Some(1.25f32.to_bits()),
+                            health_multiplier_bits: None,
+                            speed_multiplier_bits: None,
+                            reload_multiplier_bits: None,
+                            build_speed_multiplier_bits: None,
+                            drag_multiplier_bits: None,
+                            armor_override_bits: Some(6.0f32.to_bits()),
+                        }),
+                    }],
                     nested_unit_payloads: vec![],
                 }]
                 .as_slice()
             )
         );
+    }
+
+    #[test]
+    fn parses_entity_building_tether_payload_sync_bytes_consumes_multiple_root_unit_payload_entries_but_surfaces_only_first_unit_payload(
+    ) {
+        let content_header = Vec::<ContentHeaderEntry>::new();
+        let first_unit_body = synthetic_alpha_unit_payload_body();
+        let first_unit_payload_bytes = unit_payload_bytes(0, &first_unit_body);
+        let second_unit_body = synthetic_building_tether_unit_payload_body_with_nested_unit_payload(
+            0,
+            &synthetic_alpha_unit_payload_body(),
+        );
+        let second_unit_payload_bytes = unit_payload_bytes(36, &second_unit_body);
+        let (expected_first_payload, first_consumed) =
+            parse_payload_snapshot_bytes(&content_header, &first_unit_payload_bytes).unwrap();
+        let (expected_second_payload, second_consumed) =
+            parse_payload_snapshot_bytes(&content_header, &second_unit_payload_bytes).unwrap();
+        assert_eq!(first_consumed, first_unit_payload_bytes.len());
+        assert_eq!(second_consumed, second_unit_payload_bytes.len());
+        let expected_first_unit_payload = match expected_first_payload {
+            PayloadSnapshot::Unit(unit_payload) => unit_payload,
+            other => panic!("expected first unit payload, got {other:?}"),
+        };
+        let expected_second_unit_payload = match expected_second_payload {
+            PayloadSnapshot::Unit(unit_payload) => unit_payload,
+            other => panic!("expected second unit payload, got {other:?}"),
+        };
+        let mut all_payload_bytes = first_unit_payload_bytes.clone();
+        all_payload_bytes.extend_from_slice(&second_unit_payload_bytes);
+        let bytes = synthetic_building_tether_payload_sync_bytes_with_payload_entries(
+            2,
+            &all_payload_bytes,
+        );
+
+        let (snapshot, consumed) =
+            parse_entity_building_tether_payload_sync_bytes_with_content_header(
+                &content_header,
+                &bytes,
+            )
+            .unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.payload_count, 2);
+        assert_eq!(snapshot.building_pos, 12345);
+        assert_eq!(snapshot.unit_payload, Some(expected_first_unit_payload));
+        assert_ne!(snapshot.unit_payload, Some(expected_second_unit_payload));
     }
 
     #[test]
@@ -48386,6 +50056,44 @@ mod tests {
     }
 
     #[test]
+    fn parses_reinforced_payload_router_tail_with_unknown_payload_body_and_preserves_serialized_metadata(
+    ) {
+        let tail_bytes = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3f400000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40400000u32.to_be_bytes());
+            bytes.push(1);
+            bytes.push(0);
+            bytes.push(0x7f);
+            bytes.extend_from_slice(&[0xaa, 0xbb]);
+            bytes.push(BLOCK_CONTENT_TYPE);
+            bytes.extend_from_slice(&(5i16).to_be_bytes());
+            bytes.push(3);
+            bytes
+        };
+
+        let parsed =
+            parse_building_tail(Some("reinforced-payload-router"), 1, &tail_bytes).unwrap();
+        assert_eq!(
+            parsed,
+            ParsedBuildingTail::PayloadRouter(PayloadRouterTailSnapshot {
+                progress_bits: 0x3f400000,
+                item_rotation_bits: 0x40400000,
+                payload_present: true,
+                payload_type: Some(0),
+                payload_serialized_len: 5,
+                payload_serialized_sha256: sha256_hex(&[1u8, 0, 0x7f, 0xaa, 0xbb]),
+                parsed_payload: None,
+                sorted: MixedContentRefTailSnapshot {
+                    content_type: Some(BLOCK_CONTENT_TYPE),
+                    content_id: Some(5),
+                },
+                rec_dir: 3,
+            })
+        );
+    }
+
+    #[test]
     fn parse_building_tail_supports_block_producer_family() {
         let tail_bytes = {
             let mut bytes = Vec::new();
@@ -48489,6 +50197,46 @@ mod tests {
         let unit_body = decode_hex(
             "00030042f600000900000000003f80000000000000000000004316000000ffffffff0200000000000000000000000000000000000000000000000000000000000000000000000000000000000100230100000000000000000000000000000000",
         );
+
+        let parsed = parse_building_tail(Some("payload-loader"), 1, &{
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&1u32.to_be_bytes());
+            bytes.extend_from_slice(&2u32.to_be_bytes());
+            bytes.extend_from_slice(&3u32.to_be_bytes());
+            bytes.push(1);
+            bytes.push(0);
+            bytes.push(unit_class_id);
+            bytes.extend_from_slice(&unit_body);
+            bytes.push(1);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(
+            parsed,
+            ParsedBuildingTail::PayloadLoader(PayloadLoaderTailSnapshot {
+                payload_block: PayloadBlockTailSnapshot {
+                    pay_vector_x_bits: 1,
+                    pay_vector_y_bits: 2,
+                    pay_rotation_bits: 3,
+                    payload_present: true,
+                    payload_type: Some(0),
+                    build_block_id: None,
+                    build_revision: None,
+                    build_payload: None,
+                    unit_class_id: Some(unit_class_id),
+                    unit_payload_len: Some(unit_body.len()),
+                    unit_payload_sha256: Some(sha256_hex(&unit_body)),
+                },
+                exporting: true,
+            })
+        );
+    }
+
+    #[test]
+    fn payload_loader_unknown_unit_payload_body_falls_back_to_len_and_sha() {
+        let unit_class_id = 0x7fu8;
+        let unit_body = [0xaau8, 0xbbu8];
 
         let parsed = parse_building_tail(Some("payload-loader"), 1, &{
             let mut bytes = Vec::new();
@@ -48742,13 +50490,7 @@ mod tests {
 
     #[test]
     fn world_graph_exposes_unified_queries() {
-        let hex = include_str!("../../../tests/src/test/resources/world-stream.hex")
-            .replace(char::is_whitespace, "");
-        let compressed = (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-            .collect::<Vec<_>>();
-        let bundle = parse_world_bundle(&compressed).unwrap();
+        let bundle = sample_world_bundle();
         let graph = bundle.graph();
 
         assert_eq!(graph.width(), 8);
@@ -48808,7 +50550,7 @@ mod tests {
         assert_eq!(loaded.mouse_position(), (0.0, 0.0));
         assert_eq!(loaded.tag_value("golden-tag"), Some("network"));
         assert_eq!(loaded.tag_value("name"), Some("Golden Deterministic"));
-        assert!(loaded.tags().len() >= 1);
+        assert!(!loaded.tags().is_empty());
 
         let first_content = &loaded.content_headers()[0];
         assert_eq!(
@@ -48870,6 +50612,10 @@ mod tests {
                 .sum::<usize>(),
             bundle.patches.iter().map(Vec::len).sum::<usize>()
         );
+        assert_eq!(
+            context.content_patch_texts,
+            decode_save_content_patches_utf8(&bundle.patches).unwrap()
+        );
     }
 
     #[test]
@@ -48881,6 +50627,17 @@ mod tests {
 
         let error = bundle.typed_load_context().unwrap_err();
         assert!(error.contains("duplicate tag key"));
+    }
+
+    #[test]
+    fn typed_load_context_rejects_invalid_utf8_patch_payload() {
+        let mut bundle = sample_world_bundle();
+        bundle.patches = vec![vec![0xff, 0xfe]];
+
+        let error = bundle.typed_load_context().unwrap_err();
+
+        assert!(error.contains("failed to decode content patches utf-8"));
+        assert!(error.contains("save content patch 0 is not valid UTF-8"));
     }
 
     #[test]
@@ -49119,6 +50876,64 @@ mod tests {
         assert_eq!(envelope.world().core_center_block, Some(0x0153));
         assert_eq!(envelope.overlay().marker_ids, &[11, 24]);
         assert!(envelope.is_ready());
+    }
+
+    #[test]
+    fn content_patch_texts_propagate_through_bootstrap_and_content_contracts() {
+        let mut bundle = sample_world_bundle();
+        let expected = vec![
+            "{\"patch\":\"alpha\"}".to_string(),
+            "apply-content-patch-beta".to_string(),
+        ];
+        bundle.patches = expected
+            .iter()
+            .map(|text| text.as_bytes().to_vec())
+            .collect();
+
+        let session = bundle.loaded_session().unwrap();
+        let bootstrap = session.bootstrap("fr");
+        let content = bootstrap.content_view();
+        let init_state = bundle.enter_init_state("fr").unwrap();
+        let playable_session = bundle.enter_playable_session_envelope("fr").unwrap();
+        let stable_content_proof = bundle.enter_stable_content_proof_contract("fr").unwrap();
+
+        assert_eq!(bundle.content_patch_texts().unwrap(), expected);
+        assert_eq!(session.content_patch_texts(), expected.as_slice());
+        assert_eq!(
+            session.context().content_patch_texts.as_slice(),
+            expected.as_slice()
+        );
+        assert_eq!(bootstrap.content_patch_texts.as_slice(), expected.as_slice());
+        assert_eq!(content.content_patch_texts, expected.as_slice());
+        assert_eq!(
+            init_state.content.content_patch_texts.as_slice(),
+            expected.as_slice()
+        );
+        assert_eq!(
+            playable_session
+                .bootstrap_content
+                .content_patch_texts
+                .as_slice(),
+            expected.as_slice()
+        );
+        assert_eq!(
+            playable_session
+                .entry_bootstrap_content
+                .content_patch_texts
+                .as_slice(),
+            expected.as_slice()
+        );
+        assert_eq!(
+            playable_session
+                .entry_bootstrap_proof
+                .content_patch_texts
+                .as_slice(),
+            expected.as_slice()
+        );
+        assert_eq!(
+            stable_content_proof.content_patch_texts.as_slice(),
+            expected.as_slice()
+        );
     }
 
     #[test]
@@ -57707,9 +59522,7 @@ mod tests {
 
     #[test]
     fn formats_team_plan_goldens_for_non_zero_sample() {
-        let bytes = generate_team_plan_sample_bytes();
-        let summary = parse_team_plan_goldens(&bytes).unwrap();
-        let text = format_team_plan_goldens(&summary);
+        let text = sample_team_plan_goldens_text();
         assert!(text.contains("teamBlocks.teamCount=00000001"));
         assert!(text.contains("teamBlocks.totalPlans=00000001"));
         assert!(text.contains("teamPlans.count=00000001"));
@@ -59145,9 +60958,7 @@ mod tests {
 
     #[test]
     fn formats_static_fog_goldens_for_sample() {
-        let bytes = generate_static_fog_sample_bytes();
-        let summary = parse_static_fog_goldens(&bytes).unwrap();
-        let text = format_static_fog_goldens(&summary);
+        let text = sample_static_fog_goldens_text();
 
         assert!(text.contains("staticFog.usedTeams=00000002"));
         assert!(text.contains("staticFog.width=0004"));
@@ -59259,6 +61070,31 @@ mod tests {
     }
 
     #[test]
+    fn decode_save_content_patches_utf8_decodes_patch_strings() {
+        let expected = vec![
+            "{\"name\":\"alpha\"}".as_bytes().to_vec(),
+            "{\"name\":\"beta\"}".as_bytes().to_vec(),
+        ];
+        let encoded = encode_patch_region(&expected);
+        let patches = parse_save_content_patches_region(&encoded).unwrap();
+
+        assert_eq!(
+            decode_save_content_patches_utf8(&patches).unwrap(),
+            vec![
+                "{\"name\":\"alpha\"}".to_string(),
+                "{\"name\":\"beta\"}".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn decode_save_content_patches_utf8_rejects_invalid_utf8_patch_payload() {
+        let error = decode_save_content_patches_utf8(&[vec![0xff, 0xfe]]).unwrap_err();
+
+        assert!(error.contains("save content patch 0 is not valid UTF-8"));
+    }
+
+    #[test]
     fn parse_markers_rejects_duplicate_ids() {
         let marker = marker_object("Minimap", vec![]);
         let value = UbjsonValue::Object(vec![
@@ -59318,9 +61154,7 @@ mod tests {
 
     #[test]
     fn formats_marker_goldens_for_sample() {
-        let bytes = generate_marker_sample_bytes();
-        let summary = parse_marker_goldens(&bytes).unwrap();
-        let text = format_marker_goldens(&summary);
+        let text = sample_marker_goldens_text();
 
         assert!(text.contains("markers.count=00000002"));
         assert!(text.contains("markers.classTags=Minimap,Minimap"));
@@ -59453,13 +61287,7 @@ mod tests {
 
     #[test]
     fn world_graph_nodes_merge_tile_plan_and_fog_queries() {
-        let hex = include_str!("../../../tests/src/test/resources/world-stream.hex")
-            .replace(char::is_whitespace, "");
-        let compressed = (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-            .collect::<Vec<_>>();
-        let bundle = parse_world_bundle(&compressed).unwrap();
+        let bundle = sample_world_bundle();
         let graph = bundle.graph();
 
         let plan = graph.node(1, 2).unwrap();
@@ -59499,14 +61327,7 @@ mod tests {
 
     #[test]
     fn formats_world_graph_goldens_for_overlay_queries() {
-        let hex = include_str!("../../../tests/src/test/resources/world-stream.hex")
-            .replace(char::is_whitespace, "");
-        let compressed = (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-            .collect::<Vec<_>>();
-        let summary = parse_world_graph_goldens(&compressed).unwrap();
-        let text = format_world_graph_goldens(&summary);
+        let text = sample_world_graph_goldens_text();
 
         assert!(text.contains("graph.width=0008"));
         assert!(text.contains("graph.staticFog.width=0008"));
@@ -59523,333 +61344,323 @@ mod tests {
     fn world_enter_goldens_are_duplicate_free() {
         let compressed = sample_world_stream_bytes();
 
-        assert_no_duplicate_text(
-            "world-load-goldens",
-            &format_world_load_goldens(&parse_world_load_goldens(&compressed).unwrap()),
-        );
-        assert_no_duplicate_text(
-            "world-model-goldens",
-            &format_world_model_goldens(&parse_world_model(&compressed).unwrap()),
-        );
-        assert_no_duplicate_text(
-            "team-plan-goldens",
-            &format_team_plan_goldens(
-                &parse_team_plan_goldens(&generate_team_plan_sample_bytes()).unwrap(),
+        assert_no_duplicate_text_cases(vec![
+            (
+                "world-load-goldens",
+                format_world_load_goldens(&parse_world_load_goldens(&compressed).unwrap()),
             ),
-        );
-        assert_no_duplicate_text(
-            "static-fog-goldens",
-            &format_static_fog_goldens(
-                &parse_static_fog_goldens(&generate_static_fog_sample_bytes()).unwrap(),
+            (
+                "world-model-goldens",
+                format_world_model_goldens(&parse_world_model(&compressed).unwrap()),
             ),
-        );
-        assert_no_duplicate_text(
-            "marker-goldens",
-            &format_marker_goldens(&parse_marker_goldens(&generate_marker_sample_bytes()).unwrap()),
-        );
-        assert_no_duplicate_text(
-            "payload-campaign-compound-goldens",
-            &format_payload_campaign_compound_goldens(
-                &generate_payload_campaign_compound_goldens().unwrap(),
+            ("team-plan-goldens", sample_team_plan_goldens_text()),
+            ("static-fog-goldens", sample_static_fog_goldens_text()),
+            ("marker-goldens", sample_marker_goldens_text()),
+            (
+                "payload-campaign-compound-goldens",
+                format_payload_campaign_compound_goldens(
+                    &generate_payload_campaign_compound_goldens().unwrap(),
+                ),
             ),
-        );
-        assert_no_duplicate_text(
-            "world-graph-goldens",
-            &format_world_graph_goldens(&parse_world_graph_goldens(&compressed).unwrap()),
-        );
-        assert_no_duplicate_text(
-            "world-session-goldens",
-            &format_world_session_goldens(&parse_world_session_goldens(&compressed).unwrap()),
-        );
-        assert_no_duplicate_text(
-            "world-bootstrap-goldens",
-            &format_world_bootstrap_goldens(&parse_world_bootstrap_goldens(&compressed).unwrap()),
-        );
+            ("world-graph-goldens", sample_world_graph_goldens_text()),
+            (
+                "world-session-goldens",
+                format_world_session_goldens(&parse_world_session_goldens(&compressed).unwrap()),
+            ),
+            (
+                "world-bootstrap-goldens",
+                format_world_bootstrap_goldens(
+                    &parse_world_bootstrap_goldens(&compressed).unwrap(),
+                ),
+            ),
+        ]);
 
-        assert_no_duplicate_keys(
-            "world-enter-init-goldens",
-            &parse_world_enter_init_goldens(&compressed).unwrap().lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-init-state-goldens",
-            &parse_world_enter_init_state_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-component-goldens",
-            &parse_world_enter_component_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-surface-goldens",
-            &parse_world_enter_surface_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-layout-goldens",
-            &parse_world_enter_layout_goldens(&compressed).unwrap().lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-page-goldens",
-            &parse_world_enter_page_goldens(&compressed).unwrap().lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-screen-goldens",
-            &parse_world_enter_screen_goldens(&compressed).unwrap().lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-transition-goldens",
-            &parse_world_enter_transition_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-world-ready-goldens",
-            &parse_world_enter_world_ready_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-play-goldens",
-            &parse_world_enter_play_goldens(&compressed).unwrap().lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-runtime-goldens",
-            &parse_world_enter_runtime_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-frame-goldens",
-            &parse_world_enter_frame_goldens(&compressed).unwrap().lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-loop-goldens",
-            &parse_world_enter_loop_goldens(&compressed).unwrap().lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-render-goldens",
-            &parse_world_enter_render_goldens(&compressed).unwrap().lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-scene-frame-goldens",
-            &parse_world_enter_scene_frame_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-scene-present-goldens",
-            &parse_world_enter_scene_present_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-world-shell-goldens",
-            &parse_world_enter_world_shell_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-screen-activation-goldens",
-            &parse_world_enter_screen_activation_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-session-activation-goldens",
-            &parse_world_enter_session_activation_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-connection-ready-goldens",
-            &parse_world_enter_connection_ready_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-ready-proof-goldens",
-            &parse_world_enter_ready_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-room-entry-proof-goldens",
-            &parse_world_enter_room_entry_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-world-loop-proof-goldens",
-            &parse_world_enter_world_loop_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-world-proof-goldens",
-            &parse_world_enter_stable_world_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-bootstrap-proof-goldens",
-            &parse_world_enter_stable_bootstrap_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-content-proof-goldens",
-            &parse_world_enter_stable_content_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-entry-proof-goldens",
-            &parse_world_enter_stable_entry_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-stage-proof-goldens",
-            &parse_world_enter_stable_stage_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-envelope-proof-goldens",
-            &parse_world_enter_stable_envelope_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-ready-proof-goldens",
-            &parse_world_enter_stable_ready_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-room-entry-proof-goldens",
-            &parse_world_enter_stable_room_entry_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-world-loop-proof-goldens",
-            &parse_world_enter_stable_world_loop_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-playable-session-proof-goldens",
-            &parse_world_enter_stable_playable_session_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-stable-session-proof-goldens",
-            &parse_world_enter_stable_session_proof_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-connection-confirmed-goldens",
-            &parse_world_enter_connection_confirmed_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-player-join-goldens",
-            &parse_world_enter_player_join_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-interaction-ready-goldens",
-            &parse_world_enter_interaction_ready_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-snapshot-ready-goldens",
-            &parse_world_enter_snapshot_ready_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-snapshot-live-goldens",
-            &parse_world_enter_snapshot_live_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-snapshot-apply-goldens",
-            &parse_world_enter_snapshot_apply_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-world-sync-goldens",
-            &parse_world_enter_world_sync_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-sync-state-goldens",
-            &parse_world_enter_sync_state_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-sync-loop-goldens",
-            &parse_world_enter_sync_loop_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-client-snapshot-goldens",
-            &parse_world_enter_client_snapshot_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-client-snapshot-apply-goldens",
-            &parse_world_enter_client_snapshot_apply_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-client-reconcile-goldens",
-            &parse_world_enter_client_reconcile_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-multiplayer-runtime-goldens",
-            &parse_world_enter_multiplayer_runtime_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-multiplayer-session-goldens",
-            &parse_world_enter_multiplayer_session_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-multiplayer-shell-goldens",
-            &parse_world_enter_multiplayer_shell_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
-        assert_no_duplicate_keys(
-            "world-enter-playable-session-goldens",
-            &parse_world_enter_playable_session_goldens(&compressed)
-                .unwrap()
-                .lines,
-        );
+        assert_no_duplicate_key_cases(vec![
+            (
+                "world-enter-init-goldens",
+                parse_world_enter_init_goldens(&compressed).unwrap().lines,
+            ),
+            (
+                "world-enter-init-state-goldens",
+                parse_world_enter_init_state_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-component-goldens",
+                parse_world_enter_component_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-surface-goldens",
+                parse_world_enter_surface_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-layout-goldens",
+                parse_world_enter_layout_goldens(&compressed).unwrap().lines,
+            ),
+            (
+                "world-enter-page-goldens",
+                parse_world_enter_page_goldens(&compressed).unwrap().lines,
+            ),
+            (
+                "world-enter-screen-goldens",
+                parse_world_enter_screen_goldens(&compressed).unwrap().lines,
+            ),
+            (
+                "world-enter-transition-goldens",
+                parse_world_enter_transition_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-world-ready-goldens",
+                parse_world_enter_world_ready_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-play-goldens",
+                parse_world_enter_play_goldens(&compressed).unwrap().lines,
+            ),
+            (
+                "world-enter-runtime-goldens",
+                parse_world_enter_runtime_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-frame-goldens",
+                parse_world_enter_frame_goldens(&compressed).unwrap().lines,
+            ),
+            (
+                "world-enter-loop-goldens",
+                parse_world_enter_loop_goldens(&compressed).unwrap().lines,
+            ),
+            (
+                "world-enter-render-goldens",
+                parse_world_enter_render_goldens(&compressed).unwrap().lines,
+            ),
+            (
+                "world-enter-scene-frame-goldens",
+                parse_world_enter_scene_frame_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-scene-present-goldens",
+                parse_world_enter_scene_present_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-world-shell-goldens",
+                parse_world_enter_world_shell_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-screen-activation-goldens",
+                parse_world_enter_screen_activation_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-session-activation-goldens",
+                parse_world_enter_session_activation_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-connection-ready-goldens",
+                parse_world_enter_connection_ready_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-ready-proof-goldens",
+                parse_world_enter_ready_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-room-entry-proof-goldens",
+                parse_world_enter_room_entry_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-world-loop-proof-goldens",
+                parse_world_enter_world_loop_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-world-proof-goldens",
+                parse_world_enter_stable_world_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-bootstrap-proof-goldens",
+                parse_world_enter_stable_bootstrap_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-content-proof-goldens",
+                parse_world_enter_stable_content_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-entry-proof-goldens",
+                parse_world_enter_stable_entry_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-stage-proof-goldens",
+                parse_world_enter_stable_stage_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-envelope-proof-goldens",
+                parse_world_enter_stable_envelope_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-ready-proof-goldens",
+                parse_world_enter_stable_ready_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-room-entry-proof-goldens",
+                parse_world_enter_stable_room_entry_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-world-loop-proof-goldens",
+                parse_world_enter_stable_world_loop_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-playable-session-proof-goldens",
+                parse_world_enter_stable_playable_session_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-stable-session-proof-goldens",
+                parse_world_enter_stable_session_proof_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-connection-confirmed-goldens",
+                parse_world_enter_connection_confirmed_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-player-join-goldens",
+                parse_world_enter_player_join_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-interaction-ready-goldens",
+                parse_world_enter_interaction_ready_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-snapshot-ready-goldens",
+                parse_world_enter_snapshot_ready_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-snapshot-live-goldens",
+                parse_world_enter_snapshot_live_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-snapshot-apply-goldens",
+                parse_world_enter_snapshot_apply_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-world-sync-goldens",
+                parse_world_enter_world_sync_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-sync-state-goldens",
+                parse_world_enter_sync_state_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-sync-loop-goldens",
+                parse_world_enter_sync_loop_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-client-snapshot-goldens",
+                parse_world_enter_client_snapshot_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-client-snapshot-apply-goldens",
+                parse_world_enter_client_snapshot_apply_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-client-reconcile-goldens",
+                parse_world_enter_client_reconcile_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-multiplayer-runtime-goldens",
+                parse_world_enter_multiplayer_runtime_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-multiplayer-session-goldens",
+                parse_world_enter_multiplayer_session_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-multiplayer-shell-goldens",
+                parse_world_enter_multiplayer_shell_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+            (
+                "world-enter-playable-session-goldens",
+                parse_world_enter_playable_session_goldens(&compressed)
+                    .unwrap()
+                    .lines,
+            ),
+        ]);
     }
 
     #[test]

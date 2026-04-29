@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    marker_region_is_empty, MarkerModel, SaveEntityPostLoadSummary, SaveEntityRegionObservation,
-    SavePostLoadWorldObservation, WorldLoadUnknownCoverageSummary,
+    bool_digit_label, marker_region_is_empty, MarkerModel, SaveEntityPostLoadSummary,
+    SaveEntityRegionObservation, SavePostLoadWorldObservation, WorldLoadUnknownCoverageSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,13 +30,13 @@ impl SavePostLoadWorldContract {
     pub fn summary_label(&self) -> String {
         format!(
             "project={} graph={} tile={} overlay={} marker={} fog={} entity={} issues={}",
-            bool_label(self.can_project_world_shell()),
-            bool_label(self.has_world_graph),
-            bool_label(self.tile_surface_consistent),
-            bool_label(self.overlay_surface_consistent),
-            bool_label(self.marker_surface_consistent),
-            bool_label(self.static_fog_surface_consistent),
-            bool_label(self.entity_surface_consistent),
+            bool_digit_label(self.can_project_world_shell()),
+            bool_digit_label(self.has_world_graph),
+            bool_digit_label(self.tile_surface_consistent),
+            bool_digit_label(self.overlay_surface_consistent),
+            bool_digit_label(self.marker_surface_consistent),
+            bool_digit_label(self.static_fog_surface_consistent),
+            bool_digit_label(self.entity_surface_consistent),
             self.issues.len(),
         )
     }
@@ -55,13 +55,13 @@ impl SavePostLoadWorldContract {
 
         format!(
             "project={} graph={} tile={} overlay={} marker={} fog={} entity={} issues={}",
-            bool_label(self.can_project_world_shell()),
-            bool_label(self.has_world_graph),
-            bool_label(self.tile_surface_consistent),
-            bool_label(self.overlay_surface_consistent),
-            bool_label(self.marker_surface_consistent),
-            bool_label(self.static_fog_surface_consistent),
-            bool_label(self.entity_surface_consistent),
+            bool_digit_label(self.can_project_world_shell()),
+            bool_digit_label(self.has_world_graph),
+            bool_digit_label(self.tile_surface_consistent),
+            bool_digit_label(self.overlay_surface_consistent),
+            bool_digit_label(self.marker_surface_consistent),
+            bool_digit_label(self.static_fog_surface_consistent),
+            bool_digit_label(self.entity_surface_consistent),
             issues,
         )
     }
@@ -118,7 +118,7 @@ impl SavePostLoadWorldObservation {
         let has_world_graph = self.map.world.width > 0
             && self.map.world.height > 0
             && checked_tile_count(self.map.world.width, self.map.world.height)
-                .map_or(false, |tile_count| tile_count > 0);
+                .is_some_and(|tile_count| tile_count > 0);
         if !has_world_graph {
             push_issue(&mut issues, SavePostLoadWorldIssue::EmptyWorldGraph);
         }
@@ -150,7 +150,7 @@ fn tile_surface_consistent(
     let tile_count = checked_tile_count(world.width, world.height);
     let mut consistent = true;
 
-    if tile_count.map_or(true, |tile_count| {
+    if tile_count.is_none_or(|tile_count| {
         world.tiles.len() != tile_count
             || world.floors.len() != tile_count
             || world.overlays.len() != tile_count
@@ -433,10 +433,6 @@ fn push_issue(issues: &mut Vec<SavePostLoadWorldIssue>, issue: SavePostLoadWorld
     }
 }
 
-fn bool_label(value: bool) -> &'static str {
-    if value { "1" } else { "0" }
-}
-
 fn has_duplicate_values<T>(values: impl IntoIterator<Item = T>) -> bool
 where
     T: Ord,
@@ -476,14 +472,8 @@ mod tests {
         let observation = test_observation();
         let contract = observation.projection_contract();
 
-        assert!(contract.can_project_world_shell());
-        assert!(contract.has_world_graph);
-        assert!(contract.tile_surface_consistent);
-        assert!(contract.overlay_surface_consistent);
-        assert!(contract.marker_surface_consistent);
-        assert!(contract.static_fog_surface_consistent);
-        assert!(contract.entity_surface_consistent);
-        assert!(contract.issues.is_empty());
+        assert_contract_state(&contract, ExpectedWorldShellState::CONSISTENT);
+        assert_contract_exact_issues(&contract, &[]);
         assert_eq!(
             contract.unknown_coverage,
             WorldLoadUnknownCoverageSummary {
@@ -520,18 +510,23 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.overlay_surface_consistent);
-        assert!(!contract.static_fog_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::TeamPlanOverlayMismatch));
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::StaticFogDimensionMismatch));
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::StaticFogCoverageMismatch));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                overlay_surface_consistent: false,
+                static_fog_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(
+            &contract,
+            &[
+                SavePostLoadWorldIssue::TeamPlanOverlayMismatch,
+                SavePostLoadWorldIssue::StaticFogDimensionMismatch,
+                SavePostLoadWorldIssue::StaticFogCoverageMismatch,
+            ],
+        );
         assert_eq!(
             contract.summary_label(),
             "project=0 graph=1 tile=1 overlay=0 marker=1 fog=0 entity=1 issues=3"
@@ -551,21 +546,24 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.marker_surface_consistent);
-        assert!(!contract.entity_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::MarkerRegionMismatch));
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::WorldEntityCountMismatch));
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::DuplicateWorldEntityIds));
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::EntitySummaryMismatch));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                marker_surface_consistent: false,
+                entity_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(
+            &contract,
+            &[
+                SavePostLoadWorldIssue::MarkerRegionMismatch,
+                SavePostLoadWorldIssue::WorldEntityCountMismatch,
+                SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+                SavePostLoadWorldIssue::EntitySummaryMismatch,
+            ],
+        );
     }
 
     #[test]
@@ -581,11 +579,18 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.overlay_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                overlay_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(
+            &contract,
+            &[SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds],
+        );
     }
 
     #[test]
@@ -595,11 +600,8 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(contract.can_project_world_shell());
-        assert!(contract.marker_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::DuplicateMarkerIds));
+        assert_contract_state(&contract, ExpectedWorldShellState::CONSISTENT);
+        assert_contract_contains_issues(&contract, &[SavePostLoadWorldIssue::DuplicateMarkerIds]);
     }
 
     #[test]
@@ -623,11 +625,15 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.marker_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::MarkerOutOfBounds));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                marker_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(&contract, &[SavePostLoadWorldIssue::MarkerOutOfBounds]);
     }
 
     #[test]
@@ -639,11 +645,11 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(contract.can_project_world_shell());
-        assert!(contract.static_fog_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::DuplicateCustomChunkNames));
+        assert_contract_state(&contract, ExpectedWorldShellState::CONSISTENT);
+        assert_contract_contains_issues(
+            &contract,
+            &[SavePostLoadWorldIssue::DuplicateCustomChunkNames],
+        );
     }
 
     #[test]
@@ -663,11 +669,18 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.static_fog_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::DuplicateStaticFogTeamIds));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                static_fog_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(
+            &contract,
+            &[SavePostLoadWorldIssue::DuplicateStaticFogTeamIds],
+        );
     }
 
     #[test]
@@ -677,11 +690,18 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.static_fog_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::StaticFogCoverageMismatch));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                static_fog_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(
+            &contract,
+            &[SavePostLoadWorldIssue::StaticFogCoverageMismatch],
+        );
     }
 
     #[test]
@@ -694,14 +714,21 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.static_fog_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::DuplicateCustomChunkNames));
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::StaticFogCoverageMismatch));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                static_fog_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(
+            &contract,
+            &[
+                SavePostLoadWorldIssue::DuplicateCustomChunkNames,
+                SavePostLoadWorldIssue::StaticFogCoverageMismatch,
+            ],
+        );
     }
 
     #[test]
@@ -712,11 +739,8 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(contract.can_project_world_shell());
-        assert!(contract.marker_surface_consistent);
-        assert!(!contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::MarkerRegionMismatch));
+        assert_contract_state(&contract, ExpectedWorldShellState::CONSISTENT);
+        assert_contract_lacks_issues(&contract, &[SavePostLoadWorldIssue::MarkerRegionMismatch]);
     }
 
     #[test]
@@ -726,11 +750,15 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.marker_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::MarkerRegionMismatch));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                marker_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(&contract, &[SavePostLoadWorldIssue::MarkerRegionMismatch]);
     }
 
     #[test]
@@ -741,11 +769,15 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.marker_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::MarkerRegionMismatch));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                marker_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(&contract, &[SavePostLoadWorldIssue::MarkerRegionMismatch]);
     }
 
     #[test]
@@ -757,12 +789,15 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.entity_surface_consistent);
-        assert_eq!(
-            contract.issues,
-            vec![SavePostLoadWorldIssue::EntitySummaryMismatch]
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                entity_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
         );
+        assert_contract_exact_issues(&contract, &[SavePostLoadWorldIssue::EntitySummaryMismatch]);
     }
 
     #[test]
@@ -773,14 +808,21 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.tile_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::TileSurfaceCountMismatch));
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::BuildingCenterReferenceMismatch));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                tile_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(
+            &contract,
+            &[
+                SavePostLoadWorldIssue::TileSurfaceCountMismatch,
+                SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+            ],
+        );
     }
 
     #[test]
@@ -796,16 +838,23 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::TileSurfaceCountMismatch));
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::TileSurfaceIndexMismatch));
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::BuildingCenterReferenceMismatch));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                has_world_graph: false,
+                tile_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(
+            &contract,
+            &[
+                SavePostLoadWorldIssue::TileSurfaceCountMismatch,
+                SavePostLoadWorldIssue::TileSurfaceIndexMismatch,
+                SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+            ],
+        );
     }
 
     #[test]
@@ -815,11 +864,129 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.tile_surface_consistent);
-        assert!(contract
-            .issues
-            .contains(&SavePostLoadWorldIssue::BuildingCenterReferenceMismatch));
+        assert_contract_state(
+            &contract,
+            ExpectedWorldShellState {
+                can_project_world_shell: false,
+                tile_surface_consistent: false,
+                ..ExpectedWorldShellState::CONSISTENT
+            },
+        );
+        assert_contract_contains_issues(
+            &contract,
+            &[SavePostLoadWorldIssue::BuildingCenterReferenceMismatch],
+        );
+    }
+
+    #[test]
+    fn save_post_load_world_issue_label_maps_known_variants_stably() {
+        assert_eq!(
+            SavePostLoadWorldIssue::EmptyWorldGraph.label(),
+            "empty-world-graph"
+        );
+        assert_eq!(
+            SavePostLoadWorldIssue::MarkerOutOfBounds.label(),
+            "marker-oob"
+        );
+        assert_eq!(
+            SavePostLoadWorldIssue::DuplicateCustomChunkNames.label(),
+            "duplicate-custom-chunk-names"
+        );
+        assert_eq!(
+            SavePostLoadWorldIssue::EntitySummaryMismatch.label(),
+            "entity-summary"
+        );
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct ExpectedWorldShellState {
+        can_project_world_shell: bool,
+        has_world_graph: bool,
+        tile_surface_consistent: bool,
+        overlay_surface_consistent: bool,
+        marker_surface_consistent: bool,
+        static_fog_surface_consistent: bool,
+        entity_surface_consistent: bool,
+    }
+
+    impl ExpectedWorldShellState {
+        const CONSISTENT: Self = Self {
+            can_project_world_shell: true,
+            has_world_graph: true,
+            tile_surface_consistent: true,
+            overlay_surface_consistent: true,
+            marker_surface_consistent: true,
+            static_fog_surface_consistent: true,
+            entity_surface_consistent: true,
+        };
+    }
+
+    fn assert_contract_state(
+        contract: &SavePostLoadWorldContract,
+        expected: ExpectedWorldShellState,
+    ) {
+        assert_eq!(
+            contract.can_project_world_shell(),
+            expected.can_project_world_shell,
+            "unexpected can_project_world_shell for {:?}",
+            contract.issues
+        );
+        assert_eq!(contract.has_world_graph, expected.has_world_graph);
+        assert_eq!(
+            contract.tile_surface_consistent,
+            expected.tile_surface_consistent
+        );
+        assert_eq!(
+            contract.overlay_surface_consistent,
+            expected.overlay_surface_consistent
+        );
+        assert_eq!(
+            contract.marker_surface_consistent,
+            expected.marker_surface_consistent
+        );
+        assert_eq!(
+            contract.static_fog_surface_consistent,
+            expected.static_fog_surface_consistent
+        );
+        assert_eq!(
+            contract.entity_surface_consistent,
+            expected.entity_surface_consistent
+        );
+    }
+
+    fn assert_contract_exact_issues(
+        contract: &SavePostLoadWorldContract,
+        expected: &[SavePostLoadWorldIssue],
+    ) {
+        assert_eq!(contract.issues, expected);
+    }
+
+    fn assert_contract_contains_issues(
+        contract: &SavePostLoadWorldContract,
+        expected: &[SavePostLoadWorldIssue],
+    ) {
+        for issue in expected {
+            assert!(
+                contract.issues.contains(issue),
+                "expected issue {:?}, actual {:?}",
+                issue,
+                contract.issues
+            );
+        }
+    }
+
+    fn assert_contract_lacks_issues(
+        contract: &SavePostLoadWorldContract,
+        unexpected: &[SavePostLoadWorldIssue],
+    ) {
+        for issue in unexpected {
+            assert!(
+                !contract.issues.contains(issue),
+                "unexpected issue {:?}, actual {:?}",
+                issue,
+                contract.issues
+            );
+        }
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {

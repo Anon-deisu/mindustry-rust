@@ -701,38 +701,18 @@ fn extract_logic_number(value: &TypeIoObject) -> Result<RenderedSemantic, &'stat
 fn parse_text_world_pos(text: &str) -> Option<(f64, f64, &'static str)> {
     let trimmed = text.trim();
     if trimmed.starts_with('{') {
-        let x = extract_json_number_field(trimmed, "x")?;
-        let y = extract_json_number_field(trimmed, "y")?;
-        return Some((x, y, "json_xy"));
+        return parse_text_world_pos_from_json(trimmed);
     }
-    if let Some((left, right)) = trimmed.split_once(':') {
-        return Some((
-            left.trim().parse().ok()?,
-            right.trim().parse().ok()?,
-            "pair_colon",
-        ));
-    }
-    if let Some((left, right)) = trimmed.split_once(',') {
-        return Some((
-            left.trim().parse().ok()?,
-            right.trim().parse().ok()?,
-            "pair_comma",
-        ));
-    }
-    let x = extract_json_number_field(trimmed, "x")?;
-    let y = extract_json_number_field(trimmed, "y")?;
-    Some((x, y, "json_xy"))
+    parse_text_world_pos_pair(trimmed, ':', "pair_colon")
+        .or_else(|| parse_text_world_pos_pair(trimmed, ',', "pair_comma"))
+        .or_else(|| parse_text_world_pos_from_json(trimmed))
 }
 
 fn parse_text_i32(text: &str) -> Option<i32> {
     let trimmed = text.trim();
-    trimmed
-        .parse::<i32>()
-        .ok()
-        .or_else(|| extract_json_number_field(trimmed, "value").and_then(f64_to_i32))
-        .or_else(|| extract_json_number_field(trimmed, "id").and_then(f64_to_i32))
-        .or_else(|| extract_json_number_field(trimmed, "buildPos").and_then(f64_to_i32))
-        .or_else(|| extract_json_number_field(trimmed, "unitId").and_then(f64_to_i32))
+    trimmed.parse::<i32>().ok().or_else(|| {
+        extract_json_number_fields(trimmed, &["value", "id", "buildPos", "unitId"], f64_to_i32)
+    })
 }
 
 fn parse_text_u8(text: &str) -> Option<u8> {
@@ -740,8 +720,7 @@ fn parse_text_u8(text: &str) -> Option<u8> {
     trimmed
         .parse::<u8>()
         .ok()
-        .or_else(|| extract_json_number_field(trimmed, "value").and_then(f64_to_u8))
-        .or_else(|| extract_json_number_field(trimmed, "team").and_then(f64_to_u8))
+        .or_else(|| extract_json_number_fields(trimmed, &["value", "team"], f64_to_u8))
 }
 
 fn parse_text_bool(text: &str) -> Option<bool> {
@@ -760,12 +739,36 @@ fn parse_text_f64(text: &str) -> Option<f64> {
     trimmed
         .parse::<f64>()
         .ok()
-        .or_else(|| extract_json_number_field(trimmed, "value"))
-        .or_else(|| extract_json_number_field(trimmed, "number"))
+        .or_else(|| extract_json_number_fields(trimmed, &["value", "number"], some_f64))
 }
 
 fn extract_json_number_field(text: &str, field: &str) -> Option<f64> {
-    let value = extract_json_field_value(text, field)?;
+    extract_json_field_literal(text, field, parse_json_number_literal)
+}
+
+fn extract_json_number_fields<T>(
+    text: &str,
+    fields: &[&str],
+    convert: fn(f64) -> Option<T>,
+) -> Option<T> {
+    fields
+        .iter()
+        .find_map(|field| extract_json_number_field(text, field).and_then(convert))
+}
+
+fn extract_json_bool_field(text: &str, field: &str) -> Option<bool> {
+    extract_json_field_literal(text, field, parse_json_bool_literal)
+}
+
+fn extract_json_field_literal<T>(
+    text: &str,
+    field: &str,
+    parser: fn(&str) -> Option<T>,
+) -> Option<T> {
+    parser(extract_json_field_value(text, field)?)
+}
+
+fn parse_json_number_literal(value: &str) -> Option<f64> {
     let mut end = 0usize;
     for (idx, ch) in value.char_indices() {
         if idx == 0 && (ch == '-' || ch == '+') {
@@ -784,8 +787,7 @@ fn extract_json_number_field(text: &str, field: &str) -> Option<f64> {
     json_literal_terminated(value, end).then(|| value[..end].parse::<f64>().ok())?
 }
 
-fn extract_json_bool_field(text: &str, field: &str) -> Option<bool> {
-    let value = extract_json_field_value(text, field)?;
+fn parse_json_bool_literal(value: &str) -> Option<bool> {
     if value.starts_with("true") && json_literal_terminated(value, "true".len()) {
         return Some(true);
     }
@@ -868,8 +870,33 @@ fn json_literal_terminated(value: &str, parsed_len: usize) -> bool {
         .is_none_or(|ch| ch.is_ascii_whitespace() || matches!(ch, ',' | '}' | ']'))
 }
 
+fn parse_text_world_pos_from_json(trimmed: &str) -> Option<(f64, f64, &'static str)> {
+    Some((
+        extract_json_number_field(trimmed, "x")?,
+        extract_json_number_field(trimmed, "y")?,
+        "json_xy",
+    ))
+}
+
+fn parse_text_world_pos_pair(
+    trimmed: &str,
+    separator: char,
+    source: &'static str,
+) -> Option<(f64, f64, &'static str)> {
+    let (left, right) = trimmed.split_once(separator)?;
+    Some((
+        left.trim().parse().ok()?,
+        right.trim().parse().ok()?,
+        source,
+    ))
+}
+
 fn finite_world_pos(x: f64, y: f64) -> Option<(f64, f64)> {
     (x.is_finite() && y.is_finite()).then_some((x, y))
+}
+
+fn some_f64(value: f64) -> Option<f64> {
+    Some(value)
 }
 
 fn f64_to_i32(value: f64) -> Option<i32> {
@@ -942,6 +969,106 @@ fn native_text_event(event: &ClientSessionEvent) -> Option<(&'static str, bool, 
 mod tests {
     use super::*;
 
+    fn semantic_spec(
+        key: &str,
+        encoding: RuntimeCustomPacketSemanticEncoding,
+        semantic: RuntimeCustomPacketSemanticKind,
+    ) -> RuntimeCustomPacketSemanticSpec {
+        RuntimeCustomPacketSemanticSpec {
+            key: key.to_string(),
+            encoding,
+            semantic,
+        }
+    }
+
+    fn register_semantic_specs(
+        state: &mut RuntimeCustomPacketSemanticsState,
+        specs: &[(
+            &str,
+            RuntimeCustomPacketSemanticEncoding,
+            RuntimeCustomPacketSemanticKind,
+        )],
+    ) {
+        for &(key, encoding, semantic) in specs {
+            state.register(&semantic_spec(key, encoding, semantic));
+        }
+    }
+
+    fn register_native_text_semantics(state: &mut RuntimeCustomPacketSemanticsState) {
+        register_semantic_specs(
+            state,
+            &[
+                (
+                    NATIVE_SERVER_MESSAGE_KEY,
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::ServerMessage,
+                ),
+                (
+                    NATIVE_CHAT_MESSAGE_KEY,
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::ChatMessage,
+                ),
+                (
+                    NATIVE_SET_HUD_TEXT_KEY,
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::HudText,
+                ),
+                (
+                    NATIVE_SET_HUD_TEXT_RELIABLE_KEY,
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::HudText,
+                ),
+                (
+                    NATIVE_ANNOUNCE_KEY,
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::Announce,
+                ),
+                (
+                    NATIVE_CLIPBOARD_KEY,
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::Clipboard,
+                ),
+                (
+                    NATIVE_OPEN_URI_KEY,
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::OpenUri,
+                ),
+            ],
+        );
+    }
+
+    fn assert_line_contains_all(line: &str, fragments: &[&str]) {
+        for fragment in fragments {
+            assert!(
+                line.contains(fragment),
+                "expected line {line:?} to contain fragment {fragment:?}"
+            );
+        }
+    }
+
+    fn assert_any_line_contains_all(lines: &[String], fragments: &[&str]) {
+        assert!(
+            lines
+                .iter()
+                .any(|line| { fragments.iter().all(|fragment| line.contains(fragment)) }),
+            "expected at least one line in {lines:?} to contain fragments {fragments:?}"
+        );
+    }
+
+    fn assert_all_matching_lines_contain(lines: &[String], selector: &str, fragments: &[&str]) {
+        let matching = lines
+            .iter()
+            .filter(|line| line.contains(selector))
+            .collect::<Vec<_>>();
+        assert!(
+            !matching.is_empty(),
+            "expected at least one line in {lines:?} to contain selector {selector:?}"
+        );
+        for line in matching {
+            assert_line_contains_all(line, fragments);
+        }
+    }
+
     #[test]
     fn build_runtime_custom_packet_semantic_specs_parses_and_deduplicates() {
         let specs = build_runtime_custom_packet_semantic_specs(
@@ -960,21 +1087,21 @@ mod tests {
         assert_eq!(
             specs,
             vec![
-                RuntimeCustomPacketSemanticSpec {
-                    key: "custom.status".to_string(),
-                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
-                    semantic: RuntimeCustomPacketSemanticKind::HudText,
-                },
-                RuntimeCustomPacketSemanticSpec {
-                    key: "custom.uri".to_string(),
-                    encoding: RuntimeCustomPacketSemanticEncoding::Binary,
-                    semantic: RuntimeCustomPacketSemanticKind::OpenUri,
-                },
-                RuntimeCustomPacketSemanticSpec {
-                    key: "logic.pos".to_string(),
-                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-                },
+                semantic_spec(
+                    "custom.status",
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::HudText,
+                ),
+                semantic_spec(
+                    "custom.uri",
+                    RuntimeCustomPacketSemanticEncoding::Binary,
+                    RuntimeCustomPacketSemanticKind::OpenUri,
+                ),
+                semantic_spec(
+                    "logic.pos",
+                    RuntimeCustomPacketSemanticEncoding::LogicData,
+                    RuntimeCustomPacketSemanticKind::WorldPos,
+                ),
             ]
         );
     }
@@ -982,21 +1109,26 @@ mod tests {
     #[test]
     fn runtime_custom_packet_semantics_state_tracks_text_binary_and_logic_routes() {
         let mut state = RuntimeCustomPacketSemanticsState::default();
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "custom.status".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::HudText,
-        });
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "custom.uri".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Binary,
-            semantic: RuntimeCustomPacketSemanticKind::OpenUri,
-        });
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "logic.pos".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-        });
+        register_semantic_specs(
+            &mut state,
+            &[
+                (
+                    "custom.status",
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::HudText,
+                ),
+                (
+                    "custom.uri",
+                    RuntimeCustomPacketSemanticEncoding::Binary,
+                    RuntimeCustomPacketSemanticKind::OpenUri,
+                ),
+                (
+                    "logic.pos",
+                    RuntimeCustomPacketSemanticEncoding::LogicData,
+                    RuntimeCustomPacketSemanticKind::WorldPos,
+                ),
+            ],
+        );
 
         state.record_text_handler("custom.status", "wave ready");
         state.record_binary_handler("custom.uri", b"https://example.invalid/path");
@@ -1022,39 +1154,52 @@ mod tests {
 
         let lines = state.drain_lines();
         assert_eq!(lines.len(), 3);
-        assert!(lines[0].contains("encoding=text"));
-        assert!(lines[0].contains("semantic=hud_text"));
-        assert!(lines[0].contains("message=\"wave ready\""));
-        assert!(lines[1].contains("encoding=binary"));
-        assert!(lines[1].contains("semantic=open_uri"));
-        assert!(lines[1].contains("https://example.invalid/path"));
-        assert!(lines[2].contains("encoding=logic"));
-        assert!(lines[2].contains("semantic=world_pos"));
-        assert!(lines[2].contains("x=7"));
-        assert!(lines[2].contains("y=9"));
+        assert_line_contains_all(
+            &lines[0],
+            &[
+                "encoding=text",
+                "semantic=hud_text",
+                "message=\"wave ready\"",
+            ],
+        );
+        assert_line_contains_all(
+            &lines[1],
+            &[
+                "encoding=binary",
+                "semantic=open_uri",
+                "https://example.invalid/path",
+            ],
+        );
+        assert_line_contains_all(
+            &lines[2],
+            &["encoding=logic", "semantic=world_pos", "x=7", "y=9"],
+        );
 
         let summaries = state.summary_lines();
         assert_eq!(summaries.len(), 3);
-        assert!(summaries[0].contains("semantic=hud_text"));
-        assert!(summaries[0].contains("parity=ok"));
-        assert!(summaries[1].contains("event_unreliable=1"));
-        assert!(summaries[2].contains("event_reliable=1"));
-        assert!(summaries[2].contains("last=Some(\"7,9\")"));
+        assert_line_contains_all(&summaries[0], &["semantic=hud_text", "parity=ok"]);
+        assert_line_contains_all(&summaries[1], &["event_unreliable=1"]);
+        assert_line_contains_all(&summaries[2], &["event_reliable=1", "last=Some(\"7,9\")"]);
     }
 
     #[test]
     fn runtime_custom_packet_semantics_state_records_decode_errors() {
         let mut state = RuntimeCustomPacketSemanticsState::default();
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "custom.bool".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Binary,
-            semantic: RuntimeCustomPacketSemanticKind::Bool,
-        });
-        state.register(&RuntimeCustomPacketSemanticSpec {
-            key: "logic.build".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
-        });
+        register_semantic_specs(
+            &mut state,
+            &[
+                (
+                    "custom.bool",
+                    RuntimeCustomPacketSemanticEncoding::Binary,
+                    RuntimeCustomPacketSemanticKind::Bool,
+                ),
+                (
+                    "logic.build",
+                    RuntimeCustomPacketSemanticEncoding::LogicData,
+                    RuntimeCustomPacketSemanticKind::BuildPos,
+                ),
+            ],
+        );
 
         state.record_binary_handler("custom.bool", &[0xff, 0xfe, 0xfd]);
         state.record_logic_data_handler(
@@ -1065,15 +1210,13 @@ mod tests {
 
         let lines = state.drain_lines();
         assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("decode_error"));
-        assert!(lines[0].contains("invalid_utf8"));
-        assert!(lines[1].contains("decode_error"));
-        assert!(lines[1].contains("no_build_pos_payload"));
+        assert_line_contains_all(&lines[0], &["decode_error", "invalid_utf8"]);
+        assert_line_contains_all(&lines[1], &["decode_error", "no_build_pos_payload"]);
 
         let summaries = state.summary_lines();
         assert_eq!(summaries.len(), 2);
-        assert!(summaries[0].contains("decode_errors=1"));
-        assert!(summaries[1].contains("decode_errors=1"));
+        assert_line_contains_all(&summaries[0], &["decode_errors=1"]);
+        assert_line_contains_all(&summaries[1], &["decode_errors=1"]);
     }
 
     #[test]
@@ -1088,12 +1231,9 @@ mod tests {
             Err("invalid_world_pos")
         );
         assert_eq!(
-            extract_logic_world_pos(&TypeIoObject::Point2 {
-                x: 7,
-                y: i32::MIN,
-            })
-            .unwrap()
-            .stable_value,
+            extract_logic_world_pos(&TypeIoObject::Point2 { x: 7, y: i32::MIN })
+                .unwrap()
+                .stable_value,
             format!("7,{}", i32::MIN)
         );
     }
@@ -1161,42 +1301,7 @@ mod tests {
     #[test]
     fn runtime_custom_packet_semantics_state_bridges_native_remote_message_events() {
         let mut state = RuntimeCustomPacketSemanticsState::default();
-        for (key, semantic) in [
-            (
-                NATIVE_SERVER_MESSAGE_KEY,
-                RuntimeCustomPacketSemanticKind::ServerMessage,
-            ),
-            (
-                NATIVE_CHAT_MESSAGE_KEY,
-                RuntimeCustomPacketSemanticKind::ChatMessage,
-            ),
-            (
-                NATIVE_SET_HUD_TEXT_KEY,
-                RuntimeCustomPacketSemanticKind::HudText,
-            ),
-            (
-                NATIVE_SET_HUD_TEXT_RELIABLE_KEY,
-                RuntimeCustomPacketSemanticKind::HudText,
-            ),
-            (
-                NATIVE_ANNOUNCE_KEY,
-                RuntimeCustomPacketSemanticKind::Announce,
-            ),
-            (
-                NATIVE_CLIPBOARD_KEY,
-                RuntimeCustomPacketSemanticKind::Clipboard,
-            ),
-            (
-                NATIVE_OPEN_URI_KEY,
-                RuntimeCustomPacketSemanticKind::OpenUri,
-            ),
-        ] {
-            state.register(&RuntimeCustomPacketSemanticSpec {
-                key: key.to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::Text,
-                semantic,
-            });
-        }
+        register_native_text_semantics(&mut state);
 
         state.observe_events(&[
             ClientSessionEvent::ServerMessage {
@@ -1226,48 +1331,53 @@ mod tests {
 
         let lines = state.drain_lines();
         assert_eq!(lines.len(), 7);
-        assert!(lines
-            .iter()
-            .any(|line| line.contains("semantic=server_message")));
-        assert!(lines
-            .iter()
-            .any(|line| line.contains("message=\"server ready\"")));
-        assert!(lines
-            .iter()
-            .any(|line| line.contains("semantic=chat_message")));
-        assert!(lines.iter().any(|line| line.contains("message=\"hello\"")));
-        assert!(lines.iter().any(|line| line.contains("semantic=hud_text")));
-        assert!(lines.iter().any(|line| line.contains("message=\"hud-r\"")));
-        assert!(lines.iter().any(|line| line.contains("semantic=open_uri")));
+        assert_any_line_contains_all(&lines, &["semantic=server_message"]);
+        assert_any_line_contains_all(&lines, &["message=\"server ready\""]);
+        assert_any_line_contains_all(&lines, &["semantic=chat_message"]);
+        assert_any_line_contains_all(&lines, &["message=\"hello\""]);
+        assert_any_line_contains_all(&lines, &["semantic=hud_text"]);
+        assert_any_line_contains_all(&lines, &["message=\"hud-r\""]);
+        assert_any_line_contains_all(&lines, &["semantic=open_uri"]);
 
         let summaries = state.summary_lines();
         assert_eq!(summaries.len(), 7);
-        assert!(summaries.iter().any(|line| {
-            line.contains("key=\"sendMessage\"")
-                && line.contains("event_reliable=1")
-                && line.contains("last=Some(\"server ready\")")
-        }));
-        assert!(summaries.iter().any(|line| {
-            line.contains("key=\"sendMessageWithSender\"") && line.contains("last=Some(\"hello\")")
-        }));
-        assert!(summaries.iter().any(|line| {
-            line.contains("key=\"setHudText\"") && line.contains("event_unreliable=1")
-        }));
-        assert!(summaries.iter().any(|line| {
-            line.contains("key=\"setHudTextReliable\"") && line.contains("event_reliable=1")
-        }));
+        assert_any_line_contains_all(
+            &summaries,
+            &[
+                "key=\"sendMessage\"",
+                "event_reliable=1",
+                "last=Some(\"server ready\")",
+            ],
+        );
+        assert_any_line_contains_all(
+            &summaries,
+            &["key=\"sendMessageWithSender\"", "last=Some(\"hello\")"],
+        );
+        assert_any_line_contains_all(&summaries, &["key=\"setHudText\"", "event_unreliable=1"]);
+        assert_any_line_contains_all(
+            &summaries,
+            &["key=\"setHudTextReliable\"", "event_reliable=1"],
+        );
     }
 
     #[test]
     fn runtime_custom_packet_semantics_state_hides_native_hud_text_routes() {
         let mut state = RuntimeCustomPacketSemanticsState::default();
-        for key in [NATIVE_SET_HUD_TEXT_KEY, NATIVE_SET_HUD_TEXT_RELIABLE_KEY] {
-            state.register(&RuntimeCustomPacketSemanticSpec {
-                key: key.to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::Text,
-                semantic: RuntimeCustomPacketSemanticKind::HudText,
-            });
-        }
+        register_semantic_specs(
+            &mut state,
+            &[
+                (
+                    NATIVE_SET_HUD_TEXT_KEY,
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::HudText,
+                ),
+                (
+                    NATIVE_SET_HUD_TEXT_RELIABLE_KEY,
+                    RuntimeCustomPacketSemanticEncoding::Text,
+                    RuntimeCustomPacketSemanticKind::HudText,
+                ),
+            ],
+        );
 
         state.observe_events(&[
             ClientSessionEvent::SetHudText {
@@ -1280,13 +1390,8 @@ mod tests {
         ]);
 
         let lines = state.drain_lines();
-        assert!(lines
-            .iter()
-            .any(|line| line.contains("runtime_custom_packet_semantic_reset:")));
+        assert_any_line_contains_all(&lines, &["runtime_custom_packet_semantic_reset:"]);
         let summaries = state.summary_lines();
-        assert!(summaries
-            .iter()
-            .filter(|line| line.contains("semantic=hud_text"))
-            .all(|line| line.contains("last=None")));
+        assert_all_matching_lines_contain(&summaries, "semantic=hud_text", &["last=None"]);
     }
 }

@@ -3,6 +3,7 @@ use mdt_client_min::custom_packet_runtime::{
     RuntimeCustomPacketSemanticSpec,
 };
 use mdt_client_min::custom_packet_runtime_surface::{
+    finite_surface_world_pos, format_coord, parse_surface_build_pos, parse_surface_world_pos,
     RuntimeCustomPacketOverlayMarker, RuntimeCustomPacketSurface,
     RuntimeCustomPacketSurfaceSummaryEntry,
 };
@@ -434,59 +435,56 @@ fn build_host_action(
         RuntimeCustomPacketHostActionKind::BuildingControlSelect => {
             Ok(RuntimeCustomPacketHostAction::BuildingControlSelect {
                 key: route.key.clone(),
-                build_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_build_pos")?,
+                build_pos: parse_surface_build_pos(&entry.stable_value)
+                    .ok_or("invalid_build_pos")?,
             })
         }
         RuntimeCustomPacketHostActionKind::RequestBuildPayload => {
             Ok(RuntimeCustomPacketHostAction::RequestBuildPayload {
                 key: route.key.clone(),
-                build_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_build_pos")?,
+                build_pos: parse_surface_build_pos(&entry.stable_value)
+                    .ok_or("invalid_build_pos")?,
             })
         }
         RuntimeCustomPacketHostActionKind::ClearItems => {
             Ok(RuntimeCustomPacketHostAction::ClearItems {
                 key: route.key.clone(),
-                build_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_build_pos")?,
+                build_pos: parse_surface_build_pos(&entry.stable_value)
+                    .ok_or("invalid_build_pos")?,
             })
         }
         RuntimeCustomPacketHostActionKind::ClearLiquids => {
             Ok(RuntimeCustomPacketHostAction::ClearLiquids {
                 key: route.key.clone(),
-                build_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_build_pos")?,
+                build_pos: parse_surface_build_pos(&entry.stable_value)
+                    .ok_or("invalid_build_pos")?,
             })
         }
         RuntimeCustomPacketHostActionKind::TransferInventory => {
             Ok(RuntimeCustomPacketHostAction::TransferInventory {
                 key: route.key.clone(),
-                build_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_build_pos")?,
+                build_pos: parse_surface_build_pos(&entry.stable_value)
+                    .ok_or("invalid_build_pos")?,
             })
         }
         RuntimeCustomPacketHostActionKind::TileTap => Ok(RuntimeCustomPacketHostAction::TileTap {
             key: route.key.clone(),
-            tile_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_tile_pos")?,
+            tile_pos: parse_surface_build_pos(&entry.stable_value).ok_or("invalid_tile_pos")?,
         }),
         RuntimeCustomPacketHostActionKind::UnitControl => {
             Ok(RuntimeCustomPacketHostAction::UnitControl {
                 key: route.key.clone(),
-                unit_id: parse_surface_i32(&entry.stable_value).ok_or("invalid_unit_id")?,
+                unit_id: parse_surface_build_pos(&entry.stable_value).ok_or("invalid_unit_id")?,
             })
         }
         RuntimeCustomPacketHostActionKind::RequestUnitPayload => {
             Ok(RuntimeCustomPacketHostAction::RequestUnitPayload {
                 key: route.key.clone(),
-                unit_id: parse_surface_i32(&entry.stable_value).ok_or("invalid_unit_id")?,
+                unit_id: parse_surface_build_pos(&entry.stable_value).ok_or("invalid_unit_id")?,
             })
         }
         RuntimeCustomPacketHostActionKind::RequestDropPayload => {
-            let (x, y) = entry
-                .marker
-                .as_ref()
-                .and_then(|marker| finite_surface_world_pos(marker.x, marker.y))
-                .or_else(|| {
-                    parse_surface_world_pos(&entry.stable_value)
-                        .and_then(|(x, y)| finite_surface_world_pos(x, y))
-                })
-                .ok_or("invalid_world_pos")?;
+            let (x, y) = resolve_surface_world_pos(entry).ok_or("invalid_world_pos")?;
             Ok(RuntimeCustomPacketHostAction::RequestDropPayload {
                 key: route.key.clone(),
                 x,
@@ -518,22 +516,12 @@ fn format_host_action_payload(action: &RuntimeCustomPacketHostAction) -> String 
     }
 }
 
-fn parse_surface_i32(value: &str) -> Option<i32> {
-    value.trim().parse::<i32>().ok()
-}
-
-fn parse_surface_world_pos(value: &str) -> Option<(f32, f32)> {
-    let trimmed = value.trim();
-    let (left, right) = trimmed
-        .split_once(',')
-        .or_else(|| trimmed.split_once(':'))?;
-    let x = left.trim().parse::<f32>().ok()?;
-    let y = right.trim().parse::<f32>().ok()?;
-    Some((x, y))
-}
-
-fn finite_surface_world_pos(x: f32, y: f32) -> Option<(f32, f32)> {
-    (x.is_finite() && y.is_finite()).then_some((x, y))
+fn resolve_surface_world_pos(entry: &RuntimeCustomPacketSurfaceSummaryEntry) -> Option<(f32, f32)> {
+    entry
+        .marker
+        .as_ref()
+        .and_then(|marker| finite_surface_world_pos(marker.x, marker.y))
+        .or_else(|| parse_surface_world_pos(&entry.stable_value))
 }
 
 fn format_host_business_entry(
@@ -572,18 +560,6 @@ fn format_marker(marker: Option<&RuntimeCustomPacketOverlayMarker>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
-fn format_coord(value: f32) -> String {
-    let rendered = value.to_string();
-    if rendered.contains('.') {
-        rendered
-            .trim_end_matches('0')
-            .trim_end_matches('.')
-            .to_string()
-    } else {
-        rendered
-    }
-}
-
 fn encoding_label(encoding: RuntimeCustomPacketSemanticEncoding) -> &'static str {
     match encoding {
         RuntimeCustomPacketSemanticEncoding::Text => "text",
@@ -613,6 +589,61 @@ fn semantic_label(semantic: RuntimeCustomPacketSemanticKind) -> &'static str {
 mod tests {
     use super::*;
 
+    #[derive(Debug, Default)]
+    struct ObservedHostOutput {
+        lines: Vec<String>,
+        actions: Vec<RuntimeCustomPacketHostAction>,
+    }
+
+    fn host(specs: &[RuntimeCustomPacketSemanticSpec]) -> RuntimeCustomPacketHost {
+        RuntimeCustomPacketHost::from_specs(specs).unwrap()
+    }
+
+    fn host_with_actions(
+        specs: &[RuntimeCustomPacketSemanticSpec],
+        action_specs: &[RuntimeCustomPacketHostActionSpec],
+    ) -> RuntimeCustomPacketHost {
+        RuntimeCustomPacketHost::from_specs_with_actions(specs, action_specs).unwrap()
+    }
+
+    fn summary_entry(
+        key: &str,
+        encoding: RuntimeCustomPacketSemanticEncoding,
+        semantic: RuntimeCustomPacketSemanticKind,
+        value: &str,
+        marker_pos: Option<(f32, f32)>,
+    ) -> RuntimeCustomPacketSurfaceSummaryEntry {
+        RuntimeCustomPacketSurfaceSummaryEntry {
+            key: key.to_string(),
+            encoding,
+            semantic,
+            stable_value: value.to_string(),
+            marker: marker_pos.map(|(x, y)| RuntimeCustomPacketOverlayMarker {
+                key: key.to_string(),
+                encoding,
+                semantic,
+                x,
+                y,
+            }),
+        }
+    }
+
+    fn observe(
+        host: &mut RuntimeCustomPacketHost,
+        now_ms: u64,
+        entries: &[RuntimeCustomPacketSurfaceSummaryEntry],
+    ) -> ObservedHostOutput {
+        host.observe_summary_entries(now_ms, entries);
+        drain_host_output(host)
+    }
+
+    fn drain_host_output(host: &mut RuntimeCustomPacketHost) -> ObservedHostOutput {
+        ObservedHostOutput {
+            lines: host.drain_lines(),
+            actions: host.drain_actions(),
+        }
+    }
+
     fn logic_pos_spec() -> RuntimeCustomPacketSemanticSpec {
         RuntimeCustomPacketSemanticSpec {
             key: "logic.pos".to_string(),
@@ -630,29 +661,23 @@ mod tests {
     }
 
     fn logic_pos_entry(value: &str, x: f32, y: f32) -> RuntimeCustomPacketSurfaceSummaryEntry {
-        RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "logic.pos".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-            stable_value: value.to_string(),
-            marker: Some(RuntimeCustomPacketOverlayMarker {
-                key: "logic.pos".to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-                x,
-                y,
-            }),
-        }
+        summary_entry(
+            "logic.pos",
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            RuntimeCustomPacketSemanticKind::WorldPos,
+            value,
+            Some((x, y)),
+        )
     }
 
     fn status_entry(value: &str) -> RuntimeCustomPacketSurfaceSummaryEntry {
-        RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "custom.status".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::HudText,
-            stable_value: value.to_string(),
-            marker: None,
-        }
+        summary_entry(
+            "custom.status",
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::HudText,
+            value,
+            None,
+        )
     }
 
     fn build_spec() -> RuntimeCustomPacketSemanticSpec {
@@ -682,21 +707,21 @@ mod tests {
     }
 
     fn build_entry(value: &str) -> RuntimeCustomPacketSurfaceSummaryEntry {
-        RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "build.select".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::Text,
-            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
-            stable_value: value.to_string(),
-            marker: None,
-        }
+        summary_entry(
+            "build.select",
+            RuntimeCustomPacketSemanticEncoding::Text,
+            RuntimeCustomPacketSemanticKind::BuildPos,
+            value,
+            None,
+        )
     }
 
     #[test]
     fn runtime_custom_packet_host_tracks_changed_business_entries_only() {
-        let mut host =
-            RuntimeCustomPacketHost::from_specs(&[logic_pos_spec(), status_spec()]).unwrap();
+        let mut host = host(&[logic_pos_spec(), status_spec()]);
 
-        host.observe_summary_entries(
+        let _ = observe(
+            &mut host,
             42,
             &[logic_pos_entry("7,9", 7.0, 9.0), status_entry("wave ready")],
         );
@@ -708,12 +733,13 @@ mod tests {
             )
         );
 
-        host.drain_lines();
-        host.observe_summary_entries(
+        let output = observe(
+            &mut host,
             43,
             &[logic_pos_entry("7,9", 7.0, 9.0), status_entry("wave ready")],
         );
-        assert!(host.drain_lines().is_empty());
+        assert!(output.lines.is_empty());
+        assert!(output.actions.is_empty());
         assert_eq!(
             host.business_summary_text(4),
             Some(
@@ -722,7 +748,8 @@ mod tests {
             )
         );
 
-        host.observe_summary_entries(
+        let _ = observe(
+            &mut host,
             44,
             &[
                 logic_pos_entry("7,9", 7.0, 9.0),
@@ -740,17 +767,16 @@ mod tests {
 
     #[test]
     fn runtime_custom_packet_host_clears_for_surface_and_reconnect_resets() {
-        let mut host =
-            RuntimeCustomPacketHost::from_specs(&[logic_pos_spec(), status_spec()]).unwrap();
-        host.observe_summary_entries(
+        let mut host = host(&[logic_pos_spec(), status_spec()]);
+        let _ = observe(
+            &mut host,
             42,
             &[logic_pos_entry("7,9", 7.0, 9.0), status_entry("wave ready")],
         );
-        host.drain_lines();
 
         host.note_surface_reset(43, "world_data_begin");
         assert_eq!(
-            host.drain_lines(),
+            drain_host_output(&mut host).lines,
             vec![
                 "runtime_custom_packet_host_clear: tick=43ms reason=surface:world_data_begin cleared_routes=2"
                     .to_string()
@@ -766,7 +792,7 @@ mod tests {
 
         host.note_reconnect_reset(45, "redirect");
         assert_eq!(
-            host.drain_lines(),
+            drain_host_output(&mut host).lines,
             vec![
                 "runtime_custom_packet_host_apply: tick=44ms encoding=text key=\"custom.status\" semantic=hud_text apply_count=2 value=\"wave resumed\" marker=none".to_string(),
                 "runtime_custom_packet_host_clear: tick=45ms reason=reconnect:redirect cleared_routes=1"
@@ -778,13 +804,12 @@ mod tests {
 
     #[test]
     fn runtime_custom_packet_host_manual_clear_preserves_apply_counts() {
-        let mut host = RuntimeCustomPacketHost::from_specs(&[status_spec()]).unwrap();
-        host.observe_summary_entries(10, &[status_entry("hello")]);
-        host.drain_lines();
+        let mut host = host(&[status_spec()]);
+        let _ = observe(&mut host, 10, &[status_entry("hello")]);
 
         host.clear(11, "manual:test");
         assert_eq!(
-            host.drain_lines(),
+            drain_host_output(&mut host).lines,
             vec![
                 "runtime_custom_packet_host_clear: tick=11ms reason=manual:test cleared_routes=1"
                     .to_string()
@@ -792,7 +817,7 @@ mod tests {
         );
         assert_eq!(host.business_summary_text(4), None);
 
-        host.observe_summary_entries(12, &[status_entry("hello again")]);
+        let _ = observe(&mut host, 12, &[status_entry("hello again")]);
         assert_eq!(
             host.business_summary_text(4),
             Some("text:custom.status(hud_text)#2=hello again".to_string())
@@ -806,15 +831,18 @@ mod tests {
 
     #[test]
     fn runtime_custom_packet_host_queues_bound_actions_only_for_changed_entries() {
-        let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
+        let mut host = host_with_actions(
             &[logic_pos_spec(), build_spec()],
             &[drop_action_spec(), build_action_spec()],
-        )
-        .unwrap();
+        );
 
-        host.observe_summary_entries(42, &[logic_pos_entry("7,9", 7.0, 9.0), build_entry("91")]);
+        let output = observe(
+            &mut host,
+            42,
+            &[logic_pos_entry("7,9", 7.0, 9.0), build_entry("91")],
+        );
         assert_eq!(
-            host.drain_actions(),
+            output.actions,
             vec![
                 RuntimeCustomPacketHostAction::RequestDropPayload {
                     key: "logic.pos".to_string(),
@@ -828,13 +856,17 @@ mod tests {
             ]
         );
 
-        host.drain_lines();
-        host.observe_summary_entries(43, &[logic_pos_entry("7,9", 7.0, 9.0), build_entry("91")]);
-        assert!(host.drain_actions().is_empty());
+        let output = observe(
+            &mut host,
+            43,
+            &[logic_pos_entry("7,9", 7.0, 9.0), build_entry("91")],
+        );
+        assert!(output.actions.is_empty());
+        assert!(output.lines.is_empty());
 
-        host.observe_summary_entries(44, &[logic_pos_entry("11,13", 11.0, 13.0)]);
+        let output = observe(&mut host, 44, &[logic_pos_entry("11,13", 11.0, 13.0)]);
         assert_eq!(
-            host.drain_actions(),
+            output.actions,
             vec![RuntimeCustomPacketHostAction::RequestDropPayload {
                 key: "logic.pos".to_string(),
                 x: 11.0,
@@ -845,16 +877,15 @@ mod tests {
 
     #[test]
     fn runtime_custom_packet_host_deduplicates_repeated_action_specs() {
-        let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
+        let mut host = host_with_actions(
             &[logic_pos_spec()],
             &[drop_action_spec(), drop_action_spec()],
-        )
-        .unwrap();
+        );
 
-        host.observe_summary_entries(42, &[logic_pos_entry("7,9", 7.0, 9.0)]);
+        let output = observe(&mut host, 42, &[logic_pos_entry("7,9", 7.0, 9.0)]);
 
         assert_eq!(
-            host.drain_actions(),
+            output.actions,
             vec![RuntimeCustomPacketHostAction::RequestDropPayload {
                 key: "logic.pos".to_string(),
                 x: 7.0,
@@ -862,9 +893,10 @@ mod tests {
             }]
         );
 
-        let lines = host.drain_lines();
         assert_eq!(
-            lines.iter()
+            output
+                .lines
+                .iter()
                 .filter(|line| line.contains("action=request-drop-payload"))
                 .count(),
             1
@@ -873,17 +905,13 @@ mod tests {
 
     #[test]
     fn runtime_custom_packet_host_rejects_non_finite_world_pos_drop_actions() {
-        let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
-            &[logic_pos_spec()],
-            &[drop_action_spec()],
-        )
-        .unwrap();
+        let mut host = host_with_actions(&[logic_pos_spec()], &[drop_action_spec()]);
 
         let mut entry = logic_pos_entry("7,9", 7.0, 9.0);
         entry.marker.as_mut().unwrap().x = f32::NAN;
-        host.observe_summary_entries(42, &[entry]);
+        let output = observe(&mut host, 42, &[entry]);
         assert_eq!(
-            host.drain_actions(),
+            output.actions,
             vec![RuntimeCustomPacketHostAction::RequestDropPayload {
                 key: "logic.pos".to_string(),
                 x: 7.0,
@@ -891,39 +919,57 @@ mod tests {
             }]
         );
 
-        host.drain_lines();
         let mut invalid_entry = logic_pos_entry("NaN,9", 7.0, 9.0);
         invalid_entry.marker.as_mut().unwrap().x = f32::NAN;
-        host.observe_summary_entries(43, &[invalid_entry]);
-        assert!(host.drain_actions().is_empty());
+        let output = observe(&mut host, 43, &[invalid_entry]);
+        assert!(output.actions.is_empty());
     }
 
     #[test]
     fn runtime_custom_packet_host_parses_colon_separated_world_pos_drop_actions() {
-        let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
-            &[logic_pos_spec()],
-            &[drop_action_spec()],
-        )
-        .unwrap();
+        let mut host = host_with_actions(&[logic_pos_spec()], &[drop_action_spec()]);
 
-        host.observe_summary_entries(
+        let output = observe(
+            &mut host,
             42,
-            &[RuntimeCustomPacketSurfaceSummaryEntry {
-                key: "logic.pos".to_string(),
-                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-                stable_value: "7:9".to_string(),
-                marker: None,
-            }],
+            &[summary_entry(
+                "logic.pos",
+                RuntimeCustomPacketSemanticEncoding::LogicData,
+                RuntimeCustomPacketSemanticKind::WorldPos,
+                "7:9",
+                None,
+            )],
         );
 
         assert_eq!(
-            host.drain_actions(),
+            output.actions,
             vec![RuntimeCustomPacketHostAction::RequestDropPayload {
                 key: "logic.pos".to_string(),
                 x: 7.0,
                 y: 9.0,
             }]
         );
+    }
+
+    #[test]
+    fn runtime_custom_packet_host_clear_drops_pending_actions_regression() {
+        let mut host = host_with_actions(&[build_spec()], &[build_action_spec()]);
+
+        host.observe_summary_entries(42, &[build_entry("91")]);
+        host.clear(43, "manual:queue");
+
+        let output = drain_host_output(&mut host);
+        assert_eq!(
+            output.lines,
+            vec![
+                "runtime_custom_packet_host_apply: tick=42ms encoding=text key=\"build.select\" semantic=build_pos apply_count=1 value=\"91\" marker=none".to_string(),
+                "runtime_custom_packet_host_action: tick=42ms encoding=text key=\"build.select\" semantic=build_pos action=building-control-select payload=build_pos=91".to_string(),
+                "runtime_custom_packet_host_clear: tick=43ms reason=manual:queue cleared_routes=1"
+                    .to_string(),
+                "runtime_custom_packet_host_action_queue_clear: tick=43ms reason=manual:queue dropped_actions=1"
+                    .to_string(),
+            ]
+        );
+        assert!(output.actions.is_empty());
     }
 }

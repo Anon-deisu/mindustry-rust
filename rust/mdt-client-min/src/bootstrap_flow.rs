@@ -277,9 +277,7 @@ pub fn apply_world_bootstrap(
     state.ready_to_enter_world = bootstrap.ready_to_enter_world;
 }
 
-fn sanitize_bootstrap_player_position_bits(
-    bootstrap: &LoadedWorldBootstrap,
-) -> Option<(u32, u32)> {
+fn sanitize_bootstrap_player_position_bits(bootstrap: &LoadedWorldBootstrap) -> Option<(u32, u32)> {
     let x = f32::from_bits(bootstrap.player_x_bits);
     let y = f32::from_bits(bootstrap.player_y_bits);
     (x.is_finite() && y.is_finite()).then_some((bootstrap.player_x_bits, bootstrap.player_y_bits))

@@ -390,19 +390,15 @@ impl TypeIoObject {
         let mut parts = Vec::new();
         let max_entries = values.len().min(budget.max_array_entries);
         let mut visited_entries = 0usize;
-        for index in 0..max_entries {
+        for (index, value) in values.iter().enumerate().take(max_entries) {
             if *remaining_nodes == 0 {
                 *truncated = true;
                 parts.push(format!("{index}=..."));
                 visited_entries = index + 1;
                 break;
             }
-            let value_summary = values[index].effect_kind_summary_bounded(
-                depth + 1,
-                budget,
-                remaining_nodes,
-                truncated,
-            );
+            let value_summary =
+                value.effect_kind_summary_bounded(depth + 1, budget, remaining_nodes, truncated);
             parts.push(format!("{index}={value_summary}"));
             visited_entries = index + 1;
         }
@@ -957,10 +953,7 @@ fn read_binary_bool(reader: &mut Reader<'_>) -> Result<bool, TypeIoReadError> {
     }
 }
 
-fn read_u8_len(
-    reader: &mut Reader<'_>,
-    _field: &'static str,
-) -> Result<usize, TypeIoReadError> {
+fn read_u8_len(reader: &mut Reader<'_>, _field: &'static str) -> Result<usize, TypeIoReadError> {
     Ok(reader.read_u8()? as usize)
 }
 
@@ -1126,131 +1119,116 @@ mod tests {
         bytes
     }
 
-    #[test]
-    fn parses_supported_object_types() {
-        let cases = vec![
-            (vec![0], TypeIoObject::Null),
-            (with_i32(vec![1], 123456), TypeIoObject::Int(123456)),
+    fn supported_object_codec_cases() -> Vec<(TypeIoObject, Vec<u8>)> {
+        vec![
+            (TypeIoObject::Null, vec![0]),
+            (TypeIoObject::Int(123456), with_i32(vec![1], 123456)),
             (
-                with_i64(vec![2], 0x0102_0304_0506_0708),
                 TypeIoObject::Long(0x0102_0304_0506_0708),
+                with_i64(vec![2], 0x0102_0304_0506_0708),
             ),
-            (with_f32(vec![3], 12.5), TypeIoObject::Float(12.5)),
+            (TypeIoObject::Float(12.5), with_f32(vec![3], 12.5)),
             (
-                vec![4, 1, 0, 3, b'a', b'b', b'c'],
                 TypeIoObject::String(Some("abc".to_string())),
+                vec![4, 1, 0, 3, b'a', b'b', b'c'],
             ),
             (
+                TypeIoObject::ContentRaw {
+                    content_type: 1,
+                    content_id: 0x0101,
+                },
                 {
                     let mut bytes = vec![5, 1];
                     bytes.extend_from_slice(&0x0101i16.to_be_bytes());
                     bytes
                 },
-                TypeIoObject::ContentRaw {
-                    content_type: 1,
-                    content_id: 0x0101,
-                },
             ),
+            (TypeIoObject::IntSeq(vec![1, 2, 3]), {
+                let mut bytes = vec![6];
+                bytes.extend_from_slice(&3i16.to_be_bytes());
+                bytes.extend_from_slice(&1i32.to_be_bytes());
+                bytes.extend_from_slice(&2i32.to_be_bytes());
+                bytes.extend_from_slice(&3i32.to_be_bytes());
+                bytes
+            }),
             (
-                {
-                    let mut bytes = vec![6];
-                    bytes.extend_from_slice(&3i16.to_be_bytes());
-                    bytes.extend_from_slice(&1i32.to_be_bytes());
-                    bytes.extend_from_slice(&2i32.to_be_bytes());
-                    bytes.extend_from_slice(&3i32.to_be_bytes());
-                    bytes
-                },
-                TypeIoObject::IntSeq(vec![1, 2, 3]),
-            ),
-            (
-                with_i32(with_i32(vec![7], 3), 4),
                 TypeIoObject::Point2 { x: 3, y: 4 },
+                with_i32(with_i32(vec![7], 3), 4),
             ),
             (
+                TypeIoObject::PackedPoint2Array(vec![0x0001_0002, 0x0003_0004]),
                 {
                     let mut bytes = vec![8, 2];
                     bytes.extend_from_slice(&0x0001_0002i32.to_be_bytes());
                     bytes.extend_from_slice(&0x0003_0004i32.to_be_bytes());
                     bytes
                 },
-                TypeIoObject::PackedPoint2Array(vec![0x0001_0002, 0x0003_0004]),
             ),
             (
+                TypeIoObject::TechNodeRaw {
+                    content_type: 1,
+                    content_id: 0x0102,
+                },
                 {
                     let mut bytes = vec![9, 1];
                     bytes.extend_from_slice(&0x0102i16.to_be_bytes());
                     bytes
                 },
-                TypeIoObject::TechNodeRaw {
-                    content_type: 1,
-                    content_id: 0x0102,
-                },
             ),
-            (vec![10, 1], TypeIoObject::Bool(true)),
-            (with_f64(vec![11], 12.5), TypeIoObject::Double(12.5)),
+            (TypeIoObject::Bool(true), vec![10, 1]),
+            (TypeIoObject::Double(12.5), with_f64(vec![11], 12.5)),
             (
-                with_i32(vec![12], 0x0001_0002),
                 TypeIoObject::BuildingPos(0x0001_0002),
+                with_i32(vec![12], 0x0001_0002),
             ),
+            (TypeIoObject::LAccess(5), {
+                let mut bytes = vec![13];
+                bytes.extend_from_slice(&5i16.to_be_bytes());
+                bytes
+            }),
+            (TypeIoObject::Bytes(vec![1, 2, 3]), {
+                let mut bytes = vec![14];
+                bytes.extend_from_slice(&3i32.to_be_bytes());
+                bytes.extend_from_slice(&[1, 2, 3]);
+                bytes
+            }),
+            (TypeIoObject::LegacyUnitCommandNull(0xab), vec![15, 0xab]),
+            (TypeIoObject::BoolArray(vec![true, false, true]), {
+                let mut bytes = vec![16];
+                bytes.extend_from_slice(&3i32.to_be_bytes());
+                bytes.extend_from_slice(&[1, 0, 1]);
+                bytes
+            }),
             (
-                {
-                    let mut bytes = vec![13];
-                    bytes.extend_from_slice(&5i16.to_be_bytes());
-                    bytes
-                },
-                TypeIoObject::LAccess(5),
-            ),
-            (
-                {
-                    let mut bytes = vec![14];
-                    bytes.extend_from_slice(&3i32.to_be_bytes());
-                    bytes.extend_from_slice(&[1, 2, 3]);
-                    bytes
-                },
-                TypeIoObject::Bytes(vec![1, 2, 3]),
-            ),
-            (vec![15, 0xab], TypeIoObject::LegacyUnitCommandNull(0xab)),
-            (
-                {
-                    let mut bytes = vec![16];
-                    bytes.extend_from_slice(&3i32.to_be_bytes());
-                    bytes.extend_from_slice(&[1, 0, 1]);
-                    bytes
-                },
-                TypeIoObject::BoolArray(vec![true, false, true]),
-            ),
-            (
-                with_i32(vec![17], 0x0102_0304),
                 TypeIoObject::UnitId(0x0102_0304),
+                with_i32(vec![17], 0x0102_0304),
             ),
+            (TypeIoObject::Vec2Array(vec![(-1.5, 2.5), (3.25, -4.75)]), {
+                let mut bytes = with_i16(vec![18], 2);
+                bytes.extend_from_slice(&(-1.5f32).to_bits().to_be_bytes());
+                bytes.extend_from_slice(&(2.5f32).to_bits().to_be_bytes());
+                bytes.extend_from_slice(&(3.25f32).to_bits().to_be_bytes());
+                bytes.extend_from_slice(&(-4.75f32).to_bits().to_be_bytes());
+                bytes
+            }),
             (
-                {
-                    let mut bytes = with_i16(vec![18], 2);
-                    bytes.extend_from_slice(&(-1.5f32).to_bits().to_be_bytes());
-                    bytes.extend_from_slice(&(2.5f32).to_bits().to_be_bytes());
-                    bytes.extend_from_slice(&(3.25f32).to_bits().to_be_bytes());
-                    bytes.extend_from_slice(&(-4.75f32).to_bits().to_be_bytes());
-                    bytes
-                },
-                TypeIoObject::Vec2Array(vec![(-1.5, 2.5), (3.25, -4.75)]),
-            ),
-            (
-                with_f32(with_f32(vec![19], -2.25), 1.5),
                 TypeIoObject::Vec2 { x: -2.25, y: 1.5 },
+                with_f32(with_f32(vec![19], -2.25), 1.5),
             ),
-            (vec![20, 7], TypeIoObject::Team(7)),
+            (TypeIoObject::Team(7), vec![20, 7]),
+            (TypeIoObject::IntArray(vec![1, 2, 3]), {
+                let mut bytes = with_i16(vec![21], 3);
+                bytes.extend_from_slice(&1i32.to_be_bytes());
+                bytes.extend_from_slice(&2i32.to_be_bytes());
+                bytes.extend_from_slice(&3i32.to_be_bytes());
+                bytes
+            }),
             (
-                {
-                    let mut bytes = vec![21];
-                    bytes.extend_from_slice(&3i16.to_be_bytes());
-                    bytes.extend_from_slice(&1i32.to_be_bytes());
-                    bytes.extend_from_slice(&2i32.to_be_bytes());
-                    bytes.extend_from_slice(&3i32.to_be_bytes());
-                    bytes
-                },
-                TypeIoObject::IntArray(vec![1, 2, 3]),
-            ),
-            (
+                TypeIoObject::ObjectArray(vec![
+                    TypeIoObject::Null,
+                    TypeIoObject::Int(7),
+                    TypeIoObject::String(Some("ok".to_string())),
+                ]),
                 {
                     let mut bytes = vec![22];
                     bytes.extend_from_slice(&3i32.to_be_bytes());
@@ -1259,23 +1237,18 @@ mod tests {
                     bytes.extend_from_slice(&[4, 1, 0, 2, b'o', b'k']);
                     bytes
                 },
-                TypeIoObject::ObjectArray(vec![
-                    TypeIoObject::Null,
-                    TypeIoObject::Int(7),
-                    TypeIoObject::String(Some("ok".to_string())),
-                ]),
             ),
-            (
-                {
-                    let mut bytes = vec![23];
-                    bytes.extend_from_slice(&42u16.to_be_bytes());
-                    bytes
-                },
-                TypeIoObject::UnitCommand(42),
-            ),
-        ];
+            (TypeIoObject::UnitCommand(42), {
+                let mut bytes = vec![23];
+                bytes.extend_from_slice(&42u16.to_be_bytes());
+                bytes
+            }),
+        ]
+    }
 
-        for (bytes, expected) in cases {
+    #[test]
+    fn parses_supported_object_types() {
+        for (expected, bytes) in supported_object_codec_cases() {
             assert_eq!(read_object(&bytes).unwrap(), expected);
         }
     }
@@ -1519,132 +1492,7 @@ mod tests {
 
     #[test]
     fn serializes_supported_object_types() {
-        let cases = vec![
-            (TypeIoObject::Null, vec![0]),
-            (TypeIoObject::Int(123456), with_i32(vec![1], 123456)),
-            (
-                TypeIoObject::Long(0x0102_0304_0506_0708),
-                with_i64(vec![2], 0x0102_0304_0506_0708),
-            ),
-            (TypeIoObject::Float(12.5), with_f32(vec![3], 12.5)),
-            (
-                TypeIoObject::String(Some("abc".to_string())),
-                vec![4, 1, 0, 3, b'a', b'b', b'c'],
-            ),
-            (TypeIoObject::String(None), vec![4, 0]),
-            (
-                TypeIoObject::ContentRaw {
-                    content_type: 1,
-                    content_id: 0x0101,
-                },
-                {
-                    let mut bytes = vec![5, 1];
-                    bytes.extend_from_slice(&0x0101i16.to_be_bytes());
-                    bytes
-                },
-            ),
-            (TypeIoObject::IntSeq(vec![1, 2, 3]), {
-                let mut bytes = with_i16(vec![6], 3);
-                bytes.extend_from_slice(&1i32.to_be_bytes());
-                bytes.extend_from_slice(&2i32.to_be_bytes());
-                bytes.extend_from_slice(&3i32.to_be_bytes());
-                bytes
-            }),
-            (
-                TypeIoObject::Point2 { x: 3, y: 4 },
-                with_i32(with_i32(vec![7], 3), 4),
-            ),
-            (
-                TypeIoObject::PackedPoint2Array(vec![0x0001_0002, 0x0003_0004]),
-                {
-                    let mut bytes = vec![8, 2];
-                    bytes.extend_from_slice(&0x0001_0002i32.to_be_bytes());
-                    bytes.extend_from_slice(&0x0003_0004i32.to_be_bytes());
-                    bytes
-                },
-            ),
-            (
-                TypeIoObject::TechNodeRaw {
-                    content_type: 1,
-                    content_id: 0x0102,
-                },
-                {
-                    let mut bytes = vec![9, 1];
-                    bytes.extend_from_slice(&0x0102i16.to_be_bytes());
-                    bytes
-                },
-            ),
-            (TypeIoObject::Bool(true), vec![10, 1]),
-            (TypeIoObject::Double(12.5), with_f64(vec![11], 12.5)),
-            (
-                TypeIoObject::BuildingPos(0x0001_0002),
-                with_i32(vec![12], 0x0001_0002),
-            ),
-            (TypeIoObject::LAccess(5), {
-                let mut bytes = vec![13];
-                bytes.extend_from_slice(&5i16.to_be_bytes());
-                bytes
-            }),
-            (TypeIoObject::Bytes(vec![1, 2, 3]), {
-                let mut bytes = vec![14];
-                bytes.extend_from_slice(&3i32.to_be_bytes());
-                bytes.extend_from_slice(&[1, 2, 3]);
-                bytes
-            }),
-            (TypeIoObject::LegacyUnitCommandNull(0xab), vec![15, 0xab]),
-            (TypeIoObject::BoolArray(vec![true, false, true]), {
-                let mut bytes = vec![16];
-                bytes.extend_from_slice(&3i32.to_be_bytes());
-                bytes.extend_from_slice(&[1, 0, 1]);
-                bytes
-            }),
-            (
-                TypeIoObject::UnitId(0x0102_0304),
-                with_i32(vec![17], 0x0102_0304),
-            ),
-            (TypeIoObject::Vec2Array(vec![(-1.5, 2.5), (3.25, -4.75)]), {
-                let mut bytes = with_i16(vec![18], 2);
-                bytes.extend_from_slice(&(-1.5f32).to_bits().to_be_bytes());
-                bytes.extend_from_slice(&(2.5f32).to_bits().to_be_bytes());
-                bytes.extend_from_slice(&(3.25f32).to_bits().to_be_bytes());
-                bytes.extend_from_slice(&(-4.75f32).to_bits().to_be_bytes());
-                bytes
-            }),
-            (
-                TypeIoObject::Vec2 { x: -2.25, y: 1.5 },
-                with_f32(with_f32(vec![19], -2.25), 1.5),
-            ),
-            (TypeIoObject::Team(7), vec![20, 7]),
-            (TypeIoObject::IntArray(vec![1, 2, 3]), {
-                let mut bytes = with_i16(vec![21], 3);
-                bytes.extend_from_slice(&1i32.to_be_bytes());
-                bytes.extend_from_slice(&2i32.to_be_bytes());
-                bytes.extend_from_slice(&3i32.to_be_bytes());
-                bytes
-            }),
-            (
-                TypeIoObject::ObjectArray(vec![
-                    TypeIoObject::Null,
-                    TypeIoObject::Int(7),
-                    TypeIoObject::String(Some("ok".to_string())),
-                ]),
-                {
-                    let mut bytes = vec![22];
-                    bytes.extend_from_slice(&3i32.to_be_bytes());
-                    bytes.push(0);
-                    bytes.extend_from_slice(&with_i32(vec![1], 7));
-                    bytes.extend_from_slice(&[4, 1, 0, 2, b'o', b'k']);
-                    bytes
-                },
-            ),
-            (TypeIoObject::UnitCommand(42), {
-                let mut bytes = vec![23];
-                bytes.extend_from_slice(&42u16.to_be_bytes());
-                bytes
-            }),
-        ];
-
-        for (value, expected_bytes) in cases {
+        for (value, expected_bytes) in supported_object_codec_cases() {
             let mut out = Vec::new();
             write_object(&mut out, &value);
             assert_eq!(out, expected_bytes);

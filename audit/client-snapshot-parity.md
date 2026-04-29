@@ -112,6 +112,16 @@ Scope: current repository state (`rust/mdt-client-min` vs Java `NetClient`)
    - Remaining difference: `entity` / `block` / `hidden` full-world application depth and full Java-equivalent live-world/system application remain incomplete; the new loaded-world `blockSnapshot` fail-closed path and short-lived `entitySnapshot` tombstone guard only reduce obvious stale-revival / partial-apply hazards, they do not close the Java parity gap.
    - Risk: long-session world-state convergence and behavior fidelity remain incomplete.
 
+### Controller/Payload Status Boundary
+
+| Input surface | Landed surface | Anchors | Non-commitments |
+| --- | --- | --- | --- |
+| `controller_v2` / controller bits inside `entitySnapshot` | Bounded parse, semantic projection, and HUD/runtime labels only; lands in local-owned unit observability for diagnostics rather than live apply | `tests/src/test/resources/snapshot-goldens.txt`; `rust/mdt-client-min/src/client_session.rs`; `rust/mdt-client-min/src/render_runtime.rs` | No commitment to Java controller ownership / AI takeover parity; no commitment to command / stance directly driving downstream world mutation |
+| `UnitPayload` subtree (including `payloadCount` and nested unit payload status) | Subtree status, length / SHA, descendant counts, and runtime display only; the current priority is being able to see the payload shape | `tests/src/test/resources/unit-payload-goldens.txt`; `tests/src/test/resources/snapshot-goldens.txt`; `rust/mdt-client-min/src/client_session.rs`; `rust/mdt-client-min/src/render_runtime.rs` | No commitment to full recursive `unit.read(...)` consumption; unknown payloads may still fail closed; no commitment to live payload inventory / entity mutation parity |
+| Compound payload family (`payloadLoaders` / `payloadSources` / `payloadMassDrivers`) | Bounded parsing, projection, and counter/HUD labels only, as configuration/state slices on the runtime observability surface | `tests/src/test/resources/payload-campaign-compound-goldens.txt`; `rust/mdt-client-min/src/client_session.rs`; `rust/mdt-client-min/src/render_runtime.rs` | No commitment to the full Java block-system / router-loader-source state machine; no commitment to authoritative world apply after cross-packet convergence |
+
+- Audit note: controller / payload visibility now lands on the runtime surface, but that surface remains an observational/diagnostic surface rather than a Java-equivalent live-state apply surface.
+
 ### Parity Backlog
 
 1. Build-plan config encoding is broader now, but full Java behavior parity is still incomplete.
@@ -129,16 +139,17 @@ Scope: current repository state (`rust/mdt-client-min` vs Java `NetClient`)
 
 ## Next Minimal Slices
 
-1. Bootstrap/runtime projection visibility beyond bare stream-ready fields.
-- Keep the current observational boundary.
-- Surface already-parsed bootstrap facts (`rules/tags/locales` hashes and team/marker/custom-chunk/content-patch counts) in runtime/session visibility without mutating live world systems.
+1. Re-anchor parity work against a clean upstream baseline at `D:/MDT/mindustry-upstream-v157.4`.
+- Use the upstream v157.4 tree as the default parity reference before claiming behavioral gaps or parity closure.
+- Keep repository-local observability/runtime surfaces mapped back to a clean Java baseline so future parity work does not drift against already-mutated local assumptions.
 
-2. Keep the current timeout semantics stable while landing more observability slices.
-- `EntitySnapshot` remains the only ready-state timeout refresh source, and connect-confirm now arms the ready-state snapshot timeout anchor.
-- Do not couple these observational/runtime-visibility slices with lifecycle/redirect rewrites or full snapshot world apply.
+2. Move from observational surfaces toward deeper `entity` / `block` / `hidden` snapshot live apply parity.
+- The remaining release-critical gap is still deeper snapshot application depth, not bootstrap/runtime projection visibility.
+- Prioritize fuller Java-equivalent live-world/system apply behavior for loaded-world snapshot flows while keeping fail-closed guards intact.
 
-3. After observability slices, move to one serial owner for deeper snapshot/lifecycle application.
-- Candidate follow-up: `entitySnapshot` payload-family recursive `UnitPayload` bodies when `payloadCount > 0` (full `unit.read(...)` consume parser, not just `readSync`), plus stronger fail-closed diagnostics for unknown build-payload block mappings, then fuller snapshot apply depth and deeper Java-equivalent world-state application on top of the now-landed load gate.
+3. Land `payloadCount > 0` full `unit.read(...)` recursive consume plus stronger unknown build-payload fail-closed diagnostics.
+- Candidate follow-up: recurse through payload-family `UnitPayload` bodies with full `unit.read(...)` consume semantics, not just `readSync`-shaped visibility.
+- Tighten diagnostics for unknown build-payload block mappings so unsupported cases stay fail-closed and easier to audit during deeper snapshot apply work.
 
 ## Release Scope Statement
 

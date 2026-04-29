@@ -9,10 +9,10 @@ use custom_packet_runtime_host::{
 };
 use mdt_client_min::arcnet_loop::ArcNetSessionDriver;
 use mdt_client_min::client_session::{
-    client_build_plan_config_to_typeio_object, ClientBuildPlan, ClientBuildPlanConfig,
-    ClientLogicDataTransport, ClientPacketTransport, ClientSession, ClientSessionEvent,
-    ClientSessionTiming, ClientUnitRef, IgnoredRemotePacketMeta, StateSnapshotAppliedProjection,
-    is_server_restarting_kick, KICK_REASON_SERVER_RESTARTING_ORDINAL,
+    client_build_plan_config_to_typeio_object, is_server_restarting_kick, ClientBuildPlan,
+    ClientBuildPlanConfig, ClientLogicDataTransport, ClientPacketTransport, ClientSession,
+    ClientSessionEvent, ClientSessionTiming, ClientUnitRef, IgnoredRemotePacketMeta,
+    StateSnapshotAppliedProjection, KICK_REASON_SERVER_RESTARTING_ORDINAL,
 };
 use mdt_client_min::connect_packet::{
     default_connect_build, default_connect_version_type, ConnectCompatibilityWarning,
@@ -38,8 +38,8 @@ use mdt_client_min::runtime_custom_packet_business::{
     resolve_runtime_custom_packet_command_target, RuntimeCustomPacketBusinessMarker,
     RuntimeCustomPacketBusinessMarkerSource,
 };
-use mdt_client_min::session_state::{BuilderPlanStage, SessionState, SessionTimeoutKind};
 use mdt_client_min::session_state::ReconnectReasonKind;
+use mdt_client_min::session_state::{BuilderPlanStage, SessionState, SessionTimeoutKind};
 use mdt_input::intent::BuildPulse;
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
@@ -51,8 +51,7 @@ use mdt_input::{
     CommandModeTargetProjection, CommandUnitRef, InputSnapshot, IntentSamplingMode,
     LiveIntentState, LocalPlanPlacement, MovementProbeConfig, MovementProbeController,
     PlacementRequest, PlanBlockMeta, PlanEditable, PlanPoint, PlanPointConfigFamily,
-    RuntimeInputSample,
-    RuntimeInputState,
+    RuntimeInputSample, RuntimeInputState,
 };
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_remote::{read_remote_manifest, RemoteManifest};
@@ -188,8 +187,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report.timed_out_reason,
             report.timed_out_kind,
             now_ms,
-        )
-        {
+        ) {
             println!(
                 "timeout_reconnect_scheduled: server={} reason={} idle_ms={:?}",
                 current_server_addr,
@@ -2634,9 +2632,7 @@ fn apply_runtime_command_mode_cli_ops(
                 unit_target,
                 pos_target,
             } => {
-                let selected_units = runtime_command_mode.projection().selected_units;
-                runtime_command_mode.record_command_units(
-                    &selected_units,
+                runtime_command_mode.record_command_target(
                     *build_target,
                     command_unit_ref_from_client(*unit_target),
                     *pos_target,
@@ -4445,9 +4441,11 @@ fn maybe_print_ascii_scene(
     let Ok(loaded_session) = bundle.loaded_session() else {
         return;
     };
-    let Some(runtime_view_center) =
-        runtime_scene_view_center(session, events, Some(loaded_session.state().player_position()))
-    else {
+    let Some(runtime_view_center) = runtime_scene_view_center(
+        session,
+        events,
+        Some(loaded_session.state().player_position()),
+    ) else {
         return;
     };
 
@@ -4549,8 +4547,11 @@ fn maybe_present_window_scene(
     let Ok(loaded_session) = bundle.loaded_session() else {
         return;
     };
-    let runtime_view_center =
-        runtime_scene_view_center(session, events, Some(loaded_session.state().player_position()));
+    let runtime_view_center = runtime_scene_view_center(
+        session,
+        events,
+        Some(loaded_session.state().player_position()),
+    );
 
     let (mut scene, mut hud) = project_scene_models_with_view_window(
         &loaded_session,
@@ -4710,7 +4711,8 @@ fn final_runtime_view_center(
     last_runtime_view_center: Option<(f32, f32)>,
     loaded_player_position: Option<(f32, f32)>,
 ) -> Option<(f32, f32)> {
-    last_runtime_view_center.or_else(|| runtime_scene_view_center(session, &[], loaded_player_position))
+    last_runtime_view_center
+        .or_else(|| runtime_scene_view_center(session, &[], loaded_player_position))
 }
 
 fn fallback_runtime_player_position(
@@ -5248,9 +5250,10 @@ fn latest_runtime_player_position(session: &ClientSession) -> Option<(f32, f32)>
 
 fn latest_world_player_position(session: &ClientSession) -> Option<(f32, f32)> {
     let state = session.state();
-    finite_position((f32::from_bits(state.world_player_x_bits?), f32::from_bits(
-        state.world_player_y_bits?,
-    )))
+    finite_position((
+        f32::from_bits(state.world_player_x_bits?),
+        f32::from_bits(state.world_player_y_bits?),
+    ))
 }
 
 fn finite_position(position: (f32, f32)) -> Option<(f32, f32)> {
@@ -11760,6 +11763,48 @@ mod tests {
     }
 
     #[test]
+    fn queue_outbound_action_with_command_mode_surfaces_stance_selection_in_runtime_command_ui() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let mut runtime_command_mode = CommandModeState::default();
+
+        queue_outbound_action_with_command_mode(
+            &mut session,
+            &OutboundAction::SetUnitStance {
+                unit_ids: vec![555, 666, 555],
+                stance_id: Some(7),
+                enable: false,
+            },
+            &mut runtime_command_mode,
+        )
+        .unwrap();
+
+        let bundle = session
+            .loaded_world_bundle()
+            .expect("sample world should produce loaded world bundle");
+        let loaded_session = bundle
+            .loaded_session()
+            .expect("sample world should produce loaded session");
+        let (mut scene, mut hud) =
+            project_scene_models_with_view_window(&loaded_session, "en_US", None, LIVE_VIEW_TILES);
+        let input = render_snapshot_input(&session, &runtime_command_mode);
+        RenderRuntimeAdapter::default()
+            .apply_with_client_session(&mut scene, &mut hud, &input, &session);
+
+        let mut presenter =
+            AsciiScenePresenter::with_max_view_tiles(LIVE_VIEW_TILES.0, LIVE_VIEW_TILES.1);
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RUNTIME-COMMAND:"));
+        assert!(frame.contains("sel=2@555,666"));
+        assert!(frame.contains("stance=7/0"));
+        assert!(frame.contains("RUNTIME-COMMAND-DETAIL:"));
+        assert!(frame.contains("sample=555,666"));
+    }
+
+    #[test]
     fn queue_outbound_action_chunks_large_command_units_when_final_batch_true() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
@@ -14326,7 +14371,10 @@ mod tests {
             duration_ms: Some(2_500),
         }];
 
-        assert_eq!(first_server_restart_reconnect_delay_ms(&events), Some(2_500));
+        assert_eq!(
+            first_server_restart_reconnect_delay_ms(&events),
+            Some(2_500)
+        );
     }
 
     #[test]

@@ -3,6 +3,7 @@
 
 pub mod builder_queue;
 pub mod capability_gate;
+pub mod command_dispatch;
 pub mod command_mode;
 pub mod intent;
 pub mod live_intent;
@@ -24,10 +25,14 @@ pub use capability_gate::{
     CapabilityContextProjection, CapabilityDecision, CapabilityDenyReason,
     CapabilityEvaluationProjection, CapabilityGate, CapabilityUnitState,
 };
+pub use command_dispatch::{
+    CommandDispatchPlan, CommandDispatchPlanner, CommandDispatchPlanningResult,
+    CommandDispatchRequest,
+};
 pub use command_mode::{
     merge_selected_units, CommandModeCommandSelection, CommandModeControlGroupProjection,
-    CommandModePositionTarget, CommandModeProjection, CommandModeRectProjection,
-    CommandModeProjectionSummary, CommandModeSelectionOp, CommandModeStanceSelection,
+    CommandModePositionTarget, CommandModeProjection, CommandModeProjectionSummary,
+    CommandModeRectProjection, CommandModeSelectionOp, CommandModeStanceSelection,
     CommandModeState, CommandModeTargetProjection, CommandUnitRef,
 };
 pub use intent::{BinaryAction, BuildPulse, PlayerIntent};

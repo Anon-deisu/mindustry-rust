@@ -106,7 +106,10 @@ mod tests {
         assert!(matches!(result, Ok(None)));
         assert_eq!(stats.frames, stats_before.frames);
         assert_eq!(stats.packets_seen, stats_before.packets_seen + 1);
-        assert_eq!(stats.snapshot_packets_seen, stats_before.snapshot_packets_seen);
+        assert_eq!(
+            stats.snapshot_packets_seen,
+            stats_before.snapshot_packets_seen
+        );
         assert_eq!(state, state_before);
     }
 
@@ -127,14 +130,23 @@ mod tests {
 
         let result = ingest_inbound_packet_bytes(&mut stats, &mut state, &registry, &bytes);
 
-        assert_eq!(result.unwrap(), Some(HighFrequencyRemoteMethod::StateSnapshot));
+        assert_eq!(
+            result.unwrap(),
+            Some(HighFrequencyRemoteMethod::StateSnapshot)
+        );
         assert_eq!(stats.frames, stats_before.frames);
         assert_eq!(stats.packets_seen, stats_before.packets_seen + 1);
-        assert_eq!(stats.snapshot_packets_seen, stats_before.snapshot_packets_seen + 1);
+        assert_eq!(
+            stats.snapshot_packets_seen,
+            stats_before.snapshot_packets_seen + 1
+        );
         assert_ne!(state, state_before);
         assert_eq!(state.received_snapshot_count, 1);
         assert_eq!(state.last_snapshot_packet_id, Some(125));
-        assert_eq!(state.last_snapshot_method, Some(HighFrequencyRemoteMethod::StateSnapshot));
+        assert_eq!(
+            state.last_snapshot_method,
+            Some(HighFrequencyRemoteMethod::StateSnapshot)
+        );
         assert_eq!(state.last_snapshot_payload_len, 4);
         assert!(state.seen_state_snapshot);
     }
