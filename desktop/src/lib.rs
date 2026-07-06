@@ -98,7 +98,7 @@ use mindustry_core::mindustry::io::{
     read_deflated_save_meta_with_backup, read_effect_state_sync, read_fire_sync, read_puddle_sync,
     read_unit_sync, read_weather_state_sync, read_world_label_sync, type_io,
     write_deflated_save_meta_prefix, ContentHeaderSnapshot, LegacyShortChunkMap, LegacyTeamBlocks,
-    SaveMeta, SaveSlotRecord, TeamId, TypeValue, Vec2, LATEST_SAVE_VERSION,
+    SaveMeta, SaveSlotKind, SaveSlotRecord, TeamId, TypeValue, Vec2, LATEST_SAVE_VERSION,
 };
 use mindustry_core::mindustry::maps::MapDescriptor;
 use mindustry_core::mindustry::modsys::{
@@ -124,8 +124,9 @@ use mindustry_core::mindustry::ui::dialogs::map_locales_dialog::{
     MAP_LOCALES_CONTENT_ICON_TYPES, MAP_LOCALES_ICON_BUTTON_SIZE, MAP_LOCALES_ICON_CELL_WIDTH,
 };
 use mindustry_core::mindustry::ui::dialogs::{
-    BaseDialog, DialogShellLayout, DialogStyle, LanguageDialog, LanguageDialogLocale,
-    MapLocalesDialog, MapLocalesDialogLocaleEntry, PauseContext, PausedDialog, PausedDialogAction,
+    BaseDialog, CampaignCompleteDialog, CampaignCompleteDialogModel, CampaignCompletePlanet,
+    DialogShellLayout, DialogStyle, LanguageDialog, LanguageDialogLocale, MapLocalesDialog,
+    MapLocalesDialogLocaleEntry, PauseContext, PausedDialog, PausedDialogAction,
     LANGUAGE_DIALOG_RESTART_MESSAGE_KEY, LANGUAGE_DIALOG_ROW_HEIGHT, LANGUAGE_DIALOG_ROW_WIDTH,
     LANGUAGE_DIALOG_TABLE_MARGIN_HORIZONTAL, MAP_LOCALES_CARD_WIDTH,
     MAP_LOCALES_LOCALE_ADD_BUTTON_HEIGHT, MAP_LOCALES_LOCALE_ADD_BUTTON_WIDTH,
@@ -188,6 +189,11 @@ const CAMPAIGN_LAUNCH_LOADOUT_PICKER_TARGET_HEIGHT: f32 = 200.0;
 const CAMPAIGN_LAUNCH_LOADOUT_PICKER_ROW_GAP: f32 = 8.0;
 const CAMPAIGN_LAUNCH_LOADOUT_BUTTON_WIDTH_LIKE_JAVA: f32 = 160.0;
 const CAMPAIGN_LAUNCH_LOADOUT_BUTTON_HEIGHT_LIKE_JAVA: f32 = 64.0;
+const CAMPAIGN_COMPLETE_DELAY_TICKS_LIKE_JAVA: f32 = 120.0;
+const CAMPAIGN_COMPLETE_DIALOG_WIDTH_LIKE_JAVA: f32 = 560.0;
+const CAMPAIGN_COMPLETE_DIALOG_HEIGHT_LIKE_JAVA: f32 = 260.0;
+const CAMPAIGN_COMPLETE_DIALOG_BUTTON_GAP_LIKE_JAVA: f32 = 8.0;
+const CAMPAIGN_COMPLETE_DEFAULT_GRAPHICS_HEIGHT_LIKE_JAVA: f32 = 720.0;
 const SETTINGS_SLIDER_STACK_MAX_WIDTH: f32 = 460.0;
 const SETTINGS_SLIDER_CONTENT_MARGIN_HORIZONTAL: f32 = 33.0;
 const SETTINGS_SLIDER_CONTENT_MARGIN_VERTICAL: f32 = 3.0;
@@ -8395,6 +8401,8 @@ pub enum DesktopMenuRouteShellAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DesktopPausedOverlayAction {
+    CampaignCompleteMenu,
+    CampaignCompleteContinue,
     GameOverMenu,
     GameOverContinue,
     GameOverDisconnect,
@@ -27677,6 +27685,8 @@ pub struct DesktopLauncher {
     pub save_game_pending_save: Option<DesktopSaveGamePendingSave>,
     pub last_save_game_result: Option<DesktopSaveGameResult>,
     pub campaign_planet_dialog: Option<CampaignPlanetDialogState>,
+    pub campaign_complete_dialog: Option<CampaignCompleteDialogModel>,
+    pub campaign_complete_pending_ticks: Option<f32>,
     pub campaign_planet_preset_show: f32,
     pub campaign_planet_preset_showed: bool,
     pub campaign_launch_loadout_dialog_open: bool,
@@ -29362,6 +29372,8 @@ impl DesktopLauncher {
             save_game_pending_save: None,
             last_save_game_result: None,
             campaign_planet_dialog: None,
+            campaign_complete_dialog: None,
+            campaign_complete_pending_ticks: None,
             campaign_planet_preset_show: 0.0,
             campaign_planet_preset_showed: false,
             campaign_launch_loadout_dialog_open: false,
@@ -30219,6 +30231,7 @@ impl DesktopLauncher {
             self.render_time = (self.render_time + 1.0).max(0.0);
         }
         self.tick_campaign_planet_new_presets_like_java(1.0);
+        self.tick_campaign_complete_pending_like_java(1.0);
         if self.active_menu_route == Some(DesktopMenuRoute::SaveGame) && self.game_state.is_menu() {
             self.close_play_entry_ui_state_like_java();
         }
@@ -45408,6 +45421,104 @@ impl DesktopLauncher {
         )
     }
 
+    fn campaign_complete_dialog_rect_for_viewport(viewport: RenderViewport) -> RenderRect {
+        let width = CAMPAIGN_COMPLETE_DIALOG_WIDTH_LIKE_JAVA.min((viewport.width - 64.0).max(1.0));
+        let height =
+            CAMPAIGN_COMPLETE_DIALOG_HEIGHT_LIKE_JAVA.min((viewport.height - 64.0).max(1.0));
+        RenderRect::new(
+            viewport.x + viewport.width * 0.5 - width * 0.5,
+            viewport.y + viewport.height * 0.5 - height * 0.5,
+            width,
+            height,
+        )
+    }
+
+    fn campaign_complete_button_rects(
+        dialog: RenderRect,
+        model: &CampaignCompleteDialogModel,
+    ) -> (RenderRect, RenderRect) {
+        let (button_width, button_height) = model.button_size;
+        let total_width = button_width * 2.0 + CAMPAIGN_COMPLETE_DIALOG_BUTTON_GAP_LIKE_JAVA;
+        let menu = RenderRect::new(
+            dialog.center().x - total_width * 0.5,
+            dialog.y + 28.0,
+            button_width,
+            button_height,
+        );
+        let continue_button = RenderRect::new(
+            menu.x + button_width + CAMPAIGN_COMPLETE_DIALOG_BUTTON_GAP_LIKE_JAVA,
+            menu.y,
+            button_width,
+            button_height,
+        );
+        (menu, continue_button)
+    }
+
+    fn push_campaign_complete_dialog_like_java(
+        &self,
+        pass: &mut RenderPass,
+        viewport: RenderViewport,
+    ) {
+        let Some(model) = self.campaign_complete_dialog.as_ref() else {
+            return;
+        };
+        let dialog = Self::campaign_complete_dialog_rect_for_viewport(viewport);
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_drawable_symbol("pane"),
+            dialog,
+            [1.0, 1.0, 1.0, 0.97],
+            0.0,
+            Layer::END_PIXELED + 0.141,
+        ));
+        pass.push(RenderCommand::stroke_rect(
+            dialog,
+            [0.52, 0.68, 0.82, 0.95],
+            2.0,
+            Layer::END_PIXELED + 0.142,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            model.planet_line.clone(),
+            RenderPoint::new(dialog.center().x, dialog.y + dialog.height - 78.0),
+            [0.94, 0.98, 1.0, 1.0],
+            13.5,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_wrap_width(dialog.width - 56.0)
+                .with_integer_position(true)
+                .with_outline(true),
+            Layer::END_PIXELED + 0.143,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            model.playtime_line.clone(),
+            RenderPoint::new(dialog.x + 42.0, dialog.y + dialog.height - 126.0),
+            [0.86, 0.92, 0.98, 1.0],
+            10.5,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Start)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_wrap_width(dialog.width - 84.0)
+                .with_integer_position(true)
+                .with_outline(true),
+            Layer::END_PIXELED + 0.144,
+        ));
+        let (menu, continue_button) = Self::campaign_complete_button_rects(dialog, model);
+        self.push_settings_text_button(
+            pass,
+            menu,
+            self.localize_bundle_markup_text("@menu"),
+            Some("left"),
+            Layer::END_PIXELED + 0.150,
+        );
+        self.push_settings_text_button(
+            pass,
+            continue_button,
+            self.localize_bundle_markup_text("@continue"),
+            Some("ok"),
+            Layer::END_PIXELED + 0.151,
+        );
+    }
+
     fn game_over_menu_button_rect(dialog: RenderRect) -> RenderRect {
         RenderRect::new(dialog.center().x - 70.0, dialog.y + 28.0, 140.0, 60.0)
     }
@@ -46633,6 +46744,17 @@ impl DesktopLauncher {
         }
         let viewport = self.default_render_viewport_for_surface(surface_size);
         let point = RenderPoint::new(x, y);
+        if let Some(model) = self.campaign_complete_dialog.as_ref() {
+            let dialog = Self::campaign_complete_dialog_rect_for_viewport(viewport);
+            let (menu, continue_button) = Self::campaign_complete_button_rects(dialog, model);
+            if menu.contains_point(point) {
+                return Some(DesktopPausedOverlayAction::CampaignCompleteMenu);
+            }
+            if continue_button.contains_point(point) {
+                return Some(DesktopPausedOverlayAction::CampaignCompleteContinue);
+            }
+            return None;
+        }
         if self.game_state.game_over
             && self.active_menu_route.is_none()
             && self.pause_overlay_modal.is_none()
@@ -66277,6 +66399,20 @@ impl DesktopLauncher {
         self.last_menu_guard_message = None;
     }
 
+    fn execute_campaign_complete_menu_button(&mut self) {
+        self.campaign_complete_dialog = None;
+        self.campaign_complete_pending_ticks = None;
+        self.execute_pause_overlay_quit();
+        self.runtime.state.set(GameStateState::Menu);
+    }
+
+    fn execute_campaign_complete_continue_button(&mut self) {
+        self.campaign_complete_dialog = None;
+        self.campaign_complete_pending_ticks = None;
+        self.game_state.set(GameStateState::Playing);
+        self.runtime.state.set(GameStateState::Playing);
+    }
+
     fn execute_game_over_menu_button(&mut self) {
         if self.check_playtest_and_resume_editor() {
             return;
@@ -66363,6 +66499,10 @@ impl DesktopLauncher {
         platform: &mut P,
     ) {
         let action_enabled = match action {
+            DesktopPausedOverlayAction::CampaignCompleteMenu
+            | DesktopPausedOverlayAction::CampaignCompleteContinue => {
+                self.campaign_complete_dialog.is_some()
+            }
             DesktopPausedOverlayAction::GameOverMenu
             | DesktopPausedOverlayAction::GameOverContinue
             | DesktopPausedOverlayAction::GameOverDisconnect
@@ -66452,6 +66592,12 @@ impl DesktopLauncher {
             return;
         }
         match action {
+            DesktopPausedOverlayAction::CampaignCompleteMenu => {
+                self.execute_campaign_complete_menu_button();
+            }
+            DesktopPausedOverlayAction::CampaignCompleteContinue => {
+                self.execute_campaign_complete_continue_button();
+            }
             DesktopPausedOverlayAction::GameOverMenu => {
                 self.execute_game_over_menu_button();
             }
@@ -92463,7 +92609,8 @@ impl DesktopLauncher {
         if !self.has_renderable_world_for_default_frame()
             || (!self.game_state.is_paused()
                 && !self.game_state.game_over
-                && self.active_menu_route.is_none())
+                && self.active_menu_route.is_none()
+                && self.campaign_complete_dialog.is_none())
         {
             return None;
         }
@@ -92477,6 +92624,11 @@ impl DesktopLauncher {
             [0.0, 0.0, 0.0, 0.36],
             Layer::END_PIXELED + 0.140,
         ));
+
+        if self.campaign_complete_dialog.is_some() {
+            self.push_campaign_complete_dialog_like_java(&mut pass, viewport);
+            return Some(pass);
+        }
 
         if self.active_menu_route.is_some() {
             self.push_active_menu_route_shell(&mut pass, viewport, 0);
@@ -94694,6 +94846,104 @@ impl DesktopLauncher {
             self.game_state.after_game_over = true;
             self.runtime.state.after_game_over = true;
         }
+    }
+
+    fn current_campaign_complete_sector_like_java(&self) -> Option<Sector> {
+        self.game_state
+            .get_sector()
+            .cloned()
+            .or_else(|| self.runtime.state.get_sector().cloned())
+    }
+
+    fn campaign_complete_planet_like_java(
+        &self,
+        sector: &Sector,
+    ) -> Option<CampaignCompletePlanet> {
+        let planet_name = sector
+            .preset
+            .as_ref()
+            .and_then(|preset| preset.planet_name.as_deref())?;
+        let planet = self.content_loader.catalog().planet_by_name(planet_name)?;
+        let times = self
+            .load_game_slots
+            .iter()
+            .filter_map(|slot| match slot.kind() {
+                SaveSlotKind::Sector { planet, .. } if planet == planet_name => {
+                    Some(slot.time_played() as f32)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        Some(CampaignCompletePlanet::new(
+            planet.localized_name().to_string(),
+            format!("{:06x}", planet.icon_color_rgba >> 8),
+            times,
+        ))
+    }
+
+    fn schedule_campaign_complete_dialog_like_java(&mut self) {
+        self.campaign_complete_pending_ticks = Some(CAMPAIGN_COMPLETE_DELAY_TICKS_LIKE_JAVA);
+    }
+
+    fn show_campaign_complete_dialog_like_java(&mut self, graphics_height: f32) -> bool {
+        let Some(sector) = self.current_campaign_complete_sector_like_java() else {
+            return false;
+        };
+        let Some(planet) = self.campaign_complete_planet_like_java(&sector) else {
+            return false;
+        };
+        self.campaign_complete_dialog =
+            Some(CampaignCompleteDialog::new().show(&planet, graphics_height));
+        self.game_state.set(GameStateState::Paused);
+        self.runtime.state.set(GameStateState::Paused);
+        true
+    }
+
+    fn tick_campaign_complete_pending_like_java(&mut self, delta: f32) {
+        let Some(remaining) = self.campaign_complete_pending_ticks else {
+            return;
+        };
+        let next = remaining - delta;
+        if next > 0.0 {
+            self.campaign_complete_pending_ticks = Some(next);
+            return;
+        }
+        self.campaign_complete_pending_ticks = None;
+        self.show_campaign_complete_dialog_like_java(
+            CAMPAIGN_COMPLETE_DEFAULT_GRAPHICS_HEIGHT_LIKE_JAVA,
+        );
+    }
+
+    pub fn sector_capture_like_java(&mut self) -> bool {
+        self.game_state.rules.waves = false;
+        self.runtime.state.rules.waves = false;
+
+        let Some(mut sector) = self.current_campaign_complete_sector_like_java() else {
+            self.game_state.rules.attack_mode = false;
+            self.runtime.state.rules.attack_mode = false;
+            return false;
+        };
+
+        let initial_capture = !sector.info.was_captured;
+        sector.info.was_captured = true;
+        self.game_state.set_sector(Some(sector.clone()));
+        self.runtime.state.set_sector(Some(sector.clone()));
+
+        if !self.pause_overlay_net_client()
+            && sector
+                .preset
+                .as_ref()
+                .is_some_and(|preset| preset.is_last_sector)
+            && initial_capture
+        {
+            self.schedule_campaign_complete_dialog_like_java();
+        }
+
+        self.game_state.rules.attack_mode = false;
+        self.runtime.state.rules.attack_mode = false;
+        self.game_state.rules.disable_world_processors = true;
+        self.runtime.state.rules.disable_world_processors = true;
+        true
     }
 
     fn sync_client_loaded_state(&mut self) {
@@ -122805,6 +123055,190 @@ displayName: "Alpha Pack"
             None,
             "Java Editor resume should not show a Rust-only beginEditMap banner"
         );
+    }
+
+    fn campaign_complete_test_sector(id: i32, is_last_sector: bool, was_captured: bool) -> Sector {
+        let mut sector = Sector::new(id);
+        sector.info.was_captured = was_captured;
+        sector.preset = Some(
+            mindustry_core::mindustry::r#type::SectorPreset::with_planet_sector(
+                "planetaryTerminal",
+                "serpulo",
+                id,
+            )
+            .localized("Planetary Terminal")
+            .last_sector(is_last_sector),
+        );
+        sector
+    }
+
+    fn campaign_complete_save_slot(path: &'static str, playtime: i64) -> SaveSlotRecord {
+        let mut tags = BTreeMap::new();
+        tags.insert("version".into(), LATEST_SAVE_VERSION.to_string());
+        tags.insert("build".into(), "158".into());
+        tags.insert("saved".into(), "42".into());
+        tags.insert("playtime".into(), playtime.to_string());
+        tags.insert("mapname".into(), "Campaign Complete".into());
+        tags.insert("mods".into(), "[]".into());
+        SaveSlotRecord::with_meta(path, SaveMeta::from_tags(tags))
+    }
+
+    #[test]
+    fn desktop_launcher_campaign_complete_dialog_schedules_after_last_sector_capture_like_java() {
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.world.resize(16, 16);
+        launcher.runtime.state.world.resize(16, 16);
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.runtime.state.set(GameStateState::Playing);
+        launcher.game_state.rules.waves = true;
+        launcher.runtime.state.rules.waves = true;
+        launcher.game_state.rules.attack_mode = true;
+        launcher.runtime.state.rules.attack_mode = true;
+        let sector = campaign_complete_test_sector(170, true, false);
+        launcher.game_state.set_sector(Some(sector.clone()));
+        launcher.runtime.state.set_sector(Some(sector));
+        launcher.load_game_slots = vec![
+            campaign_complete_save_slot("saves/sector-serpulo-170.msav", 123_000),
+            campaign_complete_save_slot("saves/sector-erekir-10.msav", 999_000),
+        ];
+
+        assert!(launcher.sector_capture_like_java());
+
+        assert!(!launcher.game_state.rules.waves);
+        assert!(!launcher.runtime.state.rules.waves);
+        assert!(!launcher.game_state.rules.attack_mode);
+        assert!(!launcher.runtime.state.rules.attack_mode);
+        assert!(launcher.game_state.rules.disable_world_processors);
+        assert!(launcher.runtime.state.rules.disable_world_processors);
+        assert!(launcher
+            .game_state
+            .get_sector()
+            .is_some_and(|sector| sector.info.was_captured));
+        assert_eq!(
+            launcher.campaign_complete_pending_ticks,
+            Some(super::CAMPAIGN_COMPLETE_DELAY_TICKS_LIKE_JAVA)
+        );
+        assert!(launcher.campaign_complete_dialog.is_none());
+
+        for _ in 0..119 {
+            launcher.tick_campaign_complete_pending_like_java(1.0);
+        }
+        assert_eq!(launcher.campaign_complete_pending_ticks, Some(1.0));
+        assert!(launcher.campaign_complete_dialog.is_none());
+
+        launcher.tick_campaign_complete_pending_like_java(1.0);
+        assert!(launcher.campaign_complete_pending_ticks.is_none());
+        assert!(launcher.campaign_complete_dialog.is_some());
+        assert!(launcher.game_state.is_paused());
+        assert!(launcher.runtime.state.is_paused());
+
+        let model = launcher.campaign_complete_dialog.clone().unwrap();
+        assert!(model.planet_line.to_ascii_lowercase().contains("serpulo"));
+        assert!(model.planet_line.contains("[#7d4dff]"));
+
+        let surface = DesktopSurfaceSize::new(1280, 720);
+        let viewport = launcher.default_render_viewport_for_surface(surface);
+        let pass = launcher
+            .pause_overlay_render_pass(viewport)
+            .expect("campaign complete dialog should render");
+        let texts = pass
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                RenderCommand::DrawText { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(texts.contains(&model.planet_line.as_str()));
+        assert!(texts.contains(&model.playtime_line.as_str()));
+        assert!(texts.contains(&launcher.localize_bundle_markup_text("@menu").as_str()));
+        assert!(texts.contains(&launcher.localize_bundle_markup_text("@continue").as_str()));
+
+        let dialog = DesktopLauncher::campaign_complete_dialog_rect_for_viewport(viewport);
+        let (menu, continue_button) =
+            DesktopLauncher::campaign_complete_button_rects(dialog, &model);
+        let menu_center = menu.center();
+        let continue_center = continue_button.center();
+        assert_eq!(
+            launcher.pause_overlay_action_at_surface_point(surface, menu_center.x, menu_center.y),
+            Some(super::DesktopPausedOverlayAction::CampaignCompleteMenu)
+        );
+        assert_eq!(
+            launcher.pause_overlay_action_at_surface_point(
+                surface,
+                continue_center.x,
+                continue_center.y
+            ),
+            Some(super::DesktopPausedOverlayAction::CampaignCompleteContinue)
+        );
+
+        launcher.dispatch_pause_overlay_action(
+            super::DesktopPausedOverlayAction::CampaignCompleteContinue,
+        );
+        assert!(launcher.campaign_complete_dialog.is_none());
+        assert!(launcher.game_state.is_game());
+        assert!(launcher.runtime.state.is_game());
+    }
+
+    #[test]
+    fn desktop_launcher_campaign_complete_dialog_honors_java_capture_filters() {
+        let mut already_captured = DesktopLauncher::new(Vec::new());
+        already_captured
+            .game_state
+            .set_sector(Some(campaign_complete_test_sector(171, true, true)));
+        already_captured
+            .runtime
+            .state
+            .set_sector(Some(campaign_complete_test_sector(171, true, true)));
+        assert!(already_captured.sector_capture_like_java());
+        assert!(already_captured.campaign_complete_pending_ticks.is_none());
+
+        let mut not_last = DesktopLauncher::new(Vec::new());
+        not_last
+            .game_state
+            .set_sector(Some(campaign_complete_test_sector(172, false, false)));
+        not_last
+            .runtime
+            .state
+            .set_sector(Some(campaign_complete_test_sector(172, false, false)));
+        assert!(not_last.sector_capture_like_java());
+        assert!(not_last.campaign_complete_pending_ticks.is_none());
+
+        let mut client = DesktopLauncher::new(Vec::new());
+        client
+            .game_state
+            .set_sector(Some(campaign_complete_test_sector(173, true, false)));
+        client
+            .runtime
+            .state
+            .set_sector(Some(campaign_complete_test_sector(173, true, false)));
+        client.net_client.state().lock().unwrap().connected = true;
+        assert!(client.sector_capture_like_java());
+        assert!(client.campaign_complete_pending_ticks.is_none());
+    }
+
+    #[test]
+    fn desktop_launcher_campaign_complete_menu_button_runs_exit_save_like_java() {
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.world.resize(16, 16);
+        launcher.runtime.state.world.resize(16, 16);
+        let sector = campaign_complete_test_sector(170, true, false);
+        launcher.game_state.set_sector(Some(sector.clone()));
+        launcher.runtime.state.set_sector(Some(sector));
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.runtime.state.set(GameStateState::Playing);
+
+        assert!(launcher.show_campaign_complete_dialog_like_java(720.0));
+        assert!(launcher.campaign_complete_dialog.is_some());
+
+        launcher
+            .dispatch_pause_overlay_action(super::DesktopPausedOverlayAction::CampaignCompleteMenu);
+
+        assert!(launcher.campaign_complete_dialog.is_none());
+        assert!(launcher.campaign_complete_pending_ticks.is_none());
+        assert!(launcher.game_state.is_menu());
+        assert!(launcher.runtime.state.is_menu());
+        assert_eq!(launcher.pause_overlay_modal, None);
     }
 
     #[test]
