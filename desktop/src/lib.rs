@@ -105,9 +105,9 @@ use mindustry_core::mindustry::modsys::{
     ModMetadata, ModResourceContainerPlan, ModResourceDirectoryPlan, ModResourcePlan,
 };
 use mindustry_core::mindustry::net::{
-    AdminAction, AdminRequestCallPacket, ArcNetProvider, EffectCallPacket, EffectCallPacket2, Host,
-    KickReason, Net, NetworkPlayerData, NetworkPlayerSyncData, NetworkWorldData, PacketKind,
-    SoundAtCallPacket, StateSnapshotCallPacket, TraceInfoCallPacket,
+    AdminAction, AdminRequestCallPacket, Administration, ArcNetProvider, EffectCallPacket,
+    EffectCallPacket2, Host, KickReason, Net, NetworkPlayerData, NetworkPlayerSyncData,
+    NetworkWorldData, PacketKind, SoundAtCallPacket, StateSnapshotCallPacket, TraceInfoCallPacket,
 };
 use mindustry_core::mindustry::r#type::planet::default_planet_env;
 use mindustry_core::mindustry::r#type::{
@@ -124,15 +124,16 @@ use mindustry_core::mindustry::ui::dialogs::map_locales_dialog::{
     MAP_LOCALES_CONTENT_ICON_TYPES, MAP_LOCALES_ICON_BUTTON_SIZE, MAP_LOCALES_ICON_CELL_WIDTH,
 };
 use mindustry_core::mindustry::ui::dialogs::{
-    BaseDialog, CampaignCompleteDialog, CampaignCompleteDialogModel, CampaignCompletePlanet,
-    DialogShellLayout, DialogStyle, LanguageDialog, LanguageDialogLocale, MapLocalesDialog,
-    MapLocalesDialogLocaleEntry, PauseContext, PausedDialog, PausedDialogAction, TraceDialog,
-    TraceDialogModel, TraceInfo as TraceDialogInfo, LANGUAGE_DIALOG_RESTART_MESSAGE_KEY,
-    LANGUAGE_DIALOG_ROW_HEIGHT, LANGUAGE_DIALOG_ROW_WIDTH, LANGUAGE_DIALOG_TABLE_MARGIN_HORIZONTAL,
-    MAP_LOCALES_CARD_WIDTH, MAP_LOCALES_LOCALE_ADD_BUTTON_HEIGHT,
-    MAP_LOCALES_LOCALE_ADD_BUTTON_WIDTH, MAP_LOCALES_MAIN_PROPERTY_VALUE_HEIGHT,
-    MAP_LOCALES_PROPERTY_VIEW_ADD_BUTTON_HEIGHT, MAP_LOCALES_PROPERTY_VIEW_ADD_BUTTON_WIDTH,
-    MAP_LOCALES_PROPERTY_VIEW_VALUE_HEIGHT,
+    AdminPlayerInfo, AdminsDialog, AdminsDialogModel, BannedPlayerInfo, BansDialog,
+    BansDialogModel, BaseDialog, CampaignCompleteDialog, CampaignCompleteDialogModel,
+    CampaignCompletePlanet, DialogShellLayout, DialogStyle, LanguageDialog, LanguageDialogLocale,
+    MapLocalesDialog, MapLocalesDialogLocaleEntry, PauseContext, PausedDialog, PausedDialogAction,
+    TraceDialog, TraceDialogModel, TraceInfo as TraceDialogInfo,
+    LANGUAGE_DIALOG_RESTART_MESSAGE_KEY, LANGUAGE_DIALOG_ROW_HEIGHT, LANGUAGE_DIALOG_ROW_WIDTH,
+    LANGUAGE_DIALOG_TABLE_MARGIN_HORIZONTAL, MAP_LOCALES_CARD_WIDTH,
+    MAP_LOCALES_LOCALE_ADD_BUTTON_HEIGHT, MAP_LOCALES_LOCALE_ADD_BUTTON_WIDTH,
+    MAP_LOCALES_MAIN_PROPERTY_VALUE_HEIGHT, MAP_LOCALES_PROPERTY_VIEW_ADD_BUTTON_HEIGHT,
+    MAP_LOCALES_PROPERTY_VIEW_ADD_BUTTON_WIDTH, MAP_LOCALES_PROPERTY_VIEW_VALUE_HEIGHT,
 };
 use mindustry_core::mindustry::ui::upstream_ui_skin_sprite_source_paths;
 use mindustry_core::mindustry::ui::{
@@ -27411,6 +27412,7 @@ pub struct DesktopPlayerListAdminConfirm {
 pub struct DesktopLauncher {
     pub client: ClientLauncher,
     pub net_client: NetClient,
+    pub net_server_admins: Administration,
     pub game_state: GameState,
     pub runtime: GameRuntime,
     pub player: PlayerComp,
@@ -27419,6 +27421,8 @@ pub struct DesktopLauncher {
     pub player_list_fragment: PlayerListFragment,
     pub last_player_list_model: Option<PlayerListModel>,
     pub player_trace_dialog: Option<TraceDialogModel>,
+    pub bans_dialog: Option<BansDialogModel>,
+    pub admins_dialog: Option<AdminsDialogModel>,
     pub player_list_admin_confirm: Option<DesktopPlayerListAdminConfirm>,
     pub last_player_admin_request: Option<DesktopPlayerAdminRequest>,
     pub last_player_admin_toggle: Option<DesktopPlayerAdminToggle>,
@@ -29103,6 +29107,7 @@ impl DesktopLauncher {
         Self {
             client: ClientLauncher::new(AppContext::new("data")),
             net_client: NetClient::with_net(Net::new(Box::new(ArcNetProvider::new()))),
+            net_server_admins: Administration::default(),
             game_state: GameState::new(),
             runtime: GameRuntime::default(),
             player: PlayerComp::default(),
@@ -29111,6 +29116,8 @@ impl DesktopLauncher {
             player_list_fragment: PlayerListFragment::new(),
             last_player_list_model: None,
             player_trace_dialog: None,
+            bans_dialog: None,
+            admins_dialog: None,
             player_list_admin_confirm: None,
             last_player_admin_request: None,
             last_player_admin_toggle: None,
@@ -30550,6 +30557,34 @@ impl DesktopLauncher {
         self.show_player_trace_dialog_with_info_like_java(player_id, info)
     }
 
+    pub fn show_bans_dialog_like_java(&mut self) -> bool {
+        if self.player_list_context_like_java().net_client {
+            return false;
+        }
+        let banned = self
+            .net_server_admins
+            .get_banned()
+            .into_iter()
+            .map(|info| BannedPlayerInfo::new(info.id, info.last_ip, info.last_name))
+            .collect::<Vec<_>>();
+        self.bans_dialog = Some(BansDialog::new().setup(&banned));
+        true
+    }
+
+    pub fn show_admins_dialog_like_java(&mut self) -> bool {
+        if self.player_list_context_like_java().net_client {
+            return false;
+        }
+        let admins = self
+            .net_server_admins
+            .get_admins()
+            .into_iter()
+            .map(|info| AdminPlayerInfo::new(info.id, info.last_name))
+            .collect::<Vec<_>>();
+        self.admins_dialog = Some(AdminsDialog::new().setup(&admins));
+        true
+    }
+
     fn send_player_admin_request_like_java(
         &mut self,
         player_id: i32,
@@ -30630,11 +30665,22 @@ impl DesktopLauncher {
                 usid,
                 currently_admin,
             } => {
-                let Some(player) = self.remote_players.get_mut(&confirm.player_id) else {
-                    return false;
-                };
                 let admin = !currently_admin;
-                player.admin = admin;
+                let (last_ip, last_name) = {
+                    let Some(player) = self.remote_players.get_mut(&confirm.player_id) else {
+                        return false;
+                    };
+                    player.admin = admin;
+                    (player.ip().to_string(), player.name.clone())
+                };
+                self.net_server_admins
+                    .update_player_joined(uuid.clone(), last_ip, last_name);
+                if admin {
+                    self.net_server_admins
+                        .admin_player(uuid.clone(), usid.clone());
+                } else {
+                    self.net_server_admins.unadmin_player(&uuid);
+                }
                 self.last_player_admin_toggle = Some(DesktopPlayerAdminToggle {
                     player_id: confirm.player_id,
                     uuid,
@@ -30712,7 +30758,12 @@ impl DesktopLauncher {
     ) -> Option<PlayerListModel> {
         match action {
             PlayerListFooterButtonAction::Close => self.toggle_player_list_like_java(),
-            PlayerListFooterButtonAction::ShowBans | PlayerListFooterButtonAction::ShowAdmins => {
+            PlayerListFooterButtonAction::ShowBans => {
+                self.show_bans_dialog_like_java();
+                None
+            }
+            PlayerListFooterButtonAction::ShowAdmins => {
+                self.show_admins_dialog_like_java();
                 None
             }
         }
@@ -94670,6 +94721,8 @@ impl DesktopLauncher {
             });
         self.last_player_list_model = None;
         self.player_trace_dialog = None;
+        self.bans_dialog = None;
+        self.admins_dialog = None;
         self.player_list_admin_confirm = None;
         self.last_player_admin_request = None;
         self.last_player_admin_toggle = None;
@@ -175144,6 +175197,96 @@ displayName = Display Alpha
     }
 
     #[test]
+    fn desktop_launcher_player_list_footer_show_bans_and_admins_open_dialogs_like_java() {
+        use mindustry_core::mindustry::ui::dialogs::{AdminsDialog, BansDialog};
+        use mindustry_core::mindustry::ui::PlayerListFooterButtonAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.net_client.net_mut().mark_server_active();
+        launcher.net_server_admins.update_player_joined(
+            "banned-uuid",
+            "10.0.0.8",
+            "[scarlet]Banned",
+        );
+        launcher.net_server_admins.ban_player_id("banned-uuid");
+        launcher
+            .net_server_admins
+            .update_player_joined("admin-uuid", "10.0.0.9", "[accent]Admin");
+        launcher
+            .net_server_admins
+            .admin_player("admin-uuid", "admin-usid");
+
+        let opened = launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .expect("server player list should open before footer dialogs");
+        assert!(opened.visible);
+        let last_model = launcher.last_player_list_model.clone();
+
+        assert!(launcher
+            .dispatch_player_list_footer_action_like_java(PlayerListFooterButtonAction::ShowBans)
+            .is_none());
+        assert!(launcher.player_list_visible_like_java());
+        assert_eq!(launcher.last_player_list_model, last_model);
+        let bans = launcher
+            .bans_dialog
+            .as_ref()
+            .expect("@server.bans should show BansDialog like Java");
+        assert_eq!(bans.title, "@server.bans");
+        assert_eq!(bans.empty_label, None);
+        assert_eq!(bans.rows.len(), 1);
+        assert!(bans.rows[0].label.contains("IP: [lightgray]10.0.0.8"));
+        assert!(bans.rows[0]
+            .label
+            .contains("Name: [lightgray][scarlet]Banned"));
+        assert_eq!(BansDialog::unban_target(&bans.rows[0]), "banned-uuid");
+
+        launcher
+            .net_server_admins
+            .update_player_joined("banned-2", "10.0.0.10", "Second");
+        launcher.net_server_admins.ban_player_id("banned-2");
+        launcher
+            .dispatch_player_list_footer_action_like_java(PlayerListFooterButtonAction::ShowBans);
+        assert_eq!(
+            launcher
+                .bans_dialog
+                .as_ref()
+                .expect("showing bans again should rebuild setup like Java")
+                .rows
+                .len(),
+            2
+        );
+
+        assert!(launcher
+            .dispatch_player_list_footer_action_like_java(PlayerListFooterButtonAction::ShowAdmins)
+            .is_none());
+        let admins = launcher
+            .admins_dialog
+            .as_ref()
+            .expect("@server.admins should show AdminsDialog like Java");
+        assert_eq!(admins.title, "@server.admins");
+        assert_eq!(admins.empty_label, None);
+        assert_eq!(admins.rows.len(), 1);
+        assert_eq!(admins.rows[0].label, "[lightgray][accent]Admin");
+        assert_eq!(AdminsDialog::unadmin_target(&admins.rows[0]), "admin-uuid");
+
+        let mut client_launcher = DesktopLauncher::new(Vec::new());
+        client_launcher.game_state.set(GameStateState::Playing);
+        client_launcher.net_client.net_mut().set_client_connected();
+        client_launcher
+            .dispatch_player_list_footer_action_like_java(PlayerListFooterButtonAction::ShowBans);
+        client_launcher
+            .dispatch_player_list_footer_action_like_java(PlayerListFooterButtonAction::ShowAdmins);
+        assert_eq!(client_launcher.bans_dialog, None);
+        assert_eq!(client_launcher.admins_dialog, None);
+    }
+
+    #[test]
     fn desktop_launcher_player_list_ban_kick_confirm_sends_admin_request_like_java() {
         use mindustry_core::mindustry::ui::PlayerListPlayerMenuAction;
 
@@ -175276,6 +175419,9 @@ displayName = Display Alpha
                 admin: true,
             })
         );
+        assert!(launcher
+            .net_server_admins
+            .is_admin("remote-uuid", "remote-usid"));
 
         assert!(launcher.dispatch_player_list_menu_action_like_java(
             PlayerListPlayerMenuAction::ToggleAdmin {
@@ -175315,6 +175461,9 @@ displayName = Display Alpha
                 admin: false,
             })
         );
+        assert!(!launcher
+            .net_server_admins
+            .is_admin("remote-uuid", "remote-usid"));
     }
 
     #[test]
