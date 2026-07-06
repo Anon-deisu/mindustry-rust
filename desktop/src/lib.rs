@@ -27451,6 +27451,7 @@ pub struct DesktopLauncher {
     pub last_chat_client_event: Option<String>,
     pub last_chat_ping: Option<(f32, f32, String)>,
     pub last_chat_mobile_text_input_max_length: Option<usize>,
+    pub last_chat_visibility: Option<ChatVisibilityUpdate>,
     pub last_menu_guard_message: Option<String>,
     pub last_menu_info_message: Option<String>,
     external_bundle_notice_path: Option<String>,
@@ -29137,6 +29138,7 @@ impl DesktopLauncher {
             last_chat_client_event: None,
             last_chat_ping: None,
             last_chat_mobile_text_input_max_length: None,
+            last_chat_visibility: None,
             last_menu_guard_message: None,
             last_menu_info_message: None,
             external_bundle_notice_path: None,
@@ -30253,7 +30255,7 @@ impl DesktopLauncher {
         let now_millis = current_millis();
         self.sync_remote_player_snapshots_from_runtime();
         self.update_player_list_visibility_like_java();
-        self.update_chat_visibility_like_java(self.game_state.is_game());
+        self.update_chat_visibility_like_java(self.hud_fragment.shown);
         self.tick_chat_fade_like_java(1.0);
         self.sync_remote_preview_plan_packets(now_millis);
         self.rebuild_other_player_preview_overlays_at(now_millis, 1.0, None);
@@ -30546,6 +30548,7 @@ impl DesktopLauncher {
             .chat_fragment
             .update_visibility_like_java(net_active, hud_shown);
         self.dispatch_chat_actions_like_java(update.actions.clone());
+        self.last_chat_visibility = Some(update.clone());
         update
     }
 
@@ -94210,6 +94213,7 @@ impl DesktopLauncher {
         self.last_chat_client_event = None;
         self.last_chat_ping = None;
         self.last_chat_mobile_text_input_max_length = None;
+        self.last_chat_visibility = None;
         self.menu_console_setting_enabled = true;
         self.menu_becheck_active = false;
         self.menu_becheck_update_available = false;
@@ -174584,6 +174588,50 @@ displayName = Display Alpha
         assert_eq!(
             launcher.last_chat_mobile_text_input_max_length,
             Some(mindustry_core::mindustry::vars::MAX_TEXT_LENGTH)
+        );
+    }
+
+    #[test]
+    fn desktop_launcher_update_chat_visibility_tracks_hud_shown_like_java() {
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.runtime.state.set(GameStateState::Playing);
+        launcher.net_client.net_mut().set_client_connected();
+
+        launcher.update();
+        assert_eq!(
+            launcher
+                .last_chat_visibility
+                .as_ref()
+                .map(|update| update.visible),
+            Some(true)
+        );
+
+        launcher.dispatch_hud_mobile_button_action_like_java(
+            mindustry_core::mindustry::ui::HudMobileButtonAction::ToggleMenus,
+        );
+        assert!(!launcher.hud_fragment.shown);
+        launcher.update();
+        assert_eq!(
+            launcher
+                .last_chat_visibility
+                .as_ref()
+                .map(|update| update.visible),
+            Some(false),
+            "Java ChatFragment.visible returns net.active() && ui.hudfrag.shown"
+        );
+
+        launcher.dispatch_hud_mobile_button_action_like_java(
+            mindustry_core::mindustry::ui::HudMobileButtonAction::ToggleMenus,
+        );
+        assert!(launcher.hud_fragment.shown);
+        launcher.update();
+        assert_eq!(
+            launcher
+                .last_chat_visibility
+                .as_ref()
+                .map(|update| update.visible),
+            Some(true)
         );
     }
 
