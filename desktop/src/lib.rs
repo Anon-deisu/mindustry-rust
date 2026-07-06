@@ -27380,9 +27380,29 @@ pub struct DesktopPlayerAdminRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesktopPlayerAdminToggle {
+    pub player_id: i32,
+    pub uuid: String,
+    pub usid: String,
+    pub admin: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DesktopPlayerListAdminConfirmAction {
+    AdminRequest {
+        action: AdminAction,
+    },
+    ToggleAdmin {
+        uuid: String,
+        usid: String,
+        currently_admin: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopPlayerListAdminConfirm {
     pub player_id: i32,
-    pub action: AdminAction,
+    pub action: DesktopPlayerListAdminConfirmAction,
     pub title: &'static str,
     pub message: String,
 }
@@ -27401,6 +27421,7 @@ pub struct DesktopLauncher {
     pub player_trace_dialog: Option<TraceDialogModel>,
     pub player_list_admin_confirm: Option<DesktopPlayerListAdminConfirm>,
     pub last_player_admin_request: Option<DesktopPlayerAdminRequest>,
+    pub last_player_admin_toggle: Option<DesktopPlayerAdminToggle>,
     pub last_player_trace_clipboard_text: Option<String>,
     pub console_fragment: ConsoleFragment,
     pub chat_fragment: ChatFragment,
@@ -29092,6 +29113,7 @@ impl DesktopLauncher {
             player_trace_dialog: None,
             player_list_admin_confirm: None,
             last_player_admin_request: None,
+            last_player_admin_toggle: None,
             last_player_trace_clipboard_text: None,
             console_fragment: ConsoleFragment::new(),
             chat_fragment: ChatFragment::new(),
@@ -30549,12 +30571,24 @@ impl DesktopLauncher {
 
     fn player_admin_confirm_message_like_java(
         &self,
-        action: AdminAction,
+        action: &DesktopPlayerListAdminConfirmAction,
         player_name: &str,
     ) -> String {
         let key = match action {
-            AdminAction::Ban => "confirmban",
-            AdminAction::Kick => "confirmkick",
+            DesktopPlayerListAdminConfirmAction::AdminRequest {
+                action: AdminAction::Ban,
+            } => "confirmban",
+            DesktopPlayerListAdminConfirmAction::AdminRequest {
+                action: AdminAction::Kick,
+            } => "confirmkick",
+            DesktopPlayerListAdminConfirmAction::ToggleAdmin {
+                currently_admin: true,
+                ..
+            } => "confirmunadmin",
+            DesktopPlayerListAdminConfirmAction::ToggleAdmin {
+                currently_admin: false,
+                ..
+            } => "confirmadmin",
             _ => return String::new(),
         };
         self.bundle_format_for_current_locale(key, &[player_name])
@@ -30565,7 +30599,7 @@ impl DesktopLauncher {
     fn open_player_list_admin_confirm_like_java(
         &mut self,
         player_id: i32,
-        action: AdminAction,
+        action: DesktopPlayerListAdminConfirmAction,
     ) -> bool {
         let player_name = {
             let Some(player) = self.player_by_id_like_java(player_id) else {
@@ -30573,7 +30607,7 @@ impl DesktopLauncher {
             };
             player.name.clone()
         };
-        let message = self.player_admin_confirm_message_like_java(action, &player_name);
+        let message = self.player_admin_confirm_message_like_java(&action, &player_name);
         self.player_list_admin_confirm = Some(DesktopPlayerListAdminConfirm {
             player_id,
             action,
@@ -30587,7 +30621,29 @@ impl DesktopLauncher {
         let Some(confirm) = self.player_list_admin_confirm.take() else {
             return false;
         };
-        self.send_player_admin_request_like_java(confirm.player_id, confirm.action, TypeValue::Null)
+        match confirm.action {
+            DesktopPlayerListAdminConfirmAction::AdminRequest { action } => {
+                self.send_player_admin_request_like_java(confirm.player_id, action, TypeValue::Null)
+            }
+            DesktopPlayerListAdminConfirmAction::ToggleAdmin {
+                uuid,
+                usid,
+                currently_admin,
+            } => {
+                let Some(player) = self.remote_players.get_mut(&confirm.player_id) else {
+                    return false;
+                };
+                let admin = !currently_admin;
+                player.admin = admin;
+                self.last_player_admin_toggle = Some(DesktopPlayerAdminToggle {
+                    player_id: confirm.player_id,
+                    uuid,
+                    usid,
+                    admin,
+                });
+                true
+            }
+        }
     }
 
     pub fn cancel_player_list_admin_confirm_like_java(&mut self) -> bool {
@@ -30599,12 +30655,20 @@ impl DesktopLauncher {
         action: PlayerListPlayerMenuAction,
     ) -> bool {
         match action {
-            PlayerListPlayerMenuAction::Ban { player_id } => {
-                self.open_player_list_admin_confirm_like_java(player_id, AdminAction::Ban)
-            }
-            PlayerListPlayerMenuAction::Kick { player_id } => {
-                self.open_player_list_admin_confirm_like_java(player_id, AdminAction::Kick)
-            }
+            PlayerListPlayerMenuAction::Ban { player_id } => self
+                .open_player_list_admin_confirm_like_java(
+                    player_id,
+                    DesktopPlayerListAdminConfirmAction::AdminRequest {
+                        action: AdminAction::Ban,
+                    },
+                ),
+            PlayerListPlayerMenuAction::Kick { player_id } => self
+                .open_player_list_admin_confirm_like_java(
+                    player_id,
+                    DesktopPlayerListAdminConfirmAction::AdminRequest {
+                        action: AdminAction::Kick,
+                    },
+                ),
             PlayerListPlayerMenuAction::Trace { player_id } => {
                 let context = self.player_list_context_like_java();
                 if context.net_client {
@@ -30618,8 +30682,27 @@ impl DesktopLauncher {
                 }
             }
             PlayerListPlayerMenuAction::OpenTeamSelect { .. }
-            | PlayerListPlayerMenuAction::ToggleAdmin { .. }
             | PlayerListPlayerMenuAction::Back => false,
+            PlayerListPlayerMenuAction::ToggleAdmin {
+                player_id,
+                uuid,
+                currently_admin,
+            } => {
+                let usid = {
+                    let Some(player) = self.player_by_id_like_java(player_id) else {
+                        return false;
+                    };
+                    player.usid().to_string()
+                };
+                self.open_player_list_admin_confirm_like_java(
+                    player_id,
+                    DesktopPlayerListAdminConfirmAction::ToggleAdmin {
+                        uuid,
+                        usid,
+                        currently_admin,
+                    },
+                )
+            }
         }
     }
 
@@ -94589,6 +94672,7 @@ impl DesktopLauncher {
         self.player_trace_dialog = None;
         self.player_list_admin_confirm = None;
         self.last_player_admin_request = None;
+        self.last_player_admin_toggle = None;
         self.last_player_trace_clipboard_text = None;
         self.other_player_preview_overlays.clear();
         self.standard_local_effect_draw_plans.clear();
@@ -175087,7 +175171,9 @@ displayName = Display Alpha
         assert_eq!(confirm.player_id, 2);
         assert_eq!(
             confirm.action,
-            mindustry_core::mindustry::net::AdminAction::Ban
+            super::DesktopPlayerListAdminConfirmAction::AdminRequest {
+                action: mindustry_core::mindustry::net::AdminAction::Ban,
+            }
         );
         assert!(confirm.message.contains("[scarlet]Remote"));
         assert_eq!(launcher.last_player_admin_request, None);
@@ -175111,7 +175197,9 @@ displayName = Display Alpha
             .expect("@player.kick should also open a confirm dialog");
         assert_eq!(
             confirm.action,
-            mindustry_core::mindustry::net::AdminAction::Kick
+            super::DesktopPlayerListAdminConfirmAction::AdminRequest {
+                action: mindustry_core::mindustry::net::AdminAction::Kick,
+            }
         );
         assert!(confirm.message.contains("[scarlet]Remote"));
 
@@ -175122,6 +175210,109 @@ displayName = Display Alpha
             Some(super::DesktopPlayerAdminRequest {
                 player_id: 2,
                 action: mindustry_core::mindustry::net::AdminAction::Ban,
+            })
+        );
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_admin_toggle_confirm_updates_remote_admin_like_java() {
+        use mindustry_core::mindustry::ui::PlayerListPlayerMenuAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "[scarlet]Remote".into();
+        let mut connection = mindustry_core::mindustry::net::NetConnection::new("127.0.0.2");
+        connection.uuid = "remote-uuid".into();
+        connection.usid = "remote-usid".into();
+        remote.con = Some(connection);
+        launcher.remote_players.insert(remote.id, remote);
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::ToggleAdmin {
+                player_id: 2,
+                uuid: "remote-uuid".into(),
+                currently_admin: false,
+            },
+        ));
+        let confirm = launcher
+            .player_list_admin_confirm
+            .as_ref()
+            .expect("@player.admin should open a Java confirm dialog");
+        assert_eq!(confirm.title, "@confirm");
+        assert_eq!(confirm.player_id, 2);
+        assert_eq!(
+            confirm.action,
+            super::DesktopPlayerListAdminConfirmAction::ToggleAdmin {
+                uuid: "remote-uuid".into(),
+                usid: "remote-usid".into(),
+                currently_admin: false,
+            }
+        );
+        assert!(confirm.message.contains("[scarlet]Remote"));
+
+        assert!(launcher.confirm_player_list_admin_action_like_java());
+        assert_eq!(launcher.player_list_admin_confirm, None);
+        assert!(
+            launcher
+                .remote_players
+                .get(&2)
+                .expect("remote player should still exist after admin toggle")
+                .admin
+        );
+        assert_eq!(
+            launcher.last_player_admin_toggle,
+            Some(super::DesktopPlayerAdminToggle {
+                player_id: 2,
+                uuid: "remote-uuid".into(),
+                usid: "remote-usid".into(),
+                admin: true,
+            })
+        );
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::ToggleAdmin {
+                player_id: 2,
+                uuid: "remote-uuid".into(),
+                currently_admin: true,
+            },
+        ));
+        let confirm = launcher
+            .player_list_admin_confirm
+            .as_ref()
+            .expect("unadmin should also require confirmation");
+        assert_eq!(
+            confirm.action,
+            super::DesktopPlayerListAdminConfirmAction::ToggleAdmin {
+                uuid: "remote-uuid".into(),
+                usid: "remote-usid".into(),
+                currently_admin: true,
+            }
+        );
+        assert!(confirm.message.contains("[scarlet]Remote"));
+
+        assert!(launcher.confirm_player_list_admin_action_like_java());
+        assert!(
+            !launcher
+                .remote_players
+                .get(&2)
+                .expect("remote player should remain after unadmin")
+                .admin
+        );
+        assert_eq!(
+            launcher.last_player_admin_toggle,
+            Some(super::DesktopPlayerAdminToggle {
+                player_id: 2,
+                uuid: "remote-uuid".into(),
+                usid: "remote-usid".into(),
+                admin: false,
             })
         );
     }
