@@ -149,10 +149,10 @@ use mindustry_core::mindustry::ui::{
     ConsoleMobileButtonAction, ConsoleMobileToolbarModel, HudFragment, HudMobileButtonAction,
     MinimapAction, MinimapConvertEnv, MinimapFragment, MinimapGraphics as FragmentMinimapGraphics,
     MinimapTexture as FragmentMinimapTexture, MinimapToggleFocus,
-    MinimapWorld as FragmentMinimapWorld, PlayerListContext, PlayerListFragment, PlayerListModel,
-    PlayerListPlayer, PlayerListPlayerMenuAction, UpstreamContentIcon,
-    UpstreamContentIconRuntimeRegistry, UpstreamFontRole, UpstreamUiIconGlyph, WarningBar,
-    WarningBarDrawCommand, WarningBarLayout, CONSOLE_MOBILE_BUTTON_PAD_LEFT,
+    MinimapWorld as FragmentMinimapWorld, PlayerListContext, PlayerListFooterButtonAction,
+    PlayerListFragment, PlayerListModel, PlayerListPlayer, PlayerListPlayerMenuAction,
+    UpstreamContentIcon, UpstreamContentIconRuntimeRegistry, UpstreamFontRole, UpstreamUiIconGlyph,
+    WarningBar, WarningBarDrawCommand, WarningBarLayout, CONSOLE_MOBILE_BUTTON_PAD_LEFT,
     CONSOLE_MOBILE_BUTTON_SIZE, UPSTREAM_ICONS_PROPERTIES_SOURCE_PATH,
     UPSTREAM_LOGIC_FONT_CHARACTERS, UPSTREAM_ROUTER_LANGUAGE_GLYPH, UPSTREAM_UI_ICON_GLYPHS,
 };
@@ -27374,9 +27374,17 @@ impl DesktopCampaignLaunchLoadoutCandidate {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DesktopPlayerTraceRequest {
+pub struct DesktopPlayerAdminRequest {
     pub player_id: i32,
     pub action: AdminAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesktopPlayerListAdminConfirm {
+    pub player_id: i32,
+    pub action: AdminAction,
+    pub title: &'static str,
+    pub message: String,
 }
 
 #[derive(Debug, Clone)]
@@ -27391,7 +27399,8 @@ pub struct DesktopLauncher {
     pub player_list_fragment: PlayerListFragment,
     pub last_player_list_model: Option<PlayerListModel>,
     pub player_trace_dialog: Option<TraceDialogModel>,
-    pub last_player_trace_request: Option<DesktopPlayerTraceRequest>,
+    pub player_list_admin_confirm: Option<DesktopPlayerListAdminConfirm>,
+    pub last_player_admin_request: Option<DesktopPlayerAdminRequest>,
     pub last_player_trace_clipboard_text: Option<String>,
     pub console_fragment: ConsoleFragment,
     pub chat_fragment: ChatFragment,
@@ -29081,7 +29090,8 @@ impl DesktopLauncher {
             player_list_fragment: PlayerListFragment::new(),
             last_player_list_model: None,
             player_trace_dialog: None,
-            last_player_trace_request: None,
+            player_list_admin_confirm: None,
+            last_player_admin_request: None,
             last_player_trace_clipboard_text: None,
             console_fragment: ConsoleFragment::new(),
             chat_fragment: ChatFragment::new(),
@@ -30518,20 +30528,70 @@ impl DesktopLauncher {
         self.show_player_trace_dialog_with_info_like_java(player_id, info)
     }
 
-    fn send_player_trace_admin_request_like_java(&mut self, player_id: i32) -> bool {
+    fn send_player_admin_request_like_java(
+        &mut self,
+        player_id: i32,
+        action: AdminAction,
+        params: TypeValue,
+    ) -> bool {
         let packet = AdminRequestCallPacket {
             other: mindustry_core::mindustry::io::EntityRef::new(player_id),
-            action: AdminAction::Trace,
-            params: TypeValue::Null,
+            action,
+            params,
         };
-        self.last_player_trace_request = Some(DesktopPlayerTraceRequest {
-            player_id,
-            action: AdminAction::Trace,
-        });
-        self.net_client
+        self.last_player_admin_request = Some(DesktopPlayerAdminRequest { player_id, action });
+        let _ = self
+            .net_client
             .net_mut()
-            .send(&PacketKind::AdminRequestCallPacket(packet), true)
-            .is_ok()
+            .send(&PacketKind::AdminRequestCallPacket(packet), true);
+        true
+    }
+
+    fn player_admin_confirm_message_like_java(
+        &self,
+        action: AdminAction,
+        player_name: &str,
+    ) -> String {
+        let key = match action {
+            AdminAction::Ban => "confirmban",
+            AdminAction::Kick => "confirmkick",
+            _ => return String::new(),
+        };
+        self.bundle_format_for_current_locale(key, &[player_name])
+            .or_else(|| upstream_menu_bundle_format_for_locale("en", key, &[player_name]))
+            .unwrap_or_else(|| format!("{key}: {player_name}"))
+    }
+
+    fn open_player_list_admin_confirm_like_java(
+        &mut self,
+        player_id: i32,
+        action: AdminAction,
+    ) -> bool {
+        let player_name = {
+            let Some(player) = self.player_by_id_like_java(player_id) else {
+                return false;
+            };
+            player.name.clone()
+        };
+        let message = self.player_admin_confirm_message_like_java(action, &player_name);
+        self.player_list_admin_confirm = Some(DesktopPlayerListAdminConfirm {
+            player_id,
+            action,
+            title: "@confirm",
+            message,
+        });
+        true
+    }
+
+    pub fn confirm_player_list_admin_action_like_java(&mut self) -> bool {
+        let Some(confirm) = self.player_list_admin_confirm.take() else {
+            return false;
+        };
+        self.send_player_admin_request_like_java(confirm.player_id, confirm.action, TypeValue::Null)
+    }
+
+    pub fn cancel_player_list_admin_confirm_like_java(&mut self) -> bool {
+        self.player_list_admin_confirm.take().is_some()
     }
 
     pub fn dispatch_player_list_menu_action_like_java(
@@ -30539,19 +30599,39 @@ impl DesktopLauncher {
         action: PlayerListPlayerMenuAction,
     ) -> bool {
         match action {
+            PlayerListPlayerMenuAction::Ban { player_id } => {
+                self.open_player_list_admin_confirm_like_java(player_id, AdminAction::Ban)
+            }
+            PlayerListPlayerMenuAction::Kick { player_id } => {
+                self.open_player_list_admin_confirm_like_java(player_id, AdminAction::Kick)
+            }
             PlayerListPlayerMenuAction::Trace { player_id } => {
                 let context = self.player_list_context_like_java();
                 if context.net_client {
-                    self.send_player_trace_admin_request_like_java(player_id)
+                    self.send_player_admin_request_like_java(
+                        player_id,
+                        AdminAction::Trace,
+                        TypeValue::Null,
+                    )
                 } else {
                     self.show_player_trace_dialog_like_java(player_id)
                 }
             }
-            PlayerListPlayerMenuAction::Ban { .. }
-            | PlayerListPlayerMenuAction::Kick { .. }
-            | PlayerListPlayerMenuAction::OpenTeamSelect { .. }
+            PlayerListPlayerMenuAction::OpenTeamSelect { .. }
             | PlayerListPlayerMenuAction::ToggleAdmin { .. }
             | PlayerListPlayerMenuAction::Back => false,
+        }
+    }
+
+    pub fn dispatch_player_list_footer_action_like_java(
+        &mut self,
+        action: PlayerListFooterButtonAction,
+    ) -> Option<PlayerListModel> {
+        match action {
+            PlayerListFooterButtonAction::Close => self.toggle_player_list_like_java(),
+            PlayerListFooterButtonAction::ShowBans | PlayerListFooterButtonAction::ShowAdmins => {
+                None
+            }
         }
     }
 
@@ -94507,7 +94587,8 @@ impl DesktopLauncher {
             });
         self.last_player_list_model = None;
         self.player_trace_dialog = None;
-        self.last_player_trace_request = None;
+        self.player_list_admin_confirm = None;
+        self.last_player_admin_request = None;
         self.last_player_trace_clipboard_text = None;
         self.other_player_preview_overlays.clear();
         self.standard_local_effect_draw_plans.clear();
@@ -174946,6 +175027,106 @@ displayName = Display Alpha
     }
 
     #[test]
+    fn desktop_launcher_player_list_footer_close_hides_fragment_like_java() {
+        use mindustry_core::mindustry::ui::PlayerListFooterButtonAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.net_client.net_mut().set_client_connected();
+
+        let opened = launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .expect("player list should open before footer close is dispatched");
+        assert!(opened.visible);
+        launcher.player_list_fragment.set_search_text("remote");
+
+        assert!(launcher
+            .dispatch_player_list_footer_action_like_java(PlayerListFooterButtonAction::Close)
+            .is_none());
+        assert!(!launcher.player_list_visible_like_java());
+        assert_eq!(launcher.last_player_list_model, None);
+
+        let reopened = launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .expect("reopening after @close should rebuild PlayerListFragment");
+        assert!(reopened.search_text.is_empty());
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_ban_kick_confirm_sends_admin_request_like_java() {
+        use mindustry_core::mindustry::ui::PlayerListPlayerMenuAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "[scarlet]Remote".into();
+        launcher.remote_players.insert(remote.id, remote);
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::Ban { player_id: 2 },
+        ));
+        let confirm = launcher
+            .player_list_admin_confirm
+            .as_ref()
+            .expect("@player.ban should open the Java confirm dialog before sending");
+        assert_eq!(confirm.title, "@confirm");
+        assert_eq!(confirm.player_id, 2);
+        assert_eq!(
+            confirm.action,
+            mindustry_core::mindustry::net::AdminAction::Ban
+        );
+        assert!(confirm.message.contains("[scarlet]Remote"));
+        assert_eq!(launcher.last_player_admin_request, None);
+
+        assert!(launcher.confirm_player_list_admin_action_like_java());
+        assert_eq!(launcher.player_list_admin_confirm, None);
+        assert_eq!(
+            launcher.last_player_admin_request,
+            Some(super::DesktopPlayerAdminRequest {
+                player_id: 2,
+                action: mindustry_core::mindustry::net::AdminAction::Ban,
+            })
+        );
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::Kick { player_id: 2 },
+        ));
+        let confirm = launcher
+            .player_list_admin_confirm
+            .as_ref()
+            .expect("@player.kick should also open a confirm dialog");
+        assert_eq!(
+            confirm.action,
+            mindustry_core::mindustry::net::AdminAction::Kick
+        );
+        assert!(confirm.message.contains("[scarlet]Remote"));
+
+        assert!(launcher.cancel_player_list_admin_confirm_like_java());
+        assert_eq!(launcher.player_list_admin_confirm, None);
+        assert_eq!(
+            launcher.last_player_admin_request,
+            Some(super::DesktopPlayerAdminRequest {
+                player_id: 2,
+                action: mindustry_core::mindustry::net::AdminAction::Ban,
+            })
+        );
+    }
+
+    #[test]
     fn desktop_launcher_player_list_menu_trace_opens_trace_dialog_like_java() {
         use mindustry_core::mindustry::ui::PlayerListPlayerMenuAction;
 
@@ -174989,7 +175170,7 @@ displayName = Display Alpha
         assert_eq!(model.summary_rows.len(), 4);
         assert_eq!(model.ips, vec!["[lightgray]127.0.0.2"]);
         assert_eq!(model.names, vec!["[lightgray]Remote"]);
-        assert_eq!(launcher.last_player_trace_request, None);
+        assert_eq!(launcher.last_player_admin_request, None);
     }
 
     #[test]
@@ -175043,8 +175224,8 @@ displayName = Display Alpha
         });
 
         assert_eq!(
-            launcher.last_player_trace_request,
-            Some(super::DesktopPlayerTraceRequest {
+            launcher.last_player_admin_request,
+            Some(super::DesktopPlayerAdminRequest {
                 player_id: 2,
                 action: mindustry_core::mindustry::net::AdminAction::Trace,
             })
