@@ -105,9 +105,9 @@ use mindustry_core::mindustry::modsys::{
     ModMetadata, ModResourceContainerPlan, ModResourceDirectoryPlan, ModResourcePlan,
 };
 use mindustry_core::mindustry::net::{
-    ArcNetProvider, EffectCallPacket, EffectCallPacket2, Host, KickReason, Net, NetworkPlayerData,
-    NetworkPlayerSyncData, NetworkWorldData, PacketKind, SoundAtCallPacket,
-    StateSnapshotCallPacket,
+    AdminAction, AdminRequestCallPacket, ArcNetProvider, EffectCallPacket, EffectCallPacket2, Host,
+    KickReason, Net, NetworkPlayerData, NetworkPlayerSyncData, NetworkWorldData, PacketKind,
+    SoundAtCallPacket, StateSnapshotCallPacket, TraceInfoCallPacket,
 };
 use mindustry_core::mindustry::r#type::planet::default_planet_env;
 use mindustry_core::mindustry::r#type::{
@@ -126,12 +126,13 @@ use mindustry_core::mindustry::ui::dialogs::map_locales_dialog::{
 use mindustry_core::mindustry::ui::dialogs::{
     BaseDialog, CampaignCompleteDialog, CampaignCompleteDialogModel, CampaignCompletePlanet,
     DialogShellLayout, DialogStyle, LanguageDialog, LanguageDialogLocale, MapLocalesDialog,
-    MapLocalesDialogLocaleEntry, PauseContext, PausedDialog, PausedDialogAction,
-    LANGUAGE_DIALOG_RESTART_MESSAGE_KEY, LANGUAGE_DIALOG_ROW_HEIGHT, LANGUAGE_DIALOG_ROW_WIDTH,
-    LANGUAGE_DIALOG_TABLE_MARGIN_HORIZONTAL, MAP_LOCALES_CARD_WIDTH,
-    MAP_LOCALES_LOCALE_ADD_BUTTON_HEIGHT, MAP_LOCALES_LOCALE_ADD_BUTTON_WIDTH,
-    MAP_LOCALES_MAIN_PROPERTY_VALUE_HEIGHT, MAP_LOCALES_PROPERTY_VIEW_ADD_BUTTON_HEIGHT,
-    MAP_LOCALES_PROPERTY_VIEW_ADD_BUTTON_WIDTH, MAP_LOCALES_PROPERTY_VIEW_VALUE_HEIGHT,
+    MapLocalesDialogLocaleEntry, PauseContext, PausedDialog, PausedDialogAction, TraceDialog,
+    TraceDialogModel, TraceInfo as TraceDialogInfo, LANGUAGE_DIALOG_RESTART_MESSAGE_KEY,
+    LANGUAGE_DIALOG_ROW_HEIGHT, LANGUAGE_DIALOG_ROW_WIDTH, LANGUAGE_DIALOG_TABLE_MARGIN_HORIZONTAL,
+    MAP_LOCALES_CARD_WIDTH, MAP_LOCALES_LOCALE_ADD_BUTTON_HEIGHT,
+    MAP_LOCALES_LOCALE_ADD_BUTTON_WIDTH, MAP_LOCALES_MAIN_PROPERTY_VALUE_HEIGHT,
+    MAP_LOCALES_PROPERTY_VIEW_ADD_BUTTON_HEIGHT, MAP_LOCALES_PROPERTY_VIEW_ADD_BUTTON_WIDTH,
+    MAP_LOCALES_PROPERTY_VIEW_VALUE_HEIGHT,
 };
 use mindustry_core::mindustry::ui::upstream_ui_skin_sprite_source_paths;
 use mindustry_core::mindustry::ui::{
@@ -149,11 +150,11 @@ use mindustry_core::mindustry::ui::{
     MinimapAction, MinimapConvertEnv, MinimapFragment, MinimapGraphics as FragmentMinimapGraphics,
     MinimapTexture as FragmentMinimapTexture, MinimapToggleFocus,
     MinimapWorld as FragmentMinimapWorld, PlayerListContext, PlayerListFragment, PlayerListModel,
-    PlayerListPlayer, UpstreamContentIcon, UpstreamContentIconRuntimeRegistry, UpstreamFontRole,
-    UpstreamUiIconGlyph, WarningBar, WarningBarDrawCommand, WarningBarLayout,
-    CONSOLE_MOBILE_BUTTON_PAD_LEFT, CONSOLE_MOBILE_BUTTON_SIZE,
-    UPSTREAM_ICONS_PROPERTIES_SOURCE_PATH, UPSTREAM_LOGIC_FONT_CHARACTERS,
-    UPSTREAM_ROUTER_LANGUAGE_GLYPH, UPSTREAM_UI_ICON_GLYPHS,
+    PlayerListPlayer, PlayerListPlayerMenuAction, UpstreamContentIcon,
+    UpstreamContentIconRuntimeRegistry, UpstreamFontRole, UpstreamUiIconGlyph, WarningBar,
+    WarningBarDrawCommand, WarningBarLayout, CONSOLE_MOBILE_BUTTON_PAD_LEFT,
+    CONSOLE_MOBILE_BUTTON_SIZE, UPSTREAM_ICONS_PROPERTIES_SOURCE_PATH,
+    UPSTREAM_LOGIC_FONT_CHARACTERS, UPSTREAM_ROUTER_LANGUAGE_GLYPH, UPSTREAM_UI_ICON_GLYPHS,
 };
 #[cfg(test)]
 use mindustry_core::mindustry::vars::SERVER_CACHE_FILE_NAME;
@@ -27372,6 +27373,12 @@ impl DesktopCampaignLaunchLoadoutCandidate {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DesktopPlayerTraceRequest {
+    pub player_id: i32,
+    pub action: AdminAction,
+}
+
 #[derive(Debug, Clone)]
 pub struct DesktopLauncher {
     pub client: ClientLauncher,
@@ -27383,6 +27390,9 @@ pub struct DesktopLauncher {
     pub hud_fragment: HudFragment,
     pub player_list_fragment: PlayerListFragment,
     pub last_player_list_model: Option<PlayerListModel>,
+    pub player_trace_dialog: Option<TraceDialogModel>,
+    pub last_player_trace_request: Option<DesktopPlayerTraceRequest>,
+    pub last_player_trace_clipboard_text: Option<String>,
     pub console_fragment: ConsoleFragment,
     pub chat_fragment: ChatFragment,
     pub other_player_preview_overlays: Vec<OtherPlayerPreviewOverlayPlan>,
@@ -27887,6 +27897,7 @@ pub struct DesktopLauncher {
     last_applied_world_update_packets_seen: u64,
     last_applied_tile_config_packets_seen: u64,
     last_applied_command_building_packets_seen: u64,
+    last_applied_trace_info_packets_seen: u64,
     last_applied_effect_packets_seen: u64,
     last_applied_effect_with_data_packets_seen: u64,
     last_applied_reliable_effect_packets_seen: u64,
@@ -29069,6 +29080,9 @@ impl DesktopLauncher {
             hud_fragment: HudFragment::new(),
             player_list_fragment: PlayerListFragment::new(),
             last_player_list_model: None,
+            player_trace_dialog: None,
+            last_player_trace_request: None,
+            last_player_trace_clipboard_text: None,
             console_fragment: ConsoleFragment::new(),
             chat_fragment: ChatFragment::new(),
             other_player_preview_overlays: Vec::new(),
@@ -29567,6 +29581,7 @@ impl DesktopLauncher {
             last_applied_world_update_packets_seen: 0,
             last_applied_tile_config_packets_seen: 0,
             last_applied_command_building_packets_seen: 0,
+            last_applied_trace_info_packets_seen: 0,
             last_applied_effect_packets_seen: 0,
             last_applied_effect_with_data_packets_seen: 0,
             last_applied_reliable_effect_packets_seen: 0,
@@ -30264,6 +30279,7 @@ impl DesktopLauncher {
         self.sync_runtime_trigger_events_to_service();
         self.sync_tile_config_to_runtime();
         self.sync_command_building_to_runtime();
+        self.sync_player_trace_dialog_from_net_client();
         self.sync_effect_packets_to_runtime();
         let now_millis = current_millis();
         self.sync_remote_player_snapshots_from_runtime();
@@ -30391,6 +30407,9 @@ impl DesktopLauncher {
     pub fn update_player_list_visibility_like_java(&mut self) {
         let context = self.player_list_context_like_java();
         self.player_list_fragment.update_visibility(&context);
+        if !(context.net_active && context.state_is_game) {
+            self.player_trace_dialog = None;
+        }
         self.last_player_list_model = if self.player_list_fragment.visible() {
             let players = self.player_list_players_like_java();
             Some(self.player_list_fragment.rebuild(&players, &context))
@@ -30405,6 +30424,157 @@ impl DesktopLauncher {
         let model = self.player_list_fragment.toggle(&players, &context);
         self.last_player_list_model = model.clone();
         model
+    }
+
+    fn player_by_id_like_java(&self, player_id: i32) -> Option<&PlayerComp> {
+        if self.player.id == player_id {
+            Some(&self.player)
+        } else {
+            self.remote_players.get(&player_id)
+        }
+    }
+
+    fn player_trace_info_from_comp_like_java(player: &PlayerComp) -> TraceDialogInfo {
+        let ip = player.ip().to_string();
+        let uuid = player.uuid().to_string();
+        let locale = player
+            .con
+            .as_ref()
+            .map(|connection| connection.locale.clone())
+            .unwrap_or_else(|| player.locale.clone());
+        let modded = player
+            .con
+            .as_ref()
+            .is_some_and(|connection| connection.modclient);
+        let mobile = player
+            .con
+            .as_ref()
+            .is_some_and(|connection| connection.mobile);
+
+        TraceDialogInfo {
+            ip: ip.clone(),
+            locale,
+            uuid,
+            modded,
+            mobile,
+            times_joined: 0,
+            times_kicked: 0,
+            ips: vec![ip],
+            names: vec![player.plain_name()],
+        }
+    }
+
+    fn player_trace_info_from_packet_like_java(
+        info: &mindustry_core::mindustry::net::TraceInfo,
+    ) -> TraceDialogInfo {
+        TraceDialogInfo {
+            ip: info.ip.clone().unwrap_or_default(),
+            locale: info.locale.clone().unwrap_or_default(),
+            uuid: info.uuid.clone().unwrap_or_default(),
+            modded: info.modded,
+            mobile: info.mobile,
+            times_joined: info.times_joined,
+            times_kicked: info.times_kicked,
+            ips: info.ips.iter().filter_map(Clone::clone).collect(),
+            names: info.names.iter().filter_map(Clone::clone).collect(),
+        }
+    }
+
+    fn show_player_trace_dialog_with_info_like_java(
+        &mut self,
+        player_id: i32,
+        info: TraceDialogInfo,
+    ) -> bool {
+        let model = {
+            let Some(player) = self.player_by_id_like_java(player_id) else {
+                return false;
+            };
+            TraceDialog::new().show(&player.name, &info)
+        };
+        self.player_trace_dialog = Some(model);
+        true
+    }
+
+    pub fn show_player_trace_dialog_like_java(&mut self, player_id: i32) -> bool {
+        let model = {
+            let Some(player) = self.player_by_id_like_java(player_id) else {
+                return false;
+            };
+            let info = Self::player_trace_info_from_comp_like_java(player);
+            TraceDialog::new().show(&player.name, &info)
+        };
+        self.player_trace_dialog = Some(model);
+        true
+    }
+
+    fn show_player_trace_dialog_from_packet_like_java(
+        &mut self,
+        packet: &TraceInfoCallPacket,
+    ) -> bool {
+        let Some(player_id) = packet.player.id else {
+            return false;
+        };
+        let info = Self::player_trace_info_from_packet_like_java(&packet.info);
+        self.show_player_trace_dialog_with_info_like_java(player_id, info)
+    }
+
+    fn send_player_trace_admin_request_like_java(&mut self, player_id: i32) -> bool {
+        let packet = AdminRequestCallPacket {
+            other: mindustry_core::mindustry::io::EntityRef::new(player_id),
+            action: AdminAction::Trace,
+            params: TypeValue::Null,
+        };
+        self.last_player_trace_request = Some(DesktopPlayerTraceRequest {
+            player_id,
+            action: AdminAction::Trace,
+        });
+        self.net_client
+            .net_mut()
+            .send(&PacketKind::AdminRequestCallPacket(packet), true)
+            .is_ok()
+    }
+
+    pub fn dispatch_player_list_menu_action_like_java(
+        &mut self,
+        action: PlayerListPlayerMenuAction,
+    ) -> bool {
+        match action {
+            PlayerListPlayerMenuAction::Trace { player_id } => {
+                let context = self.player_list_context_like_java();
+                if context.net_client {
+                    self.send_player_trace_admin_request_like_java(player_id)
+                } else {
+                    self.show_player_trace_dialog_like_java(player_id)
+                }
+            }
+            PlayerListPlayerMenuAction::Ban { .. }
+            | PlayerListPlayerMenuAction::Kick { .. }
+            | PlayerListPlayerMenuAction::OpenTeamSelect { .. }
+            | PlayerListPlayerMenuAction::ToggleAdmin { .. }
+            | PlayerListPlayerMenuAction::Back => false,
+        }
+    }
+
+    pub fn copy_player_trace_row_like_java<P: Platform>(
+        &mut self,
+        row_index: usize,
+        platform: &mut P,
+    ) -> bool {
+        let Some(model) = self.player_trace_dialog.as_ref() else {
+            return false;
+        };
+        let Some(row) = model.copy_rows.get(row_index) else {
+            return false;
+        };
+        let copy_value = row.copy_value.clone();
+        platform.set_clipboard_text(&copy_value);
+        self.last_player_trace_clipboard_text = Some(copy_value);
+        self.last_menu_info_message = Some(TraceDialog::copy_feedback_key().to_string());
+        true
+    }
+
+    pub fn close_player_trace_dialog_like_java(&mut self) -> bool {
+        self.player_trace_dialog.take().is_some()
     }
 
     pub fn dispatch_desktop_input_action_like_java(
@@ -94150,6 +94320,23 @@ impl DesktopLauncher {
         changed
     }
 
+    fn sync_player_trace_dialog_from_net_client(&mut self) -> bool {
+        let (seen, packet) = {
+            let state = self.net_client.state();
+            let state = state.lock().unwrap();
+            (state.trace_info_packets_seen, state.last_trace_info.clone())
+        };
+        if seen == self.last_applied_trace_info_packets_seen {
+            return false;
+        }
+        self.last_applied_trace_info_packets_seen = seen;
+
+        let Some(packet) = packet else {
+            return false;
+        };
+        self.show_player_trace_dialog_from_packet_like_java(&packet)
+    }
+
     fn sync_effect_packets_to_runtime(&mut self) -> usize {
         let (
             effect_seen,
@@ -94223,6 +94410,7 @@ impl DesktopLauncher {
             world_update_packets_seen,
             tile_config_packets_seen,
             command_building_packets_seen,
+            trace_info_packets_seen,
             effect_packets_seen,
             effect_with_data_packets_seen,
             reliable_effect_packets_seen,
@@ -94244,6 +94432,7 @@ impl DesktopLauncher {
                 state.world_update_packets_seen,
                 state.tile_config_packets_seen,
                 state.command_building_packets_seen,
+                state.trace_info_packets_seen,
                 state.effect_packets_seen,
                 state.effect_with_data_packets_seen,
                 state.reliable_effect_packets_seen,
@@ -94265,6 +94454,7 @@ impl DesktopLauncher {
         self.last_applied_world_update_packets_seen = world_update_packets_seen;
         self.last_applied_tile_config_packets_seen = tile_config_packets_seen;
         self.last_applied_command_building_packets_seen = command_building_packets_seen;
+        self.last_applied_trace_info_packets_seen = trace_info_packets_seen;
         self.last_applied_effect_packets_seen = effect_packets_seen;
         self.last_applied_effect_with_data_packets_seen = effect_with_data_packets_seen;
         self.last_applied_reliable_effect_packets_seen = reliable_effect_packets_seen;
@@ -94290,6 +94480,7 @@ impl DesktopLauncher {
         self.last_applied_world_update_packets_seen = 0;
         self.last_applied_tile_config_packets_seen = 0;
         self.last_applied_command_building_packets_seen = 0;
+        self.last_applied_trace_info_packets_seen = 0;
         self.last_applied_effect_packets_seen = 0;
         self.last_applied_effect_with_data_packets_seen = 0;
         self.last_applied_reliable_effect_packets_seen = 0;
@@ -94315,6 +94506,9 @@ impl DesktopLauncher {
                 local_player_admin: self.player.admin,
             });
         self.last_player_list_model = None;
+        self.player_trace_dialog = None;
+        self.last_player_trace_request = None;
+        self.last_player_trace_clipboard_text = None;
         self.other_player_preview_overlays.clear();
         self.standard_local_effect_draw_plans.clear();
         self.standard_local_effect_circle_primitives.clear();
@@ -174749,6 +174943,175 @@ displayName = Display Alpha
             ]
         );
         assert_eq!(menu.back_button.action, PlayerListPlayerMenuAction::Back);
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_menu_trace_opens_trace_dialog_like_java() {
+        use mindustry_core::mindustry::ui::PlayerListPlayerMenuAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "[scarlet]Remote".into();
+        let mut connection = mindustry_core::mindustry::net::NetConnection::new("127.0.0.2");
+        connection.uuid = "remote-uuid".into();
+        connection.locale = "zh_CN".into();
+        connection.mobile = true;
+        connection.modclient = true;
+        remote.con = Some(connection);
+        launcher.remote_players.insert(remote.id, remote);
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::Trace { player_id: 2 },
+        ));
+
+        let model = launcher
+            .player_trace_dialog
+            .as_ref()
+            .expect("server trace action should open TraceDialog immediately");
+        assert_eq!(model.title, "@trace");
+        assert_eq!(model.copy_button_size, 28);
+        assert_eq!(
+            model
+                .copy_rows
+                .iter()
+                .map(|row| row.copy_value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["[scarlet]Remote", "127.0.0.2", "zh_CN", "remote-uuid"]
+        );
+        assert_eq!(model.summary_rows.len(), 4);
+        assert_eq!(model.ips, vec!["[lightgray]127.0.0.2"]);
+        assert_eq!(model.names, vec!["[lightgray]Remote"]);
+        assert_eq!(launcher.last_player_trace_request, None);
+    }
+
+    #[test]
+    fn desktop_launcher_trace_dialog_copy_sets_clipboard_and_info_message_like_java() {
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "Remote".into();
+        let mut connection = mindustry_core::mindustry::net::NetConnection::new("127.0.0.2");
+        connection.uuid = "remote-uuid".into();
+        connection.locale = "zh_CN".into();
+        remote.con = Some(connection);
+        launcher.remote_players.insert(remote.id, remote);
+        assert!(launcher.show_player_trace_dialog_like_java(2));
+
+        let mut platform = RecordingPlatform::default();
+        assert!(launcher.copy_player_trace_row_like_java(1, &mut platform));
+
+        assert_eq!(platform.clipboard_texts, vec!["127.0.0.2"]);
+        assert_eq!(
+            launcher.last_player_trace_clipboard_text.as_deref(),
+            Some("127.0.0.2")
+        );
+        assert_eq!(launcher.last_menu_info_message.as_deref(), Some("@copied"));
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_trace_action_requests_admin_trace_like_java() {
+        use mindustry_core::mindustry::ui::PlayerListPlayerMenuAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().set_client_connected();
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "Remote".into();
+        launcher.remote_players.insert(remote.id, remote);
+
+        launcher.dispatch_player_list_menu_action_like_java(PlayerListPlayerMenuAction::Trace {
+            player_id: 2,
+        });
+
+        assert_eq!(
+            launcher.last_player_trace_request,
+            Some(super::DesktopPlayerTraceRequest {
+                player_id: 2,
+                action: mindustry_core::mindustry::net::AdminAction::Trace,
+            })
+        );
+        assert_eq!(launcher.player_trace_dialog, None);
+    }
+
+    #[test]
+    fn desktop_launcher_trace_packet_opens_trace_dialog_like_java() {
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.team = TeamId(1);
+        {
+            let mut net = launcher.net_client.net_mut();
+            net.set_client_connected();
+            net.set_client_loaded(true);
+        }
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "[accent]PacketRemote".into();
+        launcher.remote_players.insert(remote.id, remote);
+
+        let packet = mindustry_core::mindustry::net::TraceInfoCallPacket {
+            player: mindustry_core::mindustry::io::EntityRef::new(2),
+            info: mindustry_core::mindustry::net::TraceInfo::new(
+                Some("10.0.0.9".into()),
+                Some("packet-uuid".into()),
+                Some("fr_FR".into()),
+                true,
+                false,
+                5,
+                2,
+                vec![Some("10.0.0.9".into()), Some("10.0.0.10".into())],
+                vec![Some("PacketRemote".into()), Some("OldRemote".into())],
+            ),
+        };
+        launcher
+            .net_client
+            .net_mut()
+            .handle_client_received(PacketKind::TraceInfoCallPacket(packet));
+
+        launcher.update();
+
+        let model = launcher
+            .player_trace_dialog
+            .as_ref()
+            .expect("TraceInfoCallPacket should open TraceDialog like Java");
+        assert_eq!(model.title, "@trace");
+        assert_eq!(
+            model
+                .copy_rows
+                .iter()
+                .map(|row| row.copy_value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["[accent]PacketRemote", "10.0.0.9", "fr_FR", "packet-uuid"]
+        );
+        assert_eq!(
+            model.ips,
+            vec!["[lightgray]10.0.0.9", "[lightgray]10.0.0.10"]
+        );
+        assert_eq!(
+            model.names,
+            vec!["[lightgray]PacketRemote", "[lightgray]OldRemote"]
+        );
+        assert_eq!(model.summary_rows.len(), 4);
     }
 
     #[test]
