@@ -272,6 +272,17 @@ const SETTINGS_CONFIRM_BUTTON_HEIGHT_LIKE_JAVA: f32 = 54.0;
 const SETTINGS_CONFIRM_DIALOG_MIN_HEIGHT_LIKE_JAVA: f32 = 202.0;
 const SETTINGS_CONFIRM_DIALOG_VERTICAL_MARGIN_LIKE_JAVA: f32 = 40.0;
 const SETTINGS_CONFIRM_MESSAGE_LINE_HEIGHT_LIKE_JAVA: f32 = 22.0;
+const PLAYER_LIST_TEAM_SELECT_DIALOG_HORIZONTAL_PAD_LIKE_JAVA: f32 = 24.0;
+const PLAYER_LIST_TEAM_SELECT_TITLE_HEIGHT_LIKE_JAVA: f32 = 34.0;
+const PLAYER_LIST_TEAM_SELECT_TITLE_DIVIDER_PAD_LIKE_JAVA: f32 = 4.0;
+const PLAYER_LIST_TEAM_SELECT_DIVIDER_HEIGHT_LIKE_JAVA: f32 = 3.0;
+const PLAYER_LIST_TEAM_SELECT_CONTENT_TOP_PAD_LIKE_JAVA: f32 = 14.0;
+const PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_TOP_PAD_LIKE_JAVA: f32 = 18.0;
+const PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_BOTTOM_PAD_LIKE_JAVA: f32 = 22.0;
+const PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_WIDTH_LIKE_JAVA: f32 = 210.0;
+const PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_HEIGHT_LIKE_JAVA: f32 = 64.0;
+const PLAYER_LIST_TEAM_SELECT_BUTTON_COLUMNS_LIKE_JAVA: usize = 3;
+const PLAYER_LIST_TEAM_SELECT_BUTTON_MARGIN_LIKE_JAVA: f32 = 4.0;
 const MAP_PLAY_CUSTOM_RULE_SEARCH_MAX_LENGTH: usize = 96;
 const MAP_LOCALES_SEARCH_MAX_LENGTH: usize = 96;
 const MAP_LOCALES_PROPERTY_NAME_MAX_LENGTH: usize = 64;
@@ -27450,6 +27461,12 @@ pub struct DesktopPlayerListTeamSelect {
     pub buttons: Vec<DesktopPlayerListTeamSelectButton>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopPlayerListTeamSelectDialogAction {
+    SelectTeam(u8),
+    Close,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopPlayerListVoteKickInput {
     pub player_id: i32,
@@ -30536,6 +30553,7 @@ impl DesktopLauncher {
         };
         if self.last_player_list_model.is_none() {
             self.player_list_menu_dialog = None;
+            self.player_list_team_select = None;
         }
     }
 
@@ -30545,6 +30563,7 @@ impl DesktopLauncher {
         let model = self.player_list_fragment.toggle(&players, &context);
         if model.is_none() {
             self.player_list_menu_dialog = None;
+            self.player_list_team_select = None;
         }
         self.last_player_list_model = model.clone();
         model
@@ -36125,6 +36144,11 @@ impl DesktopLauncher {
                 .player_list_admin_confirm_action_at_surface_point(surface_size, point.x, point.y)
                 .is_some();
         }
+        if self.player_list_team_select.is_some() {
+            return self
+                .player_list_team_select_action_at_surface_point(surface_size, point.x, point.y)
+                .is_some();
+        }
         if self.player_list_menu_dialog.is_some() {
             return self
                 .player_list_menu_dialog_action_at_surface_point(surface_size, point.x, point.y)
@@ -36349,6 +36373,10 @@ impl DesktopLauncher {
     fn apply_menu_back_key(&mut self) -> bool {
         if self.player_list_admin_confirm.is_some() {
             self.cancel_player_list_admin_confirm_like_java();
+            return true;
+        }
+        if self.player_list_team_select.is_some() {
+            self.cancel_player_list_team_select_like_java();
             return true;
         }
         if self
@@ -46482,6 +46510,235 @@ impl DesktopLauncher {
             .with_viewport(viewport)
             .with_camera(self.default_render_camera_for_viewport(viewport));
         self.push_player_list_menu_dialog_like_java(&mut pass, viewport);
+        Some(pass)
+    }
+
+    fn player_list_team_select_rows(select: &DesktopPlayerListTeamSelect) -> usize {
+        select
+            .buttons
+            .iter()
+            .map(|button| button.row)
+            .max()
+            .map(|row| row + 1)
+            .unwrap_or(0)
+    }
+
+    fn player_list_team_select_dialog_rect_for_viewport(
+        viewport: RenderViewport,
+        select: &DesktopPlayerListTeamSelect,
+    ) -> RenderRect {
+        let grid_width =
+            PLAYER_LIST_TEAM_SELECT_BUTTON_COLUMNS_LIKE_JAVA as f32 * PLAYER_LIST_TEAM_BUTTON_SIZE;
+        let grid_height =
+            Self::player_list_team_select_rows(select) as f32 * PLAYER_LIST_TEAM_BUTTON_SIZE;
+        let title_width = select.title.chars().count() as f32 * 8.0 + 56.0;
+        let width = PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_WIDTH_LIKE_JAVA
+            .max(grid_width)
+            .max(title_width)
+            + PLAYER_LIST_TEAM_SELECT_DIALOG_HORIZONTAL_PAD_LIKE_JAVA * 2.0;
+        let height = PLAYER_LIST_TEAM_SELECT_TITLE_HEIGHT_LIKE_JAVA
+            + PLAYER_LIST_TEAM_SELECT_TITLE_DIVIDER_PAD_LIKE_JAVA
+            + PLAYER_LIST_TEAM_SELECT_DIVIDER_HEIGHT_LIKE_JAVA
+            + PLAYER_LIST_TEAM_SELECT_CONTENT_TOP_PAD_LIKE_JAVA
+            + grid_height
+            + PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_TOP_PAD_LIKE_JAVA
+            + PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_HEIGHT_LIKE_JAVA
+            + PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_BOTTOM_PAD_LIKE_JAVA;
+        RenderRect::new(
+            viewport.x + viewport.width * 0.5 - width * 0.5,
+            viewport.y + viewport.height * 0.5 - height * 0.5,
+            width,
+            height,
+        )
+    }
+
+    fn player_list_team_select_title_point(dialog: RenderRect) -> RenderPoint {
+        RenderPoint::new(
+            dialog.center().x,
+            dialog.y + dialog.height - PLAYER_LIST_TEAM_SELECT_TITLE_HEIGHT_LIKE_JAVA * 0.5,
+        )
+    }
+
+    fn player_list_team_select_divider_rect(dialog: RenderRect) -> RenderRect {
+        RenderRect::new(
+            dialog.x + PLAYER_LIST_TEAM_SELECT_DIALOG_HORIZONTAL_PAD_LIKE_JAVA,
+            dialog.y + dialog.height
+                - PLAYER_LIST_TEAM_SELECT_TITLE_HEIGHT_LIKE_JAVA
+                - PLAYER_LIST_TEAM_SELECT_TITLE_DIVIDER_PAD_LIKE_JAVA
+                - PLAYER_LIST_TEAM_SELECT_DIVIDER_HEIGHT_LIKE_JAVA,
+            dialog.width - PLAYER_LIST_TEAM_SELECT_DIALOG_HORIZONTAL_PAD_LIKE_JAVA * 2.0,
+            PLAYER_LIST_TEAM_SELECT_DIVIDER_HEIGHT_LIKE_JAVA,
+        )
+    }
+
+    fn player_list_team_select_grid_bottom(dialog: RenderRect) -> f32 {
+        dialog.y
+            + PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_BOTTOM_PAD_LIKE_JAVA
+            + PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_HEIGHT_LIKE_JAVA
+            + PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_TOP_PAD_LIKE_JAVA
+    }
+
+    fn player_list_team_select_button_rect(
+        dialog: RenderRect,
+        select: &DesktopPlayerListTeamSelect,
+        button: &DesktopPlayerListTeamSelectButton,
+    ) -> RenderRect {
+        let grid_width =
+            PLAYER_LIST_TEAM_SELECT_BUTTON_COLUMNS_LIKE_JAVA as f32 * button.button_size;
+        let rows = Self::player_list_team_select_rows(select);
+        RenderRect::new(
+            dialog.center().x - grid_width * 0.5 + button.column as f32 * button.button_size,
+            Self::player_list_team_select_grid_bottom(dialog)
+                + (rows - button.row - 1) as f32 * button.button_size,
+            button.button_size,
+            button.button_size,
+        )
+    }
+
+    fn player_list_team_select_button_image_rect(button: RenderRect) -> RenderRect {
+        let size = (button.width - PLAYER_LIST_TEAM_SELECT_BUTTON_MARGIN_LIKE_JAVA * 2.0)
+            .min(button.height - PLAYER_LIST_TEAM_SELECT_BUTTON_MARGIN_LIKE_JAVA * 2.0);
+        RenderRect::new(
+            button.center().x - size * 0.5,
+            button.center().y - size * 0.5,
+            size,
+            size,
+        )
+    }
+
+    fn player_list_team_select_close_button_rect(dialog: RenderRect) -> RenderRect {
+        RenderRect::new(
+            dialog.center().x - PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_WIDTH_LIKE_JAVA * 0.5,
+            dialog.y + PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_BOTTOM_PAD_LIKE_JAVA,
+            PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_WIDTH_LIKE_JAVA,
+            PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_HEIGHT_LIKE_JAVA,
+        )
+    }
+
+    fn player_list_team_select_action_at_surface_point(
+        &self,
+        surface_size: DesktopSurfaceSize,
+        x: f32,
+        y: f32,
+    ) -> Option<DesktopPlayerListTeamSelectDialogAction> {
+        let select = self.player_list_team_select.as_ref()?;
+        let viewport = self.default_render_viewport_for_surface(surface_size);
+        let dialog = Self::player_list_team_select_dialog_rect_for_viewport(viewport, select);
+        let point = RenderPoint::new(x, y);
+        for button in &select.buttons {
+            if Self::player_list_team_select_button_rect(dialog, select, button)
+                .contains_point(point)
+            {
+                return Some(DesktopPlayerListTeamSelectDialogAction::SelectTeam(
+                    button.team_id,
+                ));
+            }
+        }
+        if Self::player_list_team_select_close_button_rect(dialog).contains_point(point) {
+            return Some(DesktopPlayerListTeamSelectDialogAction::Close);
+        }
+        None
+    }
+
+    fn dispatch_player_list_team_select_dialog_action_like_java(
+        &mut self,
+        action: DesktopPlayerListTeamSelectDialogAction,
+    ) -> bool {
+        match action {
+            DesktopPlayerListTeamSelectDialogAction::SelectTeam(team_id) => {
+                self.dispatch_player_list_team_select_like_java(team_id)
+            }
+            DesktopPlayerListTeamSelectDialogAction::Close => {
+                self.cancel_player_list_team_select_like_java()
+            }
+        }
+    }
+
+    fn push_player_list_team_select_like_java(
+        &self,
+        pass: &mut RenderPass,
+        viewport: RenderViewport,
+    ) {
+        let Some(select) = self.player_list_team_select.as_ref() else {
+            return;
+        };
+        let dialog = Self::player_list_team_select_dialog_rect_for_viewport(viewport, select);
+        pass.push(RenderCommand::fill_rect(
+            viewport.as_rect(),
+            [0.0, 0.0, 0.0, 0.36],
+            Layer::END_PIXELED + 0.180,
+        ));
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_drawable_symbol("pane"),
+            dialog,
+            [1.0, 1.0, 1.0, 0.97],
+            0.0,
+            Layer::END_PIXELED + 0.181,
+        ));
+        pass.push(RenderCommand::stroke_rect(
+            dialog,
+            [0.52, 0.68, 0.82, 0.95],
+            2.0,
+            Layer::END_PIXELED + 0.182,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            select.title.clone(),
+            Self::player_list_team_select_title_point(dialog),
+            [1.0, 1.0, 1.0, 1.0],
+            14.0,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_wrap_width(dialog.width - 48.0)
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.183,
+        ));
+        pass.push(RenderCommand::fill_rect(
+            Self::player_list_team_select_divider_rect(dialog),
+            [Pal::ACCENT.r, Pal::ACCENT.g, Pal::ACCENT.b, 1.0],
+            Layer::END_PIXELED + 0.184,
+        ));
+        for (index, button) in select.buttons.iter().enumerate() {
+            let rect = Self::player_list_team_select_button_rect(dialog, select, button);
+            let hovered = self
+                .last_menu_cursor
+                .is_some_and(|cursor| rect.contains_point(cursor));
+            pass.push(RenderCommand::draw_sprite(
+                Self::settings_image_button_symbol_checked(
+                    "clearNoneTogglei",
+                    hovered,
+                    false,
+                    button.checked,
+                ),
+                rect,
+                [1.0, 1.0, 1.0, 0.92],
+                0.0,
+                Layer::END_PIXELED + 0.186 + index as f32 * 0.0001,
+            ));
+            pass.push(RenderCommand::draw_sprite(
+                Self::settings_drawable_symbol("whiteui"),
+                Self::player_list_team_select_button_image_rect(rect),
+                rgba8888_to_render_color(button.color_rgba, 1.0),
+                0.0,
+                Layer::END_PIXELED + 0.187 + index as f32 * 0.0001,
+            ));
+        }
+        self.push_settings_text_button(
+            pass,
+            Self::player_list_team_select_close_button_rect(dialog),
+            "@back",
+            Some("left"),
+            Layer::END_PIXELED + 0.188,
+        );
+    }
+
+    fn player_list_team_select_render_pass(&self, viewport: RenderViewport) -> Option<RenderPass> {
+        self.player_list_team_select.as_ref()?;
+        let mut pass = RenderPass::new(RenderPassKind::Ui)
+            .with_order(RenderPassKind::Ui.default_order() + 2)
+            .with_viewport(viewport)
+            .with_camera(self.default_render_camera_for_viewport(viewport));
+        self.push_player_list_team_select_like_java(&mut pass, viewport);
         Some(pass)
     }
 
@@ -81564,6 +81821,7 @@ impl DesktopLauncher {
                 || self.game_state.game_over
                 || self.active_menu_route.is_some()
                 || self.player_list_admin_confirm.is_some()
+                || self.player_list_team_select.is_some()
                 || self.player_list_menu_dialog.is_some());
         if self.has_renderable_world_for_default_frame() && !world_overlay_visible {
             return false;
@@ -82511,6 +82769,21 @@ impl DesktopLauncher {
                                 )
                             {
                                 self.dispatch_player_list_admin_confirm_dialog_action_like_java(
+                                    action,
+                                );
+                            }
+                            self.last_menu_action = None;
+                            continue;
+                        }
+                        if self.player_list_team_select.is_some() {
+                            if let Some(action) = self
+                                .player_list_team_select_action_at_surface_point(
+                                    surface_size,
+                                    cursor.x,
+                                    cursor.y,
+                                )
+                            {
+                                self.dispatch_player_list_team_select_dialog_action_like_java(
                                     action,
                                 );
                             }
@@ -94220,6 +94493,11 @@ impl DesktopLauncher {
         }
         if let Some(player_list_menu_pass) = self.player_list_menu_dialog_render_pass(viewport) {
             render_frame.push_pass(player_list_menu_pass);
+        }
+        if let Some(player_list_team_select_pass) =
+            self.player_list_team_select_render_pass(viewport)
+        {
+            render_frame.push_pass(player_list_team_select_pass);
         }
         if let Some(player_list_admin_confirm_pass) =
             self.player_list_admin_confirm_render_pass(viewport)
@@ -175999,7 +176277,20 @@ displayName = Display Alpha
         );
         assert!(launcher.player_list_team_select.is_some());
 
-        launcher.player_list_team_select = None;
+        assert!(launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .is_none());
+        assert_eq!(
+            launcher.player_list_team_select, None,
+            "closing PlayerListFragment should also hide the nested team select dialog"
+        );
+        launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .expect("player list should reopen before admin confirm branch");
         assert!(launcher.dispatch_player_list_row_action_like_java(
             PlayerListRowAction::OpenMenu { player_id: 2 },
         ));
@@ -176412,6 +176703,283 @@ displayName = Display Alpha
             launcher.last_player_admin_request_params,
             Some(TypeValue::Team(4))
         );
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_team_select_dialog_renders_and_clicks_like_java() {
+        use mindustry_core::mindustry::io::TypeValue;
+        use mindustry_core::mindustry::net::AdminAction;
+        use mindustry_core::mindustry::ui::{
+            PlayerListPlayerMenuAction, PLAYER_LIST_TEAM_BUTTON_SIZE,
+        };
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.settings_locale = "en".into();
+        launcher.player_locale = "en".into();
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.game_state.rules.pvp = true;
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(2));
+        remote.id = 2;
+        remote.name = "[scarlet]Remote".into();
+        remote.con = Some(mindustry_core::mindustry::net::NetConnection::new(
+            "127.0.0.2",
+        ));
+        launcher.remote_players.insert(remote.id, remote);
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::OpenTeamSelect { player_id: 2 },
+        ));
+        let select = launcher
+            .player_list_team_select
+            .as_ref()
+            .expect("@player.team should open the Java teamSelect BaseDialog")
+            .clone();
+        let surface = DesktopSurfaceSize::new(900, 700);
+        let viewport = launcher.default_render_viewport_for_surface(surface);
+        let pass = launcher
+            .player_list_team_select_render_pass(viewport)
+            .expect("teamSelect should render as an independent Java-style UI pass");
+        assert_eq!(pass.kind, RenderPassKind::Ui);
+        assert_eq!(pass.order, RenderPassKind::Ui.default_order() + 2);
+        assert_eq!(pass.viewport, Some(viewport));
+
+        let frame = launcher.graphics_frame_for_render(
+            7,
+            launcher.default_render_camera_for_viewport(viewport),
+            viewport,
+            launcher.default_minimap_camera_for_viewport(viewport),
+            launcher.default_minimap_overlay_input_for_viewport(viewport),
+        );
+        let render_frame = frame
+            .bundle
+            .render_frame
+            .expect("graphics frame should carry the render frame plan");
+        assert!(
+            render_frame.passes.iter().any(|frame_pass| {
+                frame_pass.kind == RenderPassKind::Ui
+                    && frame_pass.order == RenderPassKind::Ui.default_order() + 2
+                    && frame_pass.commands.iter().any(|command| {
+                        matches!(
+                            command,
+                            RenderCommand::DrawText { text, .. } if text == &select.title
+                        )
+                    })
+            }),
+            "graphics_frame_for_render should push the visible teamSelect modal pass"
+        );
+
+        let dialog =
+            DesktopLauncher::player_list_team_select_dialog_rect_for_viewport(viewport, &select);
+        let divider = DesktopLauncher::player_list_team_select_divider_rect(dialog);
+        let close = DesktopLauncher::player_list_team_select_close_button_rect(dialog);
+        assert_eq!(
+            (close.width, close.height),
+            (
+                super::PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_WIDTH_LIKE_JAVA,
+                super::PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_HEIGHT_LIKE_JAVA
+            )
+        );
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::FillRect { rect, color, .. }
+                if *rect == viewport.as_rect() && *color == [0.0, 0.0, 0.0, 0.36]
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawSprite { symbol, rect, .. }
+                if symbol == &DesktopLauncher::settings_drawable_symbol("pane")
+                    && *rect == dialog
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, position, color, style, .. }
+                if text == &select.title
+                    && *position == DesktopLauncher::player_list_team_select_title_point(dialog)
+                    && *color == [1.0, 1.0, 1.0, 1.0]
+                    && style.horizontal_align == RenderTextAlign::Center
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::FillRect { rect, color, .. }
+                if *rect == divider
+                    && rect.height == super::PLAYER_LIST_TEAM_SELECT_DIVIDER_HEIGHT_LIKE_JAVA
+                    && *color == [Pal::ACCENT.r, Pal::ACCENT.g, Pal::ACCENT.b, 1.0]
+        )));
+
+        for button in &select.buttons {
+            let rect =
+                DesktopLauncher::player_list_team_select_button_rect(dialog, &select, button);
+            assert_eq!(
+                (rect.width, rect.height),
+                (PLAYER_LIST_TEAM_BUTTON_SIZE, PLAYER_LIST_TEAM_BUTTON_SIZE)
+            );
+            let image = DesktopLauncher::player_list_team_select_button_image_rect(rect);
+            assert_eq!(
+                (image.width, image.height),
+                (
+                    PLAYER_LIST_TEAM_BUTTON_SIZE
+                        - super::PLAYER_LIST_TEAM_SELECT_BUTTON_MARGIN_LIKE_JAVA * 2.0,
+                    PLAYER_LIST_TEAM_BUTTON_SIZE
+                        - super::PLAYER_LIST_TEAM_SELECT_BUTTON_MARGIN_LIKE_JAVA * 2.0
+                )
+            );
+            let button_symbol = DesktopLauncher::settings_image_button_symbol_checked(
+                "clearNoneTogglei",
+                false,
+                false,
+                button.checked,
+            );
+            assert!(pass.commands.iter().any(|command| matches!(
+                command,
+                RenderCommand::DrawSprite { symbol, rect: command_rect, tint, .. }
+                    if symbol == &button_symbol
+                        && *command_rect == rect
+                        && *tint == [1.0, 1.0, 1.0, 0.92]
+            )));
+            assert!(pass.commands.iter().any(|command| matches!(
+                command,
+                RenderCommand::DrawSprite { symbol, rect: command_rect, tint, .. }
+                    if symbol == &DesktopLauncher::settings_drawable_symbol("whiteui")
+                        && *command_rect == image
+                        && *tint == super::rgba8888_to_render_color(button.color_rgba, 1.0)
+            )));
+            assert_eq!(
+                launcher.player_list_team_select_action_at_surface_point(
+                    surface,
+                    rect.center().x,
+                    rect.center().y,
+                ),
+                Some(super::DesktopPlayerListTeamSelectDialogAction::SelectTeam(
+                    button.team_id
+                ))
+            );
+        }
+
+        let back_text = launcher.localize_bundle_markup_text("@back");
+        let left_icon = super::desktop_ui_icon_glyph_or_label("left", "left");
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, position, .. }
+                if text == &back_text && close.contains_point(*position)
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, position, style, .. }
+                if text == &left_icon
+                    && close.contains_point(*position)
+                    && style.font == RenderFontId::Icon
+        )));
+        assert_eq!(
+            launcher.player_list_team_select_action_at_surface_point(
+                surface,
+                close.center().x,
+                close.center().y,
+            ),
+            Some(super::DesktopPlayerListTeamSelectDialogAction::Close)
+        );
+        assert_eq!(
+            launcher.player_list_team_select_action_at_surface_point(surface, 8.0, 8.0),
+            None
+        );
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved { x: 8.0, y: 8.0 },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert!(
+            launcher.player_list_team_select.is_some(),
+            "clicking the BaseDialog shade/background should be consumed without closing"
+        );
+        assert_eq!(launcher.last_player_admin_request, None);
+        assert_eq!(launcher.last_player_admin_request_params, None);
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: close.center().x,
+                    y: close.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert_eq!(launcher.player_list_team_select, None);
+        assert_eq!(launcher.last_player_admin_request, None);
+        assert_eq!(launcher.last_player_admin_request_params, None);
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::OpenTeamSelect { player_id: 2 },
+        ));
+        let select = launcher
+            .player_list_team_select
+            .as_ref()
+            .expect("teamSelect should reopen before switch-team click")
+            .clone();
+        let dialog =
+            DesktopLauncher::player_list_team_select_dialog_rect_for_viewport(viewport, &select);
+        let target = select
+            .buttons
+            .iter()
+            .find(|button| button.team_id == 4)
+            .expect("vanilla Team.baseTeams should include team id 4");
+        let target_rect =
+            DesktopLauncher::player_list_team_select_button_rect(dialog, &select, target);
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: target_rect.center().x,
+                    y: target_rect.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert_eq!(launcher.player_list_team_select, None);
+        assert_eq!(
+            launcher.last_player_admin_request,
+            Some(super::DesktopPlayerAdminRequest {
+                player_id: 2,
+                action: AdminAction::SwitchTeam,
+            })
+        );
+        assert_eq!(
+            launcher.last_player_admin_request_params,
+            Some(TypeValue::Team(4))
+        );
+
+        launcher.last_player_admin_request = None;
+        launcher.last_player_admin_request_params = None;
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::OpenTeamSelect { player_id: 2 },
+        ));
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Escape".into(),
+                pressed: true,
+            }],
+        );
+        assert_eq!(launcher.player_list_team_select, None);
+        assert_eq!(launcher.last_player_admin_request, None);
+        assert_eq!(launcher.last_player_admin_request_params, None);
     }
 
     #[test]
