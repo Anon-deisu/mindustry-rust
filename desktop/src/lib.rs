@@ -152,9 +152,9 @@ use mindustry_core::mindustry::ui::{
     MinimapTexture as FragmentMinimapTexture, MinimapToggleFocus,
     MinimapWorld as FragmentMinimapWorld, PlayerListContext, PlayerListFooterButtonAction,
     PlayerListFragment, PlayerListModel, PlayerListPlayer, PlayerListPlayerMenuAction,
-    UpstreamContentIcon, UpstreamContentIconRuntimeRegistry, UpstreamFontRole, UpstreamUiIconGlyph,
-    WarningBar, WarningBarDrawCommand, WarningBarLayout, CONSOLE_MOBILE_BUTTON_PAD_LEFT,
-    CONSOLE_MOBILE_BUTTON_SIZE, PLAYER_LIST_TEAM_BUTTON_SIZE,
+    PlayerListRowAction, UpstreamContentIcon, UpstreamContentIconRuntimeRegistry, UpstreamFontRole,
+    UpstreamUiIconGlyph, WarningBar, WarningBarDrawCommand, WarningBarLayout,
+    CONSOLE_MOBILE_BUTTON_PAD_LEFT, CONSOLE_MOBILE_BUTTON_SIZE, PLAYER_LIST_TEAM_BUTTON_SIZE,
     UPSTREAM_ICONS_PROPERTIES_SOURCE_PATH, UPSTREAM_LOGIC_FONT_CHARACTERS,
     UPSTREAM_ROUTER_LANGUAGE_GLYPH, UPSTREAM_UI_ICON_GLYPHS,
 };
@@ -27427,6 +27427,17 @@ pub struct DesktopPlayerListTeamSelect {
     pub buttons: Vec<DesktopPlayerListTeamSelectButton>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesktopPlayerListVoteKickInput {
+    pub player_id: i32,
+    pub title: &'static str,
+    pub message: String,
+    pub default_text: String,
+    pub max_length: usize,
+    pub numeric: bool,
+    pub allow_empty: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct DesktopLauncher {
     pub client: ClientLauncher,
@@ -27444,6 +27455,7 @@ pub struct DesktopLauncher {
     pub admins_dialog: Option<AdminsDialogModel>,
     pub player_list_admin_confirm: Option<DesktopPlayerListAdminConfirm>,
     pub player_list_team_select: Option<DesktopPlayerListTeamSelect>,
+    pub player_list_votekick_input: Option<DesktopPlayerListVoteKickInput>,
     pub last_player_admin_request: Option<DesktopPlayerAdminRequest>,
     pub last_player_admin_request_params: Option<TypeValue>,
     pub last_player_admin_toggle: Option<DesktopPlayerAdminToggle>,
@@ -29141,6 +29153,7 @@ impl DesktopLauncher {
             admins_dialog: None,
             player_list_admin_confirm: None,
             player_list_team_select: None,
+            player_list_votekick_input: None,
             last_player_admin_request: None,
             last_player_admin_request_params: None,
             last_player_admin_toggle: None,
@@ -30662,6 +30675,62 @@ impl DesktopLauncher {
         self.player_list_team_select.take().is_some()
     }
 
+    pub fn open_player_list_votekick_input_like_java(&mut self, player_id: i32) -> bool {
+        let context = self.player_list_context_like_java();
+        if !context.net_client {
+            return false;
+        }
+        let player_name = {
+            let Some(player) = self.player_by_id_like_java(player_id) else {
+                return false;
+            };
+            player.name.clone()
+        };
+        let message = self
+            .bundle_format_for_current_locale("votekick.reason.message", &[&player_name])
+            .or_else(|| {
+                upstream_menu_bundle_format_for_locale(
+                    "en",
+                    "votekick.reason.message",
+                    &[&player_name],
+                )
+            })
+            .unwrap_or_else(|| format!("votekick.reason.message: {player_name}"));
+
+        self.player_list_votekick_input = Some(DesktopPlayerListVoteKickInput {
+            player_id,
+            title: "@votekick.reason",
+            message,
+            default_text: String::new(),
+            max_length: 32,
+            numeric: false,
+            allow_empty: false,
+        });
+        true
+    }
+
+    pub fn accept_player_list_votekick_reason_like_java(
+        &mut self,
+        reason: impl Into<String>,
+    ) -> Vec<ChatAction> {
+        let Some(input) = self.player_list_votekick_input.take() else {
+            return Vec::new();
+        };
+        let reason = reason.into();
+        if reason.is_empty() {
+            return Vec::new();
+        }
+        let command = format!("/votekick #{} {}", input.player_id, reason);
+        self.dispatch_chat_actions_like_java(vec![
+            ChatAction::FireClientChatEvent(command.clone()),
+            ChatAction::SendChatMessage(command),
+        ])
+    }
+
+    pub fn cancel_player_list_votekick_input_like_java(&mut self) -> bool {
+        self.player_list_votekick_input.take().is_some()
+    }
+
     fn send_player_admin_request_like_java(
         &mut self,
         player_id: i32,
@@ -30829,6 +30898,18 @@ impl DesktopLauncher {
                     },
                 )
             }
+        }
+    }
+
+    pub fn dispatch_player_list_row_action_like_java(
+        &mut self,
+        action: PlayerListRowAction,
+    ) -> bool {
+        match action {
+            PlayerListRowAction::StartVoteKick { player_id } => {
+                self.open_player_list_votekick_input_like_java(player_id)
+            }
+            PlayerListRowAction::Spectate { .. } | PlayerListRowAction::OpenMenu { .. } => false,
         }
     }
 
@@ -94805,6 +94886,7 @@ impl DesktopLauncher {
         self.admins_dialog = None;
         self.player_list_admin_confirm = None;
         self.player_list_team_select = None;
+        self.player_list_votekick_input = None;
         self.last_player_admin_request = None;
         self.last_player_admin_request_params = None;
         self.last_player_admin_toggle = None;
@@ -175341,6 +175423,82 @@ displayName = Display Alpha
             launcher.last_player_admin_request_params,
             Some(TypeValue::Team(4))
         );
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_votekick_input_sends_chat_command_like_java() {
+        use mindustry_core::mindustry::ui::PlayerListRowAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.net_client.net_mut().set_client_connected();
+
+        let mut same_team = PlayerComp::new(TeamId(1));
+        same_team.id = 2;
+        same_team.name = "[scarlet]Remote".into();
+        same_team.admin = false;
+        launcher.remote_players.insert(same_team.id, same_team);
+        let mut third = PlayerComp::new(TeamId(1));
+        third.id = 3;
+        third.name = "third".into();
+        launcher.remote_players.insert(third.id, third);
+
+        let model = launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .expect("client player list should open before votekick");
+        let row = model
+            .rows
+            .iter()
+            .find(|row| row.player_id == 2)
+            .expect("same-team remote row should render");
+        assert_eq!(
+            row.votekick_action,
+            Some(PlayerListRowAction::StartVoteKick { player_id: 2 })
+        );
+
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::StartVoteKick { player_id: 2 },
+        ));
+        let input = launcher
+            .player_list_votekick_input
+            .as_ref()
+            .expect("votekick should open Java showTextInput state");
+        assert_eq!(input.player_id, 2);
+        assert_eq!(input.title, "@votekick.reason");
+        assert!(input.message.contains("[scarlet]Remote"));
+        assert_eq!(input.default_text, "");
+        assert_eq!(input.max_length, 32);
+        assert!(!input.numeric);
+        assert!(!input.allow_empty);
+
+        assert!(launcher.cancel_player_list_votekick_input_like_java());
+        assert_eq!(launcher.player_list_votekick_input, None);
+        assert_eq!(launcher.last_chat_sent_message, None);
+
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::StartVoteKick { player_id: 2 },
+        ));
+        let actions = launcher.accept_player_list_votekick_reason_like_java("griefing");
+        assert!(actions.contains(&super::ChatAction::FireClientChatEvent(
+            "/votekick #2 griefing".into()
+        )));
+        assert!(actions.contains(&super::ChatAction::SendChatMessage(
+            "/votekick #2 griefing".into()
+        )));
+        assert_eq!(
+            launcher.last_chat_sent_message,
+            Some("/votekick #2 griefing".into())
+        );
+        assert_eq!(
+            launcher.last_chat_client_event,
+            Some("/votekick #2 griefing".into())
+        );
+        assert_eq!(launcher.player_list_votekick_input, None);
     }
 
     #[test]
