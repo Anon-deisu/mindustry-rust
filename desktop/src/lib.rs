@@ -293,6 +293,25 @@ const PLAYER_LIST_VOTEKICK_INPUT_BUTTON_PAD_LIKE_JAVA: f32 = 4.0;
 const PLAYER_LIST_VOTEKICK_INPUT_DIALOG_MIN_WIDTH_LIKE_JAVA: f32 = 560.0;
 const PLAYER_LIST_VOTEKICK_INPUT_DIALOG_MAX_WIDTH_LIKE_JAVA: f32 = 780.0;
 const PLAYER_LIST_VOTEKICK_INPUT_DIALOG_HEIGHT_LIKE_JAVA: f32 = 222.0;
+const PLAYER_TRACE_DIALOG_MARGIN_LIKE_JAVA: f32 = 14.0;
+const PLAYER_TRACE_DIALOG_CELL_PAD_LIKE_JAVA: f32 = 1.0;
+const PLAYER_TRACE_DIALOG_COPY_PAD_RIGHT_LIKE_JAVA: f32 = 4.0;
+const PLAYER_TRACE_DIALOG_LIST_PAD_LEFT_LIKE_JAVA: f32 = 20.0;
+const PLAYER_TRACE_DIALOG_TITLE_HEIGHT_LIKE_JAVA: f32 = 42.0;
+const PLAYER_TRACE_DIALOG_DIVIDER_PAD_LIKE_JAVA: f32 = 4.0;
+const PLAYER_TRACE_DIALOG_DIVIDER_HEIGHT_LIKE_JAVA: f32 = 3.0;
+const PLAYER_TRACE_DIALOG_COPY_ROW_HEIGHT_LIKE_JAVA: f32 = 30.0;
+const PLAYER_TRACE_DIALOG_SUMMARY_ROW_HEIGHT_LIKE_JAVA: f32 = 24.0;
+const PLAYER_TRACE_DIALOG_LIST_HEADER_HEIGHT_LIKE_JAVA: f32 = 24.0;
+const PLAYER_TRACE_DIALOG_LIST_ROW_HEIGHT_LIKE_JAVA: f32 = 20.0;
+const PLAYER_TRACE_DIALOG_SECTION_GAP_LIKE_JAVA: f32 = 6.0;
+const PLAYER_TRACE_DIALOG_SPACER_HEIGHT_LIKE_JAVA: f32 = 10.0;
+const PLAYER_TRACE_DIALOG_CLOSE_BUTTON_TOP_PAD_LIKE_JAVA: f32 = 18.0;
+const PLAYER_TRACE_DIALOG_CLOSE_BUTTON_BOTTOM_PAD_LIKE_JAVA: f32 = 22.0;
+const PLAYER_TRACE_DIALOG_CLOSE_BUTTON_WIDTH_LIKE_JAVA: f32 = SETTINGS_BACK_BUTTON_WIDTH;
+const PLAYER_TRACE_DIALOG_CLOSE_BUTTON_HEIGHT_LIKE_JAVA: f32 = SETTINGS_BACK_BUTTON_HEIGHT;
+const PLAYER_TRACE_DIALOG_MIN_WIDTH_LIKE_JAVA: f32 = 430.0;
+const PLAYER_TRACE_DIALOG_MAX_WIDTH_LIKE_JAVA: f32 = 720.0;
 const MAP_PLAY_CUSTOM_RULE_SEARCH_MAX_LENGTH: usize = 96;
 const MAP_LOCALES_SEARCH_MAX_LENGTH: usize = 96;
 const MAP_LOCALES_PROPERTY_NAME_MAX_LENGTH: usize = 64;
@@ -27438,6 +27457,12 @@ pub enum DesktopPlayerListAdminConfirmDialogAction {
     Ok,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopPlayerTraceDialogAction {
+    CopyRow(usize),
+    Close,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DesktopPlayerListMenuDialog {
     pub player_id: i32,
@@ -31250,6 +31275,27 @@ impl DesktopLauncher {
 
     pub fn close_player_trace_dialog_like_java(&mut self) -> bool {
         self.player_trace_dialog.take().is_some()
+    }
+
+    fn dispatch_player_trace_dialog_action_with_platform<P: Platform>(
+        &mut self,
+        action: DesktopPlayerTraceDialogAction,
+        platform: &mut P,
+    ) -> bool {
+        match action {
+            DesktopPlayerTraceDialogAction::CopyRow(index) => {
+                self.copy_player_trace_row_like_java(index, platform)
+            }
+            DesktopPlayerTraceDialogAction::Close => self.close_player_trace_dialog_like_java(),
+        }
+    }
+
+    fn dispatch_player_trace_dialog_action_like_java(
+        &mut self,
+        action: DesktopPlayerTraceDialogAction,
+    ) -> bool {
+        let mut platform = DefaultPlatform;
+        self.dispatch_player_trace_dialog_action_with_platform(action, &mut platform)
     }
 
     pub fn dispatch_desktop_input_action_like_java(
@@ -36209,6 +36255,11 @@ impl DesktopLauncher {
         surface_size: DesktopSurfaceSize,
         point: RenderPoint,
     ) -> bool {
+        if self.player_trace_dialog.is_some() {
+            return self
+                .player_trace_dialog_action_at_surface_point(surface_size, point.x, point.y)
+                .is_some();
+        }
         if self.player_list_votekick_input.is_some() {
             return self
                 .player_list_votekick_input_action_at_surface_point(surface_size, point.x, point.y)
@@ -36446,6 +36497,10 @@ impl DesktopLauncher {
     }
 
     fn apply_menu_back_key(&mut self) -> bool {
+        if self.player_trace_dialog.is_some() {
+            self.close_player_trace_dialog_like_java();
+            return true;
+        }
         if self.player_list_votekick_input.is_some() {
             self.cancel_player_list_votekick_input_like_java();
             return true;
@@ -47164,6 +47219,356 @@ impl DesktopLauncher {
             .with_viewport(viewport)
             .with_camera(self.default_render_camera_for_viewport(viewport));
         self.push_player_list_admin_confirm_dialog_like_java(&mut pass, viewport);
+        Some(pass)
+    }
+
+    fn player_trace_dialog_text_width(text: &str) -> f32 {
+        text.chars().count() as f32 * 7.2
+    }
+
+    fn player_trace_dialog_rect_for_viewport(
+        viewport: RenderViewport,
+        model: &TraceDialogModel,
+    ) -> RenderRect {
+        let copy_button_size = model.copy_button_size as f32;
+        let copy_width = model
+            .copy_rows
+            .iter()
+            .map(|row| Self::player_trace_dialog_text_width(&row.label))
+            .fold(0.0, f32::max)
+            + copy_button_size
+            + PLAYER_TRACE_DIALOG_COPY_PAD_RIGHT_LIKE_JAVA;
+        let summary_width = model
+            .summary_rows
+            .iter()
+            .map(|row| Self::player_trace_dialog_text_width(row))
+            .fold(0.0, f32::max);
+        let list_width = model
+            .ips
+            .iter()
+            .chain(model.names.iter())
+            .map(|row| Self::player_trace_dialog_text_width(row))
+            .fold(
+                Self::player_trace_dialog_text_width("@trace.names"),
+                f32::max,
+            )
+            + PLAYER_TRACE_DIALOG_LIST_PAD_LEFT_LIKE_JAVA;
+        let desired_width = copy_width
+            .max(summary_width)
+            .max(list_width)
+            .max(PLAYER_TRACE_DIALOG_CLOSE_BUTTON_WIDTH_LIKE_JAVA)
+            + PLAYER_TRACE_DIALOG_MARGIN_LIKE_JAVA * 2.0
+            + 48.0;
+        let width = desired_width
+            .clamp(
+                PLAYER_TRACE_DIALOG_MIN_WIDTH_LIKE_JAVA,
+                PLAYER_TRACE_DIALOG_MAX_WIDTH_LIKE_JAVA,
+            )
+            .min((viewport.width - 48.0).max(PLAYER_TRACE_DIALOG_MIN_WIDTH_LIKE_JAVA));
+        let list_rows = model.ips.len() + model.names.len();
+        let desired_height = PLAYER_TRACE_DIALOG_TITLE_HEIGHT_LIKE_JAVA
+            + PLAYER_TRACE_DIALOG_DIVIDER_PAD_LIKE_JAVA
+            + PLAYER_TRACE_DIALOG_DIVIDER_HEIGHT_LIKE_JAVA
+            + PLAYER_TRACE_DIALOG_MARGIN_LIKE_JAVA * 2.0
+            + model.copy_rows.len() as f32 * PLAYER_TRACE_DIALOG_COPY_ROW_HEIGHT_LIKE_JAVA
+            + model.summary_rows.len() as f32 * PLAYER_TRACE_DIALOG_SUMMARY_ROW_HEIGHT_LIKE_JAVA
+            + 2.0 * PLAYER_TRACE_DIALOG_LIST_HEADER_HEIGHT_LIKE_JAVA
+            + list_rows as f32 * PLAYER_TRACE_DIALOG_LIST_ROW_HEIGHT_LIKE_JAVA
+            + 2.0 * PLAYER_TRACE_DIALOG_SECTION_GAP_LIKE_JAVA
+            + PLAYER_TRACE_DIALOG_SPACER_HEIGHT_LIKE_JAVA
+            + PLAYER_TRACE_DIALOG_CLOSE_BUTTON_TOP_PAD_LIKE_JAVA
+            + PLAYER_TRACE_DIALOG_CLOSE_BUTTON_HEIGHT_LIKE_JAVA
+            + PLAYER_TRACE_DIALOG_CLOSE_BUTTON_BOTTOM_PAD_LIKE_JAVA;
+        let height = desired_height
+            .min((viewport.height - 48.0).max(PLAYER_TRACE_DIALOG_MIN_WIDTH_LIKE_JAVA));
+        RenderRect::new(
+            viewport.x + viewport.width * 0.5 - width * 0.5,
+            viewport.y + viewport.height * 0.5 - height * 0.5,
+            width,
+            height,
+        )
+    }
+
+    fn player_trace_dialog_title_point(dialog: RenderRect) -> RenderPoint {
+        RenderPoint::new(
+            dialog.center().x,
+            dialog.y + dialog.height - PLAYER_TRACE_DIALOG_TITLE_HEIGHT_LIKE_JAVA * 0.5,
+        )
+    }
+
+    fn player_trace_dialog_divider_rect(dialog: RenderRect) -> RenderRect {
+        RenderRect::new(
+            dialog.x + PLAYER_TRACE_DIALOG_MARGIN_LIKE_JAVA,
+            dialog.y + dialog.height
+                - PLAYER_TRACE_DIALOG_TITLE_HEIGHT_LIKE_JAVA
+                - PLAYER_TRACE_DIALOG_DIVIDER_PAD_LIKE_JAVA
+                - PLAYER_TRACE_DIALOG_DIVIDER_HEIGHT_LIKE_JAVA,
+            dialog.width - PLAYER_TRACE_DIALOG_MARGIN_LIKE_JAVA * 2.0,
+            PLAYER_TRACE_DIALOG_DIVIDER_HEIGHT_LIKE_JAVA,
+        )
+    }
+
+    fn player_trace_dialog_content_top(dialog: RenderRect) -> f32 {
+        Self::player_trace_dialog_divider_rect(dialog).y
+            - PLAYER_TRACE_DIALOG_MARGIN_LIKE_JAVA
+            - PLAYER_TRACE_DIALOG_CELL_PAD_LIKE_JAVA
+    }
+
+    fn player_trace_dialog_copy_row_center_y(dialog: RenderRect, index: usize) -> f32 {
+        Self::player_trace_dialog_content_top(dialog)
+            - PLAYER_TRACE_DIALOG_COPY_ROW_HEIGHT_LIKE_JAVA * (index as f32 + 0.5)
+    }
+
+    fn player_trace_dialog_copy_button_rect(
+        dialog: RenderRect,
+        model: &TraceDialogModel,
+        index: usize,
+    ) -> RenderRect {
+        let size = model.copy_button_size as f32;
+        let center_y = Self::player_trace_dialog_copy_row_center_y(dialog, index);
+        RenderRect::new(
+            dialog.x + PLAYER_TRACE_DIALOG_MARGIN_LIKE_JAVA,
+            center_y - size * 0.5,
+            size,
+            size,
+        )
+    }
+
+    fn player_trace_dialog_copy_label_point(
+        dialog: RenderRect,
+        model: &TraceDialogModel,
+        index: usize,
+    ) -> RenderPoint {
+        let button = Self::player_trace_dialog_copy_button_rect(dialog, model, index);
+        RenderPoint::new(
+            button.right() + PLAYER_TRACE_DIALOG_COPY_PAD_RIGHT_LIKE_JAVA,
+            button.center().y,
+        )
+    }
+
+    fn player_trace_dialog_summary_row_center_y(
+        dialog: RenderRect,
+        model: &TraceDialogModel,
+        index: usize,
+    ) -> f32 {
+        Self::player_trace_dialog_content_top(dialog)
+            - model.copy_rows.len() as f32 * PLAYER_TRACE_DIALOG_COPY_ROW_HEIGHT_LIKE_JAVA
+            - PLAYER_TRACE_DIALOG_SUMMARY_ROW_HEIGHT_LIKE_JAVA * (index as f32 + 0.5)
+    }
+
+    fn player_trace_dialog_list_section_start_y(
+        dialog: RenderRect,
+        model: &TraceDialogModel,
+    ) -> f32 {
+        Self::player_trace_dialog_content_top(dialog)
+            - model.copy_rows.len() as f32 * PLAYER_TRACE_DIALOG_COPY_ROW_HEIGHT_LIKE_JAVA
+            - model.summary_rows.len() as f32 * PLAYER_TRACE_DIALOG_SUMMARY_ROW_HEIGHT_LIKE_JAVA
+            - PLAYER_TRACE_DIALOG_SECTION_GAP_LIKE_JAVA
+    }
+
+    fn player_trace_dialog_close_button_rect(dialog: RenderRect) -> RenderRect {
+        RenderRect::new(
+            dialog.center().x - PLAYER_TRACE_DIALOG_CLOSE_BUTTON_WIDTH_LIKE_JAVA * 0.5,
+            dialog.y + PLAYER_TRACE_DIALOG_CLOSE_BUTTON_BOTTOM_PAD_LIKE_JAVA,
+            PLAYER_TRACE_DIALOG_CLOSE_BUTTON_WIDTH_LIKE_JAVA,
+            PLAYER_TRACE_DIALOG_CLOSE_BUTTON_HEIGHT_LIKE_JAVA,
+        )
+    }
+
+    fn player_trace_dialog_action_at_surface_point(
+        &self,
+        surface_size: DesktopSurfaceSize,
+        x: f32,
+        y: f32,
+    ) -> Option<DesktopPlayerTraceDialogAction> {
+        let model = self.player_trace_dialog.as_ref()?;
+        let viewport = self.default_render_viewport_for_surface(surface_size);
+        let dialog = Self::player_trace_dialog_rect_for_viewport(viewport, model);
+        let point = RenderPoint::new(x, y);
+        for index in 0..model.copy_rows.len() {
+            if Self::player_trace_dialog_copy_button_rect(dialog, model, index)
+                .contains_point(point)
+            {
+                return Some(DesktopPlayerTraceDialogAction::CopyRow(index));
+            }
+        }
+        if Self::player_trace_dialog_close_button_rect(dialog).contains_point(point) {
+            return Some(DesktopPlayerTraceDialogAction::Close);
+        }
+        None
+    }
+
+    fn push_player_trace_copy_button_like_java(
+        &self,
+        pass: &mut RenderPass,
+        rect: RenderRect,
+        layer: f32,
+    ) {
+        let hovered = self
+            .last_menu_cursor
+            .is_some_and(|point| rect.contains_point(point));
+        let symbol = Self::settings_image_button_symbol("emptyi", hovered, false);
+        if symbol != "clear" {
+            pass.push(RenderCommand::draw_sprite(
+                symbol,
+                rect,
+                [1.0, 1.0, 1.0, 0.96],
+                0.0,
+                layer,
+            ));
+        }
+        pass.push(RenderCommand::draw_text_styled(
+            desktop_ui_icon_glyph_or_label("copySmall", "copySmall"),
+            rect.center(),
+            Self::settings_image_button_image_color("emptyi", hovered, false, false, true),
+            rect.height,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_font(RenderFontId::Icon)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_integer_position(true),
+            layer + 0.004,
+        ));
+    }
+
+    fn push_player_trace_dialog_like_java(&self, pass: &mut RenderPass, viewport: RenderViewport) {
+        let Some(model) = self.player_trace_dialog.as_ref() else {
+            return;
+        };
+        let dialog = Self::player_trace_dialog_rect_for_viewport(viewport, model);
+        pass.push(RenderCommand::fill_rect(
+            viewport.as_rect(),
+            [0.0, 0.0, 0.0, 0.50],
+            Layer::END_PIXELED + 0.202,
+        ));
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_drawable_symbol("pane"),
+            dialog,
+            [1.0, 1.0, 1.0, 0.98],
+            0.0,
+            Layer::END_PIXELED + 0.203,
+        ));
+        pass.push(RenderCommand::stroke_rect(
+            dialog,
+            [0.72, 0.86, 1.0, 0.96],
+            2.0,
+            Layer::END_PIXELED + 0.204,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            self.localize_bundle_markup_text(model.title),
+            Self::player_trace_dialog_title_point(dialog),
+            [0.96, 0.98, 1.0, 1.0],
+            SETTINGS_TEXT_BUTTON_FONT_SIZE,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.205,
+        ));
+        pass.push(RenderCommand::fill_rect(
+            Self::player_trace_dialog_divider_rect(dialog),
+            [Pal::ACCENT.r, Pal::ACCENT.g, Pal::ACCENT.b, 1.0],
+            Layer::END_PIXELED + 0.206,
+        ));
+        for (index, row) in model.copy_rows.iter().enumerate() {
+            let button = Self::player_trace_dialog_copy_button_rect(dialog, model, index);
+            self.push_player_trace_copy_button_like_java(
+                pass,
+                button,
+                Layer::END_PIXELED + 0.207 + index as f32 * 0.0001,
+            );
+            pass.push(RenderCommand::draw_text_styled(
+                row.label.clone(),
+                Self::player_trace_dialog_copy_label_point(dialog, model, index),
+                [0.84, 0.90, 0.96, 1.0],
+                SETTINGS_JAVA_DEFAULT_FONT_SIZE,
+                0.0,
+                RenderTextStyle::new(RenderTextAlign::Start)
+                    .with_vertical_align(RenderTextVerticalAlign::Center)
+                    .with_integer_position(true),
+                Layer::END_PIXELED + 0.208 + index as f32 * 0.0001,
+            ));
+        }
+        for (index, row) in model.summary_rows.iter().enumerate() {
+            pass.push(RenderCommand::draw_text_styled(
+                row.clone(),
+                RenderPoint::new(
+                    dialog.x + PLAYER_TRACE_DIALOG_MARGIN_LIKE_JAVA,
+                    Self::player_trace_dialog_summary_row_center_y(dialog, model, index),
+                ),
+                [0.80, 0.88, 0.94, 1.0],
+                SETTINGS_JAVA_DEFAULT_FONT_SIZE,
+                0.0,
+                RenderTextStyle::new(RenderTextAlign::Start)
+                    .with_vertical_align(RenderTextVerticalAlign::Center)
+                    .with_integer_position(true),
+                Layer::END_PIXELED + 0.212 + index as f32 * 0.0001,
+            ));
+        }
+
+        let mut cursor_y = Self::player_trace_dialog_list_section_start_y(dialog, model);
+        for (section_index, (header, rows)) in [
+            ("@trace.ips", model.ips.as_slice()),
+            ("@trace.names", model.names.as_slice()),
+        ]
+        .iter()
+        .enumerate()
+        {
+            pass.push(RenderCommand::draw_text_styled(
+                self.localize_bundle_markup_text(*header),
+                RenderPoint::new(
+                    dialog.x + PLAYER_TRACE_DIALOG_MARGIN_LIKE_JAVA,
+                    cursor_y - PLAYER_TRACE_DIALOG_LIST_HEADER_HEIGHT_LIKE_JAVA * 0.5,
+                ),
+                [0.96, 0.98, 1.0, 1.0],
+                SETTINGS_JAVA_DEFAULT_FONT_SIZE,
+                0.0,
+                RenderTextStyle::new(RenderTextAlign::Start)
+                    .with_vertical_align(RenderTextVerticalAlign::Center)
+                    .with_integer_position(true),
+                Layer::END_PIXELED + 0.216 + section_index as f32 * 0.0001,
+            ));
+            cursor_y -= PLAYER_TRACE_DIALOG_LIST_HEADER_HEIGHT_LIKE_JAVA;
+            for (row_index, row) in rows.iter().enumerate() {
+                pass.push(RenderCommand::draw_text_styled(
+                    row.clone(),
+                    RenderPoint::new(
+                        dialog.x
+                            + PLAYER_TRACE_DIALOG_MARGIN_LIKE_JAVA
+                            + PLAYER_TRACE_DIALOG_LIST_PAD_LEFT_LIKE_JAVA,
+                        cursor_y - PLAYER_TRACE_DIALOG_LIST_ROW_HEIGHT_LIKE_JAVA * 0.5,
+                    ),
+                    [0.72, 0.78, 0.84, 1.0],
+                    SETTINGS_JAVA_DEFAULT_FONT_SIZE,
+                    0.0,
+                    RenderTextStyle::new(RenderTextAlign::Start)
+                        .with_vertical_align(RenderTextVerticalAlign::Center)
+                        .with_integer_position(true),
+                    Layer::END_PIXELED
+                        + 0.217
+                        + section_index as f32 * 0.001
+                        + row_index as f32 * 0.0001,
+                ));
+                cursor_y -= PLAYER_TRACE_DIALOG_LIST_ROW_HEIGHT_LIKE_JAVA;
+            }
+            cursor_y -= PLAYER_TRACE_DIALOG_SECTION_GAP_LIKE_JAVA;
+        }
+        self.push_settings_text_button(
+            pass,
+            Self::player_trace_dialog_close_button_rect(dialog),
+            "@back",
+            Some("left"),
+            Layer::END_PIXELED + 0.224,
+        );
+    }
+
+    fn player_trace_dialog_render_pass(&self, viewport: RenderViewport) -> Option<RenderPass> {
+        self.player_trace_dialog.as_ref()?;
+        let mut pass = RenderPass::new(RenderPassKind::Ui)
+            .with_order(RenderPassKind::Ui.default_order() + 2)
+            .with_viewport(viewport)
+            .with_camera(self.default_render_camera_for_viewport(viewport));
+        self.push_player_trace_dialog_like_java(&mut pass, viewport);
         Some(pass)
     }
 
@@ -82117,6 +82522,7 @@ impl DesktopLauncher {
                 || self.game_state.game_over
                 || self.active_menu_route.is_some()
                 || self.player_list_votekick_input.is_some()
+                || self.player_trace_dialog.is_some()
                 || self.player_list_admin_confirm.is_some()
                 || self.player_list_team_select.is_some()
                 || self.player_list_menu_dialog.is_some());
@@ -83067,6 +83473,17 @@ impl DesktopLauncher {
                                 self.dispatch_menu_route_shell_action(action);
                             } else {
                                 self.commit_settings_keybind_rebind(button);
+                            }
+                            self.last_menu_action = None;
+                            continue;
+                        }
+                        if self.player_trace_dialog.is_some() {
+                            if let Some(action) = self.player_trace_dialog_action_at_surface_point(
+                                surface_size,
+                                cursor.x,
+                                cursor.y,
+                            ) {
+                                self.dispatch_player_trace_dialog_action_like_java(action);
                             }
                             self.last_menu_action = None;
                             continue;
@@ -94835,6 +95252,9 @@ impl DesktopLauncher {
             self.player_list_admin_confirm_render_pass(viewport)
         {
             render_frame.push_pass(player_list_admin_confirm_pass);
+        }
+        if let Some(player_trace_dialog_pass) = self.player_trace_dialog_render_pass(viewport) {
+            render_frame.push_pass(player_trace_dialog_pass);
         }
         if let Some(pause_pass) = self.pause_overlay_render_pass(viewport) {
             render_frame.push_pass(pause_pass);
@@ -178380,6 +178800,230 @@ displayName = Display Alpha
             Some("127.0.0.2")
         );
         assert_eq!(launcher.last_menu_info_message.as_deref(), Some("@copied"));
+    }
+
+    #[test]
+    fn desktop_launcher_trace_dialog_renders_and_clicks_like_java() {
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.settings_locale = "en".into();
+        launcher.player_locale = "en".into();
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "Remote".into();
+        let mut connection = mindustry_core::mindustry::net::NetConnection::new("127.0.0.2");
+        connection.uuid = "remote-uuid".into();
+        connection.locale = "zh_CN".into();
+        connection.mobile = true;
+        connection.modclient = true;
+        remote.con = Some(connection);
+        launcher.remote_players.insert(remote.id, remote);
+        assert!(launcher.show_player_trace_dialog_like_java(2));
+
+        let model = launcher
+            .player_trace_dialog
+            .as_ref()
+            .expect("TraceDialog should be open before render")
+            .clone();
+        let surface = DesktopSurfaceSize::new(900, 700);
+        let viewport = launcher.default_render_viewport_for_surface(surface);
+        let pass = launcher
+            .player_trace_dialog_render_pass(viewport)
+            .expect("TraceDialog should render as a Java BaseDialog modal pass");
+        assert_eq!(pass.kind, RenderPassKind::Ui);
+        assert_eq!(pass.order, RenderPassKind::Ui.default_order() + 2);
+        assert_eq!(pass.viewport, Some(viewport));
+
+        let frame = launcher.graphics_frame_for_render(
+            7,
+            launcher.default_render_camera_for_viewport(viewport),
+            viewport,
+            launcher.default_minimap_camera_for_viewport(viewport),
+            launcher.default_minimap_overlay_input_for_viewport(viewport),
+        );
+        let render_frame = frame
+            .bundle
+            .render_frame
+            .expect("graphics frame should carry the render frame plan");
+        let title = launcher.localize_bundle_markup_text(model.title);
+        assert!(
+            render_frame.passes.iter().any(|frame_pass| {
+                frame_pass.kind == RenderPassKind::Ui
+                    && frame_pass.order == RenderPassKind::Ui.default_order() + 2
+                    && frame_pass.commands.iter().any(|command| {
+                        matches!(
+                            command,
+                            RenderCommand::DrawText { text, .. } if text == &title
+                        )
+                    })
+            }),
+            "graphics_frame_for_render should push the visible TraceDialog modal pass"
+        );
+
+        let dialog = DesktopLauncher::player_trace_dialog_rect_for_viewport(viewport, &model);
+        let close = DesktopLauncher::player_trace_dialog_close_button_rect(dialog);
+        assert_eq!(
+            (close.width, close.height),
+            (
+                super::PLAYER_TRACE_DIALOG_CLOSE_BUTTON_WIDTH_LIKE_JAVA,
+                super::PLAYER_TRACE_DIALOG_CLOSE_BUTTON_HEIGHT_LIKE_JAVA
+            )
+        );
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::FillRect { rect, color, .. }
+                if *rect == viewport.as_rect() && *color == [0.0, 0.0, 0.0, 0.50]
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawSprite { symbol, rect, .. }
+                if symbol == &DesktopLauncher::settings_drawable_symbol("pane")
+                    && *rect == dialog
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, position, color, style, .. }
+                if text == &title
+                    && *position == DesktopLauncher::player_trace_dialog_title_point(dialog)
+                    && *color == [0.96, 0.98, 1.0, 1.0]
+                    && style.horizontal_align == RenderTextAlign::Center
+        )));
+
+        let copy_icon = super::desktop_ui_icon_glyph_or_label("copySmall", "copySmall");
+        for (index, row) in model.copy_rows.iter().enumerate() {
+            let button =
+                DesktopLauncher::player_trace_dialog_copy_button_rect(dialog, &model, index);
+            assert_eq!(
+                (button.width, button.height),
+                (model.copy_button_size as f32, model.copy_button_size as f32)
+            );
+            assert!(pass.commands.iter().any(|command| matches!(
+                command,
+                RenderCommand::DrawText { text, position, style, .. }
+                    if text == &copy_icon
+                        && *position == button.center()
+                        && style.font == RenderFontId::Icon
+            )));
+            assert!(pass.commands.iter().any(|command| matches!(
+                command,
+                RenderCommand::DrawText { text, position, style, .. }
+                    if text == &row.label
+                        && *position
+                            == DesktopLauncher::player_trace_dialog_copy_label_point(
+                                dialog,
+                                &model,
+                                index,
+                            )
+                        && style.horizontal_align == RenderTextAlign::Start
+            )));
+            assert_eq!(
+                launcher.player_trace_dialog_action_at_surface_point(
+                    surface,
+                    button.center().x,
+                    button.center().y,
+                ),
+                Some(super::DesktopPlayerTraceDialogAction::CopyRow(index))
+            );
+        }
+
+        for expected in model
+            .summary_rows
+            .iter()
+            .chain(model.ips.iter())
+            .chain(model.names.iter())
+        {
+            assert!(pass.commands.iter().any(|command| matches!(
+                command,
+                RenderCommand::DrawText { text, .. } if text == expected
+            )));
+        }
+        for expected in [
+            launcher.localize_bundle_markup_text("@trace.ips"),
+            launcher.localize_bundle_markup_text("@trace.names"),
+            launcher.localize_bundle_markup_text("@back"),
+        ] {
+            assert!(pass.commands.iter().any(|command| matches!(
+                command,
+                RenderCommand::DrawText { text, .. } if text == &expected
+            )));
+        }
+        assert_eq!(
+            launcher.player_trace_dialog_action_at_surface_point(
+                surface,
+                close.center().x,
+                close.center().y,
+            ),
+            Some(super::DesktopPlayerTraceDialogAction::Close)
+        );
+        assert_eq!(
+            launcher.player_trace_dialog_action_at_surface_point(surface, 8.0, 8.0),
+            None
+        );
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved { x: 8.0, y: 8.0 },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert!(
+            launcher.player_trace_dialog.is_some(),
+            "clicking the BaseDialog shade/background should be consumed without closing"
+        );
+
+        let mut platform = RecordingPlatform::default();
+        assert!(launcher.dispatch_player_trace_dialog_action_with_platform(
+            super::DesktopPlayerTraceDialogAction::CopyRow(1),
+            &mut platform,
+        ));
+        assert_eq!(platform.clipboard_texts, vec!["127.0.0.2"]);
+        assert_eq!(
+            launcher.last_player_trace_clipboard_text.as_deref(),
+            Some("127.0.0.2")
+        );
+        assert_eq!(launcher.last_menu_info_message.as_deref(), Some("@copied"));
+
+        let close = {
+            let model = launcher
+                .player_trace_dialog
+                .as_ref()
+                .expect("TraceDialog should remain open after copy");
+            let dialog = DesktopLauncher::player_trace_dialog_rect_for_viewport(viewport, model);
+            DesktopLauncher::player_trace_dialog_close_button_rect(dialog)
+        };
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: close.center().x,
+                    y: close.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert_eq!(launcher.player_trace_dialog, None);
+
+        assert!(launcher.show_player_trace_dialog_like_java(2));
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Escape".into(),
+                pressed: true,
+            }],
+        );
+        assert_eq!(launcher.player_trace_dialog, None);
     }
 
     #[test]
