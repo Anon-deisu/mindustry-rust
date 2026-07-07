@@ -283,6 +283,16 @@ const PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_WIDTH_LIKE_JAVA: f32 = 210.0;
 const PLAYER_LIST_TEAM_SELECT_CLOSE_BUTTON_HEIGHT_LIKE_JAVA: f32 = 64.0;
 const PLAYER_LIST_TEAM_SELECT_BUTTON_COLUMNS_LIKE_JAVA: usize = 3;
 const PLAYER_LIST_TEAM_SELECT_BUTTON_MARGIN_LIKE_JAVA: f32 = 4.0;
+const PLAYER_LIST_VOTEKICK_INPUT_MARGIN_LIKE_JAVA: f32 = 30.0;
+const PLAYER_LIST_VOTEKICK_INPUT_LABEL_PAD_RIGHT_LIKE_JAVA: f32 = 6.0;
+const PLAYER_LIST_VOTEKICK_INPUT_FIELD_WIDTH_LIKE_JAVA: f32 = 330.0;
+const PLAYER_LIST_VOTEKICK_INPUT_FIELD_HEIGHT_LIKE_JAVA: f32 = 50.0;
+const PLAYER_LIST_VOTEKICK_INPUT_BUTTON_WIDTH_LIKE_JAVA: f32 = 120.0;
+const PLAYER_LIST_VOTEKICK_INPUT_BUTTON_HEIGHT_LIKE_JAVA: f32 = 54.0;
+const PLAYER_LIST_VOTEKICK_INPUT_BUTTON_PAD_LIKE_JAVA: f32 = 4.0;
+const PLAYER_LIST_VOTEKICK_INPUT_DIALOG_MIN_WIDTH_LIKE_JAVA: f32 = 560.0;
+const PLAYER_LIST_VOTEKICK_INPUT_DIALOG_MAX_WIDTH_LIKE_JAVA: f32 = 780.0;
+const PLAYER_LIST_VOTEKICK_INPUT_DIALOG_HEIGHT_LIKE_JAVA: f32 = 222.0;
 const MAP_PLAY_CUSTOM_RULE_SEARCH_MAX_LENGTH: usize = 96;
 const MAP_LOCALES_SEARCH_MAX_LENGTH: usize = 96;
 const MAP_LOCALES_PROPERTY_NAME_MAX_LENGTH: usize = 64;
@@ -27473,9 +27483,16 @@ pub struct DesktopPlayerListVoteKickInput {
     pub title: &'static str,
     pub message: String,
     pub default_text: String,
+    pub text: String,
     pub max_length: usize,
     pub numeric: bool,
     pub allow_empty: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopPlayerListVoteKickInputDialogAction {
+    Cancel,
+    Ok,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30554,6 +30571,7 @@ impl DesktopLauncher {
         if self.last_player_list_model.is_none() {
             self.player_list_menu_dialog = None;
             self.player_list_team_select = None;
+            self.player_list_votekick_input = None;
         }
     }
 
@@ -30564,6 +30582,7 @@ impl DesktopLauncher {
         if model.is_none() {
             self.player_list_menu_dialog = None;
             self.player_list_team_select = None;
+            self.player_list_votekick_input = None;
         }
         self.last_player_list_model = model.clone();
         model
@@ -30928,6 +30947,7 @@ impl DesktopLauncher {
             title: "@votekick.reason",
             message,
             default_text: String::new(),
+            text: String::new(),
             max_length: 32,
             numeric: false,
             allow_empty: false,
@@ -30939,13 +30959,16 @@ impl DesktopLauncher {
         &mut self,
         reason: impl Into<String>,
     ) -> Vec<ChatAction> {
-        let Some(input) = self.player_list_votekick_input.take() else {
+        let reason = reason.into();
+        let Some(open_input) = self.player_list_votekick_input.as_ref() else {
             return Vec::new();
         };
-        let reason = reason.into();
-        if reason.is_empty() {
+        if !open_input.allow_empty && reason.is_empty() {
             return Vec::new();
         }
+        let Some(input) = self.player_list_votekick_input.take() else {
+            unreachable!("open votekick input should still exist when accepted")
+        };
         let command = format!("/votekick #{} {}", input.player_id, reason);
         self.dispatch_chat_actions_like_java(vec![
             ChatAction::FireClientChatEvent(command.clone()),
@@ -30955,6 +30978,48 @@ impl DesktopLauncher {
 
     pub fn cancel_player_list_votekick_input_like_java(&mut self) -> bool {
         self.player_list_votekick_input.take().is_some()
+    }
+
+    fn confirm_player_list_votekick_input_like_java(&mut self) -> bool {
+        let Some(input) = self.player_list_votekick_input.as_ref() else {
+            return false;
+        };
+        if !input.allow_empty && input.text.is_empty() {
+            return false;
+        }
+        let reason = input.text.clone();
+        !self
+            .accept_player_list_votekick_reason_like_java(reason)
+            .is_empty()
+    }
+
+    fn append_player_list_votekick_input_text_like_java(&mut self, text: &str) -> bool {
+        let Some(input) = self.player_list_votekick_input.as_mut() else {
+            return false;
+        };
+        let mut current_len = input.text.chars().count();
+        for ch in text.chars() {
+            if current_len >= input.max_length {
+                break;
+            }
+            if (input.numeric && ch.is_ascii_digit()) || (!input.numeric && !ch.is_control()) {
+                input.text.push(ch);
+                current_len += 1;
+            }
+        }
+        true
+    }
+
+    fn apply_player_list_votekick_input_backspace_like_java(&mut self, key_code: &str) -> bool {
+        let Some(input) = self.player_list_votekick_input.as_mut() else {
+            return false;
+        };
+        if key_code == "Backspace" {
+            input.text.pop();
+        } else {
+            input.text.clear();
+        }
+        true
     }
 
     fn send_player_admin_request_like_java(
@@ -35991,6 +36056,11 @@ impl DesktopLauncher {
         surface_size: DesktopSurfaceSize,
         point: RenderPoint,
     ) -> bool {
+        if let Some(input) = self.player_list_votekick_input.as_ref() {
+            let viewport = self.default_render_viewport_for_surface(surface_size);
+            let dialog = Self::player_list_votekick_input_dialog_rect_for_viewport(viewport, input);
+            return Self::player_list_votekick_input_field_rect(dialog).contains_point(point);
+        }
         let Some(route) = self.active_menu_route else {
             return false;
         };
@@ -36139,6 +36209,11 @@ impl DesktopLauncher {
         surface_size: DesktopSurfaceSize,
         point: RenderPoint,
     ) -> bool {
+        if self.player_list_votekick_input.is_some() {
+            return self
+                .player_list_votekick_input_action_at_surface_point(surface_size, point.x, point.y)
+                .is_some();
+        }
         if self.player_list_admin_confirm.is_some() {
             return self
                 .player_list_admin_confirm_action_at_surface_point(surface_size, point.x, point.y)
@@ -36371,6 +36446,10 @@ impl DesktopLauncher {
     }
 
     fn apply_menu_back_key(&mut self) -> bool {
+        if self.player_list_votekick_input.is_some() {
+            self.cancel_player_list_votekick_input_like_java();
+            return true;
+        }
         if self.player_list_admin_confirm.is_some() {
             self.cancel_player_list_admin_confirm_like_java();
             return true;
@@ -46739,6 +46818,223 @@ impl DesktopLauncher {
             .with_viewport(viewport)
             .with_camera(self.default_render_camera_for_viewport(viewport));
         self.push_player_list_team_select_like_java(&mut pass, viewport);
+        Some(pass)
+    }
+
+    fn player_list_votekick_input_dialog_rect_for_viewport(
+        viewport: RenderViewport,
+        input: &DesktopPlayerListVoteKickInput,
+    ) -> RenderRect {
+        let longest_message_line = input
+            .message
+            .lines()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap_or(0) as f32;
+        let message_width = (longest_message_line * 7.2).clamp(180.0, 420.0);
+        let width = (PLAYER_LIST_VOTEKICK_INPUT_MARGIN_LIKE_JAVA * 2.0
+            + message_width
+            + PLAYER_LIST_VOTEKICK_INPUT_LABEL_PAD_RIGHT_LIKE_JAVA
+            + PLAYER_LIST_VOTEKICK_INPUT_FIELD_WIDTH_LIKE_JAVA)
+            .clamp(
+                PLAYER_LIST_VOTEKICK_INPUT_DIALOG_MIN_WIDTH_LIKE_JAVA,
+                PLAYER_LIST_VOTEKICK_INPUT_DIALOG_MAX_WIDTH_LIKE_JAVA,
+            )
+            .min(
+                (viewport.width - 48.0).max(PLAYER_LIST_VOTEKICK_INPUT_DIALOG_MIN_WIDTH_LIKE_JAVA),
+            );
+        RenderRect::new(
+            viewport.x + viewport.width * 0.5 - width * 0.5,
+            viewport.y + viewport.height * 0.5
+                - PLAYER_LIST_VOTEKICK_INPUT_DIALOG_HEIGHT_LIKE_JAVA * 0.5,
+            width,
+            PLAYER_LIST_VOTEKICK_INPUT_DIALOG_HEIGHT_LIKE_JAVA,
+        )
+    }
+
+    fn player_list_votekick_input_title_point(dialog: RenderRect) -> RenderPoint {
+        RenderPoint::new(dialog.center().x, dialog.y + dialog.height - 32.0)
+    }
+
+    fn player_list_votekick_input_field_rect(dialog: RenderRect) -> RenderRect {
+        RenderRect::new(
+            dialog.right()
+                - PLAYER_LIST_VOTEKICK_INPUT_MARGIN_LIKE_JAVA
+                - PLAYER_LIST_VOTEKICK_INPUT_FIELD_WIDTH_LIKE_JAVA,
+            dialog.center().y - 8.0,
+            PLAYER_LIST_VOTEKICK_INPUT_FIELD_WIDTH_LIKE_JAVA,
+            PLAYER_LIST_VOTEKICK_INPUT_FIELD_HEIGHT_LIKE_JAVA,
+        )
+    }
+
+    fn player_list_votekick_input_message_rect(dialog: RenderRect) -> RenderRect {
+        let field = Self::player_list_votekick_input_field_rect(dialog);
+        RenderRect::new(
+            dialog.x + PLAYER_LIST_VOTEKICK_INPUT_MARGIN_LIKE_JAVA,
+            field.y - 18.0,
+            field.x
+                - PLAYER_LIST_VOTEKICK_INPUT_LABEL_PAD_RIGHT_LIKE_JAVA
+                - dialog.x
+                - PLAYER_LIST_VOTEKICK_INPUT_MARGIN_LIKE_JAVA,
+            field.height + 36.0,
+        )
+    }
+
+    fn player_list_votekick_input_button_rect(dialog: RenderRect, index: usize) -> RenderRect {
+        let width = PLAYER_LIST_VOTEKICK_INPUT_BUTTON_WIDTH_LIKE_JAVA;
+        let gap = PLAYER_LIST_VOTEKICK_INPUT_BUTTON_PAD_LIKE_JAVA * 2.0;
+        let total = width * 2.0 + gap;
+        RenderRect::new(
+            dialog.center().x - total * 0.5 + index as f32 * (width + gap),
+            dialog.y + 22.0,
+            width,
+            PLAYER_LIST_VOTEKICK_INPUT_BUTTON_HEIGHT_LIKE_JAVA,
+        )
+    }
+
+    fn player_list_votekick_input_ok_enabled(input: &DesktopPlayerListVoteKickInput) -> bool {
+        input.allow_empty || !input.text.is_empty()
+    }
+
+    fn player_list_votekick_input_action_at_surface_point(
+        &self,
+        surface_size: DesktopSurfaceSize,
+        x: f32,
+        y: f32,
+    ) -> Option<DesktopPlayerListVoteKickInputDialogAction> {
+        let input = self.player_list_votekick_input.as_ref()?;
+        let viewport = self.default_render_viewport_for_surface(surface_size);
+        let dialog = Self::player_list_votekick_input_dialog_rect_for_viewport(viewport, input);
+        let point = RenderPoint::new(x, y);
+        if Self::player_list_votekick_input_button_rect(dialog, 0).contains_point(point) {
+            return Some(DesktopPlayerListVoteKickInputDialogAction::Cancel);
+        }
+        if Self::player_list_votekick_input_ok_enabled(input)
+            && Self::player_list_votekick_input_button_rect(dialog, 1).contains_point(point)
+        {
+            return Some(DesktopPlayerListVoteKickInputDialogAction::Ok);
+        }
+        None
+    }
+
+    fn dispatch_player_list_votekick_input_dialog_action_like_java(
+        &mut self,
+        action: DesktopPlayerListVoteKickInputDialogAction,
+    ) -> bool {
+        match action {
+            DesktopPlayerListVoteKickInputDialogAction::Cancel => {
+                self.cancel_player_list_votekick_input_like_java()
+            }
+            DesktopPlayerListVoteKickInputDialogAction::Ok => {
+                self.confirm_player_list_votekick_input_like_java()
+            }
+        }
+    }
+
+    fn push_player_list_votekick_input_like_java(
+        &self,
+        pass: &mut RenderPass,
+        viewport: RenderViewport,
+    ) {
+        let Some(input) = self.player_list_votekick_input.as_ref() else {
+            return;
+        };
+        let dialog = Self::player_list_votekick_input_dialog_rect_for_viewport(viewport, input);
+        let message = Self::player_list_votekick_input_message_rect(dialog);
+        let field = Self::player_list_votekick_input_field_rect(dialog);
+        pass.push(RenderCommand::fill_rect(
+            viewport.as_rect(),
+            [0.0, 0.0, 0.0, 0.50],
+            Layer::END_PIXELED + 0.185,
+        ));
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_drawable_symbol("pane"),
+            dialog,
+            [1.0, 1.0, 1.0, 0.98],
+            0.0,
+            Layer::END_PIXELED + 0.186,
+        ));
+        pass.push(RenderCommand::stroke_rect(
+            dialog,
+            [0.72, 0.86, 1.0, 0.96],
+            2.0,
+            Layer::END_PIXELED + 0.187,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            self.localize_bundle_markup_text(input.title),
+            Self::player_list_votekick_input_title_point(dialog),
+            [0.96, 0.98, 1.0, 1.0],
+            SETTINGS_TEXT_BUTTON_FONT_SIZE,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.188,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            input.message.clone(),
+            RenderPoint::new(message.x, message.center().y),
+            [0.80, 0.88, 0.94, 1.0],
+            SETTINGS_JAVA_DEFAULT_FONT_SIZE,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Start)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_wrap_width(message.width)
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.189,
+        ));
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_text_field_background_symbol(),
+            field,
+            [1.0, 1.0, 1.0, 0.98],
+            0.0,
+            Layer::END_PIXELED + 0.190,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            input.text.clone(),
+            RenderPoint::new(field.x + 12.0, field.center().y),
+            Self::settings_text_field_font_color(true),
+            SETTINGS_JAVA_DEFAULT_FONT_SIZE,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Start)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.191,
+        ));
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_text_field_cursor_symbol(),
+            Self::single_line_text_field_cursor_rect(field, &input.text),
+            [0.92, 0.98, 1.0, 1.0],
+            0.0,
+            Layer::END_PIXELED + 0.192,
+        ));
+        self.push_settings_text_button(
+            pass,
+            Self::player_list_votekick_input_button_rect(dialog, 0),
+            "@cancel",
+            None,
+            Layer::END_PIXELED + 0.193,
+        );
+        self.push_settings_text_button_enabled(
+            pass,
+            Self::player_list_votekick_input_button_rect(dialog, 1),
+            "@ok",
+            None,
+            Layer::END_PIXELED + 0.194,
+            Self::player_list_votekick_input_ok_enabled(input),
+        );
+    }
+
+    fn player_list_votekick_input_render_pass(
+        &self,
+        viewport: RenderViewport,
+    ) -> Option<RenderPass> {
+        self.player_list_votekick_input.as_ref()?;
+        let mut pass = RenderPass::new(RenderPassKind::Ui)
+            .with_order(RenderPassKind::Ui.default_order() + 2)
+            .with_viewport(viewport)
+            .with_camera(self.default_render_camera_for_viewport(viewport));
+        self.push_player_list_votekick_input_like_java(&mut pass, viewport);
         Some(pass)
     }
 
@@ -81820,6 +82116,7 @@ impl DesktopLauncher {
             && (self.game_state.is_paused()
                 || self.game_state.game_over
                 || self.active_menu_route.is_some()
+                || self.player_list_votekick_input.is_some()
                 || self.player_list_admin_confirm.is_some()
                 || self.player_list_team_select.is_some()
                 || self.player_list_menu_dialog.is_some());
@@ -81905,6 +82202,20 @@ impl DesktopLauncher {
                 }
                 DesktopInputTickEvent::Key { key_code, pressed }
                     if *pressed && self.apply_settings_focused_text_key(key_code) => {}
+                DesktopInputTickEvent::Key { key_code, pressed }
+                    if *pressed
+                        && self.player_list_votekick_input.is_some()
+                        && matches!(key_code.as_str(), "Enter" | "enter" | "NumpadEnter") =>
+                {
+                    self.confirm_player_list_votekick_input_like_java();
+                }
+                DesktopInputTickEvent::Key { key_code, pressed }
+                    if *pressed
+                        && self.player_list_votekick_input.is_some()
+                        && matches!(key_code.as_str(), "Backspace" | "Delete") =>
+                {
+                    self.apply_player_list_votekick_input_backspace_like_java(key_code);
+                }
                 DesktopInputTickEvent::Key { key_code, pressed }
                     if *pressed
                         && self.active_menu_route == Some(DesktopMenuRoute::Editor)
@@ -82760,6 +83071,21 @@ impl DesktopLauncher {
                             self.last_menu_action = None;
                             continue;
                         }
+                        if self.player_list_votekick_input.is_some() {
+                            if let Some(action) = self
+                                .player_list_votekick_input_action_at_surface_point(
+                                    surface_size,
+                                    cursor.x,
+                                    cursor.y,
+                                )
+                            {
+                                self.dispatch_player_list_votekick_input_dialog_action_like_java(
+                                    action,
+                                );
+                            }
+                            self.last_menu_action = None;
+                            continue;
+                        }
                         if self.player_list_admin_confirm.is_some() {
                             if let Some(action) = self
                                 .player_list_admin_confirm_action_at_surface_point(
@@ -83035,7 +83361,8 @@ impl DesktopLauncher {
                     }
                 }
                 DesktopInputTickEvent::Text(text) => {
-                    if self.append_settings_focused_text(text) {
+                    if self.append_player_list_votekick_input_text_like_java(text) {
+                    } else if self.append_settings_focused_text(text) {
                     } else if self.active_menu_route == Some(DesktopMenuRoute::Campaign)
                         && self.campaign_sector_list_open
                         && self.campaign_sector_list_search_focused
@@ -94498,6 +94825,11 @@ impl DesktopLauncher {
             self.player_list_team_select_render_pass(viewport)
         {
             render_frame.push_pass(player_list_team_select_pass);
+        }
+        if let Some(player_list_votekick_input_pass) =
+            self.player_list_votekick_input_render_pass(viewport)
+        {
+            render_frame.push_pass(player_list_votekick_input_pass);
         }
         if let Some(player_list_admin_confirm_pass) =
             self.player_list_admin_confirm_render_pass(viewport)
@@ -177029,6 +177361,7 @@ displayName = Display Alpha
         assert_eq!(input.title, "@votekick.reason");
         assert!(input.message.contains("[scarlet]Remote"));
         assert_eq!(input.default_text, "");
+        assert_eq!(input.text, "");
         assert_eq!(input.max_length, 32);
         assert!(!input.numeric);
         assert!(!input.allow_empty);
@@ -177056,6 +177389,285 @@ displayName = Display Alpha
             Some("/votekick #2 griefing".into())
         );
         assert_eq!(launcher.player_list_votekick_input, None);
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_votekick_input_dialog_renders_and_inputs_like_java() {
+        use mindustry_core::mindustry::ui::PlayerListRowAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.settings_locale = "en".into();
+        launcher.player_locale = "en".into();
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.net_client.net_mut().set_client_connected();
+
+        let mut same_team = PlayerComp::new(TeamId(1));
+        same_team.id = 2;
+        same_team.name = "[scarlet]Remote".into();
+        launcher.remote_players.insert(same_team.id, same_team);
+        let mut third = PlayerComp::new(TeamId(1));
+        third.id = 3;
+        third.name = "third".into();
+        launcher.remote_players.insert(third.id, third);
+
+        launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .expect("client player list should open before votekick input");
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::StartVoteKick { player_id: 2 },
+        ));
+
+        let input = launcher
+            .player_list_votekick_input
+            .as_ref()
+            .expect("votekick should open Java showTextInput state")
+            .clone();
+        let surface = DesktopSurfaceSize::new(900, 700);
+        let viewport = launcher.default_render_viewport_for_surface(surface);
+        let pass = launcher
+            .player_list_votekick_input_render_pass(viewport)
+            .expect("votekick showTextInput should render as a Java-style UI pass");
+        assert_eq!(pass.kind, RenderPassKind::Ui);
+        assert_eq!(pass.order, RenderPassKind::Ui.default_order() + 2);
+        assert_eq!(pass.viewport, Some(viewport));
+
+        let frame = launcher.graphics_frame_for_render(
+            9,
+            launcher.default_render_camera_for_viewport(viewport),
+            viewport,
+            launcher.default_minimap_camera_for_viewport(viewport),
+            launcher.default_minimap_overlay_input_for_viewport(viewport),
+        );
+        let render_frame = frame
+            .bundle
+            .render_frame
+            .expect("graphics frame should carry the render frame plan");
+        let title = launcher.localize_bundle_markup_text(input.title);
+        assert!(
+            render_frame.passes.iter().any(|frame_pass| {
+                frame_pass.kind == RenderPassKind::Ui
+                    && frame_pass.order == RenderPassKind::Ui.default_order() + 2
+                    && frame_pass.commands.iter().any(|command| {
+                        matches!(
+                            command,
+                            RenderCommand::DrawText { text, .. } if text == &title
+                        )
+                    })
+            }),
+            "graphics_frame_for_render should push the visible votekick showTextInput pass"
+        );
+
+        let dialog =
+            DesktopLauncher::player_list_votekick_input_dialog_rect_for_viewport(viewport, &input);
+        let field = DesktopLauncher::player_list_votekick_input_field_rect(dialog);
+        let message = DesktopLauncher::player_list_votekick_input_message_rect(dialog);
+        let cancel = DesktopLauncher::player_list_votekick_input_button_rect(dialog, 0);
+        let ok = DesktopLauncher::player_list_votekick_input_button_rect(dialog, 1);
+        assert_eq!(
+            (field.width, field.height),
+            (
+                super::PLAYER_LIST_VOTEKICK_INPUT_FIELD_WIDTH_LIKE_JAVA,
+                super::PLAYER_LIST_VOTEKICK_INPUT_FIELD_HEIGHT_LIKE_JAVA
+            )
+        );
+        assert_eq!(
+            (cancel.width, cancel.height),
+            (
+                super::PLAYER_LIST_VOTEKICK_INPUT_BUTTON_WIDTH_LIKE_JAVA,
+                super::PLAYER_LIST_VOTEKICK_INPUT_BUTTON_HEIGHT_LIKE_JAVA
+            )
+        );
+        assert_eq!((ok.width, ok.height), (cancel.width, cancel.height));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::FillRect { rect, color, .. }
+                if *rect == viewport.as_rect() && *color == [0.0, 0.0, 0.0, 0.50]
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawSprite { symbol, rect, .. }
+                if symbol == &DesktopLauncher::settings_drawable_symbol("pane")
+                    && *rect == dialog
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, position, style, .. }
+                if text == &title
+                    && *position == DesktopLauncher::player_list_votekick_input_title_point(dialog)
+                    && style.horizontal_align == RenderTextAlign::Center
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, position, style, .. }
+                if text == &input.message
+                    && message.contains_point(*position)
+                    && style.wrap_width == Some(message.width)
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawSprite { symbol, rect, .. }
+                if symbol == &DesktopLauncher::settings_text_field_background_symbol()
+                    && *rect == field
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawSprite { symbol, rect, .. }
+                if symbol == &DesktopLauncher::settings_text_field_cursor_symbol()
+                    && *rect == DesktopLauncher::single_line_text_field_cursor_rect(field, "")
+        )));
+        for expected in [
+            launcher.localize_bundle_markup_text("@cancel"),
+            launcher.localize_bundle_markup_text("@ok"),
+        ] {
+            assert!(pass.commands.iter().any(|command| matches!(
+                command,
+                RenderCommand::DrawText { text, .. } if text == &expected
+            )));
+        }
+        assert_eq!(
+            launcher.player_list_votekick_input_action_at_surface_point(
+                surface,
+                cancel.center().x,
+                cancel.center().y,
+            ),
+            Some(super::DesktopPlayerListVoteKickInputDialogAction::Cancel)
+        );
+        assert_eq!(
+            launcher.player_list_votekick_input_action_at_surface_point(
+                surface,
+                ok.center().x,
+                ok.center().y,
+            ),
+            None,
+            "UI.showTextInput should disable @ok while allowEmpty=false and text is empty"
+        );
+        assert!(launcher.active_menu_text_input_at_surface_point(surface, field.center()));
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Enter".into(),
+                pressed: true,
+            }],
+        );
+        assert!(
+            launcher.player_list_votekick_input.is_some(),
+            "empty Enter must not confirm votekick"
+        );
+        assert_eq!(launcher.last_chat_sent_message, None);
+
+        launcher.apply_menu_input_events(surface, &[DesktopInputTickEvent::Text("bad".into())]);
+        assert_eq!(
+            launcher
+                .player_list_votekick_input
+                .as_ref()
+                .map(|input| input.text.as_str()),
+            Some("bad")
+        );
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Backspace".into(),
+                pressed: true,
+            }],
+        );
+        assert_eq!(
+            launcher
+                .player_list_votekick_input
+                .as_ref()
+                .map(|input| input.text.as_str()),
+            Some("ba")
+        );
+        launcher.apply_menu_input_events(surface, &[DesktopInputTickEvent::Text("d".into())]);
+        let input = launcher
+            .player_list_votekick_input
+            .as_ref()
+            .expect("votekick input should remain open after typing")
+            .clone();
+        let dialog =
+            DesktopLauncher::player_list_votekick_input_dialog_rect_for_viewport(viewport, &input);
+        let ok = DesktopLauncher::player_list_votekick_input_button_rect(dialog, 1);
+        assert_eq!(
+            launcher.player_list_votekick_input_action_at_surface_point(
+                surface,
+                ok.center().x,
+                ok.center().y,
+            ),
+            Some(super::DesktopPlayerListVoteKickInputDialogAction::Ok)
+        );
+        let typed_pass = launcher
+            .player_list_votekick_input_render_pass(viewport)
+            .expect("typed votekick input should still render");
+        assert!(typed_pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, .. } if text == "bad"
+        )));
+        assert!(typed_pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawSprite { symbol, rect, .. }
+                if symbol == &DesktopLauncher::settings_text_field_cursor_symbol()
+                    && *rect == DesktopLauncher::single_line_text_field_cursor_rect(field, "bad")
+        )));
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved { x: 8.0, y: 8.0 },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert!(
+            launcher.player_list_votekick_input.is_some(),
+            "clicking showTextInput backdrop should be consumed without closing"
+        );
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: ok.center().x,
+                    y: ok.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert_eq!(launcher.player_list_votekick_input, None);
+        assert_eq!(
+            launcher.last_chat_sent_message,
+            Some("/votekick #2 bad".into())
+        );
+        assert_eq!(
+            launcher.last_chat_client_event,
+            Some("/votekick #2 bad".into())
+        );
+
+        launcher.last_chat_sent_message = None;
+        launcher.last_chat_client_event = None;
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::StartVoteKick { player_id: 2 },
+        ));
+        launcher.apply_menu_input_events(surface, &[DesktopInputTickEvent::Text("grief".into())]);
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Escape".into(),
+                pressed: true,
+            }],
+        );
+        assert_eq!(launcher.player_list_votekick_input, None);
+        assert_eq!(launcher.last_chat_sent_message, None);
+        assert_eq!(launcher.last_chat_client_event, None);
     }
 
     #[test]
