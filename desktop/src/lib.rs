@@ -27411,6 +27411,12 @@ pub struct DesktopPlayerListAdminConfirm {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopPlayerListAdminConfirmDialogAction {
+    Cancel,
+    Ok,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DesktopPlayerListMenuDialog {
     pub player_id: i32,
@@ -36114,6 +36120,11 @@ impl DesktopLauncher {
         surface_size: DesktopSurfaceSize,
         point: RenderPoint,
     ) -> bool {
+        if self.player_list_admin_confirm.is_some() {
+            return self
+                .player_list_admin_confirm_action_at_surface_point(surface_size, point.x, point.y)
+                .is_some();
+        }
         if self.player_list_menu_dialog.is_some() {
             return self
                 .player_list_menu_dialog_action_at_surface_point(surface_size, point.x, point.y)
@@ -36336,6 +36347,10 @@ impl DesktopLauncher {
     }
 
     fn apply_menu_back_key(&mut self) -> bool {
+        if self.player_list_admin_confirm.is_some() {
+            self.cancel_player_list_admin_confirm_like_java();
+            return true;
+        }
         if self
             .player_list_menu_dialog
             .as_ref()
@@ -46467,6 +46482,135 @@ impl DesktopLauncher {
             .with_viewport(viewport)
             .with_camera(self.default_render_camera_for_viewport(viewport));
         self.push_player_list_menu_dialog_like_java(&mut pass, viewport);
+        Some(pass)
+    }
+
+    fn player_list_admin_confirm_dialog_rect_for_viewport(
+        viewport: RenderViewport,
+        confirm: &DesktopPlayerListAdminConfirm,
+    ) -> RenderRect {
+        Self::settings_data_confirm_dialog_rect_for_message(viewport.as_rect(), &confirm.message)
+    }
+
+    fn player_list_admin_confirm_cancel_rect(dialog: RenderRect) -> RenderRect {
+        Self::settings_data_confirm_cancel_rect(dialog)
+    }
+
+    fn player_list_admin_confirm_ok_rect(dialog: RenderRect) -> RenderRect {
+        Self::settings_data_confirm_ok_rect(dialog)
+    }
+
+    fn player_list_admin_confirm_action_at_surface_point(
+        &self,
+        surface_size: DesktopSurfaceSize,
+        x: f32,
+        y: f32,
+    ) -> Option<DesktopPlayerListAdminConfirmDialogAction> {
+        let confirm = self.player_list_admin_confirm.as_ref()?;
+        let viewport = self.default_render_viewport_for_surface(surface_size);
+        let dialog = Self::player_list_admin_confirm_dialog_rect_for_viewport(viewport, confirm);
+        let point = RenderPoint::new(x, y);
+        if Self::player_list_admin_confirm_cancel_rect(dialog).contains_point(point) {
+            return Some(DesktopPlayerListAdminConfirmDialogAction::Cancel);
+        }
+        if Self::player_list_admin_confirm_ok_rect(dialog).contains_point(point) {
+            return Some(DesktopPlayerListAdminConfirmDialogAction::Ok);
+        }
+        None
+    }
+
+    fn dispatch_player_list_admin_confirm_dialog_action_like_java(
+        &mut self,
+        action: DesktopPlayerListAdminConfirmDialogAction,
+    ) -> bool {
+        match action {
+            DesktopPlayerListAdminConfirmDialogAction::Cancel => {
+                self.cancel_player_list_admin_confirm_like_java()
+            }
+            DesktopPlayerListAdminConfirmDialogAction::Ok => {
+                self.confirm_player_list_admin_action_like_java()
+            }
+        }
+    }
+
+    fn push_player_list_admin_confirm_dialog_like_java(
+        &self,
+        pass: &mut RenderPass,
+        viewport: RenderViewport,
+    ) {
+        let Some(confirm) = self.player_list_admin_confirm.as_ref() else {
+            return;
+        };
+        let dialog = Self::player_list_admin_confirm_dialog_rect_for_viewport(viewport, confirm);
+        pass.push(RenderCommand::fill_rect(
+            viewport.as_rect(),
+            [0.0, 0.0, 0.0, 0.50],
+            Layer::END_PIXELED + 0.190,
+        ));
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_drawable_symbol("pane"),
+            dialog,
+            [1.0, 1.0, 1.0, 0.98],
+            0.0,
+            Layer::END_PIXELED + 0.191,
+        ));
+        pass.push(RenderCommand::stroke_rect(
+            dialog,
+            [0.72, 0.86, 1.0, 0.96],
+            2.0,
+            Layer::END_PIXELED + 0.192,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            self.localize_bundle_markup_text(confirm.title),
+            RenderPoint::new(dialog.center().x, dialog.y + dialog.height - 42.0),
+            [0.96, 0.98, 1.0, 1.0],
+            SETTINGS_TEXT_BUTTON_FONT_SIZE,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.196,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            confirm.message.clone(),
+            RenderPoint::new(dialog.center().x, dialog.center().y + 8.0),
+            [0.76, 0.84, 0.90, 1.0],
+            SETTINGS_JAVA_DEFAULT_FONT_SIZE,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_wrap_width(
+                    SETTINGS_CONFIRM_TEXT_WIDTH_DESKTOP_LIKE_JAVA.min(dialog.width - 60.0),
+                )
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.197,
+        ));
+        self.push_settings_text_button(
+            pass,
+            Self::player_list_admin_confirm_cancel_rect(dialog),
+            "@cancel",
+            Some("cancel"),
+            Layer::END_PIXELED + 0.200,
+        );
+        self.push_settings_text_button(
+            pass,
+            Self::player_list_admin_confirm_ok_rect(dialog),
+            "@ok",
+            Some("ok"),
+            Layer::END_PIXELED + 0.201,
+        );
+    }
+
+    fn player_list_admin_confirm_render_pass(
+        &self,
+        viewport: RenderViewport,
+    ) -> Option<RenderPass> {
+        self.player_list_admin_confirm.as_ref()?;
+        let mut pass = RenderPass::new(RenderPassKind::Ui)
+            .with_order(RenderPassKind::Ui.default_order() + 2)
+            .with_viewport(viewport)
+            .with_camera(self.default_render_camera_for_viewport(viewport));
+        self.push_player_list_admin_confirm_dialog_like_java(&mut pass, viewport);
         Some(pass)
     }
 
@@ -81419,6 +81563,7 @@ impl DesktopLauncher {
             && (self.game_state.is_paused()
                 || self.game_state.game_over
                 || self.active_menu_route.is_some()
+                || self.player_list_admin_confirm.is_some()
                 || self.player_list_menu_dialog.is_some());
         if self.has_renderable_world_for_default_frame() && !world_overlay_visible {
             return false;
@@ -81595,6 +81740,13 @@ impl DesktopLauncher {
                     if *pressed && Self::is_menu_back_key(key_code) =>
                 {
                     self.apply_menu_back_key();
+                }
+                DesktopInputTickEvent::Key { key_code, pressed }
+                    if *pressed
+                        && self.player_list_admin_confirm.is_some()
+                        && matches!(key_code.as_str(), "Enter" | "enter" | "NumpadEnter") =>
+                {
+                    self.confirm_player_list_admin_action_like_java();
                 }
                 DesktopInputTickEvent::Key { key_code, pressed }
                     if *pressed
@@ -82346,6 +82498,21 @@ impl DesktopLauncher {
                                 self.dispatch_menu_route_shell_action(action);
                             } else {
                                 self.commit_settings_keybind_rebind(button);
+                            }
+                            self.last_menu_action = None;
+                            continue;
+                        }
+                        if self.player_list_admin_confirm.is_some() {
+                            if let Some(action) = self
+                                .player_list_admin_confirm_action_at_surface_point(
+                                    surface_size,
+                                    cursor.x,
+                                    cursor.y,
+                                )
+                            {
+                                self.dispatch_player_list_admin_confirm_dialog_action_like_java(
+                                    action,
+                                );
                             }
                             self.last_menu_action = None;
                             continue;
@@ -94053,6 +94220,11 @@ impl DesktopLauncher {
         }
         if let Some(player_list_menu_pass) = self.player_list_menu_dialog_render_pass(viewport) {
             render_frame.push_pass(player_list_menu_pass);
+        }
+        if let Some(player_list_admin_confirm_pass) =
+            self.player_list_admin_confirm_render_pass(viewport)
+        {
+            render_frame.push_pass(player_list_admin_confirm_pass);
         }
         if let Some(pause_pass) = self.pause_overlay_render_pass(viewport) {
             render_frame.push_pass(pause_pass);
@@ -176641,6 +176813,205 @@ displayName = Display Alpha
             Some(super::DesktopPlayerAdminRequest {
                 player_id: 2,
                 action: mindustry_core::mindustry::net::AdminAction::Ban,
+            })
+        );
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_admin_confirm_dialog_renders_and_clicks_like_java() {
+        use mindustry_core::mindustry::net::AdminAction;
+        use mindustry_core::mindustry::ui::PlayerListPlayerMenuAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.settings_locale = "en".into();
+        launcher.player_locale = "en".into();
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "[scarlet]Remote".into();
+        launcher.remote_players.insert(remote.id, remote);
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::Ban { player_id: 2 },
+        ));
+        let confirm = launcher
+            .player_list_admin_confirm
+            .as_ref()
+            .expect("@player.ban should open Java UI.showConfirm state")
+            .clone();
+        let surface = DesktopSurfaceSize::new(900, 700);
+        let viewport = launcher.default_render_viewport_for_surface(surface);
+        let pass = launcher
+            .player_list_admin_confirm_render_pass(viewport)
+            .expect("admin confirm should render as a Java UI.showConfirm modal");
+        assert_eq!(pass.kind, RenderPassKind::Ui);
+        assert_eq!(pass.order, RenderPassKind::Ui.default_order() + 2);
+        assert_eq!(pass.viewport, Some(viewport));
+
+        let dialog =
+            DesktopLauncher::player_list_admin_confirm_dialog_rect_for_viewport(viewport, &confirm);
+        let cancel = DesktopLauncher::player_list_admin_confirm_cancel_rect(dialog);
+        let ok = DesktopLauncher::player_list_admin_confirm_ok_rect(dialog);
+        assert_eq!(cancel.width, super::SETTINGS_CONFIRM_BUTTON_WIDTH_LIKE_JAVA);
+        assert_eq!(
+            cancel.height,
+            super::SETTINGS_CONFIRM_BUTTON_HEIGHT_LIKE_JAVA
+        );
+        assert_eq!(ok.width, super::SETTINGS_CONFIRM_BUTTON_WIDTH_LIKE_JAVA);
+        assert_eq!(ok.height, super::SETTINGS_CONFIRM_BUTTON_HEIGHT_LIKE_JAVA);
+
+        let title = launcher.localize_bundle_markup_text(confirm.title);
+        let cancel_text = launcher.localize_bundle_markup_text("@cancel");
+        let ok_text = launcher.localize_bundle_markup_text("@ok");
+        for expected in [
+            title.as_str(),
+            confirm.message.as_str(),
+            cancel_text.as_str(),
+            ok_text.as_str(),
+        ] {
+            assert!(pass.commands.iter().any(|command| matches!(
+                command,
+                RenderCommand::DrawText { text, .. } if text == expected
+            )));
+        }
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::FillRect { rect, color, .. }
+                if *rect == viewport.as_rect() && *color == [0.0, 0.0, 0.0, 0.50]
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, style, .. }
+                if text == &confirm.message
+                    && style.wrap_width
+                        == Some(super::SETTINGS_CONFIRM_TEXT_WIDTH_DESKTOP_LIKE_JAVA.min(dialog.width - 60.0))
+                    && !style.outline
+        )));
+        assert_eq!(
+            launcher.player_list_admin_confirm_action_at_surface_point(
+                surface,
+                cancel.center().x,
+                cancel.center().y,
+            ),
+            Some(super::DesktopPlayerListAdminConfirmDialogAction::Cancel)
+        );
+        assert_eq!(
+            launcher.player_list_admin_confirm_action_at_surface_point(
+                surface,
+                ok.center().x,
+                ok.center().y,
+            ),
+            Some(super::DesktopPlayerListAdminConfirmDialogAction::Ok)
+        );
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved { x: 8.0, y: 8.0 },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert!(
+            launcher.player_list_admin_confirm.is_some(),
+            "clicking the confirm dialog backdrop should be consumed without closing"
+        );
+        assert_eq!(launcher.last_player_admin_request, None);
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Escape".into(),
+                pressed: true,
+            }],
+        );
+        assert_eq!(launcher.player_list_admin_confirm, None);
+        assert_eq!(launcher.last_player_admin_request, None);
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::Kick { player_id: 2 },
+        ));
+        let confirm = launcher
+            .player_list_admin_confirm
+            .as_ref()
+            .expect("kick should reopen Java confirm state")
+            .clone();
+        let dialog =
+            DesktopLauncher::player_list_admin_confirm_dialog_rect_for_viewport(viewport, &confirm);
+        let cancel = DesktopLauncher::player_list_admin_confirm_cancel_rect(dialog);
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: cancel.center().x,
+                    y: cancel.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert_eq!(launcher.player_list_admin_confirm, None);
+        assert_eq!(launcher.last_player_admin_request, None);
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::Ban { player_id: 2 },
+        ));
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Enter".into(),
+                pressed: true,
+            }],
+        );
+        assert_eq!(launcher.player_list_admin_confirm, None);
+        assert_eq!(
+            launcher.last_player_admin_request,
+            Some(super::DesktopPlayerAdminRequest {
+                player_id: 2,
+                action: AdminAction::Ban,
+            })
+        );
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::Kick { player_id: 2 },
+        ));
+        let confirm = launcher
+            .player_list_admin_confirm
+            .as_ref()
+            .expect("kick should reopen before OK click")
+            .clone();
+        let dialog =
+            DesktopLauncher::player_list_admin_confirm_dialog_rect_for_viewport(viewport, &confirm);
+        let ok = DesktopLauncher::player_list_admin_confirm_ok_rect(dialog);
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: ok.center().x,
+                    y: ok.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert_eq!(launcher.player_list_admin_confirm, None);
+        assert_eq!(
+            launcher.last_player_admin_request,
+            Some(super::DesktopPlayerAdminRequest {
+                player_id: 2,
+                action: AdminAction::Kick,
             })
         );
     }

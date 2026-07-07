@@ -66,7 +66,8 @@
 - `cargo test -p mindustry-desktop desktop_launcher_campaign_core_launch_cutscene_fades_foreground_like_java -- --nocapture`：通过，`1 passed; 0 failed`。
 - `cargo test -p mindustry-desktop desktop_launcher_ticks_accelerator_launch_time_from_land_time_state -- --nocapture`：通过，`1 passed; 0 failed`。
 - `cargo test -p mindustry-desktop player_list_row_menu --lib -- --nocapture`：通过，`3 passed; 0 failed`。
-- `cargo test -p mindustry-desktop player_list_ --lib -- --nocapture`：通过，`15 passed; 0 failed`。
+- `cargo test -p mindustry-desktop player_list_admin_confirm --lib -- --nocapture`：通过，`1 passed; 0 failed`。
+- `cargo test -p mindustry-desktop player_list_ --lib -- --nocapture`：通过，`16 passed; 0 failed`。
 - Workspace crate：
   - `mindustry-core`
   - `mindustry-server`
@@ -257,6 +258,7 @@
 - `PlayerListFragment` 玩家图标 `Spectate` 输入/相机链：`desktop/src/lib.rs` 新增 `DesktopPlayerListSpectating` 状态，`dispatch_player_list_row_action_like_java(PlayerListRowAction::Spectate)` 现在按上游 `!user.dead() && clickable` 条件进入旁观，记录目标 `UnitRef`，把默认渲染相机中心切到目标 unit/building 的当前位置，并通过 `last_menu_info_message` 输出 `viewplayer` 文案；每帧 `update()` 会跟随目标位置，目标死亡/失效或目标 unit 队伍不再等于本地队伍时清理旁观状态，`DesktopInputAction::ClearSpectating`、世界卸载与 desktop 重置也会清理，避免残留相机状态。新增 `desktop_launcher_player_list_spectate_moves_camera_and_info_like_java` 与 `desktop_launcher_player_list_spectate_rejects_dead_and_fog_hidden_like_java`，并复跑 spectate/votekick/team/footer/admin/ban-kick/trace/core player-list 定向测试、`cargo check --workspace --all-targets` 与 `git diff --check` 通过。
 - `PlayerListFragment` 行内 `Icon.menu` 弹窗生命周期：`desktop/src/lib.rs` 新增 `DesktopPlayerListMenuDialog`，`dispatch_player_list_row_action_like_java(PlayerListRowAction::OpenMenu)` 现在只在玩家列表可见且当前行有 `PlayerListPlayerMenuModel` 时打开上游 `BaseDialog(user.coloredName())` 等价状态，记录白色标题、移除 titleTable、`closeOnBack`、accent 分隔线、220x55 按钮与 3px pad；`@back` 会关闭 row menu，`@player.ban`/`@player.kick`/`@player.trace`/`@player.team`/`@player.admin` 会先隐藏 row menu 再进入已有确认/请求/队伍选择链，关闭 PlayerList 或网络状态隐藏时也清理 row menu。新增 `desktop_launcher_player_list_row_menu_open_close_like_java`，并复跑 `cargo test -p mindustry-desktop player_list_ --lib -- --nocapture`、`cargo test -p mindustry-core player_list_fragment --lib -- --nocapture`、`cargo check --workspace --all-targets` 与 `git diff --check` 通过。
 - `PlayerListFragment` 行菜单 `BaseDialog` 点击输入链：`desktop/src/lib.rs` 新增 `player_list_menu_dialog_action_at_surface_point()`，把 row menu 作为独立 HUD 模态纳入 `apply_menu_input_events` 的 `world_overlay_visible`，在 primary click 时优先于 pause overlay/route shell 处理；按钮命中复用 `PlayerListPlayerMenuAction` 直接分发，背景点击只消费不关闭，底部 `@back` 和 `closeOnBack` 的 Escape/Back 键都会关闭 row menu；`desktop_cursor_hint_for_surface` 也会在菜单按钮上给 hand hover。新增 `desktop_launcher_player_list_row_menu_dialog_clicks_dispatch_actions_like_java`，覆盖各按钮命中映射、背景不穿透、ban 点击进入确认、back 按钮关闭与 Escape 关闭，并复跑 PlayerList/core/workspace 检查通过。
+- `PlayerListFragment` 管理确认 `UI.showConfirm` 前端闭环：`desktop/src/lib.rs` 新增 `DesktopPlayerListAdminConfirmDialogAction`、`player_list_admin_confirm_render_pass()` 与 `player_list_admin_confirm_action_at_surface_point()`，把 `@player.ban`、`@player.kick`、`@player.admin` 触发的 `player_list_admin_confirm` 渲染为独立 `Ui` 模态；布局按上游 `UI.showConfirm` 使用 500f 文本宽、200x54 `@cancel/@ok` 按钮、`@confirm` 标题、Esc/Back 取消、Enter/OK 确认，背景点击只消费不穿透。新增 `desktop_launcher_player_list_admin_confirm_dialog_renders_and_clicks_like_java`，覆盖可见渲染、按钮尺寸/文本 wrap、hit-test、背景消费、取消、Escape、Enter 与 OK 点击分发，并复跑 PlayerList/core/workspace 检查通过。
 
 ## 下一步
 
