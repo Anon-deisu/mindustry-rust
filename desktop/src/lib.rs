@@ -98,7 +98,7 @@ use mindustry_core::mindustry::io::{
     read_deflated_save_meta_with_backup, read_effect_state_sync, read_fire_sync, read_puddle_sync,
     read_unit_sync, read_weather_state_sync, read_world_label_sync, type_io,
     write_deflated_save_meta_prefix, ContentHeaderSnapshot, LegacyShortChunkMap, LegacyTeamBlocks,
-    SaveMeta, SaveSlotKind, SaveSlotRecord, TeamId, TypeValue, Vec2, LATEST_SAVE_VERSION,
+    SaveMeta, SaveSlotKind, SaveSlotRecord, TeamId, TypeValue, UnitRef, Vec2, LATEST_SAVE_VERSION,
 };
 use mindustry_core::mindustry::maps::MapDescriptor;
 use mindustry_core::mindustry::modsys::{
@@ -27438,6 +27438,14 @@ pub struct DesktopPlayerListVoteKickInput {
     pub allow_empty: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DesktopPlayerListSpectating {
+    pub player_id: i32,
+    pub unit: UnitRef,
+    pub camera_x: f32,
+    pub camera_y: f32,
+}
+
 #[derive(Debug, Clone)]
 pub struct DesktopLauncher {
     pub client: ClientLauncher,
@@ -27456,6 +27464,7 @@ pub struct DesktopLauncher {
     pub player_list_admin_confirm: Option<DesktopPlayerListAdminConfirm>,
     pub player_list_team_select: Option<DesktopPlayerListTeamSelect>,
     pub player_list_votekick_input: Option<DesktopPlayerListVoteKickInput>,
+    pub player_list_spectating: Option<DesktopPlayerListSpectating>,
     pub last_player_admin_request: Option<DesktopPlayerAdminRequest>,
     pub last_player_admin_request_params: Option<TypeValue>,
     pub last_player_admin_toggle: Option<DesktopPlayerAdminToggle>,
@@ -29154,6 +29163,7 @@ impl DesktopLauncher {
             player_list_admin_confirm: None,
             player_list_team_select: None,
             player_list_votekick_input: None,
+            player_list_spectating: None,
             last_player_admin_request: None,
             last_player_admin_request_params: None,
             last_player_admin_toggle: None,
@@ -30358,6 +30368,7 @@ impl DesktopLauncher {
         self.sync_effect_packets_to_runtime();
         let now_millis = current_millis();
         self.sync_remote_player_snapshots_from_runtime();
+        self.update_player_list_spectating_like_java();
         self.update_player_list_visibility_like_java();
         self.update_chat_visibility_like_java(self.hud_fragment.shown);
         self.tick_chat_fade_like_java(1.0);
@@ -30380,7 +30391,14 @@ impl DesktopLauncher {
         self.puddle_particle_rand_state = puddle_particle_rand_state;
         self.materialize_local_effect_events_for_render();
         self.sync_local_sound_at_events_for_audio();
-        self.sync_local_camera_shake_events_for_render(self.player.x, self.player.y);
+        let camera_shake_center = self
+            .player_list_spectating
+            .map(|spectating| RenderPoint::new(spectating.camera_x, spectating.camera_y))
+            .unwrap_or_else(|| RenderPoint::new(self.player.x, self.player.y));
+        self.sync_local_camera_shake_events_for_render(
+            camera_shake_center.x,
+            camera_shake_center.y,
+        );
         self.tick_camera_shake_for_render(1.0, 4);
         self.tick_local_effect_states_for_render(1.0);
         let standard_local_effect_draw_plans =
@@ -30507,6 +30525,132 @@ impl DesktopLauncher {
         } else {
             self.remote_players.get(&player_id)
         }
+    }
+
+    fn player_list_spectate_camera_position_like_java(
+        &self,
+        unit: UnitRef,
+        player_x: f32,
+        player_y: f32,
+    ) -> RenderPoint {
+        match unit {
+            UnitRef::Unit { id } => self
+                .runtime
+                .client_unit_snapshot_entities
+                .get(&id)
+                .map(|unit| RenderPoint::new(unit.x(), unit.y()))
+                .unwrap_or_else(|| RenderPoint::new(player_x, player_y)),
+            UnitRef::Block { tile_pos } => self
+                .runtime
+                .buildings
+                .iter()
+                .find(|building| building.tile_pos == tile_pos)
+                .map(|building| RenderPoint::new(building.x, building.y))
+                .unwrap_or_else(|| {
+                    RenderPoint::new(
+                        point2_x(tile_pos) as f32 * TILE_SIZE as f32,
+                        point2_y(tile_pos) as f32 * TILE_SIZE as f32,
+                    )
+                }),
+            UnitRef::Null => RenderPoint::new(player_x, player_y),
+        }
+    }
+
+    fn player_list_spectate_target_team_like_java(
+        &self,
+        unit: UnitRef,
+        player_team: TeamId,
+    ) -> Option<TeamId> {
+        match unit {
+            UnitRef::Unit { id } => self
+                .runtime
+                .client_unit_snapshot_entities
+                .get(&id)
+                .map(|unit| unit.is_valid().then_some(unit.team_id()))
+                .unwrap_or(Some(player_team)),
+            UnitRef::Block { tile_pos } => self
+                .runtime
+                .buildings
+                .iter()
+                .find(|building| building.tile_pos == tile_pos)
+                .map(|building| (!building.dead).then_some(building.team))
+                .unwrap_or(Some(player_team)),
+            UnitRef::Null => None,
+        }
+    }
+
+    fn player_list_spectate_target_like_java(
+        &self,
+        player_id: i32,
+        require_clickable: bool,
+    ) -> Option<(String, UnitRef, RenderPoint, TeamId)> {
+        let context = self.player_list_context_like_java();
+        let player = self.player_by_id_like_java(player_id)?;
+        if require_clickable
+            && context.fog
+            && context.pvp
+            && player.team.0 as i32 != context.local_player_team
+        {
+            return None;
+        }
+        if player.dead() {
+            return None;
+        }
+        let unit = player.unit_ref()?;
+        let position =
+            self.player_list_spectate_camera_position_like_java(unit, player.x, player.y);
+        let team = self.player_list_spectate_target_team_like_java(unit, player.team)?;
+        Some((player.name.clone(), unit, position, team))
+    }
+
+    fn player_list_viewplayer_message_like_java(&self, player_name: &str) -> String {
+        self.bundle_format_for_current_locale("viewplayer", &[player_name])
+            .or_else(|| upstream_menu_bundle_format_for_locale("en", "viewplayer", &[player_name]))
+            .unwrap_or_else(|| format!("viewplayer: {player_name}"))
+    }
+
+    pub fn spectate_player_list_player_like_java(&mut self, player_id: i32) -> bool {
+        let Some((player_name, unit, camera, _team)) =
+            self.player_list_spectate_target_like_java(player_id, true)
+        else {
+            return false;
+        };
+        let info_message = self.player_list_viewplayer_message_like_java(&player_name);
+        self.player_list_spectating = Some(DesktopPlayerListSpectating {
+            player_id,
+            unit,
+            camera_x: camera.x,
+            camera_y: camera.y,
+        });
+        self.last_menu_info_message = Some(info_message);
+        true
+    }
+
+    pub fn update_player_list_spectating_like_java(&mut self) -> bool {
+        let Some(spectating) = self.player_list_spectating else {
+            return false;
+        };
+        let Some((_player_name, unit, camera, team)) =
+            self.player_list_spectate_target_like_java(spectating.player_id, false)
+        else {
+            self.player_list_spectating = None;
+            return false;
+        };
+        if team != self.player.team {
+            self.player_list_spectating = None;
+            return false;
+        }
+        self.player_list_spectating = Some(DesktopPlayerListSpectating {
+            player_id: spectating.player_id,
+            unit,
+            camera_x: camera.x,
+            camera_y: camera.y,
+        });
+        true
+    }
+
+    pub fn clear_player_list_spectating_like_java(&mut self) -> bool {
+        self.player_list_spectating.take().is_some()
     }
 
     fn player_trace_info_from_comp_like_java(player: &PlayerComp) -> TraceDialogInfo {
@@ -30909,7 +31053,10 @@ impl DesktopLauncher {
             PlayerListRowAction::StartVoteKick { player_id } => {
                 self.open_player_list_votekick_input_like_java(player_id)
             }
-            PlayerListRowAction::Spectate { .. } | PlayerListRowAction::OpenMenu { .. } => false,
+            PlayerListRowAction::Spectate { player_id } => {
+                self.spectate_player_list_player_like_java(player_id)
+            }
+            PlayerListRowAction::OpenMenu { .. } => false,
         }
     }
 
@@ -30960,8 +31107,11 @@ impl DesktopLauncher {
             DesktopInputAction::TogglePlayerList => self.toggle_player_list_like_java(),
             DesktopInputAction::ToggleDebugHitboxes
             | DesktopInputAction::ToggleDetachedCamera { .. }
-            | DesktopInputAction::ClearSpectating
             | DesktopInputAction::ResetMenuState => None,
+            DesktopInputAction::ClearSpectating => {
+                self.clear_player_list_spectating_like_java();
+                None
+            }
         }
     }
 
@@ -31483,6 +31633,12 @@ impl DesktopLauncher {
     }
 
     pub fn default_render_camera_for_viewport(&self, viewport: RenderViewport) -> RenderCamera {
+        if let Some(spectating) = self.player_list_spectating {
+            return RenderCamera::new(
+                RenderPoint::new(spectating.camera_x, spectating.camera_y),
+                viewport,
+            );
+        }
         RenderCamera::new(
             RenderPoint::new(viewport.width / 2.0, viewport.height / 2.0),
             viewport,
@@ -94118,6 +94274,7 @@ impl DesktopLauncher {
                             local_player_admin: self.player.admin,
                         });
                     self.last_player_list_model = None;
+                    self.player_list_spectating = None;
                     self.other_player_preview_overlays.clear();
                     self.standard_local_effect_draw_plans.clear();
                     self.standard_local_effect_circle_primitives.clear();
@@ -94887,6 +95044,7 @@ impl DesktopLauncher {
         self.player_list_admin_confirm = None;
         self.player_list_team_select = None;
         self.player_list_votekick_input = None;
+        self.player_list_spectating = None;
         self.last_player_admin_request = None;
         self.last_player_admin_request_params = None;
         self.last_player_admin_toggle = None;
@@ -175499,6 +175657,139 @@ displayName = Display Alpha
             Some("/votekick #2 griefing".into())
         );
         assert_eq!(launcher.player_list_votekick_input, None);
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_spectate_moves_camera_and_info_like_java() {
+        use mindustry_core::mindustry::entities::comp::PlayerUnitState;
+        use mindustry_core::mindustry::input::DesktopInputAction;
+        use mindustry_core::mindustry::ui::PlayerListRowAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.set_unit_state(PlayerUnitState::unit(11));
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "[scarlet]Remote".into();
+        remote.set_unit_state(PlayerUnitState::unit(22));
+        remote.con = Some(mindustry_core::mindustry::net::NetConnection::new(
+            "127.0.0.2",
+        ));
+        launcher.remote_players.insert(remote.id, remote);
+
+        let mut unit = UnitComp::new(22, UnitType::new(22, "dagger"), TeamId(1));
+        unit.add();
+        unit.set_pos(48.0, 56.0);
+        launcher
+            .runtime
+            .client_unit_snapshot_entities
+            .insert(22, unit);
+
+        let model = launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .expect("player list should expose spectate action before dispatch");
+        let row = model
+            .rows
+            .iter()
+            .find(|row| row.player_id == 2)
+            .expect("remote row should exist");
+        assert_eq!(
+            row.spectate_action,
+            Some(PlayerListRowAction::Spectate { player_id: 2 })
+        );
+
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::Spectate { player_id: 2 },
+        ));
+        let spectating = launcher
+            .player_list_spectating
+            .expect("clicking a live player icon should enter spectating mode");
+        assert_eq!(spectating.player_id, 2);
+        assert_eq!(spectating.unit, UnitRef::Unit { id: 22 });
+        assert_eq!(spectating.camera_x, 48.0);
+        assert_eq!(spectating.camera_y, 56.0);
+        assert!(launcher
+            .last_menu_info_message
+            .as_deref()
+            .is_some_and(|message| message.contains("[scarlet]Remote")));
+
+        let viewport = RenderViewport::new(0.0, 0.0, 320.0, 240.0);
+        let camera = launcher.default_render_camera_for_viewport(viewport);
+        assert_eq!(camera.center.x, 48.0);
+        assert_eq!(camera.center.y, 56.0);
+
+        launcher
+            .runtime
+            .client_unit_snapshot_entities
+            .get_mut(&22)
+            .expect("spectated unit snapshot should still be present")
+            .set_pos(72.0, 88.0);
+        assert!(launcher.update_player_list_spectating_like_java());
+        let camera = launcher.default_render_camera_for_viewport(viewport);
+        assert_eq!(camera.center.x, 72.0);
+        assert_eq!(camera.center.y, 88.0);
+
+        assert!(launcher
+            .dispatch_desktop_input_action_like_java(DesktopInputAction::ClearSpectating)
+            .is_none());
+        assert_eq!(launcher.player_list_spectating, None);
+        let camera = launcher.default_render_camera_for_viewport(viewport);
+        assert_eq!(camera.center.x, 160.0);
+        assert_eq!(camera.center.y, 120.0);
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_spectate_rejects_dead_and_fog_hidden_like_java() {
+        use mindustry_core::mindustry::entities::comp::PlayerUnitState;
+        use mindustry_core::mindustry::ui::PlayerListRowAction;
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.game_state.rules.pvp = true;
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.set_unit_state(PlayerUnitState::unit(11));
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "Remote".into();
+        remote.set_unit_state(PlayerUnitState::unit(22).with_valid(false));
+        launcher.remote_players.insert(remote.id, remote);
+
+        assert!(!launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::Spectate { player_id: 2 },
+        ));
+        assert_eq!(launcher.player_list_spectating, None);
+
+        let remote = launcher
+            .remote_players
+            .get_mut(&2)
+            .expect("remote player should be present for the fog branch");
+        remote.team = TeamId(2);
+        remote.set_unit_state(PlayerUnitState::unit(22));
+        launcher.game_state.rules.fog = true;
+
+        assert!(!launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::Spectate { player_id: 2 },
+        ));
+        assert_eq!(launcher.player_list_spectating, None);
+
+        launcher.game_state.rules.fog = false;
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::Spectate { player_id: 2 },
+        ));
+        assert!(launcher.player_list_spectating.is_some());
+        assert!(!launcher.update_player_list_spectating_like_java());
+        assert_eq!(launcher.player_list_spectating, None);
     }
 
     #[test]
