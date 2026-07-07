@@ -36114,6 +36114,11 @@ impl DesktopLauncher {
         surface_size: DesktopSurfaceSize,
         point: RenderPoint,
     ) -> bool {
+        if self.player_list_menu_dialog.is_some() {
+            return self
+                .player_list_menu_dialog_action_at_surface_point(surface_size, point.x, point.y)
+                .is_some();
+        }
         if self
             .menu_button_at_surface_point(surface_size, point.x, point.y)
             .is_some()
@@ -36331,6 +36336,14 @@ impl DesktopLauncher {
     }
 
     fn apply_menu_back_key(&mut self) -> bool {
+        if self
+            .player_list_menu_dialog
+            .as_ref()
+            .is_some_and(|dialog| dialog.close_on_back)
+        {
+            self.close_player_list_menu_dialog_like_java();
+            return true;
+        }
         if self.has_renderable_world_for_default_frame()
             && self.game_state.is_paused()
             && self.active_menu_route.is_none()
@@ -46351,6 +46364,30 @@ impl DesktopLauncher {
             dialog.button_width,
             dialog.button_height,
         )
+    }
+
+    fn player_list_menu_dialog_action_at_surface_point(
+        &self,
+        surface_size: DesktopSurfaceSize,
+        x: f32,
+        y: f32,
+    ) -> Option<PlayerListPlayerMenuAction> {
+        let dialog = self.player_list_menu_dialog.as_ref()?;
+        let viewport = self.default_render_viewport_for_surface(surface_size);
+        let dialog_rect = Self::player_list_menu_dialog_rect_for_viewport(viewport, dialog);
+        let point = RenderPoint::new(x, y);
+        for (index, button) in dialog.model.buttons.iter().enumerate() {
+            if Self::player_list_menu_dialog_button_rect(dialog_rect, dialog, index)
+                .contains_point(point)
+            {
+                return Some(button.action.clone());
+            }
+        }
+        if Self::player_list_menu_dialog_back_button_rect(dialog_rect, dialog).contains_point(point)
+        {
+            return Some(dialog.model.back_button.action.clone());
+        }
+        None
     }
 
     fn push_player_list_menu_dialog_like_java(
@@ -81381,7 +81418,8 @@ impl DesktopLauncher {
         let world_overlay_visible = self.has_renderable_world_for_default_frame()
             && (self.game_state.is_paused()
                 || self.game_state.game_over
-                || self.active_menu_route.is_some());
+                || self.active_menu_route.is_some()
+                || self.player_list_menu_dialog.is_some());
         if self.has_renderable_world_for_default_frame() && !world_overlay_visible {
             return false;
         }
@@ -82308,6 +82346,19 @@ impl DesktopLauncher {
                                 self.dispatch_menu_route_shell_action(action);
                             } else {
                                 self.commit_settings_keybind_rebind(button);
+                            }
+                            self.last_menu_action = None;
+                            continue;
+                        }
+                        if self.player_list_menu_dialog.is_some() {
+                            if let Some(action) = self
+                                .player_list_menu_dialog_action_at_surface_point(
+                                    surface_size,
+                                    cursor.x,
+                                    cursor.y,
+                                )
+                            {
+                                self.dispatch_player_list_menu_action_like_java(action);
                             }
                             self.last_menu_action = None;
                             continue;
@@ -175927,6 +175978,169 @@ displayName = Display Alpha
                 .player_list_menu_dialog_render_pass(viewport)
                 .is_none(),
             "closing PlayerListFragment should remove the modal render pass"
+        );
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_row_menu_dialog_clicks_dispatch_actions_like_java() {
+        use mindustry_core::mindustry::ui::{PlayerListPlayerMenuAction, PlayerListRowAction};
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.game_state.rules.pvp = true;
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(2));
+        remote.id = 2;
+        remote.name = "[scarlet]Remote".into();
+        remote.color = 0x1122_3344;
+        let mut connection = mindustry_core::mindustry::net::NetConnection::new("127.0.0.2");
+        connection.uuid = "remote-uuid".into();
+        remote.con = Some(connection);
+        launcher.remote_players.insert(remote.id, remote);
+
+        launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .expect("player list should open before the row menu");
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::OpenMenu { player_id: 2 },
+        ));
+
+        let surface = DesktopSurfaceSize::new(900, 700);
+        let viewport = launcher.default_render_viewport_for_surface(surface);
+        let dialog = launcher
+            .player_list_menu_dialog
+            .as_ref()
+            .expect("row menu should be open for hit testing");
+        let dialog_rect =
+            DesktopLauncher::player_list_menu_dialog_rect_for_viewport(viewport, dialog);
+        let button_rects = (0..dialog.model.buttons.len())
+            .map(|index| {
+                DesktopLauncher::player_list_menu_dialog_button_rect(dialog_rect, dialog, index)
+            })
+            .collect::<Vec<_>>();
+        let back_rect =
+            DesktopLauncher::player_list_menu_dialog_back_button_rect(dialog_rect, dialog);
+
+        for (rect, expected) in [
+            (
+                button_rects[0],
+                PlayerListPlayerMenuAction::Ban { player_id: 2 },
+            ),
+            (
+                button_rects[1],
+                PlayerListPlayerMenuAction::Kick { player_id: 2 },
+            ),
+            (
+                button_rects[2],
+                PlayerListPlayerMenuAction::Trace { player_id: 2 },
+            ),
+            (
+                button_rects[3],
+                PlayerListPlayerMenuAction::OpenTeamSelect { player_id: 2 },
+            ),
+            (
+                button_rects[4],
+                PlayerListPlayerMenuAction::ToggleAdmin {
+                    player_id: 2,
+                    uuid: "remote-uuid".into(),
+                    currently_admin: false,
+                },
+            ),
+            (back_rect, PlayerListPlayerMenuAction::Back),
+        ] {
+            assert_eq!(
+                launcher.player_list_menu_dialog_action_at_surface_point(
+                    surface,
+                    rect.center().x,
+                    rect.center().y,
+                ),
+                Some(expected)
+            );
+        }
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved { x: 8.0, y: 8.0 },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert!(
+            launcher.player_list_menu_dialog.is_some(),
+            "clicking the Java BaseDialog shade/background should be consumed without closing"
+        );
+        assert_eq!(launcher.player_list_admin_confirm, None);
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: button_rects[0].center().x,
+                    y: button_rects[0].center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert_eq!(launcher.player_list_menu_dialog, None);
+        assert!(
+            launcher.player_list_admin_confirm.is_some(),
+            "clicking @player.ban should dispatch through the row menu action bridge"
+        );
+
+        launcher.player_list_admin_confirm = None;
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::OpenMenu { player_id: 2 },
+        ));
+        let back_rect = {
+            let dialog = launcher
+                .player_list_menu_dialog
+                .as_ref()
+                .expect("row menu should reopen before back button click");
+            let dialog_rect =
+                DesktopLauncher::player_list_menu_dialog_rect_for_viewport(viewport, dialog);
+            DesktopLauncher::player_list_menu_dialog_back_button_rect(dialog_rect, dialog)
+        };
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: back_rect.center().x,
+                    y: back_rect.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert_eq!(launcher.player_list_menu_dialog, None);
+
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::OpenMenu { player_id: 2 },
+        ));
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Escape".into(),
+                pressed: true,
+            }],
+        );
+        assert_eq!(
+            launcher.player_list_menu_dialog, None,
+            "BaseDialog.closeOnBack should close the row menu before pause/menu back handling"
         );
     }
 
