@@ -46283,6 +46283,156 @@ impl DesktopLauncher {
         );
     }
 
+    fn player_list_menu_dialog_rect_for_viewport(
+        viewport: RenderViewport,
+        dialog: &DesktopPlayerListMenuDialog,
+    ) -> RenderRect {
+        let width = dialog.button_width + dialog.button_pad * 2.0 + 64.0;
+        let height = 34.0
+            + 24.0
+            + dialog.button_pad * 2.0
+            + dialog.divider_height
+            + dialog.model.buttons.len() as f32 * (dialog.button_height + dialog.button_pad * 2.0)
+            + 6.0
+            + dialog.button_height
+            + 22.0;
+        RenderRect::new(
+            viewport.x + viewport.width * 0.5 - width * 0.5,
+            viewport.y + viewport.height * 0.5 - height * 0.5,
+            width,
+            height,
+        )
+    }
+
+    fn player_list_menu_dialog_title_point(dialog_rect: RenderRect) -> RenderPoint {
+        RenderPoint::new(
+            dialog_rect.center().x,
+            dialog_rect.y + dialog_rect.height - 34.0,
+        )
+    }
+
+    fn player_list_menu_dialog_divider_rect(
+        dialog_rect: RenderRect,
+        dialog: &DesktopPlayerListMenuDialog,
+    ) -> RenderRect {
+        RenderRect::new(
+            dialog_rect.x + 24.0,
+            dialog_rect.y + dialog_rect.height - 34.0 - 24.0 - dialog.button_pad,
+            dialog_rect.width - 48.0,
+            dialog.divider_height,
+        )
+    }
+
+    fn player_list_menu_dialog_button_rect(
+        dialog_rect: RenderRect,
+        dialog: &DesktopPlayerListMenuDialog,
+        index: usize,
+    ) -> RenderRect {
+        let divider = Self::player_list_menu_dialog_divider_rect(dialog_rect, dialog);
+        let y = divider.y
+            - dialog.button_pad
+            - dialog.button_height
+            - index as f32 * (dialog.button_height + dialog.button_pad * 2.0);
+        RenderRect::new(
+            dialog_rect.center().x - dialog.button_width * 0.5,
+            y,
+            dialog.button_width,
+            dialog.button_height,
+        )
+    }
+
+    fn player_list_menu_dialog_back_button_rect(
+        dialog_rect: RenderRect,
+        dialog: &DesktopPlayerListMenuDialog,
+    ) -> RenderRect {
+        RenderRect::new(
+            dialog_rect.center().x - dialog.button_width * 0.5,
+            dialog_rect.y + 22.0,
+            dialog.button_width,
+            dialog.button_height,
+        )
+    }
+
+    fn push_player_list_menu_dialog_like_java(
+        &self,
+        pass: &mut RenderPass,
+        viewport: RenderViewport,
+    ) {
+        let Some(dialog) = self.player_list_menu_dialog.as_ref() else {
+            return;
+        };
+        let dialog_rect = Self::player_list_menu_dialog_rect_for_viewport(viewport, dialog);
+        pass.push(RenderCommand::fill_rect(
+            viewport.as_rect(),
+            [0.0, 0.0, 0.0, 0.36],
+            Layer::END_PIXELED + 0.170,
+        ));
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_drawable_symbol("pane"),
+            dialog_rect,
+            [1.0, 1.0, 1.0, 0.97],
+            0.0,
+            Layer::END_PIXELED + 0.171,
+        ));
+        pass.push(RenderCommand::stroke_rect(
+            dialog_rect,
+            [0.52, 0.68, 0.82, 0.95],
+            2.0,
+            Layer::END_PIXELED + 0.172,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            dialog.title.clone(),
+            Self::player_list_menu_dialog_title_point(dialog_rect),
+            [1.0, 1.0, 1.0, 1.0],
+            14.0,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_wrap_width(dialog_rect.width - 48.0)
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.173,
+        ));
+        pass.push(RenderCommand::fill_rect(
+            Self::player_list_menu_dialog_divider_rect(dialog_rect, dialog),
+            [Pal::ACCENT.r, Pal::ACCENT.g, Pal::ACCENT.b, 1.0],
+            Layer::END_PIXELED + 0.174,
+        ));
+        for (index, button) in dialog.model.buttons.iter().enumerate() {
+            self.push_settings_text_button_enabled_checked_with_style(
+                pass,
+                Self::player_list_menu_dialog_button_rect(dialog_rect, dialog, index),
+                button.text,
+                Some(button.icon),
+                Layer::END_PIXELED + 0.176 + index as f32 * 0.0001,
+                true,
+                button.checked,
+                if button.checked {
+                    "togglet"
+                } else {
+                    "defaultt"
+                },
+            );
+        }
+        let back = &dialog.model.back_button;
+        self.push_settings_text_button(
+            pass,
+            Self::player_list_menu_dialog_back_button_rect(dialog_rect, dialog),
+            back.text,
+            Some(back.icon),
+            Layer::END_PIXELED + 0.177 + dialog.model.buttons.len() as f32 * 0.0001,
+        );
+    }
+
+    fn player_list_menu_dialog_render_pass(&self, viewport: RenderViewport) -> Option<RenderPass> {
+        self.player_list_menu_dialog.as_ref()?;
+        let mut pass = RenderPass::new(RenderPassKind::Ui)
+            .with_order(RenderPassKind::Ui.default_order() + 1)
+            .with_viewport(viewport)
+            .with_camera(self.default_render_camera_for_viewport(viewport));
+        self.push_player_list_menu_dialog_like_java(&mut pass, viewport);
+        Some(pass)
+    }
+
     fn game_over_menu_button_rect(dialog: RenderRect) -> RenderRect {
         RenderRect::new(dialog.center().x - 70.0, dialog.y + 28.0, 140.0, 60.0)
     }
@@ -93849,6 +93999,9 @@ impl DesktopLauncher {
         }
         if let Some(ui_pass) = self.desktop_ui_render_pass(viewport) {
             render_frame.push_pass(ui_pass);
+        }
+        if let Some(player_list_menu_pass) = self.player_list_menu_dialog_render_pass(viewport) {
+            render_frame.push_pass(player_list_menu_pass);
         }
         if let Some(pause_pass) = self.pause_overlay_render_pass(viewport) {
             render_frame.push_pass(pause_pass);
@@ -175648,6 +175801,132 @@ displayName = Display Alpha
         assert_eq!(
             launcher.player_list_menu_dialog, None,
             "closing PlayerListFragment should also hide the row menu dialog"
+        );
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_row_menu_dialog_renders_visible_modal_like_java() {
+        use mindustry_core::mindustry::ui::{
+            PlayerListRowAction, PLAYER_LIST_MENU_DIALOG_BUTTON_HEIGHT,
+            PLAYER_LIST_MENU_DIALOG_BUTTON_WIDTH,
+        };
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.settings_locale = "en".into();
+        launcher.player_locale = "en".into();
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.game_state.rules.pvp = true;
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(2));
+        remote.id = 2;
+        remote.name = "[scarlet]Remote".into();
+        remote.color = 0x1122_3344;
+        let mut connection = mindustry_core::mindustry::net::NetConnection::new("127.0.0.2");
+        connection.uuid = "remote-uuid".into();
+        remote.con = Some(connection);
+        launcher.remote_players.insert(remote.id, remote);
+
+        launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .expect("player list should open before the row menu");
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::OpenMenu { player_id: 2 },
+        ));
+
+        let viewport = RenderViewport::new(0.0, 0.0, 900.0, 700.0);
+        let pass = launcher
+            .player_list_menu_dialog_render_pass(viewport)
+            .expect("open row menu dialog should render as an independent Java-style UI pass");
+        assert_eq!(pass.kind, RenderPassKind::Ui);
+        assert_eq!(pass.order, RenderPassKind::Ui.default_order() + 1);
+        assert_eq!(pass.viewport, Some(viewport));
+
+        let dialog = launcher
+            .player_list_menu_dialog
+            .as_ref()
+            .expect("row menu dialog should stay open while rendering");
+        let dialog_rect =
+            DesktopLauncher::player_list_menu_dialog_rect_for_viewport(viewport, dialog);
+        let divider = DesktopLauncher::player_list_menu_dialog_divider_rect(dialog_rect, dialog);
+        let expected_button_rects = (0..dialog.model.buttons.len())
+            .map(|index| {
+                DesktopLauncher::player_list_menu_dialog_button_rect(dialog_rect, dialog, index)
+            })
+            .collect::<Vec<_>>();
+        let expected_back_rect =
+            DesktopLauncher::player_list_menu_dialog_back_button_rect(dialog_rect, dialog);
+
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::FillRect { rect, color, .. }
+                if *rect == viewport.as_rect() && *color == [0.0, 0.0, 0.0, 0.36]
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawSprite { symbol, rect, .. }
+                if symbol == &DesktopLauncher::settings_drawable_symbol("pane")
+                    && *rect == dialog_rect
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, position, color, style, .. }
+                if text == "[scarlet]Remote"
+                    && *position == DesktopLauncher::player_list_menu_dialog_title_point(dialog_rect)
+                    && *color == [1.0, 1.0, 1.0, 1.0]
+                    && style.horizontal_align == RenderTextAlign::Center
+                    && !style.outline
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::FillRect { rect, color, .. }
+                if *rect == divider
+                    && rect.height == 3.0
+                    && *color == [Pal::ACCENT.r, Pal::ACCENT.g, Pal::ACCENT.b, 1.0]
+        )));
+
+        for (rect, label, icon) in [
+            (expected_button_rects[0], "@player.ban", "hammer"),
+            (expected_button_rects[1], "@player.kick", "cancel"),
+            (expected_button_rects[2], "@player.trace", "zoom"),
+            (expected_button_rects[3], "@player.team", "redo"),
+            (expected_button_rects[4], "@player.admin", "admin"),
+            (expected_back_rect, "@back", "left"),
+        ] {
+            assert_eq!(rect.width, PLAYER_LIST_MENU_DIALOG_BUTTON_WIDTH);
+            assert_eq!(rect.height, PLAYER_LIST_MENU_DIALOG_BUTTON_HEIGHT);
+            let localized = launcher.localize_bundle_markup_text(label);
+            assert!(pass.commands.iter().any(|command| matches!(
+                command,
+                RenderCommand::DrawText { text, position, .. }
+                    if text == &localized && rect.contains_point(*position)
+            )));
+            let glyph = super::desktop_ui_icon_glyph_or_label(icon, icon);
+            assert!(pass.commands.iter().any(|command| matches!(
+                command,
+                RenderCommand::DrawText { text, position, style, .. }
+                    if text == &glyph
+                        && rect.contains_point(*position)
+                        && style.font == RenderFontId::Icon
+            )));
+        }
+
+        assert!(launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .is_none());
+        assert!(
+            launcher
+                .player_list_menu_dialog_render_pass(viewport)
+                .is_none(),
+            "closing PlayerListFragment should remove the modal render pass"
         );
     }
 

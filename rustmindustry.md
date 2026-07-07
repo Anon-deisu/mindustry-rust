@@ -37,6 +37,7 @@
 - `cargo test -p mindustry-core sector_launch_loadout_event_keeps_java_sector_from_loadout_fields -- --nocapture`：通过，`1 passed; 0 failed`。
 - `cargo test -p mindustry-core planet_renderer -- --nocapture`：通过，`3 passed; 0 failed`。
 - `cargo test -p mindustry-core planet_dialog -- --nocapture`：通过，`10 passed; 0 failed`。
+- `cargo test -p mindustry-core player_list_fragment --lib -- --nocapture`：通过，`7 passed; 0 failed`。
 - `cargo test -p mindustry-core g3d -- --nocapture`：通过，`32 passed; 0 failed`。
 - `cargo test -p mindustry-core debug_collision -- --nocapture`：通过，`3 passed; 0 failed`。
 - `cargo test -p mindustry-core intel_gpu -- --nocapture`：通过，`4 passed; 0 failed`。
@@ -64,6 +65,8 @@
 - `cargo test -p mindustry-desktop desktop_launcher_campaign_core_launch_cutscene_queues_core_land_dust_like_java -- --nocapture`：通过，`1 passed; 0 failed`。
 - `cargo test -p mindustry-desktop desktop_launcher_campaign_core_launch_cutscene_fades_foreground_like_java -- --nocapture`：通过，`1 passed; 0 failed`。
 - `cargo test -p mindustry-desktop desktop_launcher_ticks_accelerator_launch_time_from_land_time_state -- --nocapture`：通过，`1 passed; 0 failed`。
+- `cargo test -p mindustry-desktop player_list_row_menu --lib -- --nocapture`：通过，`2 passed; 0 failed`。
+- `cargo test -p mindustry-desktop player_list_ --lib -- --nocapture`：通过，`14 passed; 0 failed`。
 - Workspace crate：
   - `mindustry-core`
   - `mindustry-server`
@@ -120,6 +123,7 @@
 - `desktop/src/lib.rs` 已补 `CoreBlock.beginLaunch(launching=true)` 的末段 foreground fade：新增 `campaign_core_launch_fade_render_pass`，按上游 `margin=30f` 与 `Interp.pow2In` 在 `land_time <= 30` 时生成全屏黑色 `Ui` pass `FillRect`，并接入 `graphics_frame_for_render`；新增 `desktop_launcher_campaign_core_launch_cutscene_fades_foreground_like_java` 覆盖早期无 overlay、末段 alpha=0.25 与 frame pipeline 可见。
 - `desktop/src/lib.rs` 已补 `CoreBlock.drawLanding` 末尾 `teamRegions[team.id]` final core sprite：新增 `block_team_region_symbol_like_java`，按上游 `Block.load()` 的 `name + "-team-" + team.name` 专属团队贴图规则查询 atlas，缺图或无 palette 时回退 `name + "-team"` 并套队伍色；`campaign_core_launching_render_pass` 在第二轮 landing thrusters 后、clouds 前追加最终 team sprite，默认 Sharded 命中 `core-shard-team-sharded` 白色贴图；`desktop_launcher_campaign_core_launch_cutscene_emits_space_pass_like_java` 已覆盖贴图、tint、rect/origin、rotation、layer 与命令顺序。
 - `desktop/src/lib.rs` 已补 `CoreBlock.updateLaunch()` 的 `Fx.coreLandDust` 本地事件：新增 `DESKTOP_CAMPAIGN_CORE_THRUSTER_SIZES`、`desktop_mathf_sample_like_java` 与 `campaign_core_land_particle_timer`，在 `CampaignCore` launch tick 的 `should_update_launch` 分支按上游 `(landTimeIn * duration + 35) / duration` 采样 timer，满 1 后遍历核心 footprint linked tiles，以 40% 概率生成 `EffectCallPacket2(coreLandDust, TypeValue::Null)`；事件位置来自 tile `world_x/world_y`，rotation 为核心中心 `angleTo(tile) + range(30)`，颜色为 floor `map_color_rgba * (1.5 ± 0.15)`；新增 `desktop_launcher_campaign_core_launch_cutscene_queues_core_land_dust_like_java` 覆盖 effect id、linked tile 坐标、角度范围与颜色倍率。
+- `desktop/src/lib.rs` 已补 `PlayerListFragment` 行菜单 `BaseDialog` 的首段前端渲染：新增 `player_list_menu_dialog_render_pass` 独立 `Ui` 模态 pass，按上游 `BaseDialog(user.coloredName())`、白色标题、`Tex.whiteui + Pal.accent` 3px 分割线、`Styles.defaultt/togglet` 220x55 按钮和底部 `@back + Icon.left` 绘制，并接入 `graphics_frame_for_render`；新增 `desktop_launcher_player_list_row_menu_dialog_renders_visible_modal_like_java` 覆盖遮罩、pane、标题、分割线、按钮文字/图标/尺寸和关闭 PlayerList 后不再渲染。
 - 后续继续补真实 OpenGL 3D backend 执行、完整 numbered sector 选择/面板、sector 展开/选区实绘，以及 `CoreBlock.drawLaunch/updateLaunch()` 的 landing fade-out 等剩余细化。
 
 ## UI/图形缺口清单
