@@ -152,9 +152,11 @@ use mindustry_core::mindustry::ui::{
     MinimapTexture as FragmentMinimapTexture, MinimapToggleFocus,
     MinimapWorld as FragmentMinimapWorld, PlayerListContext, PlayerListFooterButtonAction,
     PlayerListFragment, PlayerListModel, PlayerListPlayer, PlayerListPlayerMenuAction,
-    PlayerListRowAction, UpstreamContentIcon, UpstreamContentIconRuntimeRegistry, UpstreamFontRole,
-    UpstreamUiIconGlyph, WarningBar, WarningBarDrawCommand, WarningBarLayout,
-    CONSOLE_MOBILE_BUTTON_PAD_LEFT, CONSOLE_MOBILE_BUTTON_SIZE, PLAYER_LIST_TEAM_BUTTON_SIZE,
+    PlayerListPlayerMenuModel, PlayerListRowAction, UpstreamContentIcon,
+    UpstreamContentIconRuntimeRegistry, UpstreamFontRole, UpstreamUiIconGlyph, WarningBar,
+    WarningBarDrawCommand, WarningBarLayout, CONSOLE_MOBILE_BUTTON_PAD_LEFT,
+    CONSOLE_MOBILE_BUTTON_SIZE, PLAYER_LIST_MENU_DIALOG_BUTTON_HEIGHT,
+    PLAYER_LIST_MENU_DIALOG_BUTTON_WIDTH, PLAYER_LIST_TEAM_BUTTON_SIZE,
     UPSTREAM_ICONS_PROPERTIES_SOURCE_PATH, UPSTREAM_LOGIC_FONT_CHARACTERS,
     UPSTREAM_ROUTER_LANGUAGE_GLYPH, UPSTREAM_UI_ICON_GLYPHS,
 };
@@ -27410,6 +27412,21 @@ pub struct DesktopPlayerListAdminConfirm {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct DesktopPlayerListMenuDialog {
+    pub player_id: i32,
+    pub title: String,
+    pub title_color: &'static str,
+    pub title_table_removed: bool,
+    pub close_on_back: bool,
+    pub divider_color: &'static str,
+    pub divider_height: f32,
+    pub button_width: f32,
+    pub button_height: f32,
+    pub button_pad: f32,
+    pub model: PlayerListPlayerMenuModel,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct DesktopPlayerListTeamSelectButton {
     pub team_id: u8,
     pub team_name: String,
@@ -27462,6 +27479,7 @@ pub struct DesktopLauncher {
     pub bans_dialog: Option<BansDialogModel>,
     pub admins_dialog: Option<AdminsDialogModel>,
     pub player_list_admin_confirm: Option<DesktopPlayerListAdminConfirm>,
+    pub player_list_menu_dialog: Option<DesktopPlayerListMenuDialog>,
     pub player_list_team_select: Option<DesktopPlayerListTeamSelect>,
     pub player_list_votekick_input: Option<DesktopPlayerListVoteKickInput>,
     pub player_list_spectating: Option<DesktopPlayerListSpectating>,
@@ -29161,6 +29179,7 @@ impl DesktopLauncher {
             bans_dialog: None,
             admins_dialog: None,
             player_list_admin_confirm: None,
+            player_list_menu_dialog: None,
             player_list_team_select: None,
             player_list_votekick_input: None,
             player_list_spectating: None,
@@ -30509,14 +30528,52 @@ impl DesktopLauncher {
         } else {
             None
         };
+        if self.last_player_list_model.is_none() {
+            self.player_list_menu_dialog = None;
+        }
     }
 
     pub fn toggle_player_list_like_java(&mut self) -> Option<PlayerListModel> {
         let players = self.player_list_players_like_java();
         let context = self.player_list_context_like_java();
         let model = self.player_list_fragment.toggle(&players, &context);
+        if model.is_none() {
+            self.player_list_menu_dialog = None;
+        }
         self.last_player_list_model = model.clone();
         model
+    }
+
+    pub fn open_player_list_menu_dialog_like_java(&mut self, player_id: i32) -> bool {
+        let Some(model) = self.player_list_model_like_java() else {
+            return false;
+        };
+        let Some(menu_model) = model
+            .rows
+            .into_iter()
+            .find(|row| row.player_id == player_id)
+            .and_then(|row| row.menu_model)
+        else {
+            return false;
+        };
+        self.player_list_menu_dialog = Some(DesktopPlayerListMenuDialog {
+            player_id,
+            title: menu_model.title.clone(),
+            title_color: "white",
+            title_table_removed: true,
+            close_on_back: true,
+            divider_color: "accent",
+            divider_height: 3.0,
+            button_width: PLAYER_LIST_MENU_DIALOG_BUTTON_WIDTH,
+            button_height: PLAYER_LIST_MENU_DIALOG_BUTTON_HEIGHT,
+            button_pad: 3.0,
+            model: menu_model,
+        });
+        true
+    }
+
+    pub fn close_player_list_menu_dialog_like_java(&mut self) -> bool {
+        self.player_list_menu_dialog.take().is_some()
     }
 
     fn player_by_id_like_java(&self, player_id: i32) -> Option<&PlayerComp> {
@@ -30991,6 +31048,10 @@ impl DesktopLauncher {
         &mut self,
         action: PlayerListPlayerMenuAction,
     ) -> bool {
+        if matches!(action, PlayerListPlayerMenuAction::Back) {
+            return self.close_player_list_menu_dialog_like_java();
+        }
+        self.player_list_menu_dialog = None;
         match action {
             PlayerListPlayerMenuAction::Ban { player_id } => self
                 .open_player_list_admin_confirm_like_java(
@@ -31056,7 +31117,9 @@ impl DesktopLauncher {
             PlayerListRowAction::Spectate { player_id } => {
                 self.spectate_player_list_player_like_java(player_id)
             }
-            PlayerListRowAction::OpenMenu { .. } => false,
+            PlayerListRowAction::OpenMenu { player_id } => {
+                self.open_player_list_menu_dialog_like_java(player_id)
+            }
         }
     }
 
@@ -94274,6 +94337,7 @@ impl DesktopLauncher {
                             local_player_admin: self.player.admin,
                         });
                     self.last_player_list_model = None;
+                    self.player_list_menu_dialog = None;
                     self.player_list_spectating = None;
                     self.other_player_preview_overlays.clear();
                     self.standard_local_effect_draw_plans.clear();
@@ -95042,6 +95106,7 @@ impl DesktopLauncher {
         self.bans_dialog = None;
         self.admins_dialog = None;
         self.player_list_admin_confirm = None;
+        self.player_list_menu_dialog = None;
         self.player_list_team_select = None;
         self.player_list_votekick_input = None;
         self.player_list_spectating = None;
@@ -175483,6 +175548,107 @@ displayName = Display Alpha
             ]
         );
         assert_eq!(menu.back_button.action, PlayerListPlayerMenuAction::Back);
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_row_menu_open_close_like_java() {
+        use mindustry_core::mindustry::ui::{
+            PlayerListPlayerMenuAction, PlayerListRowAction, PLAYER_LIST_MENU_DIALOG_BUTTON_HEIGHT,
+            PLAYER_LIST_MENU_DIALOG_BUTTON_WIDTH,
+        };
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.game_state.rules.pvp = true;
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(2));
+        remote.id = 2;
+        remote.name = "[scarlet]Remote".into();
+        remote.color = 0x1122_3344;
+        let mut connection = mindustry_core::mindustry::net::NetConnection::new("127.0.0.2");
+        connection.uuid = "remote-uuid".into();
+        remote.con = Some(connection);
+        launcher.remote_players.insert(remote.id, remote);
+
+        let model = launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .expect("player list should open before the row menu");
+        let expected_menu = model
+            .rows
+            .iter()
+            .find(|row| row.player_id == 2)
+            .and_then(|row| row.menu_model.clone())
+            .expect("admin/server row should expose a Java row menu model");
+
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::OpenMenu { player_id: 2 },
+        ));
+        let dialog = launcher
+            .player_list_menu_dialog
+            .as_ref()
+            .expect("row menu button should open the Java BaseDialog equivalent");
+        assert_eq!(dialog.player_id, 2);
+        assert_eq!(dialog.title, "[scarlet]Remote");
+        assert_eq!(dialog.title_color, "white");
+        assert!(dialog.title_table_removed);
+        assert!(dialog.close_on_back);
+        assert_eq!(dialog.divider_color, "accent");
+        assert_eq!(dialog.divider_height, 3.0);
+        assert_eq!(dialog.button_width, PLAYER_LIST_MENU_DIALOG_BUTTON_WIDTH);
+        assert_eq!(dialog.button_height, PLAYER_LIST_MENU_DIALOG_BUTTON_HEIGHT);
+        assert_eq!(dialog.button_pad, 3.0);
+        assert_eq!(dialog.model, expected_menu);
+
+        assert!(
+            launcher.dispatch_player_list_menu_action_like_java(PlayerListPlayerMenuAction::Back,)
+        );
+        assert_eq!(launcher.player_list_menu_dialog, None);
+
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::OpenMenu { player_id: 2 },
+        ));
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::OpenTeamSelect { player_id: 2 },
+        ));
+        assert_eq!(
+            launcher.player_list_menu_dialog, None,
+            "opening the nested team dialog should hide the parent row menu like Java"
+        );
+        assert!(launcher.player_list_team_select.is_some());
+
+        launcher.player_list_team_select = None;
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::OpenMenu { player_id: 2 },
+        ));
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::Ban { player_id: 2 },
+        ));
+        assert_eq!(
+            launcher.player_list_menu_dialog, None,
+            "admin actions should hide the row menu before opening confirmation"
+        );
+        assert!(launcher.player_list_admin_confirm.is_some());
+
+        launcher.player_list_admin_confirm = None;
+        assert!(launcher.dispatch_player_list_row_action_like_java(
+            PlayerListRowAction::OpenMenu { player_id: 2 },
+        ));
+        assert!(launcher
+            .dispatch_desktop_input_action_like_java(
+                mindustry_core::mindustry::input::DesktopInputAction::TogglePlayerList,
+            )
+            .is_none());
+        assert_eq!(
+            launcher.player_list_menu_dialog, None,
+            "closing PlayerListFragment should also hide the row menu dialog"
+        );
     }
 
     #[test]
