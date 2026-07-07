@@ -124,11 +124,13 @@ use mindustry_core::mindustry::ui::dialogs::map_locales_dialog::{
     MAP_LOCALES_CONTENT_ICON_TYPES, MAP_LOCALES_ICON_BUTTON_SIZE, MAP_LOCALES_ICON_CELL_WIDTH,
 };
 use mindustry_core::mindustry::ui::dialogs::{
-    AdminPlayerInfo, AdminsDialog, AdminsDialogModel, BannedPlayerInfo, BansDialog,
-    BansDialogModel, BaseDialog, CampaignCompleteDialog, CampaignCompleteDialogModel,
-    CampaignCompletePlanet, DialogShellLayout, DialogStyle, LanguageDialog, LanguageDialogLocale,
-    MapLocalesDialog, MapLocalesDialogLocaleEntry, PauseContext, PausedDialog, PausedDialogAction,
-    TraceDialog, TraceDialogModel, TraceInfo as TraceDialogInfo,
+    AdminPlayerInfo, AdminsDialog, AdminsDialogModel, AdminsDialogRow, BannedPlayerInfo,
+    BansDialog, BansDialogModel, BansDialogRow, BaseDialog, CampaignCompleteDialog,
+    CampaignCompleteDialogModel, CampaignCompletePlanet, DialogShellLayout, DialogStyle,
+    LanguageDialog, LanguageDialogLocale, MapLocalesDialog, MapLocalesDialogLocaleEntry,
+    PauseContext, PausedDialog, PausedDialogAction, TraceDialog, TraceDialogModel,
+    TraceInfo as TraceDialogInfo, ADMINS_DIALOG_ROW_HEIGHT, ADMINS_DIALOG_ROW_MARGIN,
+    ADMINS_DIALOG_ROW_WIDTH, BANS_DIALOG_ROW_HEIGHT, BANS_DIALOG_ROW_MARGIN, BANS_DIALOG_ROW_WIDTH,
     LANGUAGE_DIALOG_RESTART_MESSAGE_KEY, LANGUAGE_DIALOG_ROW_HEIGHT, LANGUAGE_DIALOG_ROW_WIDTH,
     LANGUAGE_DIALOG_TABLE_MARGIN_HORIZONTAL, MAP_LOCALES_CARD_WIDTH,
     MAP_LOCALES_LOCALE_ADD_BUTTON_HEIGHT, MAP_LOCALES_LOCALE_ADD_BUTTON_WIDTH,
@@ -312,6 +314,19 @@ const PLAYER_TRACE_DIALOG_CLOSE_BUTTON_WIDTH_LIKE_JAVA: f32 = SETTINGS_BACK_BUTT
 const PLAYER_TRACE_DIALOG_CLOSE_BUTTON_HEIGHT_LIKE_JAVA: f32 = SETTINGS_BACK_BUTTON_HEIGHT;
 const PLAYER_TRACE_DIALOG_MIN_WIDTH_LIKE_JAVA: f32 = 430.0;
 const PLAYER_TRACE_DIALOG_MAX_WIDTH_LIKE_JAVA: f32 = 720.0;
+const ADMIN_LIST_DIALOG_MARGIN_LIKE_JAVA: f32 = 24.0;
+const ADMIN_LIST_DIALOG_TITLE_HEIGHT_LIKE_JAVA: f32 = 42.0;
+const ADMIN_LIST_DIALOG_TITLE_DIVIDER_PAD_LIKE_JAVA: f32 = 4.0;
+const ADMIN_LIST_DIALOG_DIVIDER_HEIGHT_LIKE_JAVA: f32 = 3.0;
+const ADMIN_LIST_DIALOG_ROW_BUTTON_NEGATIVE_PAD_LIKE_JAVA: f32 = -14.0;
+const ADMIN_LIST_DIALOG_CLOSE_BUTTON_TOP_PAD_LIKE_JAVA: f32 = 18.0;
+const ADMIN_LIST_DIALOG_CLOSE_BUTTON_BOTTOM_PAD_LIKE_JAVA: f32 = 22.0;
+const ADMIN_LIST_DIALOG_CLOSE_BUTTON_WIDTH_LIKE_JAVA: f32 = SETTINGS_BACK_BUTTON_WIDTH;
+const ADMIN_LIST_DIALOG_CLOSE_BUTTON_HEIGHT_LIKE_JAVA: f32 = SETTINGS_BACK_BUTTON_HEIGHT;
+const ADMIN_LIST_DIALOG_MIN_WIDTH_LIKE_JAVA: f32 = 480.0;
+const ADMIN_LIST_DIALOG_MAX_WIDTH_LIKE_JAVA: f32 = 640.0;
+const ADMIN_LIST_DIALOG_MIN_HEIGHT_LIKE_JAVA: f32 = 230.0;
+const ADMIN_LIST_DIALOG_MAX_VISIBLE_ROWS_LIKE_JAVA: usize = 5;
 const MAP_PLAY_CUSTOM_RULE_SEARCH_MAX_LENGTH: usize = 96;
 const MAP_LOCALES_SEARCH_MAX_LENGTH: usize = 96;
 const MAP_LOCALES_PROPERTY_NAME_MAX_LENGTH: usize = 64;
@@ -27463,6 +27478,43 @@ pub enum DesktopPlayerTraceDialogAction {
     Close,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopAdminListDialogKind {
+    Bans,
+    Admins,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DesktopAdminListDialogAction {
+    ConfirmRow {
+        kind: DesktopAdminListDialogKind,
+        row_index: usize,
+    },
+    Close {
+        kind: DesktopAdminListDialogKind,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DesktopAdminListConfirmAction {
+    Unban { id: String },
+    Unadmin { id: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesktopAdminListConfirm {
+    pub kind: DesktopAdminListDialogKind,
+    pub title: &'static str,
+    pub message: String,
+    pub action: DesktopAdminListConfirmAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopAdminListConfirmDialogAction {
+    Cancel,
+    Ok,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DesktopPlayerListMenuDialog {
     pub player_id: i32,
@@ -27543,6 +27595,9 @@ pub struct DesktopLauncher {
     pub player_trace_dialog: Option<TraceDialogModel>,
     pub bans_dialog: Option<BansDialogModel>,
     pub admins_dialog: Option<AdminsDialogModel>,
+    pub admin_list_confirm: Option<DesktopAdminListConfirm>,
+    pub bans_dialog_scroll_offset: usize,
+    pub admins_dialog_scroll_offset: usize,
     pub player_list_admin_confirm: Option<DesktopPlayerListAdminConfirm>,
     pub player_list_menu_dialog: Option<DesktopPlayerListMenuDialog>,
     pub player_list_team_select: Option<DesktopPlayerListTeamSelect>,
@@ -29243,6 +29298,9 @@ impl DesktopLauncher {
             player_trace_dialog: None,
             bans_dialog: None,
             admins_dialog: None,
+            admin_list_confirm: None,
+            bans_dialog_scroll_offset: 0,
+            admins_dialog_scroll_offset: 0,
             player_list_admin_confirm: None,
             player_list_menu_dialog: None,
             player_list_team_select: None,
@@ -30586,6 +30644,9 @@ impl DesktopLauncher {
         self.player_list_fragment.update_visibility(&context);
         if !(context.net_active && context.state_is_game) {
             self.player_trace_dialog = None;
+            self.bans_dialog = None;
+            self.admins_dialog = None;
+            self.admin_list_confirm = None;
         }
         self.last_player_list_model = if self.player_list_fragment.visible() {
             let players = self.player_list_players_like_java();
@@ -30597,6 +30658,9 @@ impl DesktopLauncher {
             self.player_list_menu_dialog = None;
             self.player_list_team_select = None;
             self.player_list_votekick_input = None;
+            self.bans_dialog = None;
+            self.admins_dialog = None;
+            self.admin_list_confirm = None;
         }
     }
 
@@ -30608,6 +30672,9 @@ impl DesktopLauncher {
             self.player_list_menu_dialog = None;
             self.player_list_team_select = None;
             self.player_list_votekick_input = None;
+            self.bans_dialog = None;
+            self.admins_dialog = None;
+            self.admin_list_confirm = None;
         }
         self.last_player_list_model = model.clone();
         model
@@ -30874,6 +30941,9 @@ impl DesktopLauncher {
             .map(|info| BannedPlayerInfo::new(info.id, info.last_ip, info.last_name))
             .collect::<Vec<_>>();
         self.bans_dialog = Some(BansDialog::new().setup(&banned));
+        self.admins_dialog = None;
+        self.admin_list_confirm = None;
+        self.bans_dialog_scroll_offset = 0;
         true
     }
 
@@ -30888,7 +30958,81 @@ impl DesktopLauncher {
             .map(|info| AdminPlayerInfo::new(info.id, info.last_name))
             .collect::<Vec<_>>();
         self.admins_dialog = Some(AdminsDialog::new().setup(&admins));
+        self.bans_dialog = None;
+        self.admin_list_confirm = None;
+        self.admins_dialog_scroll_offset = 0;
         true
+    }
+
+    pub fn close_bans_dialog_like_java(&mut self) -> bool {
+        self.admin_list_confirm = None;
+        self.bans_dialog_scroll_offset = 0;
+        self.bans_dialog.take().is_some()
+    }
+
+    pub fn close_admins_dialog_like_java(&mut self) -> bool {
+        self.admin_list_confirm = None;
+        self.admins_dialog_scroll_offset = 0;
+        self.admins_dialog.take().is_some()
+    }
+
+    fn open_bans_dialog_unban_confirm_like_java(&mut self, row_index: usize) -> bool {
+        let Some(model) = self.bans_dialog.as_ref() else {
+            return false;
+        };
+        let Some(row) = model.rows.get(row_index) else {
+            return false;
+        };
+        self.admin_list_confirm = Some(DesktopAdminListConfirm {
+            kind: DesktopAdminListDialogKind::Bans,
+            title: row.confirm_title,
+            message: self.localize_bundle_markup_text(row.confirm_text),
+            action: DesktopAdminListConfirmAction::Unban { id: row.id.clone() },
+        });
+        true
+    }
+
+    fn open_admins_dialog_unadmin_confirm_like_java(&mut self, row_index: usize) -> bool {
+        let Some(model) = self.admins_dialog.as_ref() else {
+            return false;
+        };
+        let Some(row) = model.rows.get(row_index) else {
+            return false;
+        };
+        self.admin_list_confirm = Some(DesktopAdminListConfirm {
+            kind: DesktopAdminListDialogKind::Admins,
+            title: row.confirm_title,
+            message: row.confirm_text.clone(),
+            action: DesktopAdminListConfirmAction::Unadmin { id: row.id.clone() },
+        });
+        true
+    }
+
+    fn cancel_admin_list_confirm_like_java(&mut self) -> bool {
+        self.admin_list_confirm.take().is_some()
+    }
+
+    fn confirm_admin_list_action_like_java(&mut self) -> bool {
+        let Some(confirm) = self.admin_list_confirm.take() else {
+            return false;
+        };
+        match confirm.action {
+            DesktopAdminListConfirmAction::Unban { id } => {
+                let changed = self.net_server_admins.unban_player_id(id);
+                self.show_bans_dialog_like_java();
+                changed
+            }
+            DesktopAdminListConfirmAction::Unadmin { id } => {
+                let changed = self.net_server_admins.unadmin_player(id.clone());
+                for player in self.remote_players.values_mut() {
+                    if player.uuid() == id {
+                        player.admin = false;
+                    }
+                }
+                self.show_admins_dialog_like_java();
+                changed
+            }
+        }
     }
 
     pub fn open_player_list_team_select_like_java(&mut self, player_id: i32) -> bool {
@@ -36255,6 +36399,16 @@ impl DesktopLauncher {
         surface_size: DesktopSurfaceSize,
         point: RenderPoint,
     ) -> bool {
+        if self.admin_list_confirm.is_some() {
+            return self
+                .admin_list_confirm_action_at_surface_point(surface_size, point.x, point.y)
+                .is_some();
+        }
+        if self.bans_dialog.is_some() || self.admins_dialog.is_some() {
+            return self
+                .admin_list_dialog_action_at_surface_point(surface_size, point.x, point.y)
+                .is_some();
+        }
         if self.player_trace_dialog.is_some() {
             return self
                 .player_trace_dialog_action_at_surface_point(surface_size, point.x, point.y)
@@ -36497,6 +36651,18 @@ impl DesktopLauncher {
     }
 
     fn apply_menu_back_key(&mut self) -> bool {
+        if self.admin_list_confirm.is_some() {
+            self.cancel_admin_list_confirm_like_java();
+            return true;
+        }
+        if self.bans_dialog.is_some() {
+            self.close_bans_dialog_like_java();
+            return true;
+        }
+        if self.admins_dialog.is_some() {
+            self.close_admins_dialog_like_java();
+            return true;
+        }
         if self.player_trace_dialog.is_some() {
             self.close_player_trace_dialog_like_java();
             return true;
@@ -47219,6 +47385,649 @@ impl DesktopLauncher {
             .with_viewport(viewport)
             .with_camera(self.default_render_camera_for_viewport(viewport));
         self.push_player_list_admin_confirm_dialog_like_java(&mut pass, viewport);
+        Some(pass)
+    }
+
+    fn admin_list_dialog_row_width(kind: DesktopAdminListDialogKind) -> f32 {
+        match kind {
+            DesktopAdminListDialogKind::Bans => BANS_DIALOG_ROW_WIDTH,
+            DesktopAdminListDialogKind::Admins => ADMINS_DIALOG_ROW_WIDTH,
+        }
+    }
+
+    fn admin_list_dialog_row_height(kind: DesktopAdminListDialogKind) -> f32 {
+        match kind {
+            DesktopAdminListDialogKind::Bans => BANS_DIALOG_ROW_HEIGHT,
+            DesktopAdminListDialogKind::Admins => ADMINS_DIALOG_ROW_HEIGHT,
+        }
+    }
+
+    fn admin_list_dialog_row_margin(kind: DesktopAdminListDialogKind) -> f32 {
+        match kind {
+            DesktopAdminListDialogKind::Bans => BANS_DIALOG_ROW_MARGIN,
+            DesktopAdminListDialogKind::Admins => ADMINS_DIALOG_ROW_MARGIN,
+        }
+    }
+
+    fn admin_list_dialog_title(&self, kind: DesktopAdminListDialogKind) -> Option<&'static str> {
+        match kind {
+            DesktopAdminListDialogKind::Bans => self.bans_dialog.as_ref().map(|model| model.title),
+            DesktopAdminListDialogKind::Admins => {
+                self.admins_dialog.as_ref().map(|model| model.title)
+            }
+        }
+    }
+
+    fn admin_list_dialog_row_count(&self, kind: DesktopAdminListDialogKind) -> Option<usize> {
+        match kind {
+            DesktopAdminListDialogKind::Bans => {
+                self.bans_dialog.as_ref().map(|model| model.rows.len())
+            }
+            DesktopAdminListDialogKind::Admins => {
+                self.admins_dialog.as_ref().map(|model| model.rows.len())
+            }
+        }
+    }
+
+    fn admin_list_dialog_empty_label(
+        &self,
+        kind: DesktopAdminListDialogKind,
+    ) -> Option<Option<&'static str>> {
+        match kind {
+            DesktopAdminListDialogKind::Bans => {
+                self.bans_dialog.as_ref().map(|model| model.empty_label)
+            }
+            DesktopAdminListDialogKind::Admins => {
+                self.admins_dialog.as_ref().map(|model| model.empty_label)
+            }
+        }
+    }
+
+    fn admin_list_dialog_scroll_offset(&self, kind: DesktopAdminListDialogKind) -> usize {
+        match kind {
+            DesktopAdminListDialogKind::Bans => self.bans_dialog_scroll_offset,
+            DesktopAdminListDialogKind::Admins => self.admins_dialog_scroll_offset,
+        }
+    }
+
+    fn set_admin_list_dialog_scroll_offset(
+        &mut self,
+        kind: DesktopAdminListDialogKind,
+        offset: usize,
+    ) {
+        match kind {
+            DesktopAdminListDialogKind::Bans => self.bans_dialog_scroll_offset = offset,
+            DesktopAdminListDialogKind::Admins => self.admins_dialog_scroll_offset = offset,
+        }
+    }
+
+    fn active_admin_list_dialog_kind(&self) -> Option<DesktopAdminListDialogKind> {
+        if self.admins_dialog.is_some() {
+            Some(DesktopAdminListDialogKind::Admins)
+        } else if self.bans_dialog.is_some() {
+            Some(DesktopAdminListDialogKind::Bans)
+        } else {
+            None
+        }
+    }
+
+    fn admin_list_dialog_visible_row_capacity(row_count: usize) -> usize {
+        row_count
+            .max(1)
+            .min(ADMIN_LIST_DIALOG_MAX_VISIBLE_ROWS_LIKE_JAVA)
+    }
+
+    fn admin_list_dialog_rect_for_viewport(
+        viewport: RenderViewport,
+        kind: DesktopAdminListDialogKind,
+        row_count: usize,
+    ) -> RenderRect {
+        let row_width = Self::admin_list_dialog_row_width(kind);
+        let row_height = Self::admin_list_dialog_row_height(kind);
+        let visible_rows = Self::admin_list_dialog_visible_row_capacity(row_count);
+        let list_height = visible_rows as f32 * row_height;
+        let desired_width = row_width + ADMIN_LIST_DIALOG_MARGIN_LIKE_JAVA * 2.0;
+        let width = desired_width
+            .clamp(
+                ADMIN_LIST_DIALOG_MIN_WIDTH_LIKE_JAVA,
+                ADMIN_LIST_DIALOG_MAX_WIDTH_LIKE_JAVA,
+            )
+            .min((viewport.width - 48.0).max(ADMIN_LIST_DIALOG_MIN_WIDTH_LIKE_JAVA));
+        let desired_height = ADMIN_LIST_DIALOG_TITLE_HEIGHT_LIKE_JAVA
+            + ADMIN_LIST_DIALOG_TITLE_DIVIDER_PAD_LIKE_JAVA
+            + ADMIN_LIST_DIALOG_DIVIDER_HEIGHT_LIKE_JAVA
+            + ADMIN_LIST_DIALOG_MARGIN_LIKE_JAVA * 2.0
+            + list_height
+            + ADMIN_LIST_DIALOG_CLOSE_BUTTON_TOP_PAD_LIKE_JAVA
+            + ADMIN_LIST_DIALOG_CLOSE_BUTTON_HEIGHT_LIKE_JAVA
+            + ADMIN_LIST_DIALOG_CLOSE_BUTTON_BOTTOM_PAD_LIKE_JAVA;
+        let height = desired_height
+            .max(ADMIN_LIST_DIALOG_MIN_HEIGHT_LIKE_JAVA)
+            .min((viewport.height - 48.0).max(ADMIN_LIST_DIALOG_MIN_HEIGHT_LIKE_JAVA));
+        RenderRect::new(
+            viewport.x + viewport.width * 0.5 - width * 0.5,
+            viewport.y + viewport.height * 0.5 - height * 0.5,
+            width,
+            height,
+        )
+    }
+
+    fn admin_list_dialog_title_point(dialog: RenderRect) -> RenderPoint {
+        RenderPoint::new(
+            dialog.center().x,
+            dialog.y + dialog.height - ADMIN_LIST_DIALOG_TITLE_HEIGHT_LIKE_JAVA * 0.5,
+        )
+    }
+
+    fn admin_list_dialog_divider_rect(dialog: RenderRect) -> RenderRect {
+        RenderRect::new(
+            dialog.x + ADMIN_LIST_DIALOG_MARGIN_LIKE_JAVA,
+            dialog.y + dialog.height
+                - ADMIN_LIST_DIALOG_TITLE_HEIGHT_LIKE_JAVA
+                - ADMIN_LIST_DIALOG_TITLE_DIVIDER_PAD_LIKE_JAVA
+                - ADMIN_LIST_DIALOG_DIVIDER_HEIGHT_LIKE_JAVA,
+            dialog.width - ADMIN_LIST_DIALOG_MARGIN_LIKE_JAVA * 2.0,
+            ADMIN_LIST_DIALOG_DIVIDER_HEIGHT_LIKE_JAVA,
+        )
+    }
+
+    fn admin_list_dialog_close_button_rect(dialog: RenderRect) -> RenderRect {
+        RenderRect::new(
+            dialog.center().x - ADMIN_LIST_DIALOG_CLOSE_BUTTON_WIDTH_LIKE_JAVA * 0.5,
+            dialog.y + ADMIN_LIST_DIALOG_CLOSE_BUTTON_BOTTOM_PAD_LIKE_JAVA,
+            ADMIN_LIST_DIALOG_CLOSE_BUTTON_WIDTH_LIKE_JAVA,
+            ADMIN_LIST_DIALOG_CLOSE_BUTTON_HEIGHT_LIKE_JAVA,
+        )
+    }
+
+    fn admin_list_dialog_list_rect(
+        dialog: RenderRect,
+        kind: DesktopAdminListDialogKind,
+        row_count: usize,
+    ) -> RenderRect {
+        let row_width = Self::admin_list_dialog_row_width(kind);
+        let row_height = Self::admin_list_dialog_row_height(kind);
+        let visible_rows = Self::admin_list_dialog_visible_row_capacity(row_count);
+        let height = visible_rows as f32 * row_height;
+        let close = Self::admin_list_dialog_close_button_rect(dialog);
+        let y = close.y + close.height + ADMIN_LIST_DIALOG_CLOSE_BUTTON_TOP_PAD_LIKE_JAVA;
+        RenderRect::new(dialog.center().x - row_width * 0.5, y, row_width, height)
+    }
+
+    fn admin_list_dialog_row_rect(
+        list: RenderRect,
+        kind: DesktopAdminListDialogKind,
+        visible_index: usize,
+    ) -> RenderRect {
+        let row_height = Self::admin_list_dialog_row_height(kind);
+        RenderRect::new(
+            list.x,
+            list.y + list.height - row_height * (visible_index as f32 + 1.0),
+            list.width,
+            row_height,
+        )
+    }
+
+    fn admin_list_dialog_row_label_rect(
+        row: RenderRect,
+        kind: DesktopAdminListDialogKind,
+    ) -> RenderRect {
+        let margin = Self::admin_list_dialog_row_margin(kind);
+        let button_size = Self::admin_list_dialog_row_height(kind);
+        RenderRect::new(
+            row.x + margin,
+            row.y + margin,
+            row.width - button_size - 24.0,
+            row.height - margin * 2.0,
+        )
+    }
+
+    fn admin_list_dialog_row_cancel_button_rect(
+        row: RenderRect,
+        kind: DesktopAdminListDialogKind,
+    ) -> RenderRect {
+        let button_size = Self::admin_list_dialog_row_height(kind);
+        let margin = Self::admin_list_dialog_row_margin(kind);
+        let pad = ADMIN_LIST_DIALOG_ROW_BUTTON_NEGATIVE_PAD_LIKE_JAVA;
+        let cell_size = button_size + pad * 2.0;
+        RenderRect::new(
+            row.right() - margin - cell_size + pad,
+            row.y + margin + pad,
+            button_size,
+            button_size,
+        )
+    }
+
+    fn admin_list_confirm_dialog_rect_for_viewport(
+        viewport: RenderViewport,
+        confirm: &DesktopAdminListConfirm,
+    ) -> RenderRect {
+        Self::settings_data_confirm_dialog_rect_for_message(viewport.as_rect(), &confirm.message)
+    }
+
+    fn admin_list_confirm_cancel_rect(dialog: RenderRect) -> RenderRect {
+        Self::settings_data_confirm_cancel_rect(dialog)
+    }
+
+    fn admin_list_confirm_ok_rect(dialog: RenderRect) -> RenderRect {
+        Self::settings_data_confirm_ok_rect(dialog)
+    }
+
+    fn admin_list_confirm_action_at_surface_point(
+        &self,
+        surface_size: DesktopSurfaceSize,
+        x: f32,
+        y: f32,
+    ) -> Option<DesktopAdminListConfirmDialogAction> {
+        let confirm = self.admin_list_confirm.as_ref()?;
+        let viewport = self.default_render_viewport_for_surface(surface_size);
+        let dialog = Self::admin_list_confirm_dialog_rect_for_viewport(viewport, confirm);
+        let point = RenderPoint::new(x, y);
+        if Self::admin_list_confirm_cancel_rect(dialog).contains_point(point) {
+            return Some(DesktopAdminListConfirmDialogAction::Cancel);
+        }
+        if Self::admin_list_confirm_ok_rect(dialog).contains_point(point) {
+            return Some(DesktopAdminListConfirmDialogAction::Ok);
+        }
+        None
+    }
+
+    fn admin_list_dialog_action_at_surface_point(
+        &self,
+        surface_size: DesktopSurfaceSize,
+        x: f32,
+        y: f32,
+    ) -> Option<DesktopAdminListDialogAction> {
+        let kind = self.active_admin_list_dialog_kind()?;
+        let row_count = self.admin_list_dialog_row_count(kind)?;
+        let viewport = self.default_render_viewport_for_surface(surface_size);
+        let dialog = Self::admin_list_dialog_rect_for_viewport(viewport, kind, row_count);
+        let point = RenderPoint::new(x, y);
+        if Self::admin_list_dialog_close_button_rect(dialog).contains_point(point) {
+            return Some(DesktopAdminListDialogAction::Close { kind });
+        }
+        let list = Self::admin_list_dialog_list_rect(dialog, kind, row_count);
+        let visible_rows = row_count.min(Self::admin_list_dialog_visible_row_capacity(row_count));
+        let offset = self
+            .admin_list_dialog_scroll_offset(kind)
+            .min(row_count.saturating_sub(visible_rows));
+        for visible_index in 0..visible_rows {
+            let row_index = offset + visible_index;
+            let row = Self::admin_list_dialog_row_rect(list, kind, visible_index);
+            if Self::admin_list_dialog_row_cancel_button_rect(row, kind).contains_point(point) {
+                return Some(DesktopAdminListDialogAction::ConfirmRow { kind, row_index });
+            }
+        }
+        None
+    }
+
+    fn dispatch_admin_list_dialog_action_like_java(
+        &mut self,
+        action: DesktopAdminListDialogAction,
+    ) -> bool {
+        match action {
+            DesktopAdminListDialogAction::ConfirmRow {
+                kind: DesktopAdminListDialogKind::Bans,
+                row_index,
+            } => self.open_bans_dialog_unban_confirm_like_java(row_index),
+            DesktopAdminListDialogAction::ConfirmRow {
+                kind: DesktopAdminListDialogKind::Admins,
+                row_index,
+            } => self.open_admins_dialog_unadmin_confirm_like_java(row_index),
+            DesktopAdminListDialogAction::Close {
+                kind: DesktopAdminListDialogKind::Bans,
+            } => self.close_bans_dialog_like_java(),
+            DesktopAdminListDialogAction::Close {
+                kind: DesktopAdminListDialogKind::Admins,
+            } => self.close_admins_dialog_like_java(),
+        }
+    }
+
+    fn dispatch_admin_list_confirm_dialog_action_like_java(
+        &mut self,
+        action: DesktopAdminListConfirmDialogAction,
+    ) -> bool {
+        match action {
+            DesktopAdminListConfirmDialogAction::Cancel => {
+                self.cancel_admin_list_confirm_like_java()
+            }
+            DesktopAdminListConfirmDialogAction::Ok => self.confirm_admin_list_action_like_java(),
+        }
+    }
+
+    fn apply_admin_list_dialog_scroll_delta(
+        &mut self,
+        surface_size: DesktopSurfaceSize,
+        delta_y: f32,
+    ) -> bool {
+        if self.admin_list_confirm.is_some() {
+            return true;
+        }
+        let Some(kind) = self.active_admin_list_dialog_kind() else {
+            return false;
+        };
+        let Some(cursor) = self.last_menu_cursor else {
+            return true;
+        };
+        let row_count = self
+            .admin_list_dialog_row_count(kind)
+            .expect("active admin list dialog should have a row count");
+        let viewport = self.default_render_viewport_for_surface(surface_size);
+        let dialog = Self::admin_list_dialog_rect_for_viewport(viewport, kind, row_count);
+        if !dialog.contains_point(cursor) {
+            return true;
+        }
+        let visible_rows = Self::admin_list_dialog_visible_row_capacity(row_count).min(row_count);
+        let max = row_count.saturating_sub(visible_rows);
+        if max == 0 {
+            return true;
+        }
+        let current = self.admin_list_dialog_scroll_offset(kind).min(max);
+        let rows = delta_y.abs().ceil().max(1.0) as isize;
+        let step = if delta_y < 0.0 {
+            rows
+        } else if delta_y > 0.0 {
+            -rows
+        } else {
+            0
+        };
+        let next = (current as isize + step).clamp(0, max as isize) as usize;
+        self.set_admin_list_dialog_scroll_offset(kind, next);
+        true
+    }
+
+    fn push_admin_list_cancel_button_like_java(
+        &self,
+        pass: &mut RenderPass,
+        rect: RenderRect,
+        layer: f32,
+    ) {
+        let hovered = self
+            .last_menu_cursor
+            .is_some_and(|point| rect.contains_point(point));
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_image_button_symbol("defaulti", hovered, false),
+            rect,
+            [1.0, 1.0, 1.0, 0.96],
+            0.0,
+            layer,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            desktop_ui_icon_glyph_or_label("cancel", "cancel"),
+            rect.center(),
+            Self::settings_image_button_image_color("defaulti", hovered, false, false, true),
+            SETTINGS_TEXT_BUTTON_ICON_SIZE_LIKE_JAVA,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_font(RenderFontId::Icon)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_integer_position(true),
+            layer + 0.004,
+        ));
+    }
+
+    fn push_admin_list_bans_row_like_java(
+        &self,
+        pass: &mut RenderPass,
+        row: &BansDialogRow,
+        row_rect: RenderRect,
+        visible_index: usize,
+    ) {
+        self.push_admin_list_row_like_java(
+            pass,
+            row.label.as_str(),
+            row_rect,
+            DesktopAdminListDialogKind::Bans,
+            row.button_size,
+            visible_index,
+        );
+    }
+
+    fn push_admin_list_admins_row_like_java(
+        &self,
+        pass: &mut RenderPass,
+        row: &AdminsDialogRow,
+        row_rect: RenderRect,
+        visible_index: usize,
+    ) {
+        self.push_admin_list_row_like_java(
+            pass,
+            row.label.as_str(),
+            row_rect,
+            DesktopAdminListDialogKind::Admins,
+            row.button_size,
+            visible_index,
+        );
+    }
+
+    fn push_admin_list_row_like_java(
+        &self,
+        pass: &mut RenderPass,
+        label: &str,
+        row_rect: RenderRect,
+        kind: DesktopAdminListDialogKind,
+        button_size: f32,
+        visible_index: usize,
+    ) {
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_drawable_symbol("button"),
+            row_rect,
+            [1.0, 1.0, 1.0, 0.96],
+            0.0,
+            Layer::END_PIXELED + 0.232 + visible_index as f32 * 0.0001,
+        ));
+        let label_rect = Self::admin_list_dialog_row_label_rect(row_rect, kind);
+        pass.push(RenderCommand::draw_text_styled(
+            label.to_string(),
+            RenderPoint::new(label_rect.x, label_rect.center().y),
+            [0.84, 0.90, 0.96, 1.0],
+            SETTINGS_JAVA_DEFAULT_FONT_SIZE,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Start)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_wrap_width(label_rect.width)
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.233 + visible_index as f32 * 0.0001,
+        ));
+        let cancel = Self::admin_list_dialog_row_cancel_button_rect(row_rect, kind);
+        self.push_admin_list_cancel_button_like_java(
+            pass,
+            RenderRect::new(cancel.x, cancel.y, button_size, button_size),
+            Layer::END_PIXELED + 0.234 + visible_index as f32 * 0.0001,
+        );
+    }
+
+    fn push_admin_list_dialog_shell_like_java(
+        &self,
+        pass: &mut RenderPass,
+        viewport: RenderViewport,
+        kind: DesktopAdminListDialogKind,
+    ) {
+        let Some(row_count) = self.admin_list_dialog_row_count(kind) else {
+            return;
+        };
+        let Some(title) = self.admin_list_dialog_title(kind) else {
+            return;
+        };
+        let dialog = Self::admin_list_dialog_rect_for_viewport(viewport, kind, row_count);
+        let list = Self::admin_list_dialog_list_rect(dialog, kind, row_count);
+        pass.push(RenderCommand::fill_rect(
+            viewport.as_rect(),
+            [0.0, 0.0, 0.0, 0.50],
+            Layer::END_PIXELED + 0.225,
+        ));
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_drawable_symbol("pane"),
+            dialog,
+            [1.0, 1.0, 1.0, 0.98],
+            0.0,
+            Layer::END_PIXELED + 0.226,
+        ));
+        pass.push(RenderCommand::stroke_rect(
+            dialog,
+            [0.72, 0.86, 1.0, 0.96],
+            2.0,
+            Layer::END_PIXELED + 0.227,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            self.localize_bundle_markup_text(title),
+            Self::admin_list_dialog_title_point(dialog),
+            [0.96, 0.98, 1.0, 1.0],
+            SETTINGS_TEXT_BUTTON_FONT_SIZE,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.228,
+        ));
+        pass.push(RenderCommand::fill_rect(
+            Self::admin_list_dialog_divider_rect(dialog),
+            [Pal::ACCENT.r, Pal::ACCENT.g, Pal::ACCENT.b, 1.0],
+            Layer::END_PIXELED + 0.229,
+        ));
+
+        if row_count == 0 {
+            if let Some(empty_label) = self.admin_list_dialog_empty_label(kind).flatten() {
+                pass.push(RenderCommand::draw_text_styled(
+                    self.localize_bundle_markup_text(empty_label),
+                    list.center(),
+                    [0.84, 0.90, 0.96, 1.0],
+                    SETTINGS_JAVA_DEFAULT_FONT_SIZE,
+                    0.0,
+                    RenderTextStyle::new(RenderTextAlign::Center)
+                        .with_vertical_align(RenderTextVerticalAlign::Center)
+                        .with_wrap_width(list.width)
+                        .with_integer_position(true),
+                    Layer::END_PIXELED + 0.231,
+                ));
+            }
+        } else {
+            let visible_rows =
+                row_count.min(Self::admin_list_dialog_visible_row_capacity(row_count));
+            let offset = self
+                .admin_list_dialog_scroll_offset(kind)
+                .min(row_count.saturating_sub(visible_rows));
+            match kind {
+                DesktopAdminListDialogKind::Bans => {
+                    let model = self
+                        .bans_dialog
+                        .as_ref()
+                        .expect("bans dialog should exist for bans shell");
+                    for visible_index in 0..visible_rows {
+                        let row_index = offset + visible_index;
+                        let row_rect = Self::admin_list_dialog_row_rect(list, kind, visible_index);
+                        self.push_admin_list_bans_row_like_java(
+                            pass,
+                            &model.rows[row_index],
+                            row_rect,
+                            visible_index,
+                        );
+                    }
+                }
+                DesktopAdminListDialogKind::Admins => {
+                    let model = self
+                        .admins_dialog
+                        .as_ref()
+                        .expect("admins dialog should exist for admins shell");
+                    for visible_index in 0..visible_rows {
+                        let row_index = offset + visible_index;
+                        let row_rect = Self::admin_list_dialog_row_rect(list, kind, visible_index);
+                        self.push_admin_list_admins_row_like_java(
+                            pass,
+                            &model.rows[row_index],
+                            row_rect,
+                            visible_index,
+                        );
+                    }
+                }
+            }
+        }
+
+        self.push_settings_text_button(
+            pass,
+            Self::admin_list_dialog_close_button_rect(dialog),
+            "@back",
+            Some("left"),
+            Layer::END_PIXELED + 0.240,
+        );
+    }
+
+    fn push_admin_list_confirm_dialog_like_java(
+        &self,
+        pass: &mut RenderPass,
+        viewport: RenderViewport,
+    ) {
+        let Some(confirm) = self.admin_list_confirm.as_ref() else {
+            return;
+        };
+        let dialog = Self::admin_list_confirm_dialog_rect_for_viewport(viewport, confirm);
+        pass.push(RenderCommand::fill_rect(
+            viewport.as_rect(),
+            [0.0, 0.0, 0.0, 0.50],
+            Layer::END_PIXELED + 0.245,
+        ));
+        pass.push(RenderCommand::draw_sprite(
+            Self::settings_drawable_symbol("pane"),
+            dialog,
+            [1.0, 1.0, 1.0, 0.98],
+            0.0,
+            Layer::END_PIXELED + 0.246,
+        ));
+        pass.push(RenderCommand::stroke_rect(
+            dialog,
+            [0.72, 0.86, 1.0, 0.96],
+            2.0,
+            Layer::END_PIXELED + 0.247,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            self.localize_bundle_markup_text(confirm.title),
+            RenderPoint::new(dialog.center().x, dialog.y + dialog.height - 42.0),
+            [0.96, 0.98, 1.0, 1.0],
+            SETTINGS_TEXT_BUTTON_FONT_SIZE,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.248,
+        ));
+        pass.push(RenderCommand::draw_text_styled(
+            confirm.message.clone(),
+            RenderPoint::new(dialog.center().x, dialog.center().y + 8.0),
+            [0.76, 0.84, 0.90, 1.0],
+            SETTINGS_JAVA_DEFAULT_FONT_SIZE,
+            0.0,
+            RenderTextStyle::new(RenderTextAlign::Center)
+                .with_vertical_align(RenderTextVerticalAlign::Center)
+                .with_wrap_width(
+                    SETTINGS_CONFIRM_TEXT_WIDTH_DESKTOP_LIKE_JAVA.min(dialog.width - 60.0),
+                )
+                .with_integer_position(true),
+            Layer::END_PIXELED + 0.249,
+        ));
+        self.push_settings_text_button(
+            pass,
+            Self::admin_list_confirm_cancel_rect(dialog),
+            "@cancel",
+            Some("cancel"),
+            Layer::END_PIXELED + 0.250,
+        );
+        self.push_settings_text_button(
+            pass,
+            Self::admin_list_confirm_ok_rect(dialog),
+            "@ok",
+            Some("ok"),
+            Layer::END_PIXELED + 0.251,
+        );
+    }
+
+    fn admin_list_dialog_render_pass(&self, viewport: RenderViewport) -> Option<RenderPass> {
+        let kind = self.active_admin_list_dialog_kind()?;
+        let mut pass = RenderPass::new(RenderPassKind::Ui)
+            .with_order(RenderPassKind::Ui.default_order() + 2)
+            .with_viewport(viewport)
+            .with_camera(self.default_render_camera_for_viewport(viewport));
+        self.push_admin_list_dialog_shell_like_java(&mut pass, viewport, kind);
+        self.push_admin_list_confirm_dialog_like_java(&mut pass, viewport);
         Some(pass)
     }
 
@@ -82521,6 +83330,9 @@ impl DesktopLauncher {
             && (self.game_state.is_paused()
                 || self.game_state.game_over
                 || self.active_menu_route.is_some()
+                || self.admin_list_confirm.is_some()
+                || self.bans_dialog.is_some()
+                || self.admins_dialog.is_some()
                 || self.player_list_votekick_input.is_some()
                 || self.player_trace_dialog.is_some()
                 || self.player_list_admin_confirm.is_some()
@@ -82608,6 +83420,13 @@ impl DesktopLauncher {
                 }
                 DesktopInputTickEvent::Key { key_code, pressed }
                     if *pressed && self.apply_settings_focused_text_key(key_code) => {}
+                DesktopInputTickEvent::Key { key_code, pressed }
+                    if *pressed
+                        && self.admin_list_confirm.is_some()
+                        && matches!(key_code.as_str(), "Enter" | "enter" | "NumpadEnter") =>
+                {
+                    self.confirm_admin_list_action_like_java();
+                }
                 DesktopInputTickEvent::Key { key_code, pressed }
                     if *pressed
                         && self.player_list_votekick_input.is_some()
@@ -83477,6 +84296,28 @@ impl DesktopLauncher {
                             self.last_menu_action = None;
                             continue;
                         }
+                        if self.admin_list_confirm.is_some() {
+                            if let Some(action) = self.admin_list_confirm_action_at_surface_point(
+                                surface_size,
+                                cursor.x,
+                                cursor.y,
+                            ) {
+                                self.dispatch_admin_list_confirm_dialog_action_like_java(action);
+                            }
+                            self.last_menu_action = None;
+                            continue;
+                        }
+                        if self.bans_dialog.is_some() || self.admins_dialog.is_some() {
+                            if let Some(action) = self.admin_list_dialog_action_at_surface_point(
+                                surface_size,
+                                cursor.x,
+                                cursor.y,
+                            ) {
+                                self.dispatch_admin_list_dialog_action_like_java(action);
+                            }
+                            self.last_menu_action = None;
+                            continue;
+                        }
                         if self.player_trace_dialog.is_some() {
                             if let Some(action) = self.player_trace_dialog_action_at_surface_point(
                                 surface_size,
@@ -83699,6 +84540,9 @@ impl DesktopLauncher {
                             self.commit_settings_keybind_rebind("Scroll");
                             continue;
                         }
+                    }
+                    if self.apply_admin_list_dialog_scroll_delta(surface_size, *delta_y) {
+                        continue;
                     }
                     if self.apply_pause_loadout_scroll_delta(surface_size, *delta_y) {
                         continue;
@@ -95256,6 +96100,9 @@ impl DesktopLauncher {
         if let Some(player_trace_dialog_pass) = self.player_trace_dialog_render_pass(viewport) {
             render_frame.push_pass(player_trace_dialog_pass);
         }
+        if let Some(admin_list_dialog_pass) = self.admin_list_dialog_render_pass(viewport) {
+            render_frame.push_pass(admin_list_dialog_pass);
+        }
         if let Some(pause_pass) = self.pause_overlay_render_pass(viewport) {
             render_frame.push_pass(pause_pass);
         }
@@ -96511,6 +97358,9 @@ impl DesktopLauncher {
         self.player_trace_dialog = None;
         self.bans_dialog = None;
         self.admins_dialog = None;
+        self.admin_list_confirm = None;
+        self.bans_dialog_scroll_offset = 0;
+        self.admins_dialog_scroll_offset = 0;
         self.player_list_admin_confirm = None;
         self.player_list_menu_dialog = None;
         self.player_list_team_select = None;
@@ -178344,6 +179194,361 @@ displayName = Display Alpha
             .dispatch_player_list_footer_action_like_java(PlayerListFooterButtonAction::ShowAdmins);
         assert_eq!(client_launcher.bans_dialog, None);
         assert_eq!(client_launcher.admins_dialog, None);
+    }
+
+    #[test]
+    fn desktop_launcher_admin_list_bans_dialog_renders_scrolls_and_unbans_like_java() {
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.settings_locale = "en".into();
+        launcher.player_locale = "en".into();
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.net_client.net_mut().mark_server_active();
+        for index in 0..6 {
+            let id = format!("banned-{index}");
+            let ip = format!("10.0.0.{}", 8 + index);
+            let name = format!("Banned{index}");
+            launcher.net_server_admins.update_player_joined(
+                id.as_str(),
+                ip.as_str(),
+                name.as_str(),
+            );
+            launcher.net_server_admins.ban_player_id(id);
+        }
+
+        assert!(launcher.show_bans_dialog_like_java());
+        let surface = DesktopSurfaceSize::new(900, 700);
+        let viewport = launcher.default_render_viewport_for_surface(surface);
+        let pass = launcher
+            .admin_list_dialog_render_pass(viewport)
+            .expect("BansDialog should render as a Java BaseDialog modal pass");
+        assert_eq!(pass.kind, RenderPassKind::Ui);
+        assert_eq!(pass.order, RenderPassKind::Ui.default_order() + 2);
+        assert_eq!(pass.viewport, Some(viewport));
+
+        let frame = launcher.graphics_frame_for_render(
+            9,
+            launcher.default_render_camera_for_viewport(viewport),
+            viewport,
+            launcher.default_minimap_camera_for_viewport(viewport),
+            launcher.default_minimap_overlay_input_for_viewport(viewport),
+        );
+        let render_frame = frame
+            .bundle
+            .render_frame
+            .expect("graphics frame should carry the render frame plan");
+        let title = launcher.localize_bundle_markup_text("@server.bans");
+        assert!(
+            render_frame.passes.iter().any(|frame_pass| {
+                frame_pass.kind == RenderPassKind::Ui
+                    && frame_pass.order == RenderPassKind::Ui.default_order() + 2
+                    && frame_pass.commands.iter().any(|command| {
+                        matches!(command, RenderCommand::DrawText { text, .. } if text == &title)
+                    })
+            }),
+            "graphics_frame_for_render should push the visible BansDialog modal pass"
+        );
+
+        let row_count = launcher
+            .bans_dialog
+            .as_ref()
+            .expect("BansDialog should stay open")
+            .rows
+            .len();
+        let dialog = DesktopLauncher::admin_list_dialog_rect_for_viewport(
+            viewport,
+            super::DesktopAdminListDialogKind::Bans,
+            row_count,
+        );
+        let list = DesktopLauncher::admin_list_dialog_list_rect(
+            dialog,
+            super::DesktopAdminListDialogKind::Bans,
+            row_count,
+        );
+        let row = DesktopLauncher::admin_list_dialog_row_rect(
+            list,
+            super::DesktopAdminListDialogKind::Bans,
+            0,
+        );
+        let cancel = DesktopLauncher::admin_list_dialog_row_cancel_button_rect(
+            row,
+            super::DesktopAdminListDialogKind::Bans,
+        );
+        assert_eq!(
+            launcher.admin_list_dialog_action_at_surface_point(
+                surface,
+                cancel.center().x,
+                cancel.center().y,
+            ),
+            Some(super::DesktopAdminListDialogAction::ConfirmRow {
+                kind: super::DesktopAdminListDialogKind::Bans,
+                row_index: 0,
+            })
+        );
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, .. } if text.contains("IP: [lightgray]10.0.0.8")
+        )));
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: list.center().x,
+                    y: list.center().y,
+                },
+                DesktopInputTickEvent::Scroll {
+                    delta_x: 0.0,
+                    delta_y: -1.0,
+                },
+            ],
+        );
+        assert_eq!(launcher.bans_dialog_scroll_offset, 1);
+        assert_eq!(
+            launcher.admin_list_dialog_action_at_surface_point(
+                surface,
+                cancel.center().x,
+                cancel.center().y,
+            ),
+            Some(super::DesktopAdminListDialogAction::ConfirmRow {
+                kind: super::DesktopAdminListDialogKind::Bans,
+                row_index: 1,
+            })
+        );
+        let scrolled_unban_id = launcher
+            .bans_dialog
+            .as_ref()
+            .expect("BansDialog should stay open after scrolling")
+            .rows[1]
+            .id
+            .clone();
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: cancel.center().x,
+                    y: cancel.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        let confirm = launcher
+            .admin_list_confirm
+            .as_ref()
+            .expect("row cancel should open the unban confirm dialog")
+            .clone();
+        assert_eq!(confirm.title, "@confirm");
+        assert_eq!(
+            confirm.action,
+            super::DesktopAdminListConfirmAction::Unban {
+                id: scrolled_unban_id.clone(),
+            }
+        );
+        assert_eq!(
+            confirm.message,
+            launcher.localize_bundle_markup_text("@confirmunban")
+        );
+
+        let confirm_dialog =
+            DesktopLauncher::admin_list_confirm_dialog_rect_for_viewport(viewport, &confirm);
+        let ok = DesktopLauncher::admin_list_confirm_ok_rect(confirm_dialog);
+        assert_eq!(
+            launcher.admin_list_confirm_action_at_surface_point(
+                surface,
+                ok.center().x,
+                ok.center().y
+            ),
+            Some(super::DesktopAdminListConfirmDialogAction::Ok)
+        );
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: ok.center().x,
+                    y: ok.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert_eq!(launcher.admin_list_confirm, None);
+        assert!(!launcher.net_server_admins.is_id_banned(&scrolled_unban_id));
+        assert_eq!(launcher.bans_dialog_scroll_offset, 0);
+        assert_eq!(
+            launcher
+                .bans_dialog
+                .as_ref()
+                .expect("BansDialog should refresh after unban")
+                .rows
+                .len(),
+            5
+        );
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Escape".into(),
+                pressed: true,
+            }],
+        );
+        assert_eq!(launcher.bans_dialog, None);
+    }
+
+    #[test]
+    fn desktop_launcher_admin_list_admins_dialog_confirms_and_syncs_remote_like_java() {
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.settings_locale = "en".into();
+        launcher.player_locale = "en".into();
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.net_client.net_mut().mark_server_active();
+        launcher
+            .net_server_admins
+            .update_player_joined("admin-uuid", "10.0.0.9", "[accent]Admin");
+        launcher
+            .net_server_admins
+            .admin_player("admin-uuid", "admin-usid");
+
+        let mut remote = PlayerComp::new(TeamId(1));
+        remote.id = 2;
+        remote.name = "[accent]Admin".into();
+        remote.admin = true;
+        let mut connection = mindustry_core::mindustry::net::NetConnection::new("10.0.0.9");
+        connection.uuid = "admin-uuid".into();
+        remote.con = Some(connection);
+        launcher.remote_players.insert(remote.id, remote);
+
+        assert!(launcher.show_admins_dialog_like_java());
+        let surface = DesktopSurfaceSize::new(900, 700);
+        let viewport = launcher.default_render_viewport_for_surface(surface);
+        let pass = launcher
+            .admin_list_dialog_render_pass(viewport)
+            .expect("AdminsDialog should render as a Java BaseDialog modal pass");
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, .. } if text == &launcher.localize_bundle_markup_text("@server.admins")
+        )));
+        assert!(pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, .. } if text == "[lightgray][accent]Admin"
+        )));
+
+        let dialog = DesktopLauncher::admin_list_dialog_rect_for_viewport(
+            viewport,
+            super::DesktopAdminListDialogKind::Admins,
+            1,
+        );
+        let list = DesktopLauncher::admin_list_dialog_list_rect(
+            dialog,
+            super::DesktopAdminListDialogKind::Admins,
+            1,
+        );
+        let row = DesktopLauncher::admin_list_dialog_row_rect(
+            list,
+            super::DesktopAdminListDialogKind::Admins,
+            0,
+        );
+        let cancel = DesktopLauncher::admin_list_dialog_row_cancel_button_rect(
+            row,
+            super::DesktopAdminListDialogKind::Admins,
+        );
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: cancel.center().x,
+                    y: cancel.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        let confirm = launcher
+            .admin_list_confirm
+            .as_ref()
+            .expect("row cancel should open the unadmin confirm dialog")
+            .clone();
+        assert_eq!(
+            confirm.action,
+            super::DesktopAdminListConfirmAction::Unadmin {
+                id: "admin-uuid".into(),
+            }
+        );
+        assert!(confirm.message.contains("[accent]Admin"));
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Escape".into(),
+                pressed: true,
+            }],
+        );
+        assert_eq!(launcher.admin_list_confirm, None);
+        assert!(launcher.admins_dialog.is_some());
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[
+                DesktopInputTickEvent::CursorMoved {
+                    x: cancel.center().x,
+                    y: cancel.center().y,
+                },
+                DesktopInputTickEvent::MouseButton {
+                    button: "primary".into(),
+                    pressed: true,
+                },
+                DesktopInputTickEvent::Key {
+                    key_code: "Enter".into(),
+                    pressed: true,
+                },
+            ],
+        );
+        assert_eq!(launcher.admin_list_confirm, None);
+        assert!(!launcher
+            .net_server_admins
+            .is_admin("admin-uuid", "admin-usid"));
+        assert!(
+            !launcher
+                .remote_players
+                .get(&2)
+                .expect("remote player should remain present")
+                .admin
+        );
+        let admins = launcher
+            .admins_dialog
+            .as_ref()
+            .expect("AdminsDialog should refresh after unadmin");
+        assert_eq!(admins.rows.len(), 0);
+        assert_eq!(admins.empty_label, Some("@server.admins.none"));
+
+        let empty_pass = launcher
+            .admin_list_dialog_render_pass(viewport)
+            .expect("empty AdminsDialog should still render");
+        assert!(empty_pass.commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::DrawText { text, .. } if text == &launcher.localize_bundle_markup_text("@server.admins.none")
+        )));
+
+        launcher.apply_menu_input_events(
+            surface,
+            &[DesktopInputTickEvent::Key {
+                key_code: "Escape".into(),
+                pressed: true,
+            }],
+        );
+        assert_eq!(launcher.admins_dialog, None);
     }
 
     #[test]

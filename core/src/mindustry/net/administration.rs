@@ -157,6 +157,17 @@ impl Administration {
         true
     }
 
+    pub fn unban_player_id(&mut self, id: impl Into<String>) -> bool {
+        let info = self.get_or_create_info(id.into());
+        if !info.banned {
+            return false;
+        }
+        info.banned = false;
+        let ips = info.ips.clone();
+        self.banned_ips.retain(|ip| !ips.contains(ip));
+        true
+    }
+
     pub fn is_ip_banned(&self, ip: &str) -> bool {
         self.banned_ips.iter().any(|banned| banned == ip) || self.is_subnet_banned(ip)
     }
@@ -807,6 +818,22 @@ mod tests {
         assert!(admin.ban_player_ip("1.2.3.4"));
         assert!(admin.is_ip_banned("1.2.3.4"));
         assert!(admin.is_id_banned("uuid"));
+    }
+
+    #[test]
+    fn unban_player_id_clears_id_and_used_ips_like_java() {
+        let mut admin = Administration::default();
+        admin.update_player_joined("uuid", "1.2.3.4", "name");
+        admin.update_player_joined("uuid", "5.6.7.8", "name");
+        assert!(admin.ban_player_ip("1.2.3.4"));
+        assert!(admin.ban_player_ip("5.6.7.8"));
+        assert!(admin.is_id_banned("uuid"));
+
+        assert!(admin.unban_player_id("uuid"));
+        assert!(!admin.is_id_banned("uuid"));
+        assert!(!admin.is_ip_banned("1.2.3.4"));
+        assert!(!admin.is_ip_banned("5.6.7.8"));
+        assert!(!admin.unban_player_id("uuid"));
     }
 
     #[test]
