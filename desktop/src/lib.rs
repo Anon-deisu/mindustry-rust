@@ -154,8 +154,9 @@ use mindustry_core::mindustry::ui::{
     PlayerListFragment, PlayerListModel, PlayerListPlayer, PlayerListPlayerMenuAction,
     UpstreamContentIcon, UpstreamContentIconRuntimeRegistry, UpstreamFontRole, UpstreamUiIconGlyph,
     WarningBar, WarningBarDrawCommand, WarningBarLayout, CONSOLE_MOBILE_BUTTON_PAD_LEFT,
-    CONSOLE_MOBILE_BUTTON_SIZE, UPSTREAM_ICONS_PROPERTIES_SOURCE_PATH,
-    UPSTREAM_LOGIC_FONT_CHARACTERS, UPSTREAM_ROUTER_LANGUAGE_GLYPH, UPSTREAM_UI_ICON_GLYPHS,
+    CONSOLE_MOBILE_BUTTON_SIZE, PLAYER_LIST_TEAM_BUTTON_SIZE,
+    UPSTREAM_ICONS_PROPERTIES_SOURCE_PATH, UPSTREAM_LOGIC_FONT_CHARACTERS,
+    UPSTREAM_ROUTER_LANGUAGE_GLYPH, UPSTREAM_UI_ICON_GLYPHS,
 };
 #[cfg(test)]
 use mindustry_core::mindustry::vars::SERVER_CACHE_FILE_NAME;
@@ -27408,6 +27409,24 @@ pub struct DesktopPlayerListAdminConfirm {
     pub message: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct DesktopPlayerListTeamSelectButton {
+    pub team_id: u8,
+    pub team_name: String,
+    pub color_rgba: u32,
+    pub row: usize,
+    pub column: usize,
+    pub checked: bool,
+    pub button_size: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DesktopPlayerListTeamSelect {
+    pub player_id: i32,
+    pub title: String,
+    pub buttons: Vec<DesktopPlayerListTeamSelectButton>,
+}
+
 #[derive(Debug, Clone)]
 pub struct DesktopLauncher {
     pub client: ClientLauncher,
@@ -27424,7 +27443,9 @@ pub struct DesktopLauncher {
     pub bans_dialog: Option<BansDialogModel>,
     pub admins_dialog: Option<AdminsDialogModel>,
     pub player_list_admin_confirm: Option<DesktopPlayerListAdminConfirm>,
+    pub player_list_team_select: Option<DesktopPlayerListTeamSelect>,
     pub last_player_admin_request: Option<DesktopPlayerAdminRequest>,
+    pub last_player_admin_request_params: Option<TypeValue>,
     pub last_player_admin_toggle: Option<DesktopPlayerAdminToggle>,
     pub last_player_trace_clipboard_text: Option<String>,
     pub console_fragment: ConsoleFragment,
@@ -29119,7 +29140,9 @@ impl DesktopLauncher {
             bans_dialog: None,
             admins_dialog: None,
             player_list_admin_confirm: None,
+            player_list_team_select: None,
             last_player_admin_request: None,
+            last_player_admin_request_params: None,
             last_player_admin_toggle: None,
             last_player_trace_clipboard_text: None,
             console_fragment: ConsoleFragment::new(),
@@ -30585,6 +30608,60 @@ impl DesktopLauncher {
         true
     }
 
+    pub fn open_player_list_team_select_like_java(&mut self, player_id: i32) -> bool {
+        let context = self.player_list_context_like_java();
+        if context.campaign || !(context.pvp || context.infinite_resources) {
+            return false;
+        }
+        let (player_name, current_team) = {
+            let Some(player) = self.player_by_id_like_java(player_id) else {
+                return false;
+            };
+            (player.name.clone(), player.team.0)
+        };
+        let title_key = self
+            .bundle_value_for_current_locale("player.team")
+            .or_else(|| upstream_menu_bundle_value_for_locale_owned("en", "player.team"))
+            .unwrap_or_else(|| "player.team".to_string());
+        let teams = vanilla_teams();
+        let buttons = teams
+            .base_teams()
+            .iter()
+            .enumerate()
+            .map(|(index, team)| DesktopPlayerListTeamSelectButton {
+                team_id: team.id,
+                team_name: team.name.clone(),
+                color_rgba: team.color_rgba,
+                row: index / 3,
+                column: index % 3,
+                checked: team.id == current_team,
+                button_size: PLAYER_LIST_TEAM_BUTTON_SIZE,
+            })
+            .collect::<Vec<_>>();
+
+        self.player_list_team_select = Some(DesktopPlayerListTeamSelect {
+            player_id,
+            title: format!("{title_key}: {player_name}"),
+            buttons,
+        });
+        true
+    }
+
+    pub fn dispatch_player_list_team_select_like_java(&mut self, team_id: u8) -> bool {
+        let Some(select) = self.player_list_team_select.take() else {
+            return false;
+        };
+        self.send_player_admin_request_like_java(
+            select.player_id,
+            AdminAction::SwitchTeam,
+            TypeValue::Team(team_id),
+        )
+    }
+
+    pub fn cancel_player_list_team_select_like_java(&mut self) -> bool {
+        self.player_list_team_select.take().is_some()
+    }
+
     fn send_player_admin_request_like_java(
         &mut self,
         player_id: i32,
@@ -30594,9 +30671,10 @@ impl DesktopLauncher {
         let packet = AdminRequestCallPacket {
             other: mindustry_core::mindustry::io::EntityRef::new(player_id),
             action,
-            params,
+            params: params.clone(),
         };
         self.last_player_admin_request = Some(DesktopPlayerAdminRequest { player_id, action });
+        self.last_player_admin_request_params = Some(params);
         let _ = self
             .net_client
             .net_mut()
@@ -30727,8 +30805,10 @@ impl DesktopLauncher {
                     self.show_player_trace_dialog_like_java(player_id)
                 }
             }
-            PlayerListPlayerMenuAction::OpenTeamSelect { .. }
-            | PlayerListPlayerMenuAction::Back => false,
+            PlayerListPlayerMenuAction::OpenTeamSelect { player_id } => {
+                self.open_player_list_team_select_like_java(player_id)
+            }
+            PlayerListPlayerMenuAction::Back => false,
             PlayerListPlayerMenuAction::ToggleAdmin {
                 player_id,
                 uuid,
@@ -94724,7 +94804,9 @@ impl DesktopLauncher {
         self.bans_dialog = None;
         self.admins_dialog = None;
         self.player_list_admin_confirm = None;
+        self.player_list_team_select = None;
         self.last_player_admin_request = None;
+        self.last_player_admin_request_params = None;
         self.last_player_admin_toggle = None;
         self.last_player_trace_clipboard_text = None;
         self.other_player_preview_overlays.clear();
@@ -175161,6 +175243,104 @@ displayName = Display Alpha
             ]
         );
         assert_eq!(menu.back_button.action, PlayerListPlayerMenuAction::Back);
+    }
+
+    #[test]
+    fn desktop_launcher_player_list_team_select_sends_switch_team_like_java() {
+        use mindustry_core::mindustry::game::vanilla_teams;
+        use mindustry_core::mindustry::io::TypeValue;
+        use mindustry_core::mindustry::net::AdminAction;
+        use mindustry_core::mindustry::ui::{
+            PlayerListPlayerMenuAction, PLAYER_LIST_TEAM_BUTTON_SIZE,
+        };
+
+        let mut launcher = DesktopLauncher::new(Vec::new());
+        launcher.game_state.set(GameStateState::Playing);
+        launcher.game_state.rules.pvp = true;
+        launcher.player.id = 1;
+        launcher.player.name = "local".into();
+        launcher.player.team = TeamId(1);
+        launcher.player.admin = true;
+        launcher.net_client.net_mut().mark_server_active();
+
+        let mut remote = PlayerComp::new(TeamId(2));
+        remote.id = 2;
+        remote.name = "[scarlet]Remote".into();
+        remote.con = Some(mindustry_core::mindustry::net::NetConnection::new(
+            "127.0.0.2",
+        ));
+        launcher.remote_players.insert(remote.id, remote);
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::OpenTeamSelect { player_id: 2 },
+        ));
+        let dialog = launcher
+            .player_list_team_select
+            .as_ref()
+            .expect("@player.team should open Java team-select dialog");
+        assert_eq!(dialog.player_id, 2);
+        assert!(dialog.title.contains("[scarlet]Remote"));
+        assert_eq!(dialog.buttons.len(), 6);
+
+        let teams = vanilla_teams();
+        let expected = teams
+            .base_teams()
+            .iter()
+            .enumerate()
+            .map(|(index, team)| {
+                (
+                    team.id,
+                    team.name.as_str(),
+                    team.color_rgba,
+                    index / 3,
+                    index % 3,
+                    team.id == 2,
+                    PLAYER_LIST_TEAM_BUTTON_SIZE,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            dialog
+                .buttons
+                .iter()
+                .map(|button| {
+                    (
+                        button.team_id,
+                        button.team_name.as_str(),
+                        button.color_rgba,
+                        button.row,
+                        button.column,
+                        button.checked,
+                        button.button_size,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(launcher.last_player_admin_request, None);
+        assert_eq!(launcher.last_player_admin_request_params, None);
+
+        assert!(launcher.cancel_player_list_team_select_like_java());
+        assert_eq!(launcher.player_list_team_select, None);
+        assert_eq!(launcher.last_player_admin_request, None);
+        assert_eq!(launcher.last_player_admin_request_params, None);
+
+        assert!(launcher.dispatch_player_list_menu_action_like_java(
+            PlayerListPlayerMenuAction::OpenTeamSelect { player_id: 2 },
+        ));
+        assert!(launcher.dispatch_player_list_team_select_like_java(4));
+        assert_eq!(launcher.player_list_team_select, None);
+        assert_eq!(
+            launcher.last_player_admin_request,
+            Some(super::DesktopPlayerAdminRequest {
+                player_id: 2,
+                action: AdminAction::SwitchTeam,
+            })
+        );
+        assert_eq!(
+            launcher.last_player_admin_request_params,
+            Some(TypeValue::Team(4))
+        );
     }
 
     #[test]
