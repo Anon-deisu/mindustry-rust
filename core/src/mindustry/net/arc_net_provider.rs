@@ -2770,7 +2770,7 @@ fn default_server_data(port: u16) -> ServerData {
         map: String::new(),
         players: 0,
         wave: 0,
-        version: 158,
+        version: 157,
         version_type: "release".to_string(),
         mode: Gamemode::Survival,
         player_limit: 0,
